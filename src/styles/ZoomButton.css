@@ -1,0 +1,29 @@
+.zoom-button {
+  background-color: var(--blueZoom);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  font-size: 0.95rem;
+  height: 40px;
+}
+
+
+/* .btn-primary,
+.btn-secondary {
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: var(--blue0);
+  color: white;
+  border: none;
+} */
+
+.zoom-button:hover {
+  opacity: 0.9;
+}

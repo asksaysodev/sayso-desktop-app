@@ -1,0 +1,131 @@
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* Remove all other styles to give full freedom to React components */ 
+
+.floating-window-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 90px;
+
+}
+
+.text-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: inline-block;
+  padding: 0;
+  border-radius: 1.5rem;
+  background: transparent;
+  z-index: 2;
+  overflow: visible;
+}
+
+.text-inner p {
+  margin: 0;
+  color: white; 
+  font-size: 1.1rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+@keyframes siri-glow {
+  0% {
+    box-shadow:
+      0 0 24px 6px #a259ff80,
+      0 0 48px 12px #00cfff60,
+      0 0 72px 24px #ff5e6240;
+  }
+  50% {
+    box-shadow:
+      0 0 36px 12px #00cfff80,
+      0 0 60px 18px #ff5e6280,
+      0 0 96px 36px #a259ff40;
+  }
+  100% {
+    box-shadow:
+      0 0 24px 6px #ff5e6280,
+      0 0 48px 12px #a259ff60,
+      0 0 72px 24px #00cfff40;
+  }
+}
+
+.text-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 1.2rem;
+  z-index: 1;
+  background: conic-gradient(
+    from 0deg,
+    #a259ff 0%,
+    #00cfff 33%,
+    #ff5e62 66%,
+    #a259ff 100%
+  );
+  filter: blur(14px);
+  opacity: 0.38;
+  /* animation: siri-border-spin 6s linear infinite; */
+  pointer-events: none;
+}
+
+/* @keyframes siri-border-spin {
+  0% { transform: rotate(0deg);}
+  100% { transform: rotate(360deg);}
+}  */
+
+.text-inner {
+  position: relative;
+  z-index: 2;
+  padding: 1.2rem 2rem;
+  border-radius: 1.5rem;
+  background: #222;
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: 0 0 8px 2px #a259ff40, 0 0 16px 4px #00cfff30, 0 0 24px 8px #ff5e6220;
+  animation: siri-glow 2.5s linear infinite alternate;
+}
+
+@keyframes popIn {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes popOut {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+}
+
+.pop-in {
+  animation: popIn 0.4s ease-out forwards;
+}
+
+.pop-out {
+  animation: popOut 0.3s ease-in forwards;
+}
