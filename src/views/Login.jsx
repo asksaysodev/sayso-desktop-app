@@ -214,7 +214,7 @@ const Login = () => {
   return (
     <div className="loginContainer">
       <div className="loginForm">
-        <img src="/assets/logo.png" alt="Logo" style={{ display: 'block', margin: '20px auto', width: 72, height: 72 }} />
+        <img src="./assets/logo.png" alt="Logo" style={{ display: 'block', margin: '20px auto', width: 72, height: 72 }} />
         <h2>{isLoggingIn ? 'Welcome Back!' : `Create Account`}</h2>
         {error && <div className="errorMessage">{error}</div>}
         <form onSubmit={handleSubmit}>

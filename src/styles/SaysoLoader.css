@@ -17,8 +17,8 @@
     transform: scale(1);
   }
   100% {
-    filter: drop-shadow(0 0 12px #3466afcc) drop-shadow(0 0 24px #3466af88);
-    transform: scale(1.08);
+    filter: drop-shadow(0 0 6px #3465af7c) drop-shadow(0 0 10px #3465af7c);
+    transform: scale(1.02);
   }
 }
 

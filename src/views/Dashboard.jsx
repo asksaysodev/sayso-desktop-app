@@ -538,6 +538,7 @@ const Dashboard = () => {
     }
   }, [globalUser?.id]);
 
+
   return (
     <div className="dashboardContainer">
       <div className="sidebar">

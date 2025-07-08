@@ -26,15 +26,11 @@ export const ZoomClient = () => {
 
   // Compute leaveUrl for Electron to use full file URL
   let leaveUrl;
-  if (isElectron) {
-    // Try to get the correct file path for index.html
-    // __dirname is not available in renderer, so use a workaround for packaged Electron
-    const fileUrl = `file://${window.process?.resourcesPath ? window.process.resourcesPath + '/dist/index.html' : 'index.html'}`;
-    leaveUrl = `${fileUrl}#/post-call/${meetingId}/${prospectId}?success=true`;
+  if (isElectron && window.sayso?.indexHtmlPath) {
+    leaveUrl = `https://google.com/?meetingId=${meetingId}&prospectId=${prospectId}&success=true`;
   } else {
     leaveUrl = `${import.meta.env.VITE_FRONTEND_BASE_URL}/post-call/${meetingId}/${prospectId}?success=true`;
   }
-  console.log('🔗 Computed leaveUrl:', leaveUrl);
 
   // Initialize camera permissions early
   const initializeCamera = useCallback(async () => {
@@ -43,7 +39,6 @@ export const ZoomClient = () => {
       
       // Check if we're in Electron
       const isElectron = window.electron && window.electron.ipcRenderer;
-      console.log('🔌 Running in Electron:', isElectron);
       
       // Request camera permissions
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -55,14 +50,6 @@ export const ZoomClient = () => {
         }
       });
       
-      console.log('✅ Camera permissions granted');
-      console.log('📹 Video tracks:', stream.getVideoTracks().map(track => ({
-        label: track.label,
-        enabled: track.enabled,
-        readyState: track.readyState
-      })));
-      
-      // Stop the test stream
       stream.getTracks().forEach(track => track.stop());
       setCameraInitialized(true);
       return true;
@@ -74,7 +61,6 @@ export const ZoomClient = () => {
   }, []);
 
   const handleZoomInitialized = useCallback(() => {
-    console.log('🔍 DEBUG: Zoom initialized');
     setTimeout(() => {
       setIsZoomInitialized(true);
     }, 5000);
@@ -86,8 +72,6 @@ export const ZoomClient = () => {
       if (rootElement) {
         rootElement.style.display = "block";
       }
-
-      console.log('Zoom leaveUrl:', leaveUrl);
 
       ZoomMtg.init({
         leaveUrl,
@@ -130,7 +114,6 @@ export const ZoomClient = () => {
       
       const meetingDetails = await getMeetingDetails(globalUser.id, meetingId);
       setMeetingDetails(meetingDetails);
-      console.log('📋 meetingDetails', meetingDetails);
       
       if (meetingDetails) {
         const signature = await getSignature(meetingDetails.id, 1);

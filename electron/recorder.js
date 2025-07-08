@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { app } = require('electron');
 const audioQueue = require('./audioQueue');
 const uploadService = require('./uploadService');
 
@@ -133,24 +134,51 @@ const handleAudioResponse = async (filePath, speaker, metadata) => {
   }
 };
 
+// Helper function to get writable temp directories
+function getWritableTempDir(folderName) {
+  const isDev = process.env.NODE_ENV !== 'production';
+  
+  if (isDev) {
+    // Development: use local directory
+    return path.join(__dirname, folderName);
+  } else {
+    // Production: use app's user data directory
+    return path.join(app.getPath('userData'), 'temp', folderName);
+  }
+}
+
 function startUserRecording({ duration = 8, onChunk, metadata = {} }) {
   cleanupTempFolders();
-  const tempDir = path.join(__dirname, 'chunks_user');
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+  const tempDir = getWritableTempDir('chunks_user');
+  
+  // Ensure the directory exists
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+    console.log(`[User Recording] Created temp directory: ${tempDir}`);
+  }
+  
   processedUserChunks.clear();
 
-  // Clean temp dir
-  fs.readdirSync(tempDir).forEach(file => {
+  // Clean temp dir (only if it exists and has files)
+  if (fs.existsSync(tempDir)) {
     try {
-      fs.unlinkSync(path.join(tempDir, file));
-      console.log(`[User Recording] Deleted leftover chunk file on startup: ${file}`);
+      const files = fs.readdirSync(tempDir);
+      files.forEach(file => {
+        try {
+          fs.unlinkSync(path.join(tempDir, file));
+          console.log(`[User Recording] Deleted leftover chunk file on startup: ${file}`);
+        } catch (err) {
+          console.warn(`Could not delete user chunk file: ${file}`, err.message);
+        }
+      });
     } catch (err) {
-      console.warn(`Could not delete user chunk file: ${file}`, err.message);
+      console.warn(`Could not read user temp directory: ${err.message}`);
     }
-  });
+  }
 
   console.log(`[User Recording] Starting with device ID: ${USER_MIC_DEVICE_ID}`);
   console.log(`[User Recording] Chunk duration: ${duration} seconds`);
+  console.log(`[User Recording] Temp directory: ${tempDir}`);
   
   const recordingStartTime = new Date(); // When you start the recording
   const ffmpegArgs = [
@@ -244,22 +272,36 @@ function startUserRecording({ duration = 8, onChunk, metadata = {} }) {
 
 function startProspectRecording({ duration = 8, onChunk, metadata = {} }) {
   cleanupTempFolders();
-  const tempDir = path.join(__dirname, 'chunks_prospect');
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+  const tempDir = getWritableTempDir('chunks_prospect');
+  
+  // Ensure the directory exists
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+    console.log(`[Prospect Recording] Created temp directory: ${tempDir}`);
+  }
+  
   processedProspectChunks.clear();
 
-  // Clean temp dir
-  fs.readdirSync(tempDir).forEach(file => {
+  // Clean temp dir (only if it exists and has files)
+  if (fs.existsSync(tempDir)) {
     try {
-      fs.unlinkSync(path.join(tempDir, file));
-      console.log(`[Prospect Recording] Deleted leftover chunk file on startup: ${file}`);
+      const files = fs.readdirSync(tempDir);
+      files.forEach(file => {
+        try {
+          fs.unlinkSync(path.join(tempDir, file));
+          console.log(`[Prospect Recording] Deleted leftover chunk file on startup: ${file}`);
+        } catch (err) {
+          console.warn(`Could not delete prospect chunk file: ${file}`, err.message);
+        }
+      });
     } catch (err) {
-      console.warn(`Could not delete prospect chunk file: ${file}`, err.message);
+      console.warn(`Could not read prospect temp directory: ${err.message}`);
     }
-  });
+  }
 
   console.log(`[Prospect Recording] Starting with device ID: ${PROSPECT_AUDIO_DEVICE_ID}`);
   console.log(`[Prospect Recording] Chunk duration: ${duration} seconds`);
+  console.log(`[Prospect Recording] Temp directory: ${tempDir}`);
   
   const recordingStartTime = new Date(); // When you start the recording
   const ffmpegArgs = [
@@ -392,18 +434,26 @@ function stopRecording() {
   });
 }
 
+// Update cleanupTempFolders function
 const cleanupTempFolders = () => {
-  const dirs = [path.join(__dirname, 'chunks_user'), path.join(__dirname, 'chunks_prospect')];
-  dirs.forEach(dir => {
-    if (fs.existsSync(dir)) {
-      fs.readdirSync(dir).forEach(file => {
-        try {
-          fs.unlinkSync(path.join(dir, file));
-          console.log(`[Cleanup] Deleted leftover file: ${file}`);
-        } catch (err) {
-          console.warn(`[Cleanup] Could not delete file: ${file}`, err.message);
-        }
-      });
+  const folders = ['chunks_user', 'chunks_prospect'];
+  
+  folders.forEach(folderName => {
+    const tempDir = getWritableTempDir(folderName);
+    if (fs.existsSync(tempDir)) {
+      try {
+        const files = fs.readdirSync(tempDir);
+        files.forEach(file => {
+          try {
+            fs.unlinkSync(path.join(tempDir, file));
+            console.log(`[Cleanup] Deleted: ${file}`);
+          } catch (err) {
+            console.warn(`[Cleanup] Could not delete ${file}:`, err.message);
+          }
+        });
+      } catch (err) {
+        console.warn(`[Cleanup] Could not read ${tempDir}:`, err.message);
+      }
     }
   });
 };

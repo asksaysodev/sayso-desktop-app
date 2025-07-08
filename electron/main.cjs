@@ -1,16 +1,71 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+
+// Load environment variables FIRST, before any other modules
+if (!process.env.NODE_ENV) {
+  process.env.NODE_ENV = 'production';
+}
+
+// Function to load environment variables
+function loadEnvironmentVariables() {
+  const isDev = process.env.NODE_ENV !== 'production';
+  
+  if (isDev) {
+    // Development: load from project directory
+    require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+  } else {
+    // Production: try multiple locations in order of preference
+    const possiblePaths = [
+      path.resolve(__dirname, '.env.production'), // In electron directory
+      path.resolve(__dirname, '../.env.production'), // In dist directory
+      path.resolve(__dirname, '../dist/.env.production'), // Alternative dist path
+    ];
+    
+    let loaded = false;
+    for (const envPath of possiblePaths) {
+      if (fs.existsSync(envPath)) {
+        require('dotenv').config({ path: envPath });
+        console.log(`[Main Process] ✅ Loaded environment from: ${envPath}`);
+        loaded = true;
+        break;
+      } else {
+        console.log(`[Main Process] ❌ Not found: ${envPath}`);
+      }
+    }
+    
+    if (!loaded) {
+      console.warn('[Main Process] ⚠️ No .env.production file found, using defaults');
+      // Set production defaults
+      process.env.VITE_BACKEND_BASE_URL = 'https://your-production-server.com';
+    }
+  }
+}
+
+// Load environment variables
+loadEnvironmentVariables();
+
+// Log environment for debugging
+console.log('[Main Process] Environment loaded:', {
+  NODE_ENV: process.env.NODE_ENV,
+  VITE_BACKEND_BASE_URL: process.env.VITE_BACKEND_BASE_URL
+});
+
+// Add this after environment loading
+console.log('[Main Process] Environment check:', {
+  NODE_ENV: process.env.NODE_ENV,
+  VITE_BACKEND_BASE_URL: process.env.VITE_BACKEND_BASE_URL,
+  'env file path': process.env.NODE_ENV === 'production' 
+    ? path.resolve(__dirname, '../.env.production')
+    : path.resolve(__dirname, '../.env')
+});
+
+// Now require other modules that depend on environment variables
 const wav = require('wav');
 const FormData = require('form-data');
 const axios = require('axios');
 const { startUserRecording, startProspectRecording, stopRecording } = require('./recorder');
 const audioQueue = require('./audioQueue');
-require('dotenv').config();
-
-if (!process.env.NODE_ENV) {
-  process.env.NODE_ENV = 'production';
-}
 
 // Add command line switches for better camera support
 app.commandLine.appendSwitch('enable-features', 'WebRTC,MediaDevices,MediaStream');
@@ -28,13 +83,6 @@ app.setAsDefaultProtocolClient('sayso');
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
   app.quit();
-}
-
-// Load the correct .env file based on environment
-if (process.env.NODE_ENV === 'production') {
-  require('dotenv').config({ path: path.resolve(__dirname, '../.env.production') });
-} else {
-  require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 }
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -78,6 +126,7 @@ const createDashboardWindow = () => {
   } else {
     console.error(`🔴🔴🔴 MAIN: Preload script NOT FOUND at: ${preloadScriptPath}`);
   }
+  const indexHtmlPath = path.join(process.resourcesPath, 'dist', 'index.html');
   const dashboardWindow = new BrowserWindow({
     width: 1024,
     height: 768,
@@ -93,6 +142,7 @@ const createDashboardWindow = () => {
       // Add these for better camera support
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
+      additionalArguments: [`--indexHtmlPath=${indexHtmlPath}`]
     },
   });
   dashboardWindowInstance = dashboardWindow;
@@ -210,28 +260,67 @@ const createDashboardWindow = () => {
   });
 
   dashboardWindow.webContents.setWindowOpenHandler(({ url }) => {
-    console.log('[Electron] setWindowOpenHandler url:', url);
-    if (url.startsWith('sayso://app/')) {
-      // Extract the path after the protocol
-      const path = url.replace('sayso://app', '');
-      // Load the route in the main window
-      dashboardWindow.loadURL(`file://${path.join(__dirname, '../dist/index.html')}#${path}`);
+    console.log('[Electron][setWindowOpenHandler] Attempt to open URL:', url);
+    // If the url is a file:// index.html with a hash, route it in the main window
+    if (url.startsWith('file://') && url.includes('index.html#/post-call/')) {
+      console.log('[Electron][setWindowOpenHandler] Intercepted leaveUrl, loading in main window:', url);
+      dashboardWindow.loadURL(url);
       return { action: 'deny' }; // Prevent new window
     }
     return { action: 'allow' };
   });
 
-  // Intercept navigation to hash routes and reload index.html with hash if needed
   dashboardWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('file://') && url.includes('#/post-call/')) {
+    console.log('[Electron][will-navigate] Navigation attempt to:', url);
+
+    // Patch for malformed protocol
+    if (url.startsWith('https://file///')) {
       event.preventDefault();
-      // Always reload the main index.html with the hash route
-      const hashIndex = url.indexOf('#');
-      const hash = hashIndex !== -1 ? url.substring(hashIndex) : '';
-      const indexPath = `file://${path.join(__dirname, '../dist/index.html')}${hash}`;
-      dashboardWindow.loadURL(indexPath);
-      console.log('[Electron] Intercepted navigation to post-call, reloading:', indexPath);
+      // Fix to 'file:///' (with colon and three slashes)
+      const fixedUrl = url.replace('https://file///', 'file:///');
+      console.log('[Electron][will-navigate] Fixed protocol, loading:', fixedUrl);
+      dashboardWindow.loadURL(fixedUrl);
     }
+  });
+
+  // Now it's safe to access webContents!
+  dashboardWindow.webContents.on('will-navigate', (event, url) => {
+    console.log('[Electron] 🔍 DEBUG: will-navigate triggered with URL:', url);
+    
+    if (url.startsWith('https://google.com')) {
+      event.preventDefault();
+      shell.openExternal(url);
+      
+      // Extract meetingId and prospectId from query parameters
+      const urlObj = new URL(url);
+      const params = new URLSearchParams(urlObj.search);
+      const meetingId = params.get('meetingId');
+      const prospectId = params.get('prospectId');
+      
+      console.log('[Electron] 🔍 DEBUG: Extracted params - meetingId:', meetingId, 'prospectId:', prospectId);
+      console.log('[Electron] 🚀 Sending reset-to-home with params:', { meetingId, prospectId });
+      dashboardWindow.webContents.send('reset-to-home', { meetingId, prospectId });
+    }
+  });
+
+  dashboardWindow.webContents.setWindowOpenHandler(({ url }) => {
+    console.log('[Electron] 🔍 DEBUG: setWindowOpenHandler triggered with URL:', url);
+    
+    if (url.startsWith('https://google.com')) {
+      shell.openExternal(url);
+      
+      // Extract meetingId and prospectId from query parameters
+      const urlObj = new URL(url);
+      const params = new URLSearchParams(urlObj.search);
+      const meetingId = params.get('meetingId');
+      const prospectId = params.get('prospectId');
+      
+      console.log('[Electron] 🔍 DEBUG: Extracted params - meetingId:', meetingId, 'prospectId:', prospectId);
+      console.log('[Electron] 🚀 Sending reset-to-home with params:', { meetingId, prospectId });
+      dashboardWindow.webContents.send('reset-to-home', { meetingId, prospectId });
+      return { action: 'deny' };
+    }
+    return { action: 'allow' };
   });
 };
 
@@ -310,7 +399,7 @@ ipcMain.handle('start-audio-capture', async (event, params) => {
         meetingId: params.meetingId
       },
       onChunk: (filePath, speaker) => {
-        console.log(`[GAGA Main Process] Received audio chunk from ${speaker}: ${filePath}`);
+        console.log(`[Main Process] Received audio chunk from ${speaker}: ${filePath}`);
       }
     });
     console.log('[Main Process] User recording started.');
@@ -323,7 +412,7 @@ ipcMain.handle('start-audio-capture', async (event, params) => {
         meetingId: params.meetingId
       },
       onChunk: (filePath, speaker) => {
-        console.log(`[GAGA Main Process] Received audio chunk from ${speaker}: ${filePath}`);
+        console.log(`[Main Process] Received audio chunk from ${speaker}: ${filePath}`);
       }
     });
     console.log('[Main Process] Prospect recording started.');
@@ -486,4 +575,58 @@ app.on('window-all-closed', () => {
 
 console.log("NODE_ENV:", process.env.NODE_ENV);
 console.log("Loaded FRONTEND_BASE_URL:", process.env.VITE_FRONTEND_BASE_URL);
+
+function shouldOpenExternally(url) {
+  // For now, just match google.com
+  return url.startsWith('https://google.com');
+}
+
+// Intercept navigation in ALL windows
+app.on('web-contents-created', (event, contents) => {
+  contents.on('will-navigate', (event, url) => {
+    console.log('[Electron] 🔍 DEBUG: web-contents-created will-navigate triggered with URL:', url);
+    
+    if (url.startsWith('https://google.com')) {
+      event.preventDefault();
+      shell.openExternal(url);
+
+      // Extract meetingId and prospectId from query parameters
+      const urlObj = new URL(url);
+      const params = new URLSearchParams(urlObj.search);
+      const meetingId = params.get('meetingId');
+      const prospectId = params.get('prospectId');
+      
+      console.log('[Electron] 🔍 DEBUG: Extracted params - meetingId:', meetingId, 'prospectId:', prospectId);
+
+      // Send IPC to ALL windows
+      BrowserWindow.getAllWindows().forEach(win => {
+        console.log('[Electron] 🚀 Sending reset-to-home to window with params:', { meetingId, prospectId });
+        win.webContents.send('reset-to-home', { meetingId, prospectId });
+      });
+    }
+  });
+
+  contents.setWindowOpenHandler(({ url }) => {
+    console.log('[Electron] 🔍 DEBUG: web-contents-created setWindowOpenHandler triggered with URL:', url);
+    
+    if (url.startsWith('https://google.com')) {
+      shell.openExternal(url);
+      
+      // Extract meetingId and prospectId from query parameters
+      const urlObj = new URL(url);
+      const params = new URLSearchParams(urlObj.search);
+      const meetingId = params.get('meetingId');
+      const prospectId = params.get('prospectId');
+      
+      console.log('[Electron] 🔍 DEBUG: Extracted params - meetingId:', meetingId, 'prospectId:', prospectId);
+      
+      BrowserWindow.getAllWindows().forEach(win => {
+        console.log('[Electron] 🚀 Sending reset-to-home to window with params:', { meetingId, prospectId });
+        win.webContents.send('reset-to-home', { meetingId, prospectId });
+      });
+      return { action: 'deny' };
+    }
+    return { action: 'allow' };
+  });
+});
 

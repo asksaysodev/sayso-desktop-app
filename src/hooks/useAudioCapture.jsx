@@ -1,4 +1,4 @@
-export const useAudioCapture = () => {
+export const useAudioCapture = () => { 
   const startLiveCoach = async (params = {}) => {
     console.log('🎤 [useAudioCapture] Attempting to start live coach!');
     if (window.electron && window.electron.ipcRenderer) {

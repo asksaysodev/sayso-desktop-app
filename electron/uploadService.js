@@ -2,11 +2,20 @@ const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config();
 
 class UploadService {
   constructor() {
     this.baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+    console.log('[Upload Service] 🔍 DEBUG - Environment check:', {
+      NODE_ENV: process.env.NODE_ENV,
+      VITE_BACKEND_BASE_URL: process.env.VITE_BACKEND_BASE_URL,
+      finalBaseUrl: this.baseUrl
+    });
+    console.log('[Upload Service] Initialized with baseUrl:', this.baseUrl);
+    console.log('[Upload Service] Environment variables:', {
+      NODE_ENV: process.env.NODE_ENV,
+      VITE_BACKEND_BASE_URL: process.env.VITE_BACKEND_BASE_URL
+    });
   }
 
   async uploadAudioChunk(filePath, speaker, metadata = {}) { 

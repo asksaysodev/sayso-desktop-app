@@ -14,7 +14,8 @@ try {
         console.log('🔌 PRELOAD: Setting up listener for channel:', channel);
         ipcRenderer.on(channel, (event, ...args) => {
           console.log('📨 PRELOAD: Received data on channel:', channel, args);
-          callback(...args);
+          // Pass the first argument directly since we're sending a single object
+          callback(args[0]);
         });
         return () => {
           console.log('🧹 PRELOAD: Cleaning up listener for channel:', channel);
@@ -33,6 +34,14 @@ try {
     },
     // Example: Exposing other specific Electron APIs if needed
     // getAppVersion: () => ipcRenderer.invoke('get-app-version'), // Needs handler in main
+  });
+
+  // Extract --indexHtmlPath from process.argv
+  const indexHtmlPathArg = process.argv.find(arg => arg.startsWith('--indexHtmlPath='));
+  const indexHtmlPath = indexHtmlPathArg ? indexHtmlPathArg.replace('--indexHtmlPath=', '') : '';
+
+  contextBridge.exposeInMainWorld('sayso', {
+    indexHtmlPath
   });
 
   // console.log('Preload: contextBridge.exposeInMainWorld for "electron" successful.');

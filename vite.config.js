@@ -1,10 +1,39 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
+import { copyFileSync, existsSync } from 'fs';
+
+// Custom plugin to copy .env files during build
+const copyEnvFiles = () => {
+  return {
+    name: 'copy-env-files',
+    writeBundle() {
+      const envFiles = ['.env', '.env.production', '.env.development'];
+      const destDirs = ['dist', 'electron']; // Copy to both directories
+      
+      destDirs.forEach(destDir => {
+        envFiles.forEach(envFile => {
+          const sourcePath = resolve(__dirname, envFile);
+          const destPath = resolve(__dirname, destDir, envFile);
+          
+          if (existsSync(sourcePath)) {
+            copyFileSync(sourcePath, destPath);
+            console.log(`📁 Copied ${envFile} to ${destDir}/`);
+          } else {
+            console.log(`⚠️  ${envFile} not found, skipping...`);
+          }
+        });
+      });
+    }
+  };
+};
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    copyEnvFiles() // Add our custom plugin
+  ],
   optimizeDeps: {
     include: ['ws'],
   },
