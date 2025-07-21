@@ -58,6 +58,14 @@
       {
         "from": "public/assets",
         "to": "assets"
+      },
+      {
+        "from": "electron/bin/SwitchAudioSource",
+        "to": "bin/SwitchAudioSource"
+      },
+      {
+        "from": "electron/bin/ffmpeg",
+        "to": "bin/ffmpeg"
       }
     ],
     "directories": {
@@ -82,6 +90,10 @@
     },
     "linux": {
       "target": "AppImage"
-    }
+    },
+    "asarUnpack": [
+      "electron/bin/SwitchAudioSource",
+      "electron/bin/ffmpeg"
+    ]
   }
 }

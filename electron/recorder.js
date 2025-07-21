@@ -4,6 +4,41 @@ const { spawn } = require('child_process');
 const { app } = require('electron');
 const audioQueue = require('./audioQueue');
 const uploadService = require('./uploadService');
+const { exec } = require('child_process');
+const isDev = process.env.NODE_ENV !== 'production';
+
+// Add this function right after the imports
+function getFfmpegPath() {
+  // 1. Try bundled FFmpeg first (most reliable)
+  const bundleFfmpeg = path.join(process.resourcesPath, 'bin', 'ffmpeg');
+  if (fs.existsSync(bundleFfmpeg)) {
+    console.log('🎤 [RECORDER] Using bundled FFmpeg:', bundleFfmpeg);
+    return bundleFfmpeg;
+  }
+  
+  // 2. Try local bin directory (for development)
+  const localFfmpeg = path.join(__dirname, 'bin', 'ffmpeg');
+  if (fs.existsSync(localFfmpeg)) {
+    console.log('🎤 [RECORDER] Using local FFmpeg:', localFfmpeg);
+    return localFfmpeg;
+  }
+  
+  // 3. Try system FFmpeg as fallback
+  try {
+    const { execSync } = require('child_process');
+    const ffmpegPath = execSync('which ffmpeg', { encoding: 'utf8' }).trim();
+    if (ffmpegPath) {
+      console.log('🎤 [RECORDER] Using system FFmpeg:', ffmpegPath);
+      return ffmpegPath;
+    }
+  } catch (error) {
+    console.log('🎤 [RECORDER] System FFmpeg not found');
+  }
+  
+  // 4. Last resort
+  console.warn('🎤 [RECORDER] FFmpeg not found anywhere, trying PATH');
+  return 'ffmpeg';
+}
 
 let userRecordingProcess = null;
 let userChunkInterval = null;
@@ -17,7 +52,7 @@ let processedProspectChunks = new Set();
 function getDeviceIndexByName(deviceName) {
   return new Promise((resolve, reject) => {
     const { exec } = require('child_process');
-    exec('ffmpeg -f avfoundation -list_devices true -i ""', (err, stdout, stderr) => {
+    exec(`${getFfmpegPath()} -f avfoundation -list_devices true -i ""`, (err, stdout, stderr) => {
       const output = stderr.toString();
       const lines = output.split('\n');
       const foundDevices = [];
@@ -148,13 +183,20 @@ function getWritableTempDir(folderName) {
 }
 
 function startUserRecording({ duration = 8, onChunk, metadata = {} }) {
+  console.log('🎤 [RECORDER] === STARTING USER RECORDING ===');
+  console.log('🎤 [RECORDER] Device ID:', USER_MIC_DEVICE_ID);
+  console.log('🎤 [RECORDER] Duration:', duration);
+  console.log('🎤 [RECORDER] Metadata:', JSON.stringify(metadata, null, 2));
+  
   cleanupTempFolders();
   const tempDir = getWritableTempDir('chunks_user');
   
   // Ensure the directory exists
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
-    console.log(`[User Recording] Created temp directory: ${tempDir}`);
+    console.log(`🎤 [RECORDER] Created temp directory: ${tempDir}`);
+  } else {
+    console.log(`🎤 [RECORDER] Using existing temp directory: ${tempDir}`);
   }
   
   processedUserChunks.clear();
@@ -163,24 +205,25 @@ function startUserRecording({ duration = 8, onChunk, metadata = {} }) {
   if (fs.existsSync(tempDir)) {
     try {
       const files = fs.readdirSync(tempDir);
+      console.log(`🎤 [RECORDER] Found ${files.length} existing files in temp dir`);
       files.forEach(file => {
         try {
           fs.unlinkSync(path.join(tempDir, file));
-          console.log(`[User Recording] Deleted leftover chunk file on startup: ${file}`);
+          console.log(`🎤 [RECORDER] Deleted leftover chunk file: ${file}`);
         } catch (err) {
-          console.warn(`Could not delete user chunk file: ${file}`, err.message);
+          console.warn(`🎤 [RECORDER] Could not delete user chunk file: ${file}`, err.message);
         }
       });
     } catch (err) {
-      console.warn(`Could not read user temp directory: ${err.message}`);
+      console.warn(`🎤 [RECORDER] Could not read user temp directory: ${err.message}`);
     }
   }
 
-  console.log(`[User Recording] Starting with device ID: ${USER_MIC_DEVICE_ID}`);
-  console.log(`[User Recording] Chunk duration: ${duration} seconds`);
-  console.log(`[User Recording] Temp directory: ${tempDir}`);
+  console.log(`🎤 [RECORDER] Starting FFmpeg with device ID: ${USER_MIC_DEVICE_ID}`);
+  console.log(`🎤 [RECORDER] Chunk duration: ${duration} seconds`);
+  console.log(`🎤 [RECORDER] Temp directory: ${tempDir}`);
   
-  const recordingStartTime = new Date(); // When you start the recording
+  const recordingStartTime = new Date();
   const ffmpegArgs = [
     '-f', 'avfoundation',
     '-i', `:${USER_MIC_DEVICE_ID}`,
@@ -199,20 +242,27 @@ function startUserRecording({ duration = 8, onChunk, metadata = {} }) {
     `${tempDir}/user-chunk-%03d.mp3`,
   ];
   
-  userRecordingProcess = spawn('ffmpeg', ffmpegArgs);
+  console.log('🎤 [RECORDER] FFmpeg args:', ffmpegArgs.join(' '));
+  
+  userRecordingProcess = spawn(getFfmpegPath(), ffmpegArgs);
+  
+  console.log('🎤 [RECORDER] FFmpeg process spawned, PID:', userRecordingProcess.pid);
 
   userRecordingProcess.stderr.on('data', (data) => {
     const output = data.toString();
     if (output.includes('Error')) {
-      console.error('[User FFmpeg] Error detected in FFmpeg output');
+      console.error('🎤 [RECORDER] FFmpeg Error detected:', output);
+    } else {
+      console.log('🎤 [RECORDER] FFmpeg output:', output);
     }
   });
-  userRecordingProcess.on('error', (err) => {
-    console.error('[User FFmpeg ERROR]: Failed to start ffmpeg process:', err);
+
+  userRecordingProcess.on('error', (error) => {
+    console.error('🎤 [RECORDER] FFmpeg process error:', error);
   });
+
   userRecordingProcess.on('exit', (code, signal) => {
-    if (userChunkInterval) clearInterval(userChunkInterval);
-    userChunkInterval = null;
+    console.log(`🎤 [RECORDER] FFmpeg process exited with code ${code}, signal ${signal}`);
   });
 
   let lastProcessedChunk = -1;
@@ -322,7 +372,7 @@ function startProspectRecording({ duration = 8, onChunk, metadata = {} }) {
     `${tempDir}/prospect-chunk-%03d.mp3`,
   ];
   
-  prospectRecordingProcess = spawn('ffmpeg', ffmpegArgs);
+  prospectRecordingProcess = spawn(getFfmpegPath(), ffmpegArgs);
 
   prospectRecordingProcess.stderr.on('data', (data) => {
     const output = data.toString();
@@ -462,5 +512,144 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-module.exports = { startUserRecording, startProspectRecording, stopRecording };
+// Place this function near the top of the file
+function getSwitchAudioSourcePath() {
+  // Try extraResources path first
+  let binPath = path.join(process.resourcesPath, 'bin', 'SwitchAudioSource');
+  if (fs.existsSync(binPath)) return binPath;
+
+  // Fallback to asarUnpack path
+  binPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'bin', 'SwitchAudioSource');
+  if (fs.existsSync(binPath)) return binPath;
+
+  // Fallback to dev path
+  binPath = path.join(__dirname, 'bin', 'SwitchAudioSource');
+  return binPath;
+}
+
+class AudioDeviceManager {
+  constructor() {
+    this.previousDevice = null;
+    this.binPath = getSwitchAudioSourcePath(); // Add this line!
+    console.log('🎤 [AUDIO DEVICE MANAGER] Initialized');
+    console.log('🎤 [AUDIO DEVICE MANAGER] SwitchAudioSource path:', this.binPath);
+  }
+
+  // Get current output device
+  async getCurrentOutputDevice() {
+    return new Promise((resolve, reject) => {
+      exec(`${this.binPath} -t output -c`, (err, stdout, stderr) => {
+        if (err) {
+          console.error('[AudioDeviceManager] ❌ Error getting current output device:', err);
+          return reject(err);
+        }
+        const deviceName = stdout.toString().trim();
+        console.log('[AudioDeviceManager] ✅ Current output device:', deviceName);
+        resolve(deviceName);
+      });
+    });
+  }
+
+  // Get list of available audio output devices
+  async getAvailableOutputDevices() {
+    return new Promise((resolve, reject) => {
+      exec(`${this.binPath} -t output -a`, (err, stdout, stderr) => {
+        if (err) {
+          console.error('[AudioDeviceManager] ❌ Error getting available output devices:', err);
+          return reject(err);
+        }
+        const devices = stdout.toString().trim().split('\n');
+        console.log('[AudioDeviceManager] ✅ Available output devices:', devices);
+        resolve(devices);
+      });
+    });
+  }
+
+  // Switch to Sayso Speaker device
+  async switchToSaysoSpeaker() {
+    console.log('🎤 [AUDIO DEVICE MANAGER] === SWITCHING TO SAYSO SPEAKER ===');
+    
+    try {
+      // Get current device first
+      console.log('🎤 [AUDIO DEVICE MANAGER] Step 1: Getting current output device...');
+      this.previousDevice = await this.getCurrentOutputDevice();
+      console.log('🎤 [AUDIO DEVICE MANAGER] Current device:', this.previousDevice);
+      
+      // Get available devices
+      console.log('🎤 [AUDIO DEVICE MANAGER] Step 2: Getting available devices...');
+      const devices = await this.getAvailableOutputDevices();
+      console.log('🎤 [AUDIO DEVICE MANAGER] Available devices:', devices);
+      
+      // Find Sayso Speaker
+      const saysoDevice = devices.find(device => 
+        device.toLowerCase().includes('sayso speaker')
+      );
+      
+      if (!saysoDevice) {
+        console.error('🎤 [AUDIO DEVICE MANAGER] ❌ Sayso Speaker not found in available devices');
+        throw new Error('Sayso Speaker device not found');
+      }
+      
+      console.log('🎤 [AUDIO DEVICE MANAGER] Found Sayso Speaker:', saysoDevice);
+      
+      // Switch to Sayso Speaker
+      console.log('🎤 [AUDIO DEVICE MANAGER] Step 3: Switching to Sayso Speaker...');
+      const switchPath = getSwitchAudioSourcePath();
+      console.log('🎤 [AUDIO DEVICE MANAGER] SwitchAudioSource path:', switchPath);
+      
+      return new Promise((resolve, reject) => {
+        exec(`${this.binPath} -t output -s "${saysoDevice}"`, (err, stdout, stderr) => {
+          if (err) {
+            console.error('[AudioDeviceManager] ❌ Failed to switch audio device:', err);
+            reject(err);
+          } else {
+            console.log('[AudioDeviceManager] ✅ Successfully switched to Sayso Speaker');
+            resolve();
+          }
+        });
+      });
+    } catch (error) {
+      console.error('🎤 [AUDIO DEVICE MANAGER] ❌ Error switching to Sayso Speaker:', error);
+      throw error;
+    }
+  }
+
+  // Restore previous device
+  async restorePreviousDevice() {
+    if (!this.previousDevice) {
+      console.log('[AudioDeviceManager] No previous device to restore');
+      return;
+    }
+
+    try {
+      console.log('[AudioDeviceManager] Restoring to previous device:', this.previousDevice);
+
+      return new Promise((resolve, reject) => {
+        exec(`${this.binPath} -t output -s "${this.previousDevice}"`, (err, stdout, stderr) => {
+          if (err) {
+            console.error('[AudioDeviceManager] ❌ Failed to restore audio device:', err);
+            reject(err);
+          } else {
+            console.log('[AudioDeviceManager] ✅ Successfully restored previous audio device');
+            resolve();
+          }
+        });
+      });
+    } catch (error) {
+      console.error('[AudioDeviceManager] ❌ Error restoring audio device:', error);
+      throw error;
+    }
+  }
+}
+
+// Create a singleton instance
+const audioDeviceManager = new AudioDeviceManager();
+
+// Update the module exports to include the device manager
+module.exports = { 
+  startUserRecording, 
+  startProspectRecording, 
+  stopRecording,
+  audioDeviceManager 
+};
 

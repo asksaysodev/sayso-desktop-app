@@ -2,6 +2,83 @@ const { app, BrowserWindow, ipcMain, screen, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
+// Add file logging for production
+function setupLogging() {
+  // Always create a debug file to see what's happening
+  const debugPath = path.join(app.getPath('userData'), 'debug-startup.log');
+  
+  try {
+    const debugInfo = {
+      timestamp: new Date().toISOString(),
+      appName: app.getName(),
+      nodeEnv: process.env.NODE_ENV,
+      userDataPath: app.getPath('userData'),
+      processType: process.type
+    };
+    
+    fs.writeFileSync(debugPath, JSON.stringify(debugInfo, null, 2));
+    console.log('🔍 [DEBUG] Debug file created at:', debugPath);
+  } catch (error) {
+    console.error('🔍 [DEBUG] Error creating debug file:', error);
+  }
+  
+  // Then proceed with normal logging setup
+  if (process.env.NODE_ENV === 'production') {
+    const logDir = path.join(app.getPath('userData'), 'logs');
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+    
+    const logFile = path.join(logDir, `sayso-${new Date().toISOString().split('T')[0]}.log`);
+    
+    // Redirect console.log to both console and file
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+    
+    function writeToFile(level, ...args) {
+      const timestamp = new Date().toISOString();
+      const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' ');
+      
+      const logEntry = `[${timestamp}] [${level}] ${message}\n`;
+      
+      try {
+        fs.appendFileSync(logFile, logEntry);
+      } catch (err) {
+        // Fallback to original console if file writing fails
+        originalError(`Failed to write to log file: ${err.message}`);
+      }
+    }
+    
+    console.log = (...args) => {
+      originalLog(...args);
+      writeToFile('INFO', ...args);
+    };
+    
+    console.error = (...args) => {
+      originalError(...args);
+      writeToFile('ERROR', ...args);
+    };
+    
+    console.warn = (...args) => {
+      originalWarn(...args);
+      writeToFile('WARN', ...args);
+    };
+    
+    console.log(`[Main Process] Logging to file: ${logFile}`);
+  }
+}
+
+// Call setup logging early
+// setupLogging(); // This line is removed as per the edit hint.
+
+// Add this right after setupLogging()
+console.log('🔍 [DEBUG] App name:', app.getName());
+console.log('🔍 [DEBUG] User data path:', app.getPath('userData'));
+console.log('🔍 [DEBUG] Expected log directory:', path.join(app.getPath('userData'), 'logs'));
+
 // Load environment variables FIRST, before any other modules
 if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = 'production';
@@ -64,7 +141,7 @@ console.log('[Main Process] Environment check:', {
 const wav = require('wav');
 const FormData = require('form-data');
 const axios = require('axios');
-const { startUserRecording, startProspectRecording, stopRecording } = require('./recorder');
+const { startUserRecording, startProspectRecording, stopRecording, audioDeviceManager } = require('./recorder');
 const audioQueue = require('./audioQueue');
 
 // Add command line switches for better camera support
@@ -187,36 +264,38 @@ const createDashboardWindow = () => {
   dashboardWindow.webContents.on('did-finish-load', () => {
     console.log('🚀 Window loaded, initializing media devices...');
     dashboardWindow.webContents.executeJavaScript(`
-      console.log('🔍 Initializing media devices in renderer...');
-      
-      // Check if mediaDevices is available
-      if (!navigator.mediaDevices) {
-        console.error('❌ navigator.mediaDevices is not available');
-        return;
-      }
-      
-      // Request permissions early
-      navigator.mediaDevices.getUserMedia({ audio: true, video: true })
-        .then(stream => {
-          console.log('✅ Media permissions granted, stopping test stream');
-          stream.getTracks().forEach(track => track.stop());
-        })
-        .catch(err => {
-          console.error('❌ Error getting media permissions:', err);
-        });
-      
-      // Enumerate devices
-      navigator.mediaDevices.enumerateDevices()
-        .then(devices => {
-          console.log('📱 Available media devices:', devices.map(d => ({
-            kind: d.kind,
-            deviceId: d.deviceId,
-            label: d.label
-          })));
-        })
-        .catch(err => {
-          console.error('❌ Error enumerating devices:', err);
-        });
+      (function() {
+        console.log('🔍 Initializing media devices in renderer...');
+        
+        // Check if mediaDevices is available
+        if (!navigator.mediaDevices) {
+          console.error('❌ navigator.mediaDevices is not available');
+          return;
+        }
+        
+        // Request permissions early
+        navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+          .then(stream => {
+            console.log('✅ Media permissions granted, stopping test stream');
+            stream.getTracks().forEach(track => track.stop());
+          })
+          .catch(err => {
+            console.error('❌ Error getting media permissions:', err);
+          });
+        
+        // Enumerate devices
+        navigator.mediaDevices.enumerateDevices()
+          .then(devices => {
+            console.log('📱 Available media devices:', devices.map(d => ({
+              kind: d.kind,
+              deviceId: d.deviceId,
+              label: d.label
+            })));
+          })
+          .catch(err => {
+            console.error('❌ Error enumerating devices:', err);
+          });
+      })();
     `);
   });
 
@@ -283,45 +362,6 @@ const createDashboardWindow = () => {
     }
   });
 
-  // Now it's safe to access webContents!
-  dashboardWindow.webContents.on('will-navigate', (event, url) => {
-    console.log('[Electron] 🔍 DEBUG: will-navigate triggered with URL:', url);
-    
-    if (url.startsWith('https://google.com')) {
-      event.preventDefault();
-      shell.openExternal(url);
-      
-      // Extract meetingId and prospectId from query parameters
-      const urlObj = new URL(url);
-      const params = new URLSearchParams(urlObj.search);
-      const meetingId = params.get('meetingId');
-      const prospectId = params.get('prospectId');
-      
-      console.log('[Electron] 🔍 DEBUG: Extracted params - meetingId:', meetingId, 'prospectId:', prospectId);
-      console.log('[Electron] 🚀 Sending reset-to-home with params:', { meetingId, prospectId });
-      dashboardWindow.webContents.send('reset-to-home', { meetingId, prospectId });
-    }
-  });
-
-  dashboardWindow.webContents.setWindowOpenHandler(({ url }) => {
-    console.log('[Electron] 🔍 DEBUG: setWindowOpenHandler triggered with URL:', url);
-    
-    if (url.startsWith('https://google.com')) {
-      shell.openExternal(url);
-      
-      // Extract meetingId and prospectId from query parameters
-      const urlObj = new URL(url);
-      const params = new URLSearchParams(urlObj.search);
-      const meetingId = params.get('meetingId');
-      const prospectId = params.get('prospectId');
-      
-      console.log('[Electron] 🔍 DEBUG: Extracted params - meetingId:', meetingId, 'prospectId:', prospectId);
-      console.log('[Electron] 🚀 Sending reset-to-home with params:', { meetingId, prospectId });
-      dashboardWindow.webContents.send('reset-to-home', { meetingId, prospectId });
-      return { action: 'deny' };
-    }
-    return { action: 'allow' };
-  });
 };
 
 // --- IPC Handlers for Floating Windows ---
@@ -387,10 +427,19 @@ ipcMain.on('send-audio-chunk', (_event, float32AudioChunk) => {
 
 // --- Audio Capture Handlers ---
 ipcMain.handle('start-audio-capture', async (event, params) => {
-  console.log('MAIN: Received start-audio-capture');
+  console.log('🎤 [AUDIO CAPTURE] === STARTING AUDIO CAPTURE ===');
+  console.log('🎤 [AUDIO CAPTURE] Params received:', JSON.stringify(params, null, 2));
+  console.log('🎤 [AUDIO CAPTURE] Global mainWindow exists:', !!global.mainWindow);
+  console.log('🎤 [AUDIO CAPTURE] Audio device manager available:', !!audioDeviceManager);
 
   try {
+    // First, switch to Sayso Speaker device
+    console.log('🎤 [AUDIO CAPTURE] Step 1: Switching to Sayso Speaker device...');
+    await audioDeviceManager.switchToSaysoSpeaker();
+    console.log('🎤 [AUDIO CAPTURE] ✅ Successfully switched to Sayso Speaker');
+
     // Start both user and prospect recording
+    console.log('🎤 [AUDIO CAPTURE] Step 2: Starting user recording...');
     startUserRecording({
       duration: 8,
       metadata: {
@@ -399,11 +448,12 @@ ipcMain.handle('start-audio-capture', async (event, params) => {
         meetingId: params.meetingId
       },
       onChunk: (filePath, speaker) => {
-        console.log(`[Main Process] Received audio chunk from ${speaker}: ${filePath}`);
+        console.log(`🎤 [AUDIO CAPTURE] Received audio chunk from ${speaker}: ${filePath}`);
       }
     });
-    console.log('[Main Process] User recording started.');
+    console.log('🎤 [AUDIO CAPTURE] ✅ User recording started successfully');
 
+    console.log('🎤 [AUDIO CAPTURE] Step 3: Starting prospect recording...');
     startProspectRecording({
       duration: 8,
       metadata: {
@@ -412,29 +462,46 @@ ipcMain.handle('start-audio-capture', async (event, params) => {
         meetingId: params.meetingId
       },
       onChunk: (filePath, speaker) => {
-        console.log(`[Main Process] Received audio chunk from ${speaker}: ${filePath}`);
+        console.log(`🎤 [AUDIO CAPTURE] Received audio chunk from ${speaker}: ${filePath}`);
       }
     });
-    console.log('[Main Process] Prospect recording started.');
+    console.log('🎤 [AUDIO CAPTURE] ✅ Prospect recording started successfully');
 
+    console.log('🎤 [AUDIO CAPTURE] === AUDIO CAPTURE STARTED SUCCESSFULLY ===');
     return { status: "Audio capture processes started for user and prospect" };
   } catch (error) {
-    console.error('[Main Process] Error starting one or more audio capture processes:', error);
+    console.error('🎤 [AUDIO CAPTURE] ❌ ERROR in audio capture:', error);
+    console.error('🎤 [AUDIO CAPTURE] Error stack:', error.stack);
+    console.error('🎤 [AUDIO CAPTURE] Error message:', error.message);
+    
     // Attempt to stop any potentially started processes
-    stopRecording(); 
+    console.log('🎤 [AUDIO CAPTURE] Attempting to stop any started processes...');
+    try {
+      stopRecording();
+      console.log('🎤 [AUDIO CAPTURE] ✅ Successfully stopped recording processes');
+    } catch (stopError) {
+      console.error('🎤 [AUDIO CAPTURE] ❌ Error stopping recording:', stopError);
+    }
+    
     return { status: "Failed to start audio capture", error: error.message };
   }
 });
 
-ipcMain.handle('stop-audio-capture', async () => { // Made async to align with start
+ipcMain.handle('stop-audio-capture', async () => {
   console.log('[Main Process] Received stop-audio-capture request.');
   try {
-    stopRecording(); // Assuming this is synchronous or manages its own async cleanup
+    stopRecording(); // Stop the recording processes
     console.log('[Main Process] stopRecording called.');
-    return { status: "Audio capture stopped" }; // Example response
+    
+    // Restore the previous audio device
+    console.log('[Main Process] Restoring previous audio device...');
+    await audioDeviceManager.restorePreviousDevice();
+    console.log('[Main Process] Successfully restored previous audio device');
+    
+    return { status: "Audio capture stopped" };
   } catch (error) {
     console.error('[Main Process] Error during stopRecording:', error);
-    throw error; // Propagate error to renderer
+    throw error;
   }
 });
 
@@ -532,15 +599,11 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  console.log('🔍 [DEBUG] App is ready, setting up logging...');
+  setupLogging();
   // ONLY create the dashboard window initially
   createDashboardWindow(); 
   
-  // DO NOT create floating windows here anymore
-  // createMainTipWindow(); 
-  // createSideInfoWindow(); 
-
-  // Show dock icon ONLY if the dashboard is the intended primary interface
-  // app.dock?.hide(); // Comment this out or make conditional
 
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the
@@ -567,61 +630,67 @@ app.on('window-all-closed', () => {
   // you would add app.quit() here.
 });
 
-// app.commandLine.appendSwitch('disable-gpu'); // <--- comment this out
-// app.commandLine.appendSwitch('disable-software-rasterizer', 'false'); // <--- comment this out
-// app.commandLine.appendSwitch('ignore-gpu-blacklist');
-// app.commandLine.appendSwitch('enable-webgl');
-// app.commandLine.appendSwitch('enable-accelerated-video');
 
 console.log("NODE_ENV:", process.env.NODE_ENV);
 console.log("Loaded FRONTEND_BASE_URL:", process.env.VITE_FRONTEND_BASE_URL);
 
-function shouldOpenExternally(url) {
-  // For now, just match google.com
-  return url.startsWith('https://google.com');
-}
+// function shouldOpenExternally(url) {
+//   // For now, just match google.com
+//   return url.startsWith('https://google.com');
+// }
+
+let lastLeaveUrl = null;
+let lastLeaveUrlTime = 0;
 
 // Intercept navigation in ALL windows
 app.on('web-contents-created', (event, contents) => {
   contents.on('will-navigate', (event, url) => {
-    console.log('[Electron] 🔍 DEBUG: web-contents-created will-navigate triggered with URL:', url);
-    
-    if (url.startsWith('https://google.com')) {
+    console.log('[Electron][DEBUG] will-navigate triggered:', {
+      url,
+      windowId: contents.id,
+      stack: new Error().stack
+    });
+    if (url.includes('post-call')) {
+      const now = Date.now();
+      if (url === lastLeaveUrl && now - lastLeaveUrlTime < 2000) {
+        console.log('[Electron][DEBUG] Skipping duplicate leaveUrl open:', url);
+        event.preventDefault();
+        return;
+      }
+      lastLeaveUrl = url;
+      lastLeaveUrlTime = now;
       event.preventDefault();
       shell.openExternal(url);
-
       // Extract meetingId and prospectId from query parameters
       const urlObj = new URL(url);
       const params = new URLSearchParams(urlObj.search);
       const meetingId = params.get('meetingId');
       const prospectId = params.get('prospectId');
-      
-      console.log('[Electron] 🔍 DEBUG: Extracted params - meetingId:', meetingId, 'prospectId:', prospectId);
-
+      console.log('[Electron][DEBUG] will-navigate: Extracted params:', { meetingId, prospectId });
       // Send IPC to ALL windows
       BrowserWindow.getAllWindows().forEach(win => {
-        console.log('[Electron] 🚀 Sending reset-to-home to window with params:', { meetingId, prospectId });
+        console.log('[Electron][DEBUG] will-navigate: Sending reset-to-home to window:', win.id, { meetingId, prospectId });
         win.webContents.send('reset-to-home', { meetingId, prospectId });
       });
     }
   });
 
   contents.setWindowOpenHandler(({ url }) => {
-    console.log('[Electron] 🔍 DEBUG: web-contents-created setWindowOpenHandler triggered with URL:', url);
-    
-    if (url.startsWith('https://google.com')) {
+    console.log('[Electron][DEBUG] setWindowOpenHandler triggered:', {
+      url,
+      windowId: contents.id,
+      stack: new Error().stack
+    });
+    if (url.includes('post-call')) {
       shell.openExternal(url);
-      
       // Extract meetingId and prospectId from query parameters
       const urlObj = new URL(url);
       const params = new URLSearchParams(urlObj.search);
       const meetingId = params.get('meetingId');
       const prospectId = params.get('prospectId');
-      
-      console.log('[Electron] 🔍 DEBUG: Extracted params - meetingId:', meetingId, 'prospectId:', prospectId);
-      
+      console.log('[Electron][DEBUG] setWindowOpenHandler: Extracted params:', { meetingId, prospectId });
       BrowserWindow.getAllWindows().forEach(win => {
-        console.log('[Electron] 🚀 Sending reset-to-home to window with params:', { meetingId, prospectId });
+        console.log('[Electron][DEBUG] setWindowOpenHandler: Sending reset-to-home to window:', win.id, { meetingId, prospectId });
         win.webContents.send('reset-to-home', { meetingId, prospectId });
       });
       return { action: 'deny' };

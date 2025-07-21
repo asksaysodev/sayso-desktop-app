@@ -360,7 +360,7 @@ const ProspectDetailView = ({ prospect, setSelectedProspect }) => {
         {
           !currentProspect?.next_meeting_id ? (
             <>
-              <button style={{backgroundColor: 'var(--blueZoom)', color: 'white', width: '100%', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer', border: 'none', height: '40px', fontSize: '0.96rem', marginBottom: '50px'}} onClick={() => setIsMeetingPickerOpen(true)}>Pick a Zoom Meeting</button>
+              <button style={{backgroundColor: 'var(--blueZoom)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', width: '100%', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer', border: 'none', height: '40px', fontSize: '0.96rem', marginBottom: '50px'}} onClick={() => setIsMeetingPickerOpen(true)}>Pick a Zoom Meeting</button>
             </>
           ) : (
             <>
@@ -577,8 +577,8 @@ const Dashboard = () => {
           <span style={{height: '1px', width: '100%', backgroundColor:'var(--blue1)', display: 'block', margin:'10px 0', opacity: '0.4'}}></span>
           <BtnMain text="Account Settings" onClick={handleAccountSettingsClick} />
           <BtnMain text="Sign Out" onClick={signOut} />
-          <BtnMain text="Test Checklist" onClick={() => setIsChecklistVisible(!isChecklistVisible)} />
-          <BtnMain text="Regular Insight" onClick={() => setCurrentInsight({message: "I hope your kids are excited for school! How's the planning going? I hope your kids are excited for school! How's the planning going?", isIceBreaker: false})} />
+          {/* <BtnMain text="Test Checklist" onClick={() => setIsChecklistVisible(!isChecklistVisible)} />
+          <BtnMain text="Regular Insight" onClick={() => setCurrentInsight({message: "I hope your kids are excited for school! How's the planning going? I hope your kids are excited for school! How's the planning going?", isIceBreaker: true})} /> */}
         </div>
       </div>
 

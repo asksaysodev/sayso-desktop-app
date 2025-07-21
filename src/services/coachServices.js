@@ -113,33 +113,36 @@ export const trackSignals = async (currentConversation) => {
       Current conversation to analyze:
       ${currentConversation}
       
-      Respond in this exact format:
-      [
-        {
-          "signal": "pain_points",
-          "detected": true|false,
-          "quote": "quote that triggered the signal"
-        },
-        {
-          "signal": "economic_impact",
-          "detected": true|false,
+      You must return a JSON object with all 4 signals. Here is the required format:
+
+      {
+        "pain_points": {
+          "detected": false,
           "quote": null
         },
-        {
-          "signal": "decision_makers",
-          "detected": true|false,
+        "economic_impact": {
+          "detected": false,
           "quote": null
         },
-        {
-          "signal": "objections",
-          "detected": true|false,
+        "decision_makers": {
+          "detected": false,
+          "quote": null
+        },
+        "objections": {
+          "detected": false,
           "quote": null
         }
-      ]
+      }
+
+      CRITICAL: 
+      - Return ONLY a JSON object (starting with { and ending with })
+      - Include ALL 4 signal types: pain_points, economic_impact, decision_makers, objections
+      - Set "detected" to true only if the signal is clearly present
+      - Include the exact quote in "quote" field if detected, otherwise null
+      - Do NOT return an array, return a single object with all signals
 
       - Only return true if the signal is clearly implied. Use your best reasoning. Always include the quote if detected.    
       - Only return the quote that triggered the signal. Do not return all quotes.
-      - NEVER change "signal" property value. 
       - Property named "detected" should only be true or false (boolean).
       - Property named "quote" should only be the quote that triggered the signal. Do not return all quotes. Only return a quote if "detected" is true.
       - If a signal has been detected, do not return false for that signal, only change the "detected" property to true when the signal is detected.
@@ -153,14 +156,77 @@ export const trackSignals = async (currentConversation) => {
     });
 
     const chatCompletionResponse = response.data.response;
+    
+    console.log('🔍 trackSignals raw response:', chatCompletionResponse);
 
-    const parsedResponse = JSON.parse(chatCompletionResponse);
+    // Add better error handling for JSON parsing
+    let parsedResponse;
+    try {
+      parsedResponse = JSON.parse(chatCompletionResponse);
+    } catch (parseError) {
+      console.error('❌ Failed to parse trackSignals response as JSON:', {
+        response: chatCompletionResponse,
+        error: parseError.message
+      });
+      // Return a safe default response instead of throwing
+      return [
+        { signal: "pain_points", detected: false, quote: null },
+        { signal: "economic_impact", detected: false, quote: null },
+        { signal: "decision_makers", detected: false, quote: null },
+        { signal: "objections", detected: false, quote: null }
+      ];
+    }
 
-    return parsedResponse;
+    // Validate the response structure - now expecting an object, not an array
+    if (!parsedResponse || typeof parsedResponse !== 'object' || Array.isArray(parsedResponse)) {
+      console.error('❌ trackSignals response is not a valid object:', parsedResponse);
+      return [
+        { signal: "pain_points", detected: false, quote: null },
+        { signal: "economic_impact", detected: false, quote: null },
+        { signal: "decision_makers", detected: false, quote: null },
+        { signal: "objections", detected: false, quote: null }
+      ];
+    }
+
+    // Validate and sanitize each signal from the object format
+    const expectedSignals = ["pain_points", "economic_impact", "decision_makers", "objections"];
+    const validatedResponse = expectedSignals.map(expectedSignal => {
+      const signalData = parsedResponse[expectedSignal];
+      
+      if (!signalData) {
+        console.warn(`⚠️ Missing signal: ${expectedSignal}, using default`);
+        return { signal: expectedSignal, detected: false, quote: null };
+      }
+
+      // Ensure detected is a boolean
+      const detected = Boolean(signalData.detected);
+      
+      // Ensure quote is a string or null
+      let quote = null;
+      if (detected && signalData.quote) {
+        quote = String(signalData.quote).trim();
+        if (quote === '') quote = null;
+      }
+
+      return {
+        signal: expectedSignal,
+        detected: detected,
+        quote: quote
+      };
+    });
+
+    console.log('✅ trackSignals validated response:', validatedResponse);
+    return validatedResponse;
 
   } catch (error) {
-    console.error('Error getting ice breaker:', error);
-    throw error;
+    console.error('❌ Error in trackSignals:', error);
+    // Return a safe default response instead of throwing
+    return [
+      { signal: "pain_points", detected: false, quote: null },
+      { signal: "economic_impact", detected: false, quote: null },
+      { signal: "decision_makers", detected: false, quote: null },
+      { signal: "objections", detected: false, quote: null }
+    ];
   }
 };
 
@@ -192,39 +258,6 @@ export const runChatCompletion = async (currentConversation, dynamicContext, pre
 
     // Format dynamicContext into readable text
     const contextText = formatDynamicContext(dynamicContext);
-
-    // const systemMessage = {
-    //   role: "system",
-    //   content: `You are a world-class sales coach assisting a rep during a live sales conversation. Your goal is to provide real-time, actionable guidance based on the dialogue so far.
-
-    //   ${contextText}
-
-    //   COACHING INSTRUCTIONS:
-    //   - ONLY analyze the **most recent exchange** between the sales rep (USER) and the prospect (PROSPECT).
-    //   - Wait until **at least one back-and-forth** has occurred before offering any insight.
-    //   - **PRIORITIZE PRODUCT-SPECIFIC GUIDANCE**: Use the sales rep context to suggest specific features, pricing tiers, or product capabilities.
-    //   - **BE SPECIFIC WITH PRODUCT DETAILS**: When relevant, mention exact product names, coverage levels, pricing, or features from the context.
-    //   - When giving insights:
-    //     - **Lead with product specifics** when the prospect asks about features or coverage
-    //     - Suggest **exact product tiers or features** to mention (e.g., "Premium plan covers 15+ pests")
-    //     - Reference **specific pricing or coverage details** from the context
-    //     - **Do NOT** suggest generic sales strategies unless tied to specific product features
-    //     - If an insight was already given, **do not repeat or paraphrase** it.
-    //   - Be concise: MAX 150 characters for the Message.
-    //   - If no new actionable insight applies, say: "No insight needed at this time."
-
-    //   Previously given insights:
-    //   ${previousInsightsFormatted}
-
-    //   Current conversation to analyze:
-    //   ${currentConversation}
-
-    //   Respond in this exact format:
-    //   {
-    //     "Insight": "yes|no",
-    //     "Message": "If Insight is 'yes', provide specific, actionable feedback in under 150 characters. If Insight is 'no', write 'No insight needed at this time.'"
-    //   }`
-    // };
 
     const systemMessage = {
       role: "system",
@@ -282,12 +315,30 @@ export const runChatCompletion = async (currentConversation, dynamicContext, pre
 
     const chatCompletionResponse = response.data.response;
 
-    const parsedResponse = JSON.parse(chatCompletionResponse);
+    // Add better error handling for JSON parsing
+    let parsedResponse;
+    try {
+      parsedResponse = JSON.parse(chatCompletionResponse);
+    } catch (parseError) {
+      console.error('❌ Failed to parse runChatCompletion response as JSON:', {
+        response: chatCompletionResponse,
+        error: parseError.message
+      });
+      // Return a safe default response instead of throwing
+      return {
+        Insight: "no",
+        Message: "No insight needed at this time."
+      };
+    }
 
     return parsedResponse;
 
   } catch (error) {
-    console.error('Error getting ice breaker:', error);
-    throw error;
+    console.error('❌ Error in runChatCompletion:', error);
+    // Return a safe default response instead of throwing
+    return {
+      Insight: "no",
+      Message: "No insight needed at this time."
+    };
   }
 };

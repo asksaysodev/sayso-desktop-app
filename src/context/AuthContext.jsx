@@ -17,6 +17,15 @@ export const AuthProvider = ({ children }) => {
 
   const { createAccount, getAccount } = useAccounts()
 
+  const updateGlobalUser = async (accountEmail) => {
+    try{
+      const account = await getAccount(accountEmail);
+      setGlobalUser(account);
+    } catch (error) {
+      console.error('Error updating global user:', error);
+    }
+  }
+
   useEffect(() => {
     // Skip auth check for /zoom-success
     if (location.pathname === '/zoom-success') {
@@ -103,6 +112,7 @@ export const AuthProvider = ({ children }) => {
     authToken,
     userLoading,
     loading,
+    updateGlobalUser
   }
 
   return (

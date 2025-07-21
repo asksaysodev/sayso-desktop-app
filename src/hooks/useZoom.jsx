@@ -101,6 +101,13 @@ export const useZoom = () => {
 
     }, []);
 
+    const disconnectZoom = useCallback(async (userId) => {
+        console.log('🔌 disconnecting Zoom');
+        const response = await axios.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/zoom/disconnect/${userId}`);
+        console.log('🔌 disconnectZoom response', response.data);
+        return response.data;
+    }, []);
+
     const getSignature = useCallback(async (meetingNumber, role) => {
         console.log('🔐 getSignature', meetingNumber, role);
         if(!meetingNumber || !role) {
@@ -120,6 +127,7 @@ export const useZoom = () => {
         mediaPermissions,
         getMeetingDetails,
         getSignature,   
-        getZoomMeetings
+        getZoomMeetings,
+        disconnectZoom
     };
 };

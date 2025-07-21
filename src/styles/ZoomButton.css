@@ -10,19 +10,11 @@
   height: 40px;
 }
 
-
-/* .btn-primary,
-.btn-secondary {
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
+.zoom-button.connected {
+  background-color: var(--gray4);
+  color: white;
 }
 
-.btn-primary {
-  background: var(--blue0);
-  color: white;
-  border: none;
-} */
 
 .zoom-button:hover {
   opacity: 0.9;

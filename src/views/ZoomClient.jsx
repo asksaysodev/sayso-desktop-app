@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useZoom } from '../hooks/useZoom';
 import { ZoomMtg } from '@zoom/meetingsdk'
-import { useNavigate } from 'react-router-dom';
+// import { useNavigate } from 'react-router-dom';
 import { useSalesCoachContext } from '../context/SalesCoachContext';
 import '../styles/ZoomClient.css';
 
@@ -15,7 +15,7 @@ export const ZoomClient = () => {
   const [permissionStatus, setPermissionStatus] = useState(null);
   const [cameraInitialized, setCameraInitialized] = useState(false);
 
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
   const { meetingId, prospectId } = useParams();
 
   const { globalUser } = useAuth();
@@ -27,7 +27,7 @@ export const ZoomClient = () => {
   // Compute leaveUrl for Electron to use full file URL
   let leaveUrl;
   if (isElectron && window.sayso?.indexHtmlPath) {
-    leaveUrl = `https://google.com/?meetingId=${meetingId}&prospectId=${prospectId}&success=true`;
+    leaveUrl = `${import.meta.env.VITE_BACKEND_BASE_URL}/post-call/?meetingId=${meetingId}&prospectId=${prospectId}&success=true`;
   } else {
     leaveUrl = `${import.meta.env.VITE_FRONTEND_BASE_URL}/post-call/${meetingId}/${prospectId}?success=true`;
   }

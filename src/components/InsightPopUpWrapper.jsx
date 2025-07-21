@@ -27,11 +27,11 @@ export default function InsightPopUpWrapper() {
             setIsClosing(false);
             if(currentInsight.isIceBreaker) {
                 setTimeout(() => {
-                    setDisplayMessage(currentInsight.message);
+                    setDisplayMessage(currentInsight);
                     handleClose(true)
                 }, 3000);
             } else {
-                setDisplayMessage(currentInsight.message);
+                setDisplayMessage(currentInsight);
                 handleClose(false)
             }
         } 
@@ -41,7 +41,8 @@ export default function InsightPopUpWrapper() {
         <>
             {displayMessage && (
                 <InsightPopUp 
-                    message={displayMessage} 
+                    message={displayMessage.message} 
+                    isIceBreaker={displayMessage.isIceBreaker}
                     isClosing={isClosing} 
                 />
             )}
