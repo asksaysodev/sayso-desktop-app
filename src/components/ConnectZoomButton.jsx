@@ -3,13 +3,17 @@ import '../styles/ZoomButton.css';
 import { useAuth } from '../context/AuthContext';
 import { useZoom } from '../hooks/useZoom';
 
+// Check if we're in Electron environment
+const isElectron = window.electron && window.electron.openExternal;
+
 const ConnectZoomButton = () => {
   const { globalUser, updateGlobalUser } = useAuth();
   const { disconnectZoom } = useZoom();
   
+  
   const handleConnect = async () => {
+    
     if(!globalUser) {
-      console.log('No global user found');
       return;
     }
 
@@ -17,7 +21,22 @@ const ConnectZoomButton = () => {
       await disconnectZoom(globalUser?.id);
       updateGlobalUser(globalUser?.email); 
     } else {
-      window.location.href = `${import.meta.env.VITE_BACKEND_BASE_URL}/zoom/auth/${globalUser?.id}`;
+      const authUrl = `${import.meta.env.VITE_BACKEND_BASE_URL}/zoom/auth/${globalUser?.id}`;
+      
+      if (isElectron) {
+        try {
+          // In Electron: open in external browser and reset to home
+          window.electron.openExternal(authUrl);
+          // The main process will handle reset-to-home automatically
+        } catch (error) {
+          console.error('❌ [ConnectZoomButton] Error calling openExternal:', error);
+          // Fallback to window.location.href
+          window.location.href = authUrl;
+        }
+      } else {
+        // In web browser: navigate normally
+        window.location.href = authUrl;
+      }
     }
     
   };

@@ -129,9 +129,7 @@ const ProspectDetailView = ({ prospect, setSelectedProspect }) => {
   const handleRemoveZoomMeeting = async () => {
 
     try {
-      console.log('Removing zoom meeting for prospect:', prospect.id);
       await removeZoomMeeting(prospect.id);
-      console.log('Zoom meeting removed for prospect:', prospect.id);
       await fetchProspect(prospect.id);
     } catch (error) {
       console.error('Error removing zoom meeting:', error);
@@ -174,12 +172,12 @@ const ProspectDetailView = ({ prospect, setSelectedProspect }) => {
   const handleLiveCoach = async () => {
 
     if(!globalUser) {
-      console.log('No global user found');
+  
       return;
     }
 
     if(!currentProspect?.next_meeting_id) {
-      console.log('No meeting found');
+
       return;
     }
 
@@ -406,7 +404,7 @@ const ProspectDetailView = ({ prospect, setSelectedProspect }) => {
 // Main Dashboard Component
 const Dashboard = () => {
   const { prospects, loading, setProspects } = useProspectsContext();
-  const { globalUser, signOut } = useAuth();
+  const { globalUser, signOut, updateGlobalUser } = useAuth();
   const [selectedProspect, setSelectedProspect] = useState(null);
   const [isAddingProspect, setIsAddingProspect] = useState(false);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
@@ -419,7 +417,7 @@ const Dashboard = () => {
 
   const {  handleNewProspect } = useProspects()
   const { handleUploadFiles, fetchFiles, removeFile } = useFiles();
-  const { setCurrentInsight, isChecklistVisible, setIsChecklistVisible } = useSalesCoachContext();
+  // const { setCurrentInsight, isChecklistVisible, setIsChecklistVisible } = useSalesCoachContext();
 
   const handleRemoveFile = async (fileId) => {
     try {
@@ -430,9 +428,10 @@ const Dashboard = () => {
   }
 
 
-  const handleAccountSettingsClick = () => {
+  const handleAccountSettingsClick = async () => {
     setSelectedProspect(null);
     setIsAddingProspect(false);
+    await updateGlobalUser(globalUser?.email);
     setIsAccountSettingsOpen(true);
   };
 

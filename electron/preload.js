@@ -32,8 +32,10 @@ try {
       }
       // You can add other specific methods you frequently use if desired
     },
-    // Example: Exposing other specific Electron APIs if needed
-    // getAppVersion: () => ipcRenderer.invoke('get-app-version'), // Needs handler in main
+    // Add openExternal method for opening URLs in external browser
+    openExternal: (url) => {
+      ipcRenderer.send('open-external', url);
+    }
   });
 
   // Extract --indexHtmlPath from process.argv

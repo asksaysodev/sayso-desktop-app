@@ -65,11 +65,9 @@ export const SalesCoachProvider = ({ children }) => {
       }
 
       const response = await getDynamicContext(data);
-      console.log('dynamicContext response', response);
       
       // Extract the nested dynamicContext property
       const dynamicContext = response.dynamicContext;
-      console.log('extracted dynamicContext', dynamicContext);
 
       return dynamicContext;
       
@@ -90,12 +88,10 @@ export const SalesCoachProvider = ({ children }) => {
       }
       
       const isRecent = transcriptTime >= cutoffTime;
-      console.log('🔍 Transcript timestamp:', transcript.timestamp, '-> processed:', transcriptTime, 'isRecent:', isRecent);
       
       return isRecent;
     });
     
-    console.log('🔍 Filtered transcripts count:', filtered.length);
     return filtered;
   };
 
@@ -106,21 +102,15 @@ export const SalesCoachProvider = ({ children }) => {
 
   const processTranscriptsForInsights = useCallback(async () => {
 
-
-
-    console.log('processTranscriptsForInsights runs at', new Date().toISOString());
-
     try {
 
       //WE NEED TO GET THE LAST 45 SECONDS OF THE CALL IN TRANSCRIPTIONS
       // Access transcriptions directly from the current state
       const currentTranscriptions = transcriptionsRef.current;
-      console.log('🔍 Current transcriptions in processing:', currentTranscriptions.length);
       
       const recentTranscripts = getLast45SecondsOfTranscripts();
       
       if (recentTranscripts.length === 0) {
-        console.log('🔄 No recent transcripts to process');
         return;
       }
       
@@ -131,15 +121,11 @@ export const SalesCoachProvider = ({ children }) => {
       //THEN WE NEED TO GET THE DYNAMIC CONTEXT
       const dynamicContext = await handleGetDynamicContext(conversationContext);
 
-      console.log('dynamicContext', dynamicContext);
-
       const signals = await trackSignals(conversationContext);
 
       setSignalReceived(signals);
 
       const chatCompletionResponse = await runChatCompletion(conversationContext, dynamicContext, insights, signals); 
-
-      console.log('chatCompletionResponse', chatCompletionResponse);
 
       if(chatCompletionResponse.Insight === 'yes' && chatCompletionResponse.Message !== '') {
 
@@ -154,7 +140,6 @@ export const SalesCoachProvider = ({ children }) => {
         setCurrentInsight(message);
       }
       
-      console.log('✅ Processed transcripts for insights');
     } catch (error) {
       console.error('❌ Error processing transcripts:', error);
     }
@@ -183,7 +168,6 @@ export const SalesCoachProvider = ({ children }) => {
         }
       });
       
-      console.log('Updated signals:', newSignals);
       return newSignals;
     });
   }, [signalReceived]);
@@ -200,11 +184,8 @@ export const SalesCoachProvider = ({ children }) => {
             timestamp: data.timestamp 
           };
           
-          console.log('🔍 Received transcription:', newTranscription);
-          
           setTranscriptions(prev => {
             const updated = [...prev, newTranscription].sort((a, b) => a.timestamp - b.timestamp);
-            console.log('🔍 State update - prev length:', prev.length, 'new length:', updated.length);
             // Update the ref with the latest transcriptions
             transcriptionsRef.current = updated;
             return updated;
@@ -227,16 +208,13 @@ export const SalesCoachProvider = ({ children }) => {
   useEffect(() => {
     
     if (isCallActive && transcriptions.length > 2 && hasRecentTranscripts() && !timerStartedRef.current) {
-      console.log('🎯 Starting transcript processing timer');
       timerStartedRef.current = true;
       
       // 🎯 ONE-TIME TRIGGER GOES HERE - this will only run once when conditions are first met
       // Add your one-time logic here
-      console.log('🚀 One-time trigger activated!');
       
       // Start your timer here
       const startTime = Date.now();
-      console.log('⏱️ Timer started at:', new Date(startTime).toISOString());
       
       // You can store the start time in state or ref if needed
       setTimerStartTime(startTime);
@@ -257,7 +235,6 @@ export const SalesCoachProvider = ({ children }) => {
       
     } else if (!isCallActive && timerStartedRef.current) {
       // Clean up when call ends
-      console.log('🛑 Stopping transcript processing timer');
       clearInterval(intervalRef.current);
       intervalRef.current = null;
       timerStartedRef.current = false;
@@ -281,10 +258,6 @@ export const SalesCoachProvider = ({ children }) => {
       checklistShownRef.current = false;
     }
   }, [isCallActive, transcriptions.length]);
-
-  useEffect(() => {
-    console.log('callProgress', callProgress);
-  }, [callProgress]);
 
   // Update call progress every minute when timer is active
   useEffect(() => {

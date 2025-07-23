@@ -29,7 +29,6 @@ const FileListContainer = ({ files, onRemoveFile, title = "Selected Files:", isE
         width: '100%'
       }}>
         {files.map((file, idx) => (
-          console.log('file', file),
           <li key={idx} style={{ 
             display: 'flex', 
             alignItems: 'center', 

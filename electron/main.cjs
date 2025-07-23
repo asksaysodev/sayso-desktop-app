@@ -371,6 +371,29 @@ ipcMain.on('launch-call-windows', () => {
   createSideInfoWindow();
 });
 
+// Handler for opening URLs externally
+ipcMain.on('open-external', (event, url) => {
+  console.log('🎯 [Electron][open-external] IPC event received!');
+  console.log('🎯 [Electron][open-external] URL:', url);
+  console.log('🎯 [Electron][open-external] Event sender window ID:', event.sender.id);
+  
+  try {
+    shell.openExternal(url);
+    console.log('✅ [Electron][open-external] URL opened externally successfully');
+    
+    // If it's a Zoom OAuth URL, send reset-to-home
+    if (url.includes('zoom/auth')) {
+      console.log('🔄 [Electron][open-external] Zoom auth detected, sending reset-to-home');
+      BrowserWindow.getAllWindows().forEach(win => {
+        console.log('📤 [Electron][open-external] Sending reset-to-home to window:', win.id);
+        win.webContents.send('reset-to-home', {});
+      });
+    }
+  } catch (error) {
+    console.error('❌ [Electron][open-external] Error opening URL externally:', error);
+  }
+});
+
 ipcMain.on('close-call-windows', () => {
   console.log('IPC: Received close-call-windows');
   if (mainTipWindowInstance) {
@@ -672,15 +695,20 @@ app.on('web-contents-created', (event, contents) => {
         console.log('[Electron][DEBUG] will-navigate: Sending reset-to-home to window:', win.id, { meetingId, prospectId });
         win.webContents.send('reset-to-home', { meetingId, prospectId });
       });
+    } else if (url.startsWith('https://zoom.us/oauth')) {
+      event.preventDefault();
+      shell.openExternal(url);
+      console.log('[Electron][will-navigate] Opened Zoom OAuth URL externally:', url);
+      // Send reset-to-home to ALL windows when Zoom OAuth is detected
+      BrowserWindow.getAllWindows().forEach(win => {
+        console.log('[Electron][will-navigate] Sending reset-to-home to window:', win.id, 'for Zoom OAuth');
+        win.webContents.send('reset-to-home', {});
+      });
     }
   });
 
   contents.setWindowOpenHandler(({ url }) => {
-    console.log('[Electron][DEBUG] setWindowOpenHandler triggered:', {
-      url,
-      windowId: contents.id,
-      stack: new Error().stack
-    });
+    console.log('[Electron][setWindowOpenHandler] Attempt to open URL:', url);
     if (url.includes('post-call')) {
       shell.openExternal(url);
       // Extract meetingId and prospectId from query parameters
@@ -688,14 +716,53 @@ app.on('web-contents-created', (event, contents) => {
       const params = new URLSearchParams(urlObj.search);
       const meetingId = params.get('meetingId');
       const prospectId = params.get('prospectId');
-      console.log('[Electron][DEBUG] setWindowOpenHandler: Extracted params:', { meetingId, prospectId });
+      console.log('[Electron][setWindowOpenHandler] Extracted params:', { meetingId, prospectId });
       BrowserWindow.getAllWindows().forEach(win => {
-        console.log('[Electron][DEBUG] setWindowOpenHandler: Sending reset-to-home to window:', win.id, { meetingId, prospectId });
+        console.log('[Electron][setWindowOpenHandler] Sending reset-to-home to window:', win.id, { meetingId, prospectId });
         win.webContents.send('reset-to-home', { meetingId, prospectId });
+      });
+      return { action: 'deny' };
+    } else if (url.startsWith('https://zoom.us/oauth')) {
+      shell.openExternal(url);
+      console.log('[Electron][setWindowOpenHandler] Opened Zoom OAuth URL externally:', url);
+      // Send reset-to-home to ALL windows when Zoom OAuth is detected
+      BrowserWindow.getAllWindows().forEach(win => {
+        console.log('[Electron][setWindowOpenHandler] Sending reset-to-home to window:', win.id, 'for Zoom OAuth');
+        win.webContents.send('reset-to-home', {});
       });
       return { action: 'deny' };
     }
     return { action: 'allow' };
+  });
+
+  contents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+    console.log('[Electron][webRequest.onBeforeRequest] URL:', details.url);
+    if (details.url.startsWith('https://zoom.us/oauth')) {
+      shell.openExternal(details.url);
+      console.log('[Electron][webRequest.onBeforeRequest] Opened Zoom OAuth URL externally:', details.url);
+      // Send reset-to-home to ALL windows when Zoom OAuth is detected
+      BrowserWindow.getAllWindows().forEach(win => {
+        console.log('[Electron][webRequest.onBeforeRequest] Sending reset-to-home to window:', win.id, 'for Zoom OAuth');
+        win.webContents.send('reset-to-home', {});
+      });
+      callback({ cancel: true });
+    } else {
+      callback({});
+    }
+  });
+
+  contents.on('did-get-redirect-request', (event, oldUrl, newUrl) => {
+    console.log('[Electron][did-get-redirect-request] Redirect from:', oldUrl, 'to:', newUrl);
+    if (newUrl.startsWith('https://zoom.us/oauth')) {
+      event.preventDefault();
+      shell.openExternal(newUrl);
+      console.log('[Electron][did-get-redirect-request] Opened Zoom OAuth URL externally:', newUrl);
+      // Send reset-to-home to ALL windows when Zoom OAuth is detected
+      BrowserWindow.getAllWindows().forEach(win => {
+        console.log('[Electron][did-get-redirect-request] Sending reset-to-home to window:', win.id, 'for Zoom OAuth');
+        win.webContents.send('reset-to-home', {});
+      });
+    }
   });
 });
 

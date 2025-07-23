@@ -32,7 +32,6 @@ export const useFiles = () => {
   };
 
   const handleParseFile = async (fileSignedUrl, originalFileId, folderId) => {
-    console.log('handleParseFile called with:', fileSignedUrl, originalFileId, folderId);
     try {
       const endpoint = `${import.meta.env.VITE_BACKEND_BASE_URL}/files/parse/${folderId}`;
       const response = await axios.post(endpoint, {
@@ -93,8 +92,6 @@ export const useFiles = () => {
 
   const handleUploadFiles = async (files, type, parentId) => {
 
-    console.log('handleUploadFile called with:', files, type, parentId);
-
     if(!files || files.length === 0) {
       console.error('No files provided');
       return;
@@ -114,7 +111,6 @@ export const useFiles = () => {
 
     for (const file of files) {
 
-      console.log('uploading file:', file);
       try {
         const endpoint = `${import.meta.env.VITE_BACKEND_BASE_URL}/files/upload`;
         
@@ -124,19 +120,12 @@ export const useFiles = () => {
         formData.append('type', type);
         formData.append('parent_id', parentId);
   
-        console.log('FormData contents:');
-        for (let pair of formData.entries()) {
-          console.log(pair[0], pair[1]);
-        }
-
         const response = await axios.post(endpoint, formData, {
           headers: {
             'Authorization': `Bearer ${authToken}`,
             'Content-Type': 'multipart/form-data'
           }
         });
-
-        console.log('response:', response.data);
 
         uploadedFiles.push(response.data);
 

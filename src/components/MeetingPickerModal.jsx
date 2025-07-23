@@ -15,11 +15,9 @@ const MeetingPickerModal = ({ isOpen, onClose, prospectId, handleSaveProspectMee
     const { formatTime } = useTimes();
 
     useEffect(() => {
-        console.log('fetching meetings');
         const fetchMeetings = async () => {
             try {
                 const response = await getZoomMeetings(globalUser.id);
-                console.log('Zoom meetings response:', response);
                 setMeetings(response.meetings);
             } catch (error) {
                 console.error('Error fetching meetings:', error);
@@ -28,10 +26,6 @@ const MeetingPickerModal = ({ isOpen, onClose, prospectId, handleSaveProspectMee
         }
         fetchMeetings();
     }, []);
-
-    useEffect(() => {
-        console.log('meetings:', meetings);
-    }, [meetings]);
 
     const handleMeetingClick = async (meeting) => {
 

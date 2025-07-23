@@ -34,8 +34,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     // Check active sessions and sets the user
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      // console.log('Initial session check:', session?.user?.email)
+      supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       prevUserRef.current = session?.user ?? null
       setLoading(false)
@@ -43,7 +42,6 @@ export const AuthProvider = ({ children }) => {
 
     // Listen for changes on auth state (sign in, sign out, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // console.log('Auth state change event:', event, session?.user?.email)
       
       // Only update state for actual auth events
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
@@ -71,7 +69,6 @@ export const AuthProvider = ({ children }) => {
       // Add a small delay to prevent rapid re-fetching
       timeoutId = setTimeout(() => {
         getAccount(user.email).then((account) => {
-          // console.log('Fetching account for:', user.email)
           setGlobalUser(account)
           setUserLoading(false)
         })

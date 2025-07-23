@@ -35,7 +35,7 @@ export const ZoomClient = () => {
   // Initialize camera permissions early
   const initializeCamera = useCallback(async () => {
     try {
-      console.log('🎥 Initializing camera permissions...');
+      
       
       // Check if we're in Electron
       const isElectron = window.electron && window.electron.ipcRenderer;
@@ -111,12 +111,15 @@ export const ZoomClient = () => {
     try {
       setIsLoading(true);
       setError(null);
-      
+
       const meetingDetails = await getMeetingDetails(globalUser.id, meetingId);
-      setMeetingDetails(meetingDetails);
+      
       
       if (meetingDetails) {
+        setMeetingDetails(meetingDetails);
+        
         const signature = await getSignature(meetingDetails.id, 1);
+        
         setSignature(signature);
         
         await startMeeting(
@@ -127,10 +130,24 @@ export const ZoomClient = () => {
           globalUser.name || "Sayso User",
           globalUser.email
         );
+      } else {
+        console.error('❌ [ZoomClient] No meeting details received');
+        setError("No meeting details found. Please check if the meeting exists and you have access to it.");
       }
     } catch (error) {
-      console.error("❌ Error fetching meeting details:", error);
-      setError("Failed to start meeting. Please try again.");
+      console.error("❌ [ZoomClient] Error fetching meeting details:", error);
+      console.error("❌ [ZoomClient] Error response:", error.response?.data);
+      console.error("❌ [ZoomClient] Error status:", error.response?.status);
+      
+      if (error.response?.status === 500) {
+        setError("Backend error: Unable to fetch meeting details. Please check if your Zoom account is properly connected.");
+      } else if (error.response?.status === 401) {
+        setError("Authentication error: Please reconnect your Zoom account.");
+      } else if (error.response?.status === 404) {
+        setError("Meeting not found: The meeting ID might be invalid or you don't have access to it.");
+      } else {
+        setError(`Failed to start meeting: ${error.message || 'Unknown error'}`);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -138,12 +155,12 @@ export const ZoomClient = () => {
 
   const handleManualPermission = async () => {
     try {
-      console.log('🔐 Requesting media permissions...');
+      
       const granted = await requestMediaPermissions();
       setPermissionStatus(granted ? 'granted' : 'denied');
       
       if (granted) {
-        console.log('✅ Media permissions granted, initializing camera...');
+        
         const cameraReady = await initializeCamera();
         if (cameraReady) {
           await getMeetingDetailsAndSignature();
@@ -159,15 +176,39 @@ export const ZoomClient = () => {
 
   useEffect(() => {
     if (meetingId && globalUser) {
-        console.log('🎯 Starting Zoom client with meetingId:', meetingId);
-        console.log('👤 globalUser:', globalUser);
+          
         handleManualPermission();
     }
   }, [meetingId, globalUser]);
 
   return (
     <div>
-      {signature && meetingDetails && (
+      {isLoading && (
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <p className="text-lg text-gray-600">Loading Zoom meeting...</p>
+          </div>
+        </div>
+      )}
+      
+      {error && (
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center max-w-md mx-auto p-6 bg-red-50 border border-red-200 rounded-lg">
+            <div className="text-red-500 text-4xl mb-4">⚠️</div>
+            <h3 className="text-lg font-semibold text-red-800 mb-2">Meeting Error</h3>
+            <p className="text-red-600 mb-4">{error}</p>
+            <button 
+              onClick={() => window.history.back()} 
+              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+            >
+              Go Back
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {signature && meetingDetails && !isLoading && !error && (
         <div className="flex items-center justify-center h-screen governmenthooka">
           <div id="zmmtg-root" style={{
             display: 'block',
@@ -176,11 +217,8 @@ export const ZoomClient = () => {
             background: 'white',
             minWidth: '800px'
           }}></div>
-          
         </div>
-        
       )}
-      
     </div>
   );
 };

@@ -38,32 +38,21 @@ function App() {
   useEffect(() => {
     // Check if we're in Electron and the API is available
     if (window.electron && window.electron.ipcRenderer) {
-      console.log('🔌 Setting up reset-to-home listener...');
-      
       const cleanup = window.electron.ipcRenderer.on('reset-to-home', (params) => {
-        console.log('🎯 Received reset-to-home from main process!', params);
-        console.log('🔍 DEBUG: params type:', typeof params);
-        console.log('🔍 DEBUG: params keys:', params ? Object.keys(params) : 'null/undefined');
-        
         // Extract meetingId and prospectId from params
         const { meetingId, prospectId } = params || {};
-        console.log('🔍 DEBUG: Extracted meetingId:', meetingId, 'prospectId:', prospectId);
         
         if (meetingId && prospectId) {
-          const targetRoute = `/post-call/${meetingId}/${prospectId}`;
-          console.log('🚀 Navigating to:', targetRoute);
+          const targetRoute = `/post-call/${meetingId}/${prospectId}`; 
           // Use React Router's navigate instead of window.location.hash
           navigate(targetRoute);
-          console.log('✅ Navigation completed');
         } else {
-          console.log('⚠️ No meetingId or prospectId found, navigating to home');
           // Use React Router's navigate instead of window.location.hash
           navigate('/');
         }
       });
       
-      return () => {
-        console.log('🧹 Cleaning up reset-to-home listener...');
+      return () => {  
         if (cleanup && typeof cleanup === 'function') {
           cleanup();
         }

@@ -19,7 +19,6 @@ export const useProspects = () => {
   };
 
   const createProspect = async (prospect) => {
-    console.log("createProspect called with:", prospect);
 
     const { data, error } = await supabase
       .from('prospects')
@@ -30,12 +29,10 @@ export const useProspects = () => {
       console.error('Error creating prospect:', error);
       throw error;
     }
-    console.log("createProspect result data:", data);
     return data?.[0] || null;
   };
 
   const addProspectFiles = async (prospectId, files) => {
-    console.log('addProspectFiles called with:', prospectId, files);
     try {
       const uploadedFiles = [];
 

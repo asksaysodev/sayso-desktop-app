@@ -14,16 +14,6 @@ export const getDynamicContext = async (data) => {
 const formatDynamicContext = (dynamicContext) => {
   if (!dynamicContext) return 'No context available';
   
-  // Debug logging to see the actual structure
-  console.log('🔍 DEBUG: formatDynamicContext received:', {
-    hasDynamicContext: !!dynamicContext,
-    dynamicContextKeys: Object.keys(dynamicContext),
-    prospectContext: dynamicContext.prospectContext,
-    accountContext: dynamicContext.accountContext,
-    prospectContextLength: dynamicContext.prospectContext?.length,
-    accountContextLength: dynamicContext.accountContext?.length
-  });
-  
   let contextText = 'CONTEXT FOR SALES COACHING:\n\n';
   
   // Handle prospect context
@@ -62,7 +52,6 @@ const formatDynamicContext = (dynamicContext) => {
     contextText += '- Prioritize product-specific guidance over general sales advice\n';
   }
   
-  console.log('🔍 DEBUG: Final context text length:', contextText.length);
   return contextText;
 };
 
@@ -156,8 +145,7 @@ export const trackSignals = async (currentConversation) => {
     });
 
     const chatCompletionResponse = response.data.response;
-    
-    console.log('🔍 trackSignals raw response:', chatCompletionResponse);
+
 
     // Add better error handling for JSON parsing
     let parsedResponse;
@@ -215,7 +203,6 @@ export const trackSignals = async (currentConversation) => {
       };
     });
 
-    console.log('✅ trackSignals validated response:', validatedResponse);
     return validatedResponse;
 
   } catch (error) {
@@ -236,18 +223,7 @@ export const runChatCompletion = async (currentConversation, dynamicContext, pre
     throw new Error('Missing required parameters');
   }
 
-  try {
-
-    // Debug logging to see what we're receiving
-    console.log('🔍 DEBUG: runChatCompletion received:', {
-      hasCurrentConversation: !!currentConversation,
-      hasDynamicContext: !!dynamicContext,
-      hasPreviousInsights: !!previousInsights,
-      dynamicContextType: typeof dynamicContext,
-      dynamicContextKeys: Object.keys(dynamicContext || {}),
-      dynamicContextValue: dynamicContext,
-      previousInsightsSample: previousInsights?.[0] // Log first insight to see structure
-    });
+  try {   
 
     // Parse previous insights - they might be objects with Message property
     const previousInsightsFormatted = previousInsights.map((insight, index) => {

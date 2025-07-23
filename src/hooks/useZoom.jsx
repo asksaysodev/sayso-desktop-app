@@ -11,20 +11,16 @@ export const useZoom = () => {
     });
 
     const getZoomMeetings = async (userId) => {
-        console.log('📋 fetching getZoomMeetings');
         const response = await axios.get(`${import.meta.env.VITE_BACKEND_BASE_URL}/zoom/meetings/${userId}`);
-        console.log('📋 getZoomMeetings response:', response);
         return response.data;
     }
 
     // Enhanced media permissions request
     const requestMediaPermissions = useCallback(async () => {
         try {
-            console.log('🎥 Requesting media permissions...');
             
             // Check if we're in Electron
             const isElectron = window.electron && window.electron.ipcRenderer;
-            console.log('🔌 Running in Electron:', isElectron);
             
             // Check if mediaDevices is available
             if (!navigator.mediaDevices) {
@@ -46,15 +42,7 @@ export const useZoom = () => {
                     facingMode: 'user'
                 }
             });
-            
-            console.log('✅ Media permissions granted successfully');
-            console.log('📹 Video tracks:', stream.getVideoTracks().length);
-            console.log('🎤 Audio tracks:', stream.getAudioTracks().length);
-            
-            // Log device details
-            stream.getTracks().forEach(track => {
-                console.log(`📱 Track: ${track.kind} - ${track.label} (enabled: ${track.enabled})`);
-            });
+        
             
             // Stop the test stream
             stream.getTracks().forEach(track => track.stop());
@@ -92,7 +80,6 @@ export const useZoom = () => {
 
         try {
             const response = await axios.get(`${import.meta.env.VITE_BACKEND_BASE_URL}/zoom/meeting-details/${userId}/${meetingId}`);
-            console.log('📋 response', response.data);
             return response.data;
 
         } catch (error) {
@@ -102,14 +89,11 @@ export const useZoom = () => {
     }, []);
 
     const disconnectZoom = useCallback(async (userId) => {
-        console.log('🔌 disconnecting Zoom');
         const response = await axios.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/zoom/disconnect/${userId}`);
-        console.log('🔌 disconnectZoom response', response.data);
         return response.data;
     }, []);
 
     const getSignature = useCallback(async (meetingNumber, role) => {
-        console.log('🔐 getSignature', meetingNumber, role);
         if(!meetingNumber || !role) {
             throw new Error('Meeting number and role are required');
         }

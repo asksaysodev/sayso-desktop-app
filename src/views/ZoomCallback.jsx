@@ -41,7 +41,7 @@ export default function ZoomCallback() {
         // Handle protocol callback (for Electron app)
         if (window.electron?.ipcRenderer) {
             const cleanup = window.electron.ipcRenderer.on('zoom-callback', (data) => {
-                console.log('Received zoom callback via protocol:', data);
+        
                 setConnected(data.connected);
             });
             

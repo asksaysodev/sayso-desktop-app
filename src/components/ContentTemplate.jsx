@@ -27,9 +27,6 @@ const ContentTemplate = ({
     setSelectedFiles(prevFiles => prevFiles.filter((_, index) => index !== indexToRemove));
   };
 
-  // useEffect(() => {
-  //   console.log('isCallActive in ContentTemplate', isCallActive);
-  // }, [isCallActive]);
 
   return (
     <div className={`content-template ${className}`} style={{ position: 'relative' }}>

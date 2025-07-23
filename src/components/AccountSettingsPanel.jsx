@@ -27,7 +27,6 @@ const AccountSettingsPanel = ({ onSave, onCancel }) => {
       return;
     }
     setIsLoading(true);
-    console.log('Submitting:', { companyName, companyEmail, files });
     // Call the onSave prop with the data
     onSave({ companyName, companyEmail, files }); 
     setIsLoading(false);

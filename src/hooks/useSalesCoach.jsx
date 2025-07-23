@@ -18,7 +18,6 @@ export const useSalesCoach = () => {
           'Authorization': `Bearer ${authToken}`
         }
       });
-      console.log('retuning iceBreaker', response.data.iceBreaker);
       return response.data.iceBreaker;
     } catch (error) {
       console.error('Error in getIceBreaker:', error);
@@ -28,7 +27,6 @@ export const useSalesCoach = () => {
 
 
   const handleNewCall = useCallback(async (prospectId, accountId, meetingId) => {
-    console.log("handleNewCall Gaga");
     if (!globalUser?.id) {
       throw new Error('Global user not found');
     }
@@ -45,7 +43,6 @@ export const useSalesCoach = () => {
       const iceBreaker = await getIceBreaker(prospectId);
 
       if(iceBreaker) {
-        // console.log('iceBreaker', iceBreaker);
 
         const iceBreakerMessage = {
           message: iceBreaker.iceBreaker,
@@ -108,11 +105,9 @@ export const useSalesCoach = () => {
   
 
   const handleStopLiveCoach = useCallback(async (meetingId, prospectId) => {
-    console.log('🛑 DEBUG: handleStopLiveCoach called');
     stopLiveCoach();
     setIsCallActive(false);
     const summary = await getCallSummary(meetingId, prospectId);
-    console.log(summary);
   }, [stopLiveCoach, setIsCallActive, getCallSummary]);
 
 
