@@ -14,7 +14,8 @@ const ContentTemplate = ({
   centerBody = false,
   fullWidthButton,
   displayFullWidthButton = true,
-  isCallActive = false
+  isCallActive = false,
+  connections
 }) => {
   const [selectedFiles, setSelectedFiles] = useState([]);
 
@@ -74,6 +75,11 @@ const ContentTemplate = ({
                     isGreen={fullWidthButton.isGreen}
                     isCallActive={isCallActive}
                   />
+                </div>
+              )}
+              {connections && (
+                <div style={{ width: '100%' }}>
+                  {connections}
                 </div>
               )}
             </div>

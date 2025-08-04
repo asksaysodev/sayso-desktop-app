@@ -22,9 +22,25 @@ export const AuthProvider = ({ children }) => {
       const account = await getAccount(accountEmail);
       setGlobalUser(account);
     } catch (error) {
-      console.error('Error updating global user:', error);
+      console.error('Error updating global user:', error); 
     }
   }
+
+  // Handle session expiration
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      console.log('🔐 AuthContext: Session expired event received');
+      setUser(null);
+      setGlobalUser(null);
+      setAuthToken(null);
+    };
+
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+
+    return () => {
+      window.removeEventListener('auth:session-expired', handleSessionExpired);
+    };
+  }, []);
 
   useEffect(() => {
     // Skip auth check for /zoom-success
@@ -109,7 +125,30 @@ export const AuthProvider = ({ children }) => {
     authToken,
     userLoading,
     loading,
-    updateGlobalUser
+    updateGlobalUser,
+    // Debug function to check auth storage
+    debugAuthStorage: () => {
+      const storageKey = 'sayso-auth';
+      const storedData = localStorage.getItem(storageKey);
+      
+      console.log('🔐 Auth Storage Debug:');
+      console.log('Storage key:', storageKey);
+      console.log('Data exists:', !!storedData);
+      
+      if (storedData) {
+        try {
+          const parsed = JSON.parse(storedData);
+          console.log('Current user:', parsed.currentSession?.user?.email);
+          console.log('Token expires:', parsed.currentSession?.expires_at);
+          console.log('Is expired:', new Date(parsed.currentSession?.expires_at * 1000) < new Date());
+          console.log('Full auth data:', parsed);
+        } catch (error) {
+          console.error('Error parsing auth data:', error);
+        }
+      }
+      
+      return storedData;
+    }
   }
 
   return (

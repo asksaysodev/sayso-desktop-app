@@ -2,22 +2,18 @@ import { useCallback, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAudioCapture } from './useAudioCapture';
 import { useSalesCoachContext } from '../context/SalesCoachContext';
-import axios from 'axios';
+import apiClient from '../config/axios';
+import { v4 } from 'uuid';
 
 export const useSalesCoach = () => {
 
-  const { globalUser, authToken } = useAuth();
+  const { globalUser } = useAuth();
   const { startLiveCoach, stopLiveCoach } = useAudioCapture();
-  const { setIsCallActive, setIceBreaker, setCurrentInsight, setProspectId, setAccountId } = useSalesCoachContext();
+  const { setIsCallActive, setIceBreaker, setCurrentInsight, setProspectId, setAccountId, setSessionId } = useSalesCoachContext();
 
   const getIceBreaker = useCallback(async (prospectId) => {
     try {
-      const response = await axios.get(`${import.meta.env.VITE_BACKEND_BASE_URL}/sales-coach/ice-breaker/${prospectId}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
-        }
-      });
+      const response = await apiClient.get(`/sales-coach/ice-breaker/${prospectId}`);
       return response.data.iceBreaker;
     } catch (error) {
       console.error('Error in getIceBreaker:', error);
@@ -51,8 +47,9 @@ export const useSalesCoach = () => {
         setCurrentInsight(iceBreakerMessage);
 
       }
-      
-      startLiveCoach({ accountId, prospectId, meetingId });
+      const newSessionId = v4();
+      setSessionId(newSessionId);
+      startLiveCoach({ accountId, prospectId, meetingId, sessionId: newSessionId });
       setIsCallActive(true);
       return;
       
@@ -65,34 +62,26 @@ export const useSalesCoach = () => {
   }, [globalUser, getIceBreaker, setIceBreaker, startLiveCoach, setIsCallActive]);
 
 
-  const getCallSummary = useCallback(async (meetingId, prospectId) => {
+  const getCallSummary = useCallback(async (meetingId, prospectId, sessionId) => {
 
     try {
-      if(!meetingId) {
-        throw new Error('Meeting ID is required');
-      }
-      if(!prospectId) {
-        throw new Error('Prospect ID is required');
-      }
-  
-      if (!authToken) {
-        throw new Error('Authentication token is required');
+
+      const accountId = globalUser?.id;
+
+      if(!meetingId || !prospectId || !accountId) {
+        throw new Error('Meeting ID, prospect ID, and account ID are required');
       }
 
       const data = {
         meetingId,
-        prospectId
+        prospectId,
+        accountId,
+        sessionId
       }
 
-      const response = await axios.post(
-        `${import.meta.env.VITE_BACKEND_BASE_URL}/sales-coach/call-summary`,
+      const response = await apiClient.post(
+        '/sales-coach/call-summary',
         data,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`
-          }
-        }
       );
 
       return response.data.summary;
@@ -100,15 +89,21 @@ export const useSalesCoach = () => {
       console.error('Error in getCallSummary:', error);
     }
     
-  }, [authToken]);
+  }, []);
 
   
 
-  const handleStopLiveCoach = useCallback(async (meetingId, prospectId) => {
+  const handleStopLiveCoach = useCallback(async (meetingId, prospectId, sessionId) => {
+    setSessionId(null);
     stopLiveCoach();
     setIsCallActive(false);
-    const summary = await getCallSummary(meetingId, prospectId);
+    await getCallSummary(meetingId, prospectId, sessionId);
+    // Removed window.location.reload() to prevent Electron app issues
   }, [stopLiveCoach, setIsCallActive, getCallSummary]);
+
+  const handleRestartApp = useCallback(async () => {
+    window.location.reload();
+  }, []);
 
 
 
@@ -118,5 +113,6 @@ export const useSalesCoach = () => {
     handleStopLiveCoach,
     getCallSummary,
     getIceBreaker,
+    handleRestartApp,
   };
 };

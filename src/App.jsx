@@ -40,10 +40,10 @@ function App() {
     if (window.electron && window.electron.ipcRenderer) {
       const cleanup = window.electron.ipcRenderer.on('reset-to-home', (params) => {
         // Extract meetingId and prospectId from params
-        const { meetingId, prospectId } = params || {};
+        const { meetingId, prospectId, sessionId } = params || {};
         
         if (meetingId && prospectId) {
-          const targetRoute = `/post-call/${meetingId}/${prospectId}`; 
+          const targetRoute = `/post-call/${meetingId}/${prospectId}/${sessionId}`; 
           // Use React Router's navigate instead of window.location.hash
           navigate(targetRoute);
         } else {
@@ -76,8 +76,8 @@ function App() {
                     }
                   />
                   <Route path="/zoom-callback" element={<ZoomCallback />} />
-                  <Route path="/post-call/:meetingId/:prospectId" element={<PostCall />} />
-                  <Route path="/zoom-client-new/:meetingId/:prospectId" element={<ZoomClient />} />
+                  <Route path="/post-call/:meetingId/:prospectId/:sessionId" element={<PostCall />} />
+                  <Route path="/zoom-client-new/:meetingId/:prospectId/:sessionId" element={<ZoomClient />} />
                 </Routes>
                 <InsightPopUpWrapper />
               </div>

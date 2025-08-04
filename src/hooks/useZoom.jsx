@@ -1,17 +1,15 @@
 import { useState, useCallback } from 'react';
-import { useAuth } from '../context/AuthContext';
-import axios from 'axios';
+import apiClient from '../config/axios';
 
 export const useZoom = () => {
 
-    // const { globalUser, authToken } = useAuth();
     const [mediaPermissions, setMediaPermissions] = useState({
         audio: false,
         video: false
     });
 
     const getZoomMeetings = async (userId) => {
-        const response = await axios.get(`${import.meta.env.VITE_BACKEND_BASE_URL}/zoom/meetings/${userId}`);
+        const response = await apiClient.get(`/zoom/meetings/${userId}`);
         return response.data;
     }
 
@@ -79,7 +77,7 @@ export const useZoom = () => {
         }
 
         try {
-            const response = await axios.get(`${import.meta.env.VITE_BACKEND_BASE_URL}/zoom/meeting-details/${userId}/${meetingId}`);
+            const response = await apiClient.get(`/zoom/meeting-details/${userId}/${meetingId}`);
             return response.data;
 
         } catch (error) {
@@ -89,7 +87,7 @@ export const useZoom = () => {
     }, []);
 
     const disconnectZoom = useCallback(async (userId) => {
-        const response = await axios.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/zoom/disconnect/${userId}`);
+        const response = await apiClient.post(`/zoom/disconnect/${userId}`);
         return response.data;
     }, []);
 
@@ -99,7 +97,7 @@ export const useZoom = () => {
         }
 
         try {
-            const response = await axios.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/zoom/signature`, { meetingNumber, role });
+            const response = await apiClient.post(`/zoom/signature`, { meetingNumber, role });
             return response.data;
         } catch (error) {
             console.error('❌ Error getting signature:', error);

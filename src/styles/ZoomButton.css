@@ -11,8 +11,7 @@
 }
 
 .zoom-button.connected {
-  background-color: var(--gray4);
-  color: white;
+  opacity: 0.7;
 }
 
 

@@ -12,10 +12,10 @@ export const ProspectsProvider = ({ children }) => {
   const { getAccountProspects } = useProspects()
 
   const fetchProspects = async () => {
-    if (globalUser?.id) {
+    if (globalUser) {
       setLoading(true)
       try {
-        const prospectsData = await getAccountProspects(globalUser.id)
+        const prospectsData = await getAccountProspects()
         setProspects(prospectsData)
       } catch (error) {
         console.error('Error fetching prospects:', error)
@@ -27,7 +27,7 @@ export const ProspectsProvider = ({ children }) => {
 
   useEffect(() => {
     fetchProspects()
-  }, [globalUser?.id])
+  }, [globalUser])
 
   const value = {
     prospects,

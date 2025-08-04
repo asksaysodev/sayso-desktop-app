@@ -1,8 +1,10 @@
-import axios from 'axios';
+// import axios from 'axios';
+import apiClient from '../config/axios';
+
 
 export const getDynamicContext = async (data) => {
   try {
-    const response = await axios.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/sales-coach/dynamic-context`, data);
+    const response = await apiClient.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/sales-coach/dynamic-context`, data);
     return response.data;
   } catch (error) {
     console.error('Error getting dynamic context:', error);
@@ -139,10 +141,12 @@ export const trackSignals = async (currentConversation) => {
     };
     
     const messages = [systemMessage];
-    
-    const response = await axios.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/sales-coach/chat-completion`, {
-      messages: messages
-    });
+
+
+    const response = await apiClient.post(
+      `${import.meta.env.VITE_BACKEND_BASE_URL}/sales-coach/chat-completion`,
+      { messages }
+    );
 
     const chatCompletionResponse = response.data.response;
 
@@ -285,7 +289,7 @@ export const runChatCompletion = async (currentConversation, dynamicContext, pre
     
     const messages = [systemMessage];
     
-    const response = await axios.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/sales-coach/chat-completion`, {
+    const response = await apiClient.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/sales-coach/chat-completion`, {
       messages: messages
     });
 

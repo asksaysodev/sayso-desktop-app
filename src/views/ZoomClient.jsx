@@ -3,7 +3,6 @@ import { useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useZoom } from '../hooks/useZoom';
 import { ZoomMtg } from '@zoom/meetingsdk'
-// import { useNavigate } from 'react-router-dom';
 import { useSalesCoachContext } from '../context/SalesCoachContext';
 import '../styles/ZoomClient.css';
 
@@ -15,32 +14,26 @@ export const ZoomClient = () => {
   const [permissionStatus, setPermissionStatus] = useState(null);
   const [cameraInitialized, setCameraInitialized] = useState(false);
 
-  // const navigate = useNavigate();
-  const { meetingId, prospectId } = useParams();
-
+  const { meetingId, prospectId, sessionId } = useParams();
   const { globalUser } = useAuth();
-  const { requestMediaPermissions,  getMeetingDetails,  getSignature } = useZoom();
-  const { iceBreaker , setIsZoomInitialized, setIsCallActive } = useSalesCoachContext();
+  const { requestMediaPermissions, getMeetingDetails, getSignature } = useZoom();
+  const { iceBreaker, setIsZoomInitialized, setIsCallActive } = useSalesCoachContext();
 
   const isElectron = !!(window && window.electron && window.electron.ipcRenderer);
 
   // Compute leaveUrl for Electron to use full file URL
   let leaveUrl;
   if (isElectron && window.sayso?.indexHtmlPath) {
-    leaveUrl = `${import.meta.env.VITE_BACKEND_BASE_URL}/post-call/?meetingId=${meetingId}&prospectId=${prospectId}&success=true`;
+    leaveUrl = `${import.meta.env.VITE_BACKEND_BASE_URL}/post-call/?meetingId=${meetingId}&prospectId=${prospectId}&sessionId=${sessionId}&success=true`;
   } else {
-    leaveUrl = `${import.meta.env.VITE_FRONTEND_BASE_URL}/post-call/${meetingId}/${prospectId}?success=true`;
+    leaveUrl = `${import.meta.env.VITE_FRONTEND_BASE_URL}/post-call/${meetingId}/${prospectId}/${sessionId}?success=true`;
   }
+
+  console.log('🔍 Leave URL:', leaveUrl);
 
   // Initialize camera permissions early
   const initializeCamera = useCallback(async () => {
     try {
-      
-      
-      // Check if we're in Electron
-      const isElectron = window.electron && window.electron.ipcRenderer;
-      
-      // Request camera permissions
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: {
@@ -114,7 +107,6 @@ export const ZoomClient = () => {
 
       const meetingDetails = await getMeetingDetails(globalUser.id, meetingId);
       
-      
       if (meetingDetails) {
         setMeetingDetails(meetingDetails);
         
@@ -155,12 +147,10 @@ export const ZoomClient = () => {
 
   const handleManualPermission = async () => {
     try {
-      
       const granted = await requestMediaPermissions();
       setPermissionStatus(granted ? 'granted' : 'denied');
       
       if (granted) {
-        
         const cameraReady = await initializeCamera();
         if (cameraReady) {
           await getMeetingDetailsAndSignature();
@@ -176,8 +166,7 @@ export const ZoomClient = () => {
 
   useEffect(() => {
     if (meetingId && globalUser) {
-          
-        handleManualPermission();
+      handleManualPermission();
     }
   }, [meetingId, globalUser]);
 

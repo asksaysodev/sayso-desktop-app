@@ -383,10 +383,19 @@ ipcMain.on('open-external', (event, url) => {
     
     // If it's a Zoom OAuth URL, send reset-to-home
     if (url.includes('zoom/auth')) {
-      console.log('🔄 [Electron][open-external] Zoom auth detected, sending reset-to-home');
+      console.log('🔄 [Electron][open-external] Zoom auth detected, sending reset-to-home [TRIGGER #1]');
       BrowserWindow.getAllWindows().forEach(win => {
         console.log('📤 [Electron][open-external] Sending reset-to-home to window:', win.id);
-        win.webContents.send('reset-to-home', {});
+        win.webContents.send('reset-to-home', { source: 'open-external-ipc', service: 'zoom' });
+      });
+    }
+    
+    // If it's a Slack OAuth URL, send reset-to-home
+    if (url.includes('slack/auth')) {
+      console.log('🔄 [Electron][open-external] Slack auth detected, sending reset-to-home [TRIGGER #1]');
+      BrowserWindow.getAllWindows().forEach(win => {
+        console.log('📤 [Electron][open-external] Sending reset-to-home to window:', win.id);
+        win.webContents.send('reset-to-home', { source: 'open-external-ipc', service: 'slack' });
       });
     }
   } catch (error) {
@@ -468,7 +477,8 @@ ipcMain.handle('start-audio-capture', async (event, params) => {
       metadata: {
         accountId: params.accountId,
         prospectId: params.prospectId,
-        meetingId: params.meetingId
+        meetingId: params.meetingId,
+        sessionId: params.sessionId
       },
       onChunk: (filePath, speaker) => {
         console.log(`🎤 [AUDIO CAPTURE] Received audio chunk from ${speaker}: ${filePath}`);
@@ -482,7 +492,8 @@ ipcMain.handle('start-audio-capture', async (event, params) => {
       metadata: {
         accountId: params.accountId,
         prospectId: params.prospectId,
-        meetingId: params.meetingId
+        meetingId: params.meetingId,
+        sessionId: params.sessionId
       },
       onChunk: (filePath, speaker) => {
         console.log(`🎤 [AUDIO CAPTURE] Received audio chunk from ${speaker}: ${filePath}`);
@@ -576,6 +587,15 @@ ipcMain.handle('get-audio-queue-status', () => {
   return audioQueue.getStatus();
 });
 
+// Add IPC handler for reloading the page
+ipcMain.handle('reload-page', () => {
+  console.log('🔄 [Electron] Reloading page...');
+  if (dashboardWindowInstance) {
+    dashboardWindowInstance.reload();
+  }
+  return { status: "Page reloaded" };
+});
+
 // Handle protocol activation (when app is opened via sayso:// URL)
 app.on('open-url', (event, url) => {
   console.log('[Electron] open-url event:', url);
@@ -664,6 +684,7 @@ console.log("Loaded FRONTEND_BASE_URL:", process.env.VITE_FRONTEND_BASE_URL);
 
 let lastLeaveUrl = null;
 let lastLeaveUrlTime = 0;
+let isProcessingPostCall = false;
 
 // Intercept navigation in ALL windows
 app.on('web-contents-created', (event, contents) => {
@@ -675,13 +696,22 @@ app.on('web-contents-created', (event, contents) => {
     });
     if (url.includes('post-call')) {
       const now = Date.now();
-      if (url === lastLeaveUrl && now - lastLeaveUrlTime < 2000) {
+      // Enhanced duplicate prevention
+      if ((url === lastLeaveUrl && now - lastLeaveUrlTime < 3000) || isProcessingPostCall) {
         console.log('[Electron][DEBUG] Skipping duplicate leaveUrl open:', url);
         event.preventDefault();
         return;
       }
+      
+      isProcessingPostCall = true;
       lastLeaveUrl = url;
       lastLeaveUrlTime = now;
+      
+      // Reset processing flag after a delay
+      setTimeout(() => {
+        isProcessingPostCall = false;
+      }, 3000);
+      
       event.preventDefault();
       shell.openExternal(url);
       // Extract meetingId and prospectId from query parameters
@@ -689,20 +719,12 @@ app.on('web-contents-created', (event, contents) => {
       const params = new URLSearchParams(urlObj.search);
       const meetingId = params.get('meetingId');
       const prospectId = params.get('prospectId');
-      console.log('[Electron][DEBUG] will-navigate: Extracted params:', { meetingId, prospectId });
-      // Send IPC to ALL windows
+      const sessionId = params.get('sessionId'); // Added sessionId extraction
+      console.log('[Electron][DEBUG] will-navigate: Extracted params:', { meetingId, prospectId, sessionId });
+            // Send IPC to ALL windows
       BrowserWindow.getAllWindows().forEach(win => {
-        console.log('[Electron][DEBUG] will-navigate: Sending reset-to-home to window:', win.id, { meetingId, prospectId });
-        win.webContents.send('reset-to-home', { meetingId, prospectId });
-      });
-    } else if (url.startsWith('https://zoom.us/oauth')) {
-      event.preventDefault();
-      shell.openExternal(url);
-      console.log('[Electron][will-navigate] Opened Zoom OAuth URL externally:', url);
-      // Send reset-to-home to ALL windows when Zoom OAuth is detected
-      BrowserWindow.getAllWindows().forEach(win => {
-        console.log('[Electron][will-navigate] Sending reset-to-home to window:', win.id, 'for Zoom OAuth');
-        win.webContents.send('reset-to-home', {});
+        console.log('[Electron][DEBUG] will-navigate: Sending reset-to-home to window:', win.id, { meetingId, prospectId, sessionId });
+        win.webContents.send('reset-to-home', { meetingId, prospectId, sessionId });
       });
     }
   });
@@ -710,25 +732,33 @@ app.on('web-contents-created', (event, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
     console.log('[Electron][setWindowOpenHandler] Attempt to open URL:', url);
     if (url.includes('post-call')) {
+      const now = Date.now();
+      // Enhanced duplicate prevention
+      if ((url === lastLeaveUrl && now - lastLeaveUrlTime < 3000) || isProcessingPostCall) {
+        console.log('[Electron][DEBUG] Skipping duplicate post-call open in setWindowOpenHandler:', url);
+        return { action: 'deny' };
+      }
+      
+      isProcessingPostCall = true;
+      lastLeaveUrl = url;
+      lastLeaveUrlTime = now;
+      
+      // Reset processing flag after a delay
+      setTimeout(() => {
+        isProcessingPostCall = false;
+      }, 3000);
+      
       shell.openExternal(url);
       // Extract meetingId and prospectId from query parameters
       const urlObj = new URL(url);
       const params = new URLSearchParams(urlObj.search);
       const meetingId = params.get('meetingId');
       const prospectId = params.get('prospectId');
-      console.log('[Electron][setWindowOpenHandler] Extracted params:', { meetingId, prospectId });
+      const sessionId = params.get('sessionId'); // Added sessionId extraction
+      console.log('[Electron][setWindowOpenHandler] Extracted params:', { meetingId, prospectId, sessionId });
       BrowserWindow.getAllWindows().forEach(win => {
-        console.log('[Electron][setWindowOpenHandler] Sending reset-to-home to window:', win.id, { meetingId, prospectId });
-        win.webContents.send('reset-to-home', { meetingId, prospectId });
-      });
-      return { action: 'deny' };
-    } else if (url.startsWith('https://zoom.us/oauth')) {
-      shell.openExternal(url);
-      console.log('[Electron][setWindowOpenHandler] Opened Zoom OAuth URL externally:', url);
-      // Send reset-to-home to ALL windows when Zoom OAuth is detected
-      BrowserWindow.getAllWindows().forEach(win => {
-        console.log('[Electron][setWindowOpenHandler] Sending reset-to-home to window:', win.id, 'for Zoom OAuth');
-        win.webContents.send('reset-to-home', {});
+        console.log('[Electron][setWindowOpenHandler] Sending reset-to-home to window:', win.id, { meetingId, prospectId, sessionId });
+        win.webContents.send('reset-to-home', { meetingId, prospectId, sessionId });
       });
       return { action: 'deny' };
     }
@@ -737,32 +767,7 @@ app.on('web-contents-created', (event, contents) => {
 
   contents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
     console.log('[Electron][webRequest.onBeforeRequest] URL:', details.url);
-    if (details.url.startsWith('https://zoom.us/oauth')) {
-      shell.openExternal(details.url);
-      console.log('[Electron][webRequest.onBeforeRequest] Opened Zoom OAuth URL externally:', details.url);
-      // Send reset-to-home to ALL windows when Zoom OAuth is detected
-      BrowserWindow.getAllWindows().forEach(win => {
-        console.log('[Electron][webRequest.onBeforeRequest] Sending reset-to-home to window:', win.id, 'for Zoom OAuth');
-        win.webContents.send('reset-to-home', {});
-      });
-      callback({ cancel: true });
-    } else {
-      callback({});
-    }
-  });
-
-  contents.on('did-get-redirect-request', (event, oldUrl, newUrl) => {
-    console.log('[Electron][did-get-redirect-request] Redirect from:', oldUrl, 'to:', newUrl);
-    if (newUrl.startsWith('https://zoom.us/oauth')) {
-      event.preventDefault();
-      shell.openExternal(newUrl);
-      console.log('[Electron][did-get-redirect-request] Opened Zoom OAuth URL externally:', newUrl);
-      // Send reset-to-home to ALL windows when Zoom OAuth is detected
-      BrowserWindow.getAllWindows().forEach(win => {
-        console.log('[Electron][did-get-redirect-request] Sending reset-to-home to window:', win.id, 'for Zoom OAuth');
-        win.webContents.send('reset-to-home', {});
-      });
-    }
+    callback({});
   });
 });
 

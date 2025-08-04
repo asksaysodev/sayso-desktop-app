@@ -49,7 +49,7 @@ let processedProspectChunks = new Set();
 
 // --- Configuration ---
 // For avfoundation, use ':audio_index' format (e.g., ':0' for first audio device)
-function getDeviceIndexByName(deviceName) {
+function getDeviceIndexByName(targetDevices) {
   return new Promise((resolve, reject) => {
     const { exec } = require('child_process');
     exec(`${getFfmpegPath()} -f avfoundation -list_devices true -i ""`, (err, stdout, stderr) => {
@@ -67,19 +67,26 @@ function getDeviceIndexByName(deviceName) {
       console.log('[Device List] AVFoundation input devices:');
       foundDevices.forEach(dev => console.log(`  [${dev.index}] ${dev.name}`));
 
-      // Try to find the device by name (case-insensitive, partial match)
-      const found = foundDevices.find(dev =>
-        dev.name.toLowerCase().includes(deviceName.toLowerCase())
-      );
-      if (found) {
-        return resolve(found.index); // Return just the index number
+      // Ensure targetDevices is an array
+      const deviceArray = Array.isArray(targetDevices) ? targetDevices : [targetDevices];
+      
+      // Try to find the device by name in order (case-insensitive, partial match)
+      for (const deviceName of deviceArray) {
+        const found = foundDevices.find(dev =>
+          dev.name.toLowerCase().includes(deviceName.toLowerCase())
+        );
+        if (found) {
+          console.log(`[Device Resolver] Found device "${deviceName}" at index ${found.index}`);
+          return resolve(found.index); // Return just the index number
+        }
       }
 
-      // If not found, suggest available devices
+      // If none found, suggest available devices
       const deviceNames = foundDevices.map(dev => dev.name).join(', ');
+      const targetDeviceNames = deviceArray.join(', ');
       return reject(
         new Error(
-          `Device "${deviceName}" not found. Available devices: ${deviceNames}`
+          `None of the target devices [${targetDeviceNames}] were found. Available devices: ${deviceNames}`
         )
       );
     });
@@ -93,8 +100,10 @@ let PROSPECT_AUDIO_DEVICE_ID = null;
 // Initialize devices
 async function initializeDevices() {
   try {
-    USER_MIC_DEVICE_ID = await getDeviceIndexByName('MacBook Pro Microphone');
-    PROSPECT_AUDIO_DEVICE_ID = await getDeviceIndexByName('blackhole');
+    // USER_MIC_DEVICE_ID = await getDeviceIndexByName('MacBook Pro Microphone');
+    // PROSPECT_AUDIO_DEVICE_ID = await getDeviceIndexByName('blackhole');
+    USER_MIC_DEVICE_ID = await getDeviceIndexByName(['macbook', 'mac','macbook pro', 'macbook air', 'imac', 'microphone', 'mic']);
+    PROSPECT_AUDIO_DEVICE_ID = await getDeviceIndexByName(['sayso speaker', 'sayso', 'blackhole']);
     console.log('[Device Resolver] Successfully initialized devices:');
     console.log('[Device Resolver] User Mic:', USER_MIC_DEVICE_ID);
     console.log('[Device Resolver] Prospect Audio:', PROSPECT_AUDIO_DEVICE_ID);
@@ -652,4 +661,3 @@ module.exports = {
   stopRecording,
   audioDeviceManager 
 };
-

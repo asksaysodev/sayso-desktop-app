@@ -27,6 +27,7 @@ export const SalesCoachProvider = ({ children }) => {
   const [timerStartTime, setTimerStartTime] = useState(null);
   const [signalReceived, setSignalReceived] = useState(null);
   const [signals, setSignals] = useState([]);
+  const [sessionId, setSessionId] = useState(null);
   
   //FUNCTIONS
   const transformTranscriptionsToMessages = (transcriptions) => {
@@ -210,10 +211,7 @@ export const SalesCoachProvider = ({ children }) => {
     if (isCallActive && transcriptions.length > 2 && hasRecentTranscripts() && !timerStartedRef.current) {
       timerStartedRef.current = true;
       
-      // 🎯 ONE-TIME TRIGGER GOES HERE - this will only run once when conditions are first met
-      // Add your one-time logic here
-      
-      // Start your timer here
+
       const startTime = Date.now();
       
       // You can store the start time in state or ref if needed
@@ -293,7 +291,9 @@ export const SalesCoachProvider = ({ children }) => {
     isChecklistVisible,
     setIsChecklistVisible,
     callProgress, 
-    signals
+    signals,
+    sessionId,
+    setSessionId
   };
 
   return (

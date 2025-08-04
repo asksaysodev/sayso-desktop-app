@@ -1,15 +1,15 @@
 import React from 'react';
-import '../styles/ZoomButton.css';
+import '../styles/SlackButton.css';
 import { useAuth } from '../context/AuthContext';
-import { useZoom } from '../hooks/useZoom';
-import {BiLogoZoom} from 'react-icons/bi'
+import { useSlack } from '../hooks/useSlack';
+import {SiSlack} from 'react-icons/si'
 
 // Check if we're in Electron environment
 const isElectron = window.electron && window.electron.openExternal;
 
-const ConnectZoomButton = () => {
-  const { globalUser, updateGlobalUser } = useAuth(); 
-  const { disconnectZoom } = useZoom();
+const ConnectSlackButton = () => {
+  const { globalUser, updateGlobalUser } = useAuth();
+  const { disconnectSlack, connectSlack } = useSlack(); 
   
   
   const handleConnect = async () => {
@@ -18,11 +18,11 @@ const ConnectZoomButton = () => {
       return;
     }
 
-    if(globalUser?.zoom_connected) {
-      await disconnectZoom(globalUser?.id);
+    if(globalUser?.slack_connected) {
+      await disconnectSlack(globalUser?.id);
       updateGlobalUser(globalUser?.email); 
     } else {
-      const authUrl = `${import.meta.env.VITE_BACKEND_BASE_URL}/zoom/auth/${globalUser?.id}`;
+      const authUrl = `${import.meta.env.VITE_BACKEND_BASE_URL}/slack/auth/${globalUser?.id}`;
       
       if (isElectron) {
         try {
@@ -30,7 +30,7 @@ const ConnectZoomButton = () => {
           window.electron.openExternal(authUrl);
           // The main process will handle reset-to-home automatically
         } catch (error) {
-          console.error('❌ [ConnectZoomButton] Error calling openExternal:', error);
+          console.error('❌ [ConnectSlackButton] Error calling openExternal:', error);
           // Fallback to window.location.href
           window.location.href = authUrl;
         }
@@ -43,14 +43,13 @@ const ConnectZoomButton = () => {
   };
 
   return (
-    <button onClick={handleConnect} className={`zoom-button ${globalUser?.zoom_connected ? 'connected' : ''}`} disabled={!globalUser}>
-    
-      <BiLogoZoom style={{marginRight: '10px', fontSize: '1.2rem'}} />
+    <button onClick={handleConnect} className={`slack-button ${globalUser?.slack_connected ? 'connected' : ''}`} disabled={!globalUser}>
+      <SiSlack style={{marginRight: '10px'}} />
       <span>{
-        globalUser?.zoom_connected ? 'Disconnect Zoom Account' : 'Connect Zoom Account'
+        globalUser?.slack_connected ? 'Disconnect Slack' : 'Connect Slack'
       }</span>
     </button>
   );
 };
 
-export default ConnectZoomButton;
+export default ConnectSlackButton;

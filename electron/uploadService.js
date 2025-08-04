@@ -46,6 +46,7 @@ class UploadService {
       if (metadata.accountId) queryParams.append('accountId', metadata.accountId);
       if (metadata.prospectId) queryParams.append('prospectId', metadata.prospectId);
       if (metadata.meetingId) queryParams.append('meetingId', metadata.meetingId);
+      if (metadata.sessionId) queryParams.append('sessionId', metadata.sessionId);
 
       const url = `${this.baseUrl}/audio/transcript?${queryParams.toString()}`;
       console.log(`[Upload Service] Uploading to: ${url}`);

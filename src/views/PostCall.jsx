@@ -3,61 +3,74 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useSalesCoach } from '../hooks/useSalesCoach';
 
 export default function PostCall() {
-    const { meetingId, prospectId } = useParams();
+    const { meetingId, prospectId, sessionId } = useParams();
     const [seconds, setSeconds] = useState(5);
     const { handleStopLiveCoach } = useSalesCoach();
     const navigate = useNavigate();
     const hasProcessedCall = useRef(false);
+    const hasNavigated = useRef(false);
 
     const handleGoBack = () => {
-        navigate('/');
+        if (!hasNavigated.current) {
+            hasNavigated.current = true;
+            navigate('/');
+        }
     }
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setSeconds(prevSeconds => prevSeconds - 1);
-        }, 1000);
-        return () => {
-            clearInterval(interval);
-        };
-    }, []);
-
-    useEffect(() => {
-        const timeout = setTimeout(() => {
-            handleGoBack();
-        }, 5000);
-        return () => {
-            clearTimeout(timeout);
-        };
-    }, []);
 
     useEffect(() => {
         let isMounted = true;
         
         const processCallEnd = async () => {
-            
             if (hasProcessedCall.current) {
                 return;
             }
             
-            if (meetingId && prospectId && isMounted) {
+            // Check if meeting already ended (reload happened)
+            if (sessionStorage.getItem('meetingEnded')) {
+                sessionStorage.removeItem('meetingEnded');
+                // Don't process again, just navigate
+                setTimeout(() => {
+                    if (isMounted) handleGoBack();
+                }, 2000); // Shorter delay since reload already happened
+                return;
+            }
+            
+            if (meetingId && prospectId && sessionId && isMounted) {
                 hasProcessedCall.current = true;
                 try {
-                    await handleStopLiveCoach(meetingId, prospectId);
+                    await handleStopLiveCoach(meetingId, prospectId, sessionId);
+                    // Don't reload here - let the component handle navigation
                 } catch (error) {
                     console.error('❌ Error in handleStopLiveCoach:', error);
+                    if (isMounted) handleGoBack();
                 }
             } else if (isMounted) {
                 handleGoBack();
             }
         };
 
+        // Start countdown timer
+        const interval = setInterval(() => {
+            if (isMounted) {
+                setSeconds(prevSeconds => {
+                    if (prevSeconds <= 1) {
+                        clearInterval(interval);
+                        handleGoBack();
+                        return 0;
+                    }
+                    return prevSeconds - 1;
+                });
+            }
+        }, 1000);
+
+        // Process call end immediately
         processCallEnd();
 
         return () => {
             isMounted = false;
+            clearInterval(interval);
         };
-    }, [handleStopLiveCoach, handleGoBack, meetingId, prospectId]);
+    }, [handleStopLiveCoach, handleGoBack, meetingId, prospectId, sessionId]);
 
     return (
         <div className="zoom-success" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>

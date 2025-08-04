@@ -26,13 +26,14 @@ const StyledButton = styled.button`
   }
 `;
 
-const BtnSecondary = ({ text, onClick, type = 'button', isDisabled = false, isLoading = false }) => {
+const BtnSecondary = ({ text, onClick, type = 'button', isDisabled = false, isLoading = false, style = {} }) => {
   return (
     <StyledButton 
       onClick={onClick} 
       type={type} 
       disabled={isLoading} 
       $isLoading={isLoading}
+      style={style}
     >
       {isLoading ? "Loading..." : text}
     </StyledButton>

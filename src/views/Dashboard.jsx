@@ -15,7 +15,9 @@ import { useTimes } from '../hooks/useTimes';
 import { useNavigate } from 'react-router-dom';
 import SaysoLoader from '../components/SaysoLoader';
 import ConnectZoomButton from '../components/ConnectZoomButton';
+import ConnectSlackButton from '../components/ConnectSlackButton';
 import { useFiles } from '../hooks/useFiles';
+import BlackholeModal from '../components/BlackholeModal';
 import { useSalesCoachContext } from '../context/SalesCoachContext';
 
 // --- Add Prospect Form Component ---
@@ -116,6 +118,7 @@ const ProspectDetailView = ({ prospect, setSelectedProspect }) => {
   const { formatTime } = useTimes();
   const navigate = useNavigate();
   const { globalUser } = useAuth();
+  const { sessionId } = useSalesCoachContext();
 
   const handleRemoveFile = async (fileId) => {
     try {
@@ -241,7 +244,7 @@ const ProspectDetailView = ({ prospect, setSelectedProspect }) => {
   };
 
   const handleLaunchZoomMeeting = () => {
-    navigate(`/zoom-client-new/${currentProspect?.next_meeting_id}/${prospect.id}`);
+    navigate(`/zoom-client-new/${currentProspect?.next_meeting_id}/${prospect.id}/${sessionId}`);
   };
 
   const fetchProspect = async (prospectId) => {
@@ -257,10 +260,10 @@ const ProspectDetailView = ({ prospect, setSelectedProspect }) => {
   }, [prospect]);
 
   useEffect(() => {
-    if(isCallActive && currentProspect?.next_meeting_id) {
+    if(isCallActive && currentProspect?.next_meeting_id && sessionId) {
       handleLaunchZoomMeeting()
     }
-  }, [isCallActive, currentProspect?.next_meeting_id]);
+  }, [isCallActive, currentProspect?.next_meeting_id, sessionId]);
 
   return (
     <ContentTemplate
@@ -414,10 +417,12 @@ const Dashboard = () => {
   const [accountFiles, setAccountFiles] = useState([]);
   const [isSavingAccountSettings, setIsSavingAccountSettings] = useState(false);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [showBlackholeModal, setShowBlackholeModal] = useState(false);
+  const [isCheckingBlackhole, setIsCheckingBlackhole] = useState(true);
 
   const {  handleNewProspect } = useProspects()
   const { handleUploadFiles, fetchFiles, removeFile } = useFiles();
-  // const { setCurrentInsight, isChecklistVisible, setIsChecklistVisible } = useSalesCoachContext();
+  const { handleRestartApp } = useSalesCoach();
 
   const handleRemoveFile = async (fileId) => {
     try {
@@ -425,6 +430,45 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Error removing file:', error);
     }
+  }
+
+  // Check for Blackhole/Sayso Speaker device
+  const checkForBlackhole = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      console.log('Available devices:', devices);
+      
+      const hasSaysoSpeaker = devices.some(device => 
+        device.label && device.label.toLowerCase().includes('sayso speaker')
+      );
+      
+      if (!hasSaysoSpeaker) {
+        setShowBlackholeModal(true);
+      }
+    } catch (error) {
+      console.error('Error checking for Blackhole device:', error);
+      setShowBlackholeModal(true);
+    } finally {
+      setIsCheckingBlackhole(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkForBlackhole();
+  }, [checkForBlackhole]);
+
+  const handleInstallationGuide = () => {
+    // Open installation guide in new tab
+    // window.open('https://github.com/ExistentialAudio/BlackHole', '_blank');
+  };
+
+  const handleGetBlackhole = () => {
+    // Open Blackhole download page in new tab
+    window.open('https://existential.audio/blackhole/', '_blank');
+  };
+
+  const handleLaunchSayso = () => {
+    setShowBlackholeModal(false);
   }
 
 
@@ -450,12 +494,12 @@ const Dashboard = () => {
       // Add account_id from globalUser
       const { files, ...prospectFields } = prospectData;
       const newProspect = await handleNewProspect(
-        { ...prospectFields, account_id: globalUser.id },
+        { ...prospectFields },
         files
       );
       setProspects(prev => [newProspect, ...prev]);
       setIsAddingProspect(false);
-      setFormData({ name: '', email: '', files: [] }); // Reset form data
+      setFormData({ name: '', email: '', files: [] }); 
     } catch (err) {
       console.error('Error adding prospect:', err);
       alert('Failed to add prospect');
@@ -576,8 +620,8 @@ const Dashboard = () => {
           <span style={{height: '1px', width: '100%', backgroundColor:'var(--blue1)', display: 'block', margin:'10px 0', opacity: '0.4'}}></span>
           <BtnMain text="Account Settings" onClick={handleAccountSettingsClick} />
           <BtnMain text="Sign Out" onClick={signOut} />
-          {/* <BtnMain text="Test Checklist" onClick={() => setIsChecklistVisible(!isChecklistVisible)} />
-          <BtnMain text="Regular Insight" onClick={() => setCurrentInsight({message: "I hope your kids are excited for school! How's the planning going? I hope your kids are excited for school! How's the planning going?", isIceBreaker: true})} /> */}
+          {/* <BtnMain text="Restart App" onClick={handleRestartApp} /> */}
+          {/* <BtnMain text="Regular Insight" onClick={() => setCurrentInsight({message: "I hope your kids are excited for school! How's the planning going? I hope your kids are excited for school! How's the planning going?", isIceBreaker: true})} /> */}
         </div>
       </div>
 
@@ -612,6 +656,7 @@ const Dashboard = () => {
             setSelectedProspect={setSelectedProspect}
           />
         ) : isAccountSettingsOpen ? (
+          <>
           <ContentTemplate
             title={isEditingAccountSettings ? 'Edit Account Settings' : 'Account Settings'}
             primaryButton={
@@ -626,6 +671,18 @@ const Dashboard = () => {
                 text: isEditingAccountSettings ? 'Cancel' : 'Back',
                 onClick: isEditingAccountSettings ? handleCancelEditAccountSettings : handleBackButtonClick
               } : undefined
+            }
+            connections={
+              <div className="formGroup">
+                <label>Connections:</label>
+                
+                <div style={{marginTop: '20px', marginBottom: '30px', display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%'}}>
+                  <ConnectZoomButton />
+                </div>
+                <div style={{marginTop: '20px', marginBottom: '30px', display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%'}}>
+                  <ConnectSlackButton />
+                </div>
+              </div>
             }
           >
             {isSavingAccountSettings ? 
@@ -687,17 +744,10 @@ const Dashboard = () => {
                       )
                     }
                   </div>
-                  <div className="formGroup">
-                    <label>Zoom Account:</label>
-                    
-                    <div style={{marginTop: '20px', marginBottom: '30px', display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%'}}>
-                      <ConnectZoomButton />
-                    </div>
-                  </div>
-                  
                 </div>
             }
           </ContentTemplate>
+          </>
         ) : (
           <div style={{width: '500px', margin: '0 auto'}}>
             <ContentTemplate centerBody={true}>
@@ -712,6 +762,15 @@ const Dashboard = () => {
           </div>
         )}
       </div>
+      
+      {/* Blackhole Modal */}
+      {showBlackholeModal && (
+        <BlackholeModal
+          onInstallationGuide={handleInstallationGuide}
+          onGetBlackhole={handleGetBlackhole}
+          onLaunchSayso={handleLaunchSayso}
+        />
+      )}
     </div>
   );
 };
