@@ -1,0 +1,9 @@
+<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="28" height="28" rx="14" fill="#0E72ED"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M14 16C15.1 16 16 15.1 16 14V9C16 7.9 15.1 7 14 7C12.9 7 12 7.9 12 9V14C12 15.1 12.9 16 14 16ZM11 9C11 7.34 12.34 6 14 6C15.66 6 17 7.34 17 9V14C17 15.66 15.66 17 14 17C12.34 17 11 15.66 11 14V9ZM18.99 14.1C19 14.07 19 14.03 19 14C19 13.72 18.78 13.5 18.5 13.5C18.22 13.5 18 13.72 18 14C18 16.21 16.21 18 14 18C11.79 18 10 16.21 10 14C10 13.72 9.78 13.5 9.5 13.5C9.22 13.5 9 13.72 9 14C9 14.03 9 14.07 9.01 14.1C9.05 16.64 11 18.72 13.5 18.97V21H11.5C11.22 21 11 21.22 11 21.5C11 21.78 11.22 22 11.5 22H16.5C16.78 22 17 21.78 17 21.5C17 21.22 16.78 21 16.5 21H14.5V18.97C17 18.72 18.95 16.64 18.99 14.1Z" fill="#F5F5F5"/>
+<zoom style="hover" value="|:#2A69D1"/>
+<zoom style="press" value="|:#255EBB"/>
+<zoom style="dark" value="|:#0E72ED|:#FFFFFF"/>
+<zoom style="hover_dark" value="|:#2A69D1|:#FFFFFF"/>
+<zoom style="press_dark" value="|:#255EBB|:#FFFFFF"/>
+</svg>

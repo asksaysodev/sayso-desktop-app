@@ -1,0 +1,6 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M0 12C0 5.37258 5.37258 0 12 0V0C18.6274 0 24 5.37258 24 12V12C24 18.6274 18.6274 24 12 24V24C5.37258 24 0 18.6274 0 12V12Z" fill="black" fill-opacity="0.78"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M14.4419 16.4419C14.1979 16.686 13.8021 16.686 13.5581 16.4419L9.55806 12.4419C9.31398 12.1979 9.31398 11.8021 9.55806 11.5581L13.5581 7.55806C13.8021 7.31398 14.1979 7.31398 14.4419 7.55806C14.686 7.80214 14.686 8.19786 14.4419 8.44194L10.8839 12L14.4419 15.5581C14.686 15.8021 14.686 16.1979 14.4419 16.4419Z" fill="white"/>
+<zoom name="greenRoom_pre_arrow_hover" style="hover" value="|:#252A30e0"/>
+<zoom name="greenRoom_pre_arrow_default" style="default" value="|:#252A30cc"/>
+</svg>

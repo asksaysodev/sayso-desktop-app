@@ -1,0 +1,7 @@
+<svg width="23" height="23" viewBox="0 0 23 23" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M0.5 22.5H10C16.9036 22.5 22.5 17.5752 22.5 11.5C22.5 5.42487 16.9036 0.5 10 0.5L0.5 0.5L0.5 11.5V22.5Z" fill="#232323" stroke="white"/>
+<path d="M7 6L12 11.5L7 17H9L14 11.5L9 6H7Z" fill="white"/>
+<path d="M1 22L1 1L0 1L0 22H1Z" fill="#232323"/>
+<zoom style="hover" value="|white:#2DA5FF||:#2DA5FF"/>
+<zoom style="press" value="|white:#2D8CFF||:#2D8CFF"/>
+</svg>

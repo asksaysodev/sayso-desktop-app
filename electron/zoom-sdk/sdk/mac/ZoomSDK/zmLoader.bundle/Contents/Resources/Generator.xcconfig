@@ -1,0 +1,11 @@
+//
+//  Generator.xcconfig
+//  test-demo
+//
+//  Created by Titus.Jiang on 2024/3/19.
+//
+
+// Configuration settings file format documentation can be found at:
+// https://help.apple.com/xcode/#/dev745c5c974
+
+GCC_PREPROCESSOR_DEFINITIONS = $(inherited) __MACOS__ MAC_CLIENT ZOOM_UPDATER_CONFIG_PLIST='$(ZOOM_UPDATER_CONFIG_PLIST)'

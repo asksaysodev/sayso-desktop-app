@@ -1,0 +1,9 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M12 11.5V10L14.8 12.1C15.2944 12.4708 16 12.1181 16 11.5V4.50002C16 3.88198 15.2944 3.5292 14.8 3.90002L12 6C12 4.34315 10.6569 3 9 3H1.5C0.671573 3 0 3.67157 0 4.5V10C0 11.6569 1.34315 13 3 13H10.5C11.3284 13 12 12.3284 12 11.5ZM9 4H1.5C1.22386 4 1 4.22386 1 4.5V10C1 11.1046 1.89543 12 3 12H10.5C10.7761 12 11 11.7761 11 11.5V6C11 4.89543 10.1046 4 9 4ZM15 11L12 8.75002V7.25002L15 5.00002V11Z" fill="#73737B"/>
+<path d="M8 8C8 9.10457 7.10457 10 6 10C4.89543 10 4 9.10457 4 8C4 6.89543 4.89543 6 6 6C7.10457 6 8 6.89543 8 8Z" fill="#73737B"/>
+<zoom style="hover" value="|:#131619|:#131619"/>
+<zoom style="press" value="|:#0E72ED|:#0E72ED"/>
+<zoom style="dark" value="|:#98A0A9|:#98A0A9"/>
+<zoom style="hover_dark" value="|:#F7F9FA|:#F7F9FA"/>
+<zoom style="press_dark" value="|:#4793F1|:#4793F1"/>
+</svg>

@@ -1,0 +1,7 @@
+<svg width="26" height="36" viewBox="0 0 26 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M0.5 0.5H25.5V23C25.5 29.9036 19.9036 35.5 13 35.5C6.09644 35.5 0.5 29.9036 0.5 23V0.5Z" fill="#232323" stroke="white"/>
+<rect x="1" width="24" height="2" fill="#232323"/>
+<rect x="8" y="17" width="10" height="2" fill="white"/>
+<zoom style="hover" value="|white:#2DA5FF|:#2DA5FF"/>
+<zoom style="press" value="|white:#2D8CFF|:#2D8CFF"/>
+</svg>

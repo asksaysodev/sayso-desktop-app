@@ -1,0 +1,11 @@
+framework module ZoomSetting {
+  umbrella header "ZoomSetting.h"
+  export *
+
+  module * { export * }
+}
+
+module ZoomSetting.Swift {
+  header "ZoomSetting-Swift.h"
+  requires objc
+}

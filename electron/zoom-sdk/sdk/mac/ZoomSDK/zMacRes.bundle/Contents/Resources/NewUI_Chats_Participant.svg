@@ -1,0 +1,9 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="8" cy="5" r="2.5" stroke="#707070" stroke-linejoin="round"/>
+<path d="M3.25 12.5C3.25 11.9201 3.64522 11.3067 4.50056 10.8114C5.3466 10.3214 6.56841 10 8 10C9.43159 10 10.6534 10.3214 11.4994 10.8114C12.3548 11.3067 12.75 11.9201 12.75 12.5C12.75 12.7543 12.6304 13.0045 12.4266 13.199C12.2196 13.3965 11.9638 13.5 11.75 13.5H4.25C4.03623 13.5 3.7804 13.3965 3.5734 13.199C3.36964 13.0045 3.25 12.7543 3.25 12.5Z" stroke="#707070" stroke-linejoin="round"/>
+<zoom style="hover" value=":none|#222230|#222230"/>
+<zoom style="press" value=":none|#0E72ED|#0E72ED"/>
+<zoom style="hover_dark" value=":none|#F5F5F5|#F5F5F5"/>
+<zoom style="press_dark" value=":none|#F5F5F5|#F5F5F5"/>
+<zoom style="dark" value=":none|#ffffff8A|#ffffff8A"/>
+</svg>

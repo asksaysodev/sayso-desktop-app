@@ -1,0 +1,7 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="32" height="32" fill="#FFFFFF00" rx="8"/>
+<path clip-rule="evenodd" d="M12.1841 14.1675C12.423 13.9378 12.8028 13.9453 13.0325 14.1841L16 17.3343L18.9675 14.1841C19.1972 13.9453 19.577 13.9378 19.8159 14.1675C20.0547 14.3972 20.0622 14.777 19.8325 15.0159L16.4325 18.6159C16.3194 18.7335 16.1632 18.8 16 18.8C15.8368 18.8 15.6806 18.7335 15.5675 18.6159L12.1675 15.0159C11.9378 14.777 11.9453 14.3972 12.1841 14.1675Z" fill="#F7F9FA" fill-rule="evenodd"/>
+<zoom style="hover" value=":none|:#FFFFFF1A|:#F7F9FA"/>
+<zoom style="press" value=":none|:#ffffff33|:#F7F9FA"/>
+<zoom style="selected" value=":none|:#ffffff33|:#F7F9FA"/>
+</svg>

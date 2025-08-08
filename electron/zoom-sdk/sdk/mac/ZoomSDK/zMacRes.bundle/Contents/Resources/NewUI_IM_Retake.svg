@@ -1,0 +1,10 @@
+<svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="56" height="56" rx="28" fill="#525280" fill-opacity="0.09"/>
+<path d="M23.7 19L20 22.7L23.7 26.4" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M21.4802 36.0202H29.5402C32.8539 36.0202 35.5402 33.3339 35.5402 30.0202V28.7002C35.5402 25.3865 32.8539 22.7002 29.5402 22.7002H20.7402" stroke="black" stroke-width="2" stroke-linecap="round"/>
+<zoom style="hover" value="|:#5252802D"/>
+<zoom style="press" value="|:#E7F1FDFF|#0E72ED|#0E72ED"/>
+<zoom style="dark" value="|:#FFFFFF17|white|white"/>
+<zoom style="hover_dark" value="|:#FFFFFF2D|white|white"/>
+<zoom style="dark_press" value="|:#FFFFFF17|white|white"/>
+</svg>

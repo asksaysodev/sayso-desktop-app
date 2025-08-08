@@ -1,0 +1,6 @@
+framework module ZoomAIC {
+  umbrella header "ZoomAIC.h"
+  export *
+
+  module * { export * }
+}

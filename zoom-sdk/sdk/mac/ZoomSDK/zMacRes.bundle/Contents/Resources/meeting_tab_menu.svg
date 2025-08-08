@@ -1,0 +1,9 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="0.5" y="0.5" width="15" height="15" rx="7.5" stroke="#F7F9FA"/>
+<circle cx="4" cy="8" r="1" fill="#F7F9FA"/>
+<circle cx="8" cy="8" r="1" fill="#F7F9FA"/>
+<circle cx="12" cy="8" r="1" fill="#F7F9FA"/>
+<zoom style="hover" value=":none|:#FFFFFF54|:#F7F9FA|:#F7F9FA|:#F7F9FA"/>
+<zoom style="press" value=":none|:#0000006B|:#F7F9FA|:#F7F9FA|:#F7F9FA"/>
+<zoom style="selected" value=":none|:#0000006B|:#F7F9FA|:#F7F9FA|:#F7F9FA"/>
+</svg>

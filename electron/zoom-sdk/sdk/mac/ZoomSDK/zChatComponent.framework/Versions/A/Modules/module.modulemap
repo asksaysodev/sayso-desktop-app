@@ -1,0 +1,11 @@
+framework module zChatComponent {
+  umbrella header "zChatComponent.h"
+  export *
+
+  module * { export * }
+}
+
+module zChatComponent.Swift {
+  header "zChatComponent-Swift.h"
+  requires objc
+}
