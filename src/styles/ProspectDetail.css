@@ -358,3 +358,44 @@
     cursor: not-allowed;
     animation: spin 1s linear infinite;
 }
+
+.inline-loader{
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    color: var(--sayso-lightgray);
+    margin-top: 24px;
+}
+
+.inline-loader svg{
+    font-size: 16px;
+    animation: spin 1s linear infinite;
+}
+
+.prospect-detail-header-title{
+    font-size: 18px;
+    font-weight: 500;
+    color: black;
+    margin-bottom: 18px;
+}
+
+.add-prospect-footer{
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: end;
+    margin-bottom: auto;
+    /* border: 1px solid red; */
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 16px; 
+}
+
+.add-prospect-footer button:first-child{
+    margin-right: 8px;
+}

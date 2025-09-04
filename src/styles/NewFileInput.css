@@ -13,9 +13,18 @@
     background-color: var(--sayso-white);
 }
 
+.new-file-input-container label{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
 .new-file-input-container:hover{
     background-color: var(--sayso-active-lightblue);
     border-color: var(--sayso-blue);
+    transition: all 0.2s ease;
 }
 
 .new-file-input-container svg{
@@ -35,3 +44,9 @@
     font-weight: 500;
 }
 
+/* Drag and drop states */
+.new-file-input-container.drag-over{
+    background-color: var(--sayso-active-lightblue);
+    border-color: var(--sayso-blue);
+    cursor: grab;
+}

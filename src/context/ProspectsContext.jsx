@@ -16,7 +16,13 @@ export const ProspectsProvider = ({ children }) => {
       setLoading(true)
       try {
         const prospectsData = await getAccountProspects()
-        setProspects(prospectsData)
+        if(prospectsData && prospectsData.length > 0) {
+          prospectsData.sort((a, b) => a.name .localeCompare(b.name))
+          setProspects(prospectsData)
+        }
+        else {
+          setProspects([])
+        }
       } catch (error) {
         console.error('Error fetching prospects:', error)
       } finally {

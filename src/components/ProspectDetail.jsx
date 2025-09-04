@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 
 import { useToast } from '../context/ToastContext';
+import { useFiles } from '../hooks/useFiles';
 
 import SaysoModal from './SaysoModal';
 import Divider from './Divider';
@@ -22,11 +23,12 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
     const [isDeleting, setIsDeleting] = useState(false);
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
     const [deleteFileModalVisible, setDeleteFileModalVisible] = useState(false);
-    const [prospectData, setProspectData] = useState(prospect);
+    const [prospectFiles, setProspectFiles] = useState({files: []});
+    const [existingFiles, setExistingFiles] = useState(null);
 
     //HOOKS
     const { showToast } = useToast();
-    // const { updateProspect } = useProspects();
+    const { handleUploadFiles, fetchFiles } = useFiles();
 
     //FUNCTIONS
     const handleDeleteProspect = async () => {
@@ -46,6 +48,11 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
             return;
         }
     };
+
+    const handleFetchFiles = async () => {
+        const files = await fetchFiles(prospect.id);
+        setExistingFiles(files);
+    }
 
     const handleRemoveFile = async (fileId) => {
 
@@ -71,6 +78,76 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
         }, 300);
     };
 
+    const handleFileChange = async (e) => {
+        const newFiles = Array.from(e.target.files);
+        console.log('New files uploaded:', newFiles);
+        
+        if (newFiles.length === 0) return;
+        
+        const filesWithStatus = newFiles.map(file => ({
+            file: file, // Keep original file object
+            uploadStatus: 'loading',
+            uploadProgress: 0
+        }));
+        
+        setProspectFiles(prevFiles => ({
+            ...prevFiles,
+            files: [...prevFiles.files, ...filesWithStatus]
+        }));
+        
+        try {
+            const uploadedFiles = await handleUploadFiles(
+                newFiles, 
+                'prospect', 
+                prospect.id 
+            );
+            
+            
+            setProspectFiles(prevFiles => ({
+                ...prevFiles,
+                files: prevFiles.files.map(fileItem => {
+                    const isNewFile = newFiles.some(newFile => 
+                        newFile.name === fileItem.file?.name && newFile.size === fileItem.file?.size
+                    );
+                    if (isNewFile) {
+                        return {
+                            ...fileItem,
+                            uploadStatus: 'success',
+                            uploadProgress: 100
+                        };
+                    }
+                    return fileItem;
+                })
+            }));
+            
+        } catch (error) {
+            
+            setProspectFiles(prevFiles => ({
+                ...prevFiles,
+                files: prevFiles.files.map(fileItem => {
+                    const isNewFile = newFiles.some(newFile => 
+                        newFile.name === fileItem.file?.name && newFile.size === fileItem.file?.size
+                    );
+                    if (isNewFile) {
+                        return {
+                            ...fileItem,
+                            uploadStatus: 'error',
+                            uploadProgress: 0
+                        };
+                    }
+                    return fileItem;
+                })
+            }));
+        }
+    };
+    
+    const removeFile = (indexToRemove) => {
+        setProspectFiles(prevFiles => ({
+            ...prevFiles,
+            files: (prevFiles.files || []).filter((_, idx) => idx !== indexToRemove)
+        }));
+    };
+
     //EFFECTS
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -80,6 +157,10 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
         
         return () => clearTimeout(timer);
     }, []);
+
+    useEffect(() => {
+        handleFetchFiles();
+    }, [prospect.id]);
 
     return (
         <>  
@@ -188,15 +269,40 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
                                 <p>Upload files that can help you at your next meeting.</p>
                             </div>
                         </div>
-                        <NewFileInput />
+                        <NewFileInput 
+                            id="prospectFile"
+                            onChange={handleFileChange}
+                            accept=".pdf,.txt,.docx,.doc"
+                        />
                         <div className='prospect-detail-body-files-container-files'>
-                            <ProspectFileCard status='success' file='file1' />
-                            <ProspectFileCard status='loading' file='file1' />
-                            <ProspectFileCard status='error' file='file1' />
+                            {
+                                prospectFiles.files.map((file, index) => (
+                                    <ProspectFileCard 
+                                        status={file.uploadStatus || 'default'} 
+                                        file={file} 
+                                        key={index}
+                                        progress={file.uploadProgress || 0}
+                                        fromDatabase={false}
+                                    />
+                                ))
+                            }
                         </div>
                         <div className='prospect-detail-body-files-container-files'>
-                            <ProspectFileCard status='default' file='file1' showDeleteModal={setDeleteFileModalVisible} />
-                            <ProspectFileCard status='default' file='file1' showDeleteModal={setDeleteFileModalVisible} />
+                            {
+                                existingFiles ? (
+                                    <>
+                                        {
+                                            existingFiles.files.map((file, index) => (
+                                                <ProspectFileCard status='default' file={file} key={index} fromDatabase={true}/>
+                                            ))
+                                        }
+                                    </>
+                                ):(
+                                    <div className='inline-loader'>
+                                        <LuLoader />
+                                    </div>
+                                )
+                            }
                         </div>
                     </div>
                 </div>

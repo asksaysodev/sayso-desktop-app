@@ -4,12 +4,15 @@ import CTABar from './CTABar';
 import ProspectCard from './ProspectCard';
 import ProspectListItem from './ProspectListItem';
 import ProspectDetail from './ProspectDetail';
+import NewProspect from './NewProspect';
 
 import {SlMagnifier} from 'react-icons/sl';
 import {GoPlus} from 'react-icons/go';  
 import {PiSquaresFourLight, PiListBullets } from 'react-icons/pi';
-import { LuBuilding, LuPaperclip} from 'react-icons/lu'
+import { LuBuilding, LuLoader, LuPaperclip} from 'react-icons/lu'
+
 import { useProspectsContext } from '../context/ProspectsContext';
+import { useToast } from '../context/ToastContext';
 
 import '../styles/ProspectsContainer.css';
 
@@ -18,32 +21,77 @@ export default function ProspectsContainer() {
     //STATE
     const [view, setView] = useState('cards');
     const [selectedProspect, setSelectedProspect] = useState(null);
+    const [creatingProspect, setCreatingProspect] = useState(false);
+    const [displayingProspects, setDisplayingProspects] = useState([]);
+    const [search, setSearch] = useState('');
+    const [loading, setLoading] = useState(true);
 
     //HOOKS
     const { prospects, fetchProspects } = useProspectsContext();
+    const { showToast } = useToast();
 
     //FUNCTIONS
     const handleSelectProspect = (prospect) => {
         setSelectedProspect(prospect);
     }
 
+    const handleSearchProspects = (search) => {
+        if(search === '') {
+            setDisplayingProspects(prospects);
+            return;
+        }
+
+        const filteredProspects = prospects.filter(prospect => prospect.name.toLowerCase().includes(search.toLowerCase()) || prospect.email.toLowerCase().includes(search.toLowerCase()) || prospect.company.toLowerCase().includes(search.toLowerCase()));
+
+        if(filteredProspects.length > 0) {
+            setDisplayingProspects(filteredProspects);
+        } else {
+            showToast('warning', 'No search results found. Displaying all prospects.');
+            setDisplayingProspects(prospects);
+        }
+    }
+
+    //EFFECTS
+    useEffect(() => {
+        setDisplayingProspects(prospects);
+        setLoading(false);
+    }, [prospects]);
+
+    useEffect(() => {
+
+        handleSearchProspects(search);
+    }, [search]);
+
     return (
         <div className='prospects-container-main'>
             {selectedProspect && (
                 <ProspectDetail prospect={selectedProspect} setSelectedProspect={setSelectedProspect} fetchProspects={fetchProspects}/>
+            )}
+            {creatingProspect && (
+                <NewProspect setCreatingProspect={setCreatingProspect} />
             )}
             <div className='prospects-container-header'>
                 <h1>My Prospects</h1>
             </div>
             <CTABar active={false} />
             {
-                !prospects.length > 0 ? (
+                !displayingProspects.length > 0 ? (
                     <div className='no-prospects-found-container'>
-                        <p>No prospects found. Click the button below to add your first prospect:</p>
-                        <div className='add-prospect-button'>
-                            <GoPlus />
-                            <p>Add Prospect</p>
-                        </div>
+                        {
+                            loading ? (
+                                <div className='inline-loader'>
+                                    <LuLoader />
+                                </div>
+                            ) : (
+                                <>
+                                    <p>No prospects found. Click the button below to add your first prospect</p>
+                                    <div className='add-prospect-button' onClick={() => setCreatingProspect(true)}>
+                                        <GoPlus />
+                                        <p>Add Prospect</p>
+                                    </div>
+                                </>
+                            )
+                        }
                     </div>
 
                 ) : (
@@ -51,7 +99,7 @@ export default function ProspectsContainer() {
                         <div className='prospects-toolbar-container'>
                             <div className='prospect-searchbar-container'>
                                 <SlMagnifier />
-                                <input type="text" placeholder='Search Prospects' />
+                                <input type="text" placeholder='Search Prospects' value={search} onChange={(e) => setSearch(e.target.value)} />
                             </div>
                             
                             <div className='full-h flex-row'>
@@ -65,17 +113,16 @@ export default function ProspectsContainer() {
                                         <p>List</p>
                                 </div>
                                 </div>
-                                <div className='add-prospect-button'>
+                                <div className='add-prospect-button' onClick={() => setCreatingProspect(true)}>
                                     <GoPlus />
                                     <p>Add Prospect</p>
                                 </div>
-                                
                             </div>
                         </div>
                         <div className='prospects-list-container'>
                             {view === 'cards' && (
                                 <div className='prospect-cards-container'>
-                                    {prospects.map((prospect) => (
+                                    {displayingProspects.map((prospect) => (
                                         <ProspectCard handleSelectProspect={handleSelectProspect} prospect={prospect} key={prospect.id} />
                                     ))}
                                 </div>
@@ -100,7 +147,7 @@ export default function ProspectsContainer() {
                                     </div>
                                     <div className='prospect-list-items-container'>
                                         {
-                                            prospects.map((prospect) => (
+                                            displayingProspects.map((prospect) => (
                                                 <ProspectListItem handleSelectProspect={handleSelectProspect} prospect={prospect} key={prospect.id} />
                                             ))
                                         }

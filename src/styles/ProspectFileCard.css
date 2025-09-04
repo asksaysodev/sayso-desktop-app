@@ -144,10 +144,11 @@
     font-weight: 400;
 }
 
-.error .prospect-file-card-error-container:hover{
-    /* color: black; */
-    /* border: 1px solid var(--sayso-destructive); */
+.success .prospect-file-card-status-icon-container svg{
+    font-size: 18px;
+    opacity: 0.9;
 }
+
 
 .error .prospect-file-card-status-icon-container:hover svg{
     color: black;

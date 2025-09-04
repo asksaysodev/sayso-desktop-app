@@ -1,0 +1,44 @@
+.main-primary-button{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    height: 40px;
+    padding: 0 14px;
+    border-radius: 100px;
+    background-color: var(--sayso-indigo);
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 400;
+    transition: opacity 0.15s ease;
+}
+
+.main-primary-button:hover{
+    opacity: 0.9;
+}
+
+.main-secondary-button{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    height: 40px;
+    padding: 0 14px;
+    border-radius: 100px;
+    background-color: white;
+    color: var(--sayso-darkgray);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 400;
+    transition: opacity 0.15s ease;
+    /* border: 1px solid var(--sayso-indigo); */
+    border: 1px solid var(--sayso-lightgray);
+}
+
+.main-secondary-button:hover{
+    background-color: var(--sayso-border);
+    border: 1px solid var(--sayso-lightgray);
+}
