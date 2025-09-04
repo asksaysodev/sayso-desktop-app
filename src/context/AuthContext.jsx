@@ -17,10 +17,20 @@ export const AuthProvider = ({ children }) => {
 
   const { createAccount, getAccount } = useAccounts()
 
+  // Wrapper function to handle localStorage updates
+  const updateGlobalUserState = (newGlobalUser) => {
+    if (newGlobalUser === null) {
+      localStorage.removeItem('sayso-global-user')
+    } else {
+      localStorage.setItem('sayso-global-user', JSON.stringify(newGlobalUser))
+    }
+    setGlobalUser(newGlobalUser)
+  }
+
   const updateGlobalUser = async (accountEmail) => {
     try{
       const account = await getAccount(accountEmail);
-      setGlobalUser(account);
+      updateGlobalUserState(account);
     } catch (error) {
       console.error('Error updating global user:', error); 
     }
@@ -31,7 +41,7 @@ export const AuthProvider = ({ children }) => {
     const handleSessionExpired = () => {
       console.log('🔐 AuthContext: Session expired event received');
       setUser(null);
-      setGlobalUser(null);
+      updateGlobalUserState(null);
       setAuthToken(null);
     };
 
@@ -85,12 +95,12 @@ export const AuthProvider = ({ children }) => {
       // Add a small delay to prevent rapid re-fetching
       timeoutId = setTimeout(() => {
         getAccount(user.email).then((account) => {
-          setGlobalUser(account)
+          updateGlobalUserState(account)
           setUserLoading(false)
         })
       }, 300) // 300ms delay
     } else {
-      setGlobalUser(null)
+      updateGlobalUserState(null)
       setUserLoading(false)
     }
 
@@ -127,28 +137,28 @@ export const AuthProvider = ({ children }) => {
     loading,
     updateGlobalUser,
     // Debug function to check auth storage
-    debugAuthStorage: () => {
-      const storageKey = 'sayso-auth';
-      const storedData = localStorage.getItem(storageKey);
+    // debugAuthStorage: () => {
+    //   // const storageKey = 'sayso-auth';
+    //   // const storedData = localStorage.getItem(storageKey);
       
-      console.log('🔐 Auth Storage Debug:');
-      console.log('Storage key:', storageKey);
-      console.log('Data exists:', !!storedData);
+    //   // // console.log('🔐 Auth Storage Debug:');
+    //   // // console.log('Storage key:', storageKey);
+    //   // // console.log('Data exists:', !!storedData);
       
-      if (storedData) {
-        try {
-          const parsed = JSON.parse(storedData);
-          console.log('Current user:', parsed.currentSession?.user?.email);
-          console.log('Token expires:', parsed.currentSession?.expires_at);
-          console.log('Is expired:', new Date(parsed.currentSession?.expires_at * 1000) < new Date());
-          console.log('Full auth data:', parsed);
-        } catch (error) {
-          console.error('Error parsing auth data:', error);
-        }
-      }
+    //   // if (storedData) {
+    //   //   try {
+    //   //     const parsed = JSON.parse(storedData);
+    //   //     // console.log('Current user:', parsed.currentSession?.user?.email);
+    //   //     // console.log('Token expires:', parsed.currentSession?.expires_at);
+    //   //     // console.log('Is expired:', new Date(parsed.currentSession?.expires_at * 1000) < new Date());
+    //   //     // console.log('Full auth data:', parsed);
+    //   //   } catch (error) {
+    //   //     console.error('Error parsing auth data:', error);
+    //   //   }
+    //   // }
       
-      return storedData;
-    }
+    //   return storedData;
+    // }
   }
 
   return (

@@ -4,7 +4,6 @@ import { useFiles } from './useFiles';
 
 export const useProspects = () => {
 
-  
   const { handleUploadFiles } = useFiles();
 
   const handleNewProspect = async (prospect, files) => {
@@ -81,13 +80,28 @@ export const useProspects = () => {
 
   } 
 
+  const updateProspect = async (prospectId, updateData) => {
+    try {
+      if(!prospectId || !updateData) {
+        throw new Error('Prospect ID and updateData are required');
+      }
+      await apiClient.put(`/prospects/update-prospect/${prospectId}`, { updateData });
+      return
+    } catch (error) {   
+      console.error('Error in updateProspect:', error);
+      throw error;
+    }
+
+  } 
+
   return {
     handleNewProspect,
     createProspect,
     getAccountProspects,
     getProspect,
     saveProspectMeeting,
-    removeZoomMeeting
+    removeZoomMeeting,
+    updateProspect
   };
 };
     

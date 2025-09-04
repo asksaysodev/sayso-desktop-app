@@ -162,7 +162,8 @@ if (require('electron-squirrel-startup')) {
   app.quit();
 }
 
-const isDev = process.env.NODE_ENV !== 'production';
+// Prefer Electron's packaging flag to detect development vs production
+const isDev = !app.isPackaged;
 
 // --- Transcription State (Main Process) ---
 let isTranscribingActive = false;
@@ -677,11 +678,6 @@ app.on('window-all-closed', () => {
 console.log("NODE_ENV:", process.env.NODE_ENV);
 console.log("Loaded FRONTEND_BASE_URL:", process.env.VITE_FRONTEND_BASE_URL);
 
-// function shouldOpenExternally(url) {
-//   // For now, just match google.com
-//   return url.startsWith('https://google.com');
-// }
-
 let lastLeaveUrl = null;
 let lastLeaveUrlTime = 0;
 let isProcessingPostCall = false;
@@ -771,3 +767,79 @@ app.on('web-contents-created', (event, contents) => {
   });
 });
 
+// Handler for opening coach window
+ipcMain.on('open-coach-window', () => {
+  console.log('IPC: Received open-coach-window request');
+  createCoachWindow();
+});
+
+// --- Coach Window (Sales Coach Interface) ---
+const createCoachWindow = () => {
+
+  if (global.coachWindow) {
+    console.log('Coach window already exists, returning...');
+    return;
+  }
+  
+  console.log('Creating coach window...');
+  
+  const preloadScriptPath = path.join(__dirname, 'preload.js');
+  
+  // Get the primary display to position the window at the top
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth } = primaryDisplay.workAreaSize;
+  
+  // Calculate position: center horizontally, 40px from top
+  const windowWidth = 800;
+  const x = Math.round((screenWidth - windowWidth) / 2);
+  const y = 40;
+  
+  const coachWindow = new BrowserWindow({
+    width: windowWidth,
+    height: 80,
+    x: x,
+    y: y,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    visibleOnAllWorkspaces: true,
+    icon: path.join(__dirname, '../public/assets/icon.icns'),
+    webPreferences: {
+      preload: preloadScriptPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      enableBlinkFeatures: 'MediaDevices,MediaStream,WebRTC',
+      permissions: ['media', 'camera', 'microphone'],
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false
+    },
+  });
+
+  // Store reference for IPC communication
+  global.coachWindow = coachWindow;
+
+  // dev vs prod URL for the coach window (use the HTML that bootstraps src/coachWindow/index.jsx)
+  const coachUrl = isDev
+    ? 'http://localhost:5173/coach-window.html'
+    : `file://${path.join(__dirname, '../dist/coach-window.html')}`;
+
+  coachWindow.loadURL(coachUrl);
+  
+  if (isDev) {
+    coachWindow.webContents.openDevTools();
+  }
+
+  coachWindow.on('closed', () => {
+    global.coachWindow = null;
+  });
+
+  console.log('Coach window created successfully at position:', { x, y });
+};
+
+// Add this IPC handler for resizing the coach window
+ipcMain.on('resize-coach-window', (event, height) => {
+    if (global.coachWindow) {
+        global.coachWindow.setSize(800, height);
+    }
+});

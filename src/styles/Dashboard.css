@@ -1,4 +1,4 @@
-/* Base styles for the dashboard window */
+Base styles for the dashboard window
 .DashboardApp {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   background-color: #f8faff; /* Very light blue/gray background */
@@ -13,7 +13,7 @@
 }
 
 /* --- Sidebar Styles --- */
-.sidebar {
+/* .sidebar {
   width: 260px;
   background-color: #ffffff; /* White sidebar */
   border-right: 1px solid #eaf0f6; /* Softer border */
@@ -25,7 +25,7 @@
   box-shadow: 1px 0 8px rgba(100, 120, 150, 0.05); /* Softer shadow */
   max-height: 100vh;
   overflow-y: auto;
-}
+} */
 
 .sidebarTitle {
   font-size: 1.3em; /* Slightly smaller */

@@ -28,11 +28,27 @@ body {
   box-sizing: border-box;
 }
 
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin: 0;
+}
 
 code {
   background-color: rgba(255, 255, 255, 0.2);
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+button {
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
 }
 
 .mt-10 {
@@ -67,4 +83,20 @@ code {
   margin-bottom: 40px;
 }
 
+.full-w {
+  width: 100%;
+}
 
+.full-h {
+  height: 100%;
+}
+
+.flex-row {
+  display: flex;
+  flex-direction: row;
+}
+
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}

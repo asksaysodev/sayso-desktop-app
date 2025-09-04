@@ -547,7 +547,7 @@ class AudioDeviceManager {
   // Get current output device
   async getCurrentOutputDevice() {
     return new Promise((resolve, reject) => {
-      exec(`${this.binPath} -t output -c`, (err, stdout, stderr) => {
+      exec(`"${this.binPath}" -t output -c`, (err, stdout, stderr) => {
         if (err) {
           console.error('[AudioDeviceManager] ❌ Error getting current output device:', err);
           return reject(err);
@@ -562,7 +562,7 @@ class AudioDeviceManager {
   // Get list of available audio output devices
   async getAvailableOutputDevices() {
     return new Promise((resolve, reject) => {
-      exec(`${this.binPath} -t output -a`, (err, stdout, stderr) => {
+      exec(`"${this.binPath}" -t output -a`, (err, stdout, stderr) => {
         if (err) {
           console.error('[AudioDeviceManager] ❌ Error getting available output devices:', err);
           return reject(err);
@@ -607,7 +607,7 @@ class AudioDeviceManager {
       console.log('🎤 [AUDIO DEVICE MANAGER] SwitchAudioSource path:', switchPath);
       
       return new Promise((resolve, reject) => {
-        exec(`${this.binPath} -t output -s "${saysoDevice}"`, (err, stdout, stderr) => {
+        exec(`"${this.binPath}" -t output -s "${saysoDevice}"`, (err, stdout, stderr) => {
           if (err) {
             console.error('[AudioDeviceManager] ❌ Failed to switch audio device:', err);
             reject(err);
@@ -634,7 +634,7 @@ class AudioDeviceManager {
       console.log('[AudioDeviceManager] Restoring to previous device:', this.previousDevice);
 
       return new Promise((resolve, reject) => {
-        exec(`${this.binPath} -t output -s "${this.previousDevice}"`, (err, stdout, stderr) => {
+        exec(`"${this.binPath}" -t output -s "${this.previousDevice}"`, (err, stdout, stderr) => {
           if (err) {
             console.error('[AudioDeviceManager] ❌ Failed to restore audio device:', err);
             reject(err);

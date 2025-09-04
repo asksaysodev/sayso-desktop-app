@@ -1,18 +1,20 @@
+import { useEffect } from 'react';
 import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
-import './styles/App.css';
 import Dashboard from './views/Dashboard';
 import Login from './views/Login';
+import Home from './views/Home';
 import AuthGuard from './components/AuthGuard';
 import { AuthProvider } from './context/AuthContext';
 import { ProspectsProvider } from './context/ProspectsContext';
-import ZoomCallback from './views/ZoomCallback';
+// import ZoomCallback from './views/ZoomCallback';
 import GuestGuard from './components/GuestGuard';
 import { SalesCoachProvider } from './context/SalesCoachContext';
 import InsightPopUpWrapper from './components/InsightPopUpWrapper';
-import { ZoomClient } from './views/ZoomClient';
-import PostCall from './views/PostCall';
+// import { ZoomClient } from './views/ZoomClient';
+// import PostCall from './views/PostCall';
 import FloatingChecklistContainer from './components/FloatingChecklistContainer';
-import { useEffect } from 'react';
+import './styles/App.css';
+import { ToastProvider } from './context/ToastContext';
 
 function App() {
   const location = useLocation();
@@ -61,30 +63,33 @@ function App() {
   }, [navigate]);
 
   return (
-      <AuthProvider>
-        <ProspectsProvider>
-            <SalesCoachProvider>
-              <div className={rootClassName}>
+      <ToastProvider>
+        <AuthProvider>
+          <ProspectsProvider>
+              <SalesCoachProvider>
+                <div className={rootClassName}>
                 <Routes>
                   <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
                   <Route
                     path="/"
                     element={
                       <AuthGuard>
-                        <Dashboard />
+                        <Home />
+                        {/* <Dashboard /> */}
                       </AuthGuard>
                     }
                   />
-                  <Route path="/zoom-callback" element={<ZoomCallback />} />
+                  {/* <Route path="/zoom-callback" element={<ZoomCallback />} />
                   <Route path="/post-call/:meetingId/:prospectId/:sessionId" element={<PostCall />} />
-                  <Route path="/zoom-client-new/:meetingId/:prospectId/:sessionId" element={<ZoomClient />} />
+                  <Route path="/zoom-client-new/:meetingId/:prospectId/:sessionId" element={<ZoomClient />} /> */}
                 </Routes>
                 <InsightPopUpWrapper />
-              </div>
-              <FloatingChecklistContainer />
-            </SalesCoachProvider>
-        </ProspectsProvider>
-      </AuthProvider>
+                </div>
+                <FloatingChecklistContainer />
+              </SalesCoachProvider>
+          </ProspectsProvider>
+        </AuthProvider>
+      </ToastProvider>
   );
 }
 

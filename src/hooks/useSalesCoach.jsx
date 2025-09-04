@@ -109,7 +109,7 @@ export const useSalesCoach = () => {
 
   return {
     handleNewCall,
-    startLiveCoach,
+    // startLiveCoach,
     handleStopLiveCoach,
     getCallSummary,
     getIceBreaker,

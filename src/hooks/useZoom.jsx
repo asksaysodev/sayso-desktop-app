@@ -104,12 +104,22 @@ export const useZoom = () => {
         }
     }, []);
 
+    const getZak = useCallback(async (userId) => {
+        try {
+            const response = await apiClient.post(`/zoom/zak/${userId}`);
+            return response.data;
+        } catch (error) {
+            console.error('❌ Error getting zak:', error);
+        }
+    }, []);
+
     return {
         requestMediaPermissions,
         mediaPermissions,
         getMeetingDetails,
         getSignature,   
         getZoomMeetings,
-        disconnectZoom
+        disconnectZoom,
+        getZak
     };
 };

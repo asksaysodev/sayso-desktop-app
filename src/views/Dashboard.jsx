@@ -573,7 +573,13 @@ const Dashboard = () => {
     }
   };
 
-
+  const handleOpenNewWindow = () => {
+    if (window.electron && window.electron.ipcRenderer) {
+      window.electron.ipcRenderer.send('open-coach-window');
+    } else {
+      console.warn('Electron not available, cannot open coach window');
+    }
+  }
 
   useEffect(() => {
     if(globalUser?.id) {
@@ -620,7 +626,7 @@ const Dashboard = () => {
           <span style={{height: '1px', width: '100%', backgroundColor:'var(--blue1)', display: 'block', margin:'10px 0', opacity: '0.4'}}></span>
           <BtnMain text="Account Settings" onClick={handleAccountSettingsClick} />
           <BtnMain text="Sign Out" onClick={signOut} />
-          {/* <BtnMain text="Restart App" onClick={handleRestartApp} /> */}
+          <BtnMain text="Launch Coach" onClick={handleOpenNewWindow} />
           {/* <BtnMain text="Regular Insight" onClick={() => setCurrentInsight({message: "I hope your kids are excited for school! How's the planning going? I hope your kids are excited for school! How's the planning going?", isIceBreaker: true})} /> */}
         </div>
       </div>

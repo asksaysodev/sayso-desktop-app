@@ -38,8 +38,18 @@ export default function PostCall() {
             if (meetingId && prospectId && sessionId && isMounted) {
                 hasProcessedCall.current = true;
                 try {
+                    // Complete the cleanup first
                     await handleStopLiveCoach(meetingId, prospectId, sessionId);
-                    // Don't reload here - let the component handle navigation
+                    
+                    // Store essential data in sessionStorage before refresh
+                    sessionStorage.setItem('meetingEnded', 'true');
+                    sessionStorage.setItem('lastMeetingId', meetingId);
+                    sessionStorage.setItem('lastProspectId', prospectId);
+                    
+                    // Now it's safe to refresh - this will give us a clean Zoom SDK state
+                    console.log(' Refreshing page to reset Zoom SDK state...');
+                    window.location.reload();
+                    
                 } catch (error) {
                     console.error('❌ Error in handleStopLiveCoach:', error);
                     if (isMounted) handleGoBack();

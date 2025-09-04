@@ -6,6 +6,7 @@ import { ZoomMtg } from '@zoom/meetingsdk'
 import { useSalesCoachContext } from '../context/SalesCoachContext';
 import '../styles/ZoomClient.css';
 
+
 export const ZoomClient = () => {
   const [signature, setSignature] = useState(null);
   const [meetingDetails, setMeetingDetails] = useState(null);
@@ -16,7 +17,7 @@ export const ZoomClient = () => {
 
   const { meetingId, prospectId, sessionId } = useParams();
   const { globalUser } = useAuth();
-  const { requestMediaPermissions, getMeetingDetails, getSignature } = useZoom();
+  const { requestMediaPermissions, getMeetingDetails, getSignature, getZak } = useZoom();
   const { iceBreaker, setIsZoomInitialized, setIsCallActive } = useSalesCoachContext();
 
   const isElectron = !!(window && window.electron && window.electron.ipcRenderer);
@@ -59,16 +60,29 @@ export const ZoomClient = () => {
     }, 5000);
   }, [setIsZoomInitialized]);
 
-  const startMeeting = async (signature, sdkKey, meetingNumber, passWord, userName, userEmail) => {
+  const startMeeting = useCallback(async (signature, sdkKey, meetingNumber, passWord, userName, userEmail, zak) => {
     try {
-      const rootElement = document.getElementById("zmmtg-root");
-      if (rootElement) {
-        rootElement.style.display = "block";
-      }
+      document.getElementById('zmmtg-root').style.display = 'block';
+
+      ZoomMtg.preLoadWasm();
+      ZoomMtg.prepareWebSDK();
 
       ZoomMtg.init({
-        leaveUrl,
+        leaveUrl,                  
+        disablePreview: true,
+        isSupportAV: false,
+        customizeUI: true,
+        leaveOnPageUnload: true,
+        debug: true,
+        defaultView: 'speaker',
+
+        
+        onRetryCallback: () => {
+          console.log('[Zoom] Retry callback triggered');
+        },
+        
         success: () => {
+          console.log('[Zoom] Init success, joining meeting...');
           ZoomMtg.join({
             signature,
             sdkKey,
@@ -76,29 +90,24 @@ export const ZoomClient = () => {
             passWord,
             userName,
             userEmail,
-            success: () => {
-              setIsLoading(false);
-              handleZoomInitialized();
-            },
-            error: (error) => {
-              console.error("Zoom join error:", error);
-              setError("Failed to join meeting. Please check your connection and try again.");
-              setIsLoading(false);
-            }
-          });
+            zak,
+            success: (res) => console.log('Meeting joined', res),
+            error: (err) => console.error('Join Error', err),
+        });
+
+          
         },
+        
         error: (error) => {
-          console.error("Zoom init error:", error);
-          setError("Failed to initialize Zoom. Please refresh the page and try again.");
-          setIsLoading(false);
+          console.error('[Zoom] Init error:', error);
         }
       });
+
+      // ... rest of your existing code
     } catch (error) {
-      console.error("Error starting meeting:", error);
-      setError("An unexpected error occurred. Please try again.");
-      setIsLoading(false);
+      console.error('[Zoom] Start meeting error:', error);
     }
-  };
+  }, []);
 
   const getMeetingDetailsAndSignature = async () => {
     try {
@@ -111,6 +120,7 @@ export const ZoomClient = () => {
         setMeetingDetails(meetingDetails);
         
         const signature = await getSignature(meetingDetails.id, 1);
+        const { zak } = await getZak(globalUser.id);
         
         setSignature(signature);
         
@@ -120,7 +130,8 @@ export const ZoomClient = () => {
           meetingDetails.id,
           meetingDetails.password,
           globalUser.name || "Sayso User",
-          globalUser.email
+          globalUser.email,
+          zak
         );
       } else {
         console.error('❌ [ZoomClient] No meeting details received');
@@ -196,8 +207,17 @@ export const ZoomClient = () => {
           </div>
         </div>
       )}
+      <div className="flex items-center justify-center h-screen governmenthooka">
+        <div id="zmmtg-root" style={{
+          display: 'none',
+          position: 'relative',
+          zIndex: 9998,
+          background: 'white',
+          minWidth: '800px'
+        }}></div>
+      </div>
       
-      {signature && meetingDetails && !isLoading && !error && (
+      {/* {signature && meetingDetails && !isLoading && !error && (
         <div className="flex items-center justify-center h-screen governmenthooka">
           <div id="zmmtg-root" style={{
             display: 'block',
@@ -207,7 +227,7 @@ export const ZoomClient = () => {
             minWidth: '800px'
           }}></div>
         </div>
-      )}
+      )} */}
     </div>
   );
 };

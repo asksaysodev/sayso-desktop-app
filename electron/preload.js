@@ -38,6 +38,10 @@ try {
     }
   });
 
+  contextBridge.exposeInMainWorld('electronAPI', {
+    resizeWindow: (height) => ipcRenderer.send('resize-coach-window', height)
+  });
+
   // Extract --indexHtmlPath from process.argv
   const indexHtmlPathArg = process.argv.find(arg => arg.startsWith('--indexHtmlPath='));
   const indexHtmlPath = indexHtmlPathArg ? indexHtmlPathArg.replace('--indexHtmlPath=', '') : '';

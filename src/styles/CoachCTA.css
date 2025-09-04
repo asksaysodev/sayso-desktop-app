@@ -1,0 +1,65 @@
+.coach-cta-container {
+  height: 44px;
+  width: 240px;
+  position: relative;
+  cursor: pointer;
+  min-width: 200px;
+}
+.coach-cta-container p{
+  margin: 0;
+  margin-left: 8px;
+}
+
+.coach-cta-container.sidebar {
+  width: 100%;
+
+}
+
+.coach-cta-container .main-button {
+  width: 100%;
+  height: 100%;
+  border-radius: 200px;
+  position: absolute;
+  background-color: var(--sayso-blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  transition: background-color 0.17s ease, color 0.17s ease;
+  padding: 0 16px;
+}
+
+.coach-cta-container .outline {
+  width: 100%;
+  height: 100%;
+  background-color: var(--sayso-yellow);
+  border-radius: 200px;
+  position: absolute;
+  top: 4px;
+  left: 0;
+  transition: background-color 0.17s ease;
+}
+
+.coach-cta-container:hover .main-button {
+  background-color: var(--sayso-yellow);
+  color: var(--sayso-indigo);
+}
+
+.coach-cta-container:hover .outline {
+  background-color: var(--sayso-blue);
+}
+
+@keyframes rocketShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-1px) rotate(-3deg); }
+  50% { transform: translateX(1px) rotate(4deg); }
+  75% { transform: translateX(-1px) rotate(-2deg); }
+}
+
+.coach-cta-container:hover .main-button svg {
+  animation: rocketShake 0.5s ease-in-out;
+}
+
+
+
+

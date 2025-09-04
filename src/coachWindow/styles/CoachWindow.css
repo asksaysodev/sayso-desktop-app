@@ -1,0 +1,35 @@
+.coach-window {
+    width: 100%;
+    height: auto;
+    background: transparent;
+    -webkit-app-region: drag;
+    border-radius: 12px;
+    backdrop-filter: none;
+    border: none;
+    overflow: hidden;
+    cursor: move;
+}
+
+.coach-window .main-container{
+    background-color: rgba(0, 0, 0, 0.75);
+    height: 80px;
+    width: 100%;
+    border-radius: 500px;
+    display: flex;
+    align-items: center;
+    justify-content: space-evenly;
+    padding: 0 20px;
+    
+}
+
+.coach-window .main-container button, select{
+    -webkit-app-region: no-drag;
+    cursor: pointer;
+}
+
+.coach-window .main-container.expanded{
+    
+    height: 190px;
+    
+}
+

@@ -1,6 +1,0 @@
-framework module ZoomAppUISDK {
-  umbrella header "ZoomAppUISDK.h"
-  export *
-
-  module * { export * }
-}

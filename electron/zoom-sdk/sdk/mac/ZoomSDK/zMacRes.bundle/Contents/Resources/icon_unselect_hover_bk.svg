@@ -1,8 +1,0 @@
-<svg width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="22" height="22" rx="6.6" fill="#E4E4ED"/>
-<zoom style="*" dark_mode="|:#FF4A4A4A"/>
-<zoom style="hover" value="|:#FFE6E6EA" hc_value="|:-" dark_mode="|:#FF383838"/>
-<zoom style="press" value="|:#FFE7F1FD" hc_value="|:-" dark_mode="|:#FF4C4C4C"/>
-<zoom style="custom_sipcall" value="|:#FF2785FF" hc_value="|:-" dark_mode="|:#FF2785FF"/>
-<zoom style="custom_contact" value="|:#FFE7F1FD" hc_value="|:-" dark_mode="|:#FF2785FF"/>
-<zoom style="custom_hover" value="|:FFEFEFF3|x0.91" dark_mode="|:#FF383838|x0.91"/>
-</svg>

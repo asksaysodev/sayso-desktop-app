@@ -1,6 +1,0 @@
-framework module ZoomKit {
-  umbrella header "ZoomKit.h"
-  export *
-
-  module * { export * }
-}
