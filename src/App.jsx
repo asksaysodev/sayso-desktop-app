@@ -6,25 +6,20 @@ import Home from './views/Home';
 import AuthGuard from './components/AuthGuard';
 import { AuthProvider } from './context/AuthContext';
 import { ProspectsProvider } from './context/ProspectsContext';
-// import ZoomCallback from './views/ZoomCallback';
 import GuestGuard from './components/GuestGuard';
 import { SalesCoachProvider } from './context/SalesCoachContext';
 import InsightPopUpWrapper from './components/InsightPopUpWrapper';
-// import { ZoomClient } from './views/ZoomClient';
-// import PostCall from './views/PostCall';
 import FloatingChecklistContainer from './components/FloatingChecklistContainer';
 import './styles/App.css';
 import { ToastProvider } from './context/ToastContext';
+import Account from './views/Account';
+import Layout from './components/Layout';
 
 function App() {
+
   const location = useLocation();
   const navigate = useNavigate();
-
-  // Add debug logging for location changes
-  useEffect(() => {
-    console.log('📍 App: Location changed to:', location.pathname, location.hash);
-  }, [location]);
-
+  
   // Conditionally apply styles based on route
   const isFloatingWindow = location.pathname === '/' || location.pathname === '/sales-checklist';
   const isDashboard = location.pathname === '/dashboard';
@@ -74,11 +69,23 @@ function App() {
                     path="/"
                     element={
                       <AuthGuard>
-                        <Home />
-                        {/* <Dashboard /> */}
+                        <Layout>
+                          <Home />
+                        </Layout>
                       </AuthGuard>
                     }
                   />
+                  <Route
+                    path="/account"
+                    element={
+                      <AuthGuard>
+                        <Layout>
+                          <Account />
+                        </Layout>
+                      </AuthGuard>
+                    }
+                  />
+
                   {/* <Route path="/zoom-callback" element={<ZoomCallback />} />
                   <Route path="/post-call/:meetingId/:prospectId/:sessionId" element={<PostCall />} />
                   <Route path="/zoom-client-new/:meetingId/:prospectId/:sessionId" element={<ZoomClient />} /> */}

@@ -357,6 +357,7 @@
 .prospect-form-input-icon-container-loader{
     cursor: not-allowed;
     animation: spin 1s linear infinite;
+    /* margin-top: 14px; */
 }
 
 .inline-loader{
@@ -396,6 +397,7 @@
     padding: 16px; 
 }
 
-.add-prospect-footer button:first-child{
-    margin-right: 8px;
+.add-prospect-footer button:disabled{
+    opacity: 0.5;
+    cursor: not-allowed;
 }

@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
 
-import { LuTrash } from 'react-icons/lu';
+import { LuTrash, LuLoader } from 'react-icons/lu';
 import { FaRegCircleCheck, FaRotateRight} from 'react-icons/fa6';
 import { GoFile } from 'react-icons/go';
 
 import '../styles/ProspectFileCard.css';
 
-export default function ProspectFileCard({status, file, showDeleteModal, progress: propProgress = 0, fromDatabase = false, setFormData}) {
+export default function ProspectFileCard({status, file, showDeleteModal, progress: propProgress = 0, fromDatabase = false, setFormData, setFileToDelete, deletingFileId = null}) {
 
     //STATE
     const [progress, setProgress] = useState(propProgress);
-    const [fileStatus, setFileStatus] = useState(status);
+    const [isDeleting, setIsDeleting] = useState(false);
+
 
     //FUNCTIONS
     const formatFileSize = (bytes) => {
@@ -21,7 +22,7 @@ export default function ProspectFileCard({status, file, showDeleteModal, progres
 
     const handleRemoveFileClick = async () => {
         if(fromDatabase) {
-            //REMOVE FROM DATABASE
+            setFileToDelete(file);
             return;
         } else {
             //REMOVE FROM FORM LOCAL DATA
@@ -42,7 +43,7 @@ export default function ProspectFileCard({status, file, showDeleteModal, progres
             setProgress(100);
             return;
         } else if(status === 'loading' && propProgress === 0) {
-            // Only animate progress if no prop progress is provided
+
             const timer = setTimeout(() => {
                 if(progress < 90) {
                     setProgress(progress + 10);
@@ -52,8 +53,14 @@ export default function ProspectFileCard({status, file, showDeleteModal, progres
         }
     }, [progress, status, propProgress]);
 
+    useEffect(() => {
+        setIsDeleting( deletingFileId === file.id );
+
+    }, [deletingFileId]);
+
+
     return (
-        <div className={`prospect-file-card-container ${status}`}>
+        <div className={`prospect-file-card-container ${status} ${isDeleting ? 'deleting' : ''}`}>
             <div className='prospect-file-card-icon-container'>
                 <GoFile />
             </div>
@@ -80,8 +87,18 @@ export default function ProspectFileCard({status, file, showDeleteModal, progres
                 }
             </div>
             <div className='prospect-file-card-status-icon-container'>
-                {status === 'success' && <FaRegCircleCheck />}
-                {(status === 'error' || status === 'default') && <LuTrash onClick={handleRemoveFileClick} />}
+                {
+                    isDeleting ? (
+                        <div className='prospect-file-card-status-icon-container-loader' >
+                            <LuLoader />
+                        </div>
+                    ) :  (
+                        <>
+                            {status === 'success' && <FaRegCircleCheck />}
+                            {(status === 'error' || status === 'default') && <LuTrash onClick={handleRemoveFileClick} />}
+                        </>
+                    )
+                }
             </div>
         </div>
     )

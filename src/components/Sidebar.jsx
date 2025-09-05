@@ -9,7 +9,8 @@ export default function Sidebar() {
     <div className="sidebar-container">
         <div className='full-w'>
             <div className="sidebar-header">
-                <img src='/assets/loader-logo.png' alt="Sayso Logo" />
+                {/* <img src='/assets/loader-logo.png' alt="Sayso Logo" /> */}
+                <img src='/assets/sayso-logo.png' alt="Sayso Logo" />
                 <h1>Sayso</h1>
             </div>
             <div className='sidebar-nav-container'>

@@ -7,7 +7,7 @@ import { useProspects } from '../hooks/useProspects';
 import '../styles/ProspectDetail.css';
 
 
-export default function FormLine({ label, name, placeholder, prospect, fetchProspects }) {
+export default function FormLine({ label, name, placeholder, prospect, fetchProspects, setUpdatedHeader }) {
 
     //STATE
     const [isEditing, setIsEditing] = useState(false);
@@ -51,11 +51,19 @@ export default function FormLine({ label, name, placeholder, prospect, fetchPros
 
     const handleChange = (e) => {
         setInputValue(e.target.value);
+        setUpdatedHeader(prev => ({
+            ...prev,
+            [name]: e.target.value
+        }));
     }
 
     const handleClose = () => {
         setIsEditing(false);
         setInputValue(prospect[name]);
+        setUpdatedHeader(prev => ({
+            ...prev,
+            [name]: prospect[name]
+        }));
     }
 
     const handleKeyPress = (e) => {

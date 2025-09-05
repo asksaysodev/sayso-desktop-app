@@ -11,6 +11,11 @@
     margin-top: 12px;
 }
 
+.prospect-file-card-container.deleting{
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 .prospect-file-card-container.error{
     border: 1px solid var(--sayso-destructive);
     background-color: var(--sayso-destructive-light);
@@ -18,6 +23,10 @@
 
 .prospect-file-card-container:hover{
     border: 1px solid var(--sayso-blue);
+}
+
+.prospect-file-card-container.deleting:hover{
+    border: 1px solid var(--sayso-border);
 }
 
 .error.prospect-file-card-container:hover{
@@ -70,6 +79,7 @@
     justify-content: start;
     color: var(--sayso-lightgray);
     font-size: 20px;
+    /* border: 1px solid red; */
     /* margin-left: 2px; */
 }
 
@@ -153,4 +163,28 @@
 .error .prospect-file-card-status-icon-container:hover svg{
     color: black;
     cursor: pointer;
+}
+
+.prospect-file-card-status-icon-container-loader{   
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    overflow: hidden;
+    /* border: 1px solid red; */
+    position: relative;
+}
+
+.prospect-file-card-status-icon-container-loader svg{
+    font-size: 16px;
+    animation: spin 1s linear infinite;
+    margin: 0;
+    /* height: 12px;
+    width: 12px; */
+    /* border: 1px solid red; */
+    position: absolute;
+    /* top: 50%;
+    left: 50%; */
+    transform: translate(-50%, -50%);
 }

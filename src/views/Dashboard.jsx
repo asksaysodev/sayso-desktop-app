@@ -693,7 +693,7 @@ const Dashboard = () => {
           >
             {isSavingAccountSettings ? 
               <SaysoLoader textArray={['Saving account settings', 'Almost done', 'Just a moment']} /> :
-              // <Loader message="Saving account settings..." /> :
+              
               isLoadingFiles ? 
                 <SaysoLoader textArray={['Loading files', 'Almost done', 'Just a moment']} /> :
                 <div className="accountSettingsView" style={{ width: 500, margin: '0 auto' }}>

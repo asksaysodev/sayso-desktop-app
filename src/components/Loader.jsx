@@ -1,11 +1,13 @@
 import React from 'react';
 import '../styles/Loader.css';
 
-const Loader = ({ message = 'Loading...' }) => {
+const Loader = ({ message = 'Sayso' }) => {
   return (
-    <div className="loadingContainer">
-      <div className="loadingSpinner"></div>
-      <p>{message}</p>
+    <div className="loaderView">
+      <div className="loadingContainer">
+        <div className="loader"></div>
+        <p>{message}</p>
+      </div>
     </div>
   );
 };

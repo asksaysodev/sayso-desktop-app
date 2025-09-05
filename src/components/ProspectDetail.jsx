@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 
 import { useToast } from '../context/ToastContext';
 import { useFiles } from '../hooks/useFiles';
+import { useProspects } from '../hooks/useProspects';
 
 import SaysoModal from './SaysoModal';
 import Divider from './Divider';
@@ -25,10 +26,18 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
     const [deleteFileModalVisible, setDeleteFileModalVisible] = useState(false);
     const [prospectFiles, setProspectFiles] = useState({files: []});
     const [existingFiles, setExistingFiles] = useState(null);
+    const [fileToDelete, setFileToDelete] = useState(null);
+    const [deletingFileId, setDeletingFileId] = useState(null);
+    const [updatedHeader, setUpdatedHeader] = useState({
+        name: '',
+        lastname: '',
+        email: ''
+    });
 
     //HOOKS
     const { showToast } = useToast();
-    const { handleUploadFiles, fetchFiles } = useFiles();
+    const { handleUploadFiles, fetchFiles, removeFile } = useFiles();
+    const { deleteProspect } = useProspects();
 
     //FUNCTIONS
     const handleDeleteProspect = async () => {
@@ -36,16 +45,17 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
         setDeleteModalVisible(false);
         setIsDeleting(true);
         try {
-            setTimeout(() => {
-                setIsDeleting(false);
-                handleClose();
-                showToast('success', 'Prospect deleted successfully!');
-            }, 1000);
+            await deleteProspect(prospect.id);
+            await fetchProspects();
+            handleClose();
+            showToast('success', 'Prospect deleted successfully!');
+            
         } catch (error) {
-            setIsDeleting(false);
             showToast('error', 'Failed to delete prospect');
             console.error('Error deleting prospect:', error);
             return;
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -54,19 +64,26 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
         setExistingFiles(files);
     }
 
-    const handleRemoveFile = async (fileId) => {
+    const handleRemoveFile = async () => {
 
         setDeleteFileModalVisible(false);
-        
+        const fileId = fileToDelete.id;
         try {
-            setTimeout(() => {
-                showToast('success', 'File deleted successfully!');
-            }, 1000);
+            setDeletingFileId(fileId);
+            await removeFile(fileId);
+            await fetchProspects();
+            setExistingFiles(prevFiles => ({
+                ...prevFiles,
+                files: prevFiles.files.filter(file => file.id !== fileId)
+            }));
+            showToast('success', 'File deleted successfully!');
         } catch (error) {
-            setIsDeleting(false);
             showToast('error', 'Failed to delete file');
             console.error('Error deleting prospect:', error);
             return;
+        } finally {
+            setDeletingFileId(null);
+            setFileToDelete(null);
         }
     };
 
@@ -78,6 +95,11 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
         }, 300);
     };
 
+    const handleCancelDeleteFile = () => {
+        setFileToDelete(null);
+        setDeleteFileModalVisible(false);
+    }
+
     const handleFileChange = async (e) => {
         const newFiles = Array.from(e.target.files);
         console.log('New files uploaded:', newFiles);
@@ -85,7 +107,7 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
         if (newFiles.length === 0) return;
         
         const filesWithStatus = newFiles.map(file => ({
-            file: file, // Keep original file object
+            file: file, 
             uploadStatus: 'loading',
             uploadProgress: 0
         }));
@@ -96,13 +118,16 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
         }));
         
         try {
-            const uploadedFiles = await handleUploadFiles(
+
+            await handleUploadFiles(
                 newFiles, 
                 'prospect', 
                 prospect.id 
             );
-            
-            
+
+            await fetchProspects();
+
+
             setProspectFiles(prevFiles => ({
                 ...prevFiles,
                 files: prevFiles.files.map(fileItem => {
@@ -141,12 +166,6 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
         }
     };
     
-    const removeFile = (indexToRemove) => {
-        setProspectFiles(prevFiles => ({
-            ...prevFiles,
-            files: (prevFiles.files || []).filter((_, idx) => idx !== indexToRemove)
-        }));
-    };
 
     //EFFECTS
     useEffect(() => {
@@ -159,8 +178,22 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
     }, []);
 
     useEffect(() => {
+        if( fileToDelete ) {
+            setDeleteFileModalVisible(true);
+        }
+    }, [fileToDelete]);
+
+    useEffect(() => {
         handleFetchFiles();
     }, [prospect.id]);
+
+    useEffect(() => {
+        setUpdatedHeader({
+            name: prospect.name,
+            lastname: prospect.lastname,
+            email: prospect.email
+        });
+    }, [prospect]);
 
     return (
         <>  
@@ -185,7 +218,7 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
                         isDelete = {true}
                         primaryText="Yes, Delete"
                         secondaryText="Cancel"
-                        onDeny={() => setDeleteFileModalVisible(false)}
+                        onDeny={handleCancelDeleteFile}
                         onConfirm={handleRemoveFile}
                     />
                 )
@@ -205,12 +238,12 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
                     <div className='prospect-detail-header-content'>
                         <div className='prospect-detail-header-image-container'>
                             <div className='prospect-detail-header-image'>
-                                <p>{`${prospect.name.charAt(0).toUpperCase()}${prospect.lastname.charAt(0).toUpperCase()}`}</p>
+                                <p>{`${updatedHeader.name.charAt(0).toUpperCase()} ${updatedHeader.lastname.charAt(0).toUpperCase()}`}</p>
                             </div>
                         </div>
                         <div className='prospect-detail-header-content-info'>
-                            <h2 className='prospect-detail-header-name'>{`${prospect.name} ${prospect.lastname}`}</h2>
-                            <p className='prospect-detail-header-email'>{prospect.email}</p>
+                            <h2 className='prospect-detail-header-name'>{`${updatedHeader.name} ${updatedHeader.lastname}`}</h2>
+                            <p className='prospect-detail-header-email'>{updatedHeader.email}</p>
                             <div className={`prospect-detail-delete-container ${isDeleting ? 'deleting' : ''}`} onClick={() => setDeleteModalVisible(true)}>
                                 {
                                     isDeleting ? (
@@ -234,6 +267,7 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
                                 name='name' 
                                 placeholder='John'
                                 fetchProspects={fetchProspects}
+                                setUpdatedHeader={setUpdatedHeader}
                             />
                             <FormLine 
                                 label='Lastname' 
@@ -241,6 +275,7 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
                                 name='lastname' 
                                 placeholder='Doe'
                                 fetchProspects={fetchProspects}
+                                setUpdatedHeader={setUpdatedHeader}
                             />
                             <FormLine 
                                 label='Email' 
@@ -248,6 +283,7 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
                                 name='email' 
                                 placeholder='john.doe@example.com'
                                 fetchProspects={fetchProspects}
+                                setUpdatedHeader={setUpdatedHeader}
                             />
                             <FormLine 
                                 label='Company' 
@@ -255,6 +291,7 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
                                 name='company' 
                                 placeholder='Company Inc.'
                                 fetchProspects={fetchProspects}
+                                setUpdatedHeader={setUpdatedHeader}
                             />
                         </form>
                     </div>
@@ -283,6 +320,9 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
                                         key={index}
                                         progress={file.uploadProgress || 0}
                                         fromDatabase={false}
+                                        setFileToDelete={setFileToDelete}
+                                        removeFile={setDeleteFileModalVisible}
+                                        deletingFileId={deletingFileId}
                                     />
                                 ))
                             }
@@ -293,7 +333,15 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
                                     <>
                                         {
                                             existingFiles.files.map((file, index) => (
-                                                <ProspectFileCard status='default' file={file} key={index} fromDatabase={true}/>
+                                                <ProspectFileCard 
+                                                    status={'default'} 
+                                                    file={file} 
+                                                    key={index}
+                                                    fromDatabase={true}
+                                                    setFileToDelete={setFileToDelete}
+                                                    removeFile={setDeleteFileModalVisible}
+                                                    deletingFileId={deletingFileId}
+                                                />
                                             ))
                                         }
                                     </>

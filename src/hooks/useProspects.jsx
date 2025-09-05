@@ -6,11 +6,18 @@ export const useProspects = () => {
 
   const { handleUploadFiles } = useFiles();
 
-  const handleNewProspect = async (prospect, files) => {
+  const handleNewProspect = async (prospect) => {
 
-    const newProspect = await createProspect(prospect);
-    if(files && files.length > 0) {
-      await handleUploadFiles(files, 'prospect-files', newProspect.id);
+    const prospectData = {
+      name: prospect.name,
+      lastname: prospect.lastname,
+      email: prospect.email,
+      company: prospect.company
+    }
+
+    const newProspect = await createProspect(prospectData);
+    if(prospect.files && prospect.files.length > 0) {
+      await handleUploadFiles(prospect.files, 'prospect-files', newProspect.id);
       
     }
     return newProspect;
@@ -94,6 +101,16 @@ export const useProspects = () => {
 
   } 
 
+  const deleteProspect = async (prospectId) => {
+    try {
+      const response = await apiClient.delete(`/prospects/delete-prospect/${prospectId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting prospect:', error);
+      throw error;
+    }
+  }
+
   return {
     handleNewProspect,
     createProspect,
@@ -101,7 +118,8 @@ export const useProspects = () => {
     getProspect,
     saveProspectMeeting,
     removeZoomMeeting,
-    updateProspect
+    updateProspect,
+    deleteProspect
   };
 };
     

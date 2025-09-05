@@ -24,16 +24,12 @@ export const ToastProvider = ({ children }) => {
         
         setToast({ status, text });
         
-        // Auto-hide after 2 seconds
         autoHideTimeoutRef.current = setTimeout(() => {
-            // Instead of directly setting toast to null, we need to trigger the close animation
-            // We'll pass a special prop to the Toast component to handle auto-close
             setToast(prev => prev ? { ...prev, autoClose: true } : null);
-        }, 2000);
+        }, 1500);
     };
 
     const hideToast = () => {
-        // Clear the auto-hide timeout when manually closing
         if (autoHideTimeoutRef.current) {
             clearTimeout(autoHideTimeoutRef.current);
         }

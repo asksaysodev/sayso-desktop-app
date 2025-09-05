@@ -1,58 +1,68 @@
-.sayso-loader {
+.sayso-loader-container {
   display: flex;
+  /* flex-direction: column; */
   align-items: center;
   justify-content: center;
-  background: transparent;
+  min-height: 200px;
+  width: 100%;
+  background-color: red;
+}
+
+.loader {
+  width: 65px;
+  aspect-ratio: 1;
   position: relative;
 }
-
-.sayso-logo-glow {
-  animation: sayso-glow 1s ease-in-out infinite alternate;
-  filter: drop-shadow(0 0 6px #3466af88) drop-shadow(0 0 12px #3466af44);
+.loader:before,
+.loader:after {
+  content: "";
+  position: absolute;
+  border-radius: 50px;
+  box-shadow: 0 0 0 4px inset var(--sayso-yellow);
+  animation: l4 2.5s infinite;
 }
-
-@keyframes sayso-glow {
+.loader:after {
+  animation-delay: -1.25s;
+}
+@keyframes l4 {
   0% {
-    filter: drop-shadow(0 0 4px #3466af88) drop-shadow(0 0 8px #3466af44);
-    transform: scale(1);
+    inset: 0 35px 35px 0;
+  }
+  12.5% {
+    inset: 0 35px 0 0;
+  }
+  25% {
+    inset: 35px 35px 0 0;
+  }
+  37.5% {
+    inset: 35px 0 0 0;
+  }
+  50% {
+    inset: 35px 0 0 35px;
+  }
+  62.5% {
+    inset: 0 0 0 35px;
+  }
+  75% {
+    inset: 0 0 35px 35px;
+  }
+  87.5% {
+    inset: 0 0 35px 0;
   }
   100% {
-    filter: drop-shadow(0 0 6px #3465af7c) drop-shadow(0 0 10px #3465af7c);
-    transform: scale(1.02);
+    inset: 0 35px 35px 0;
   }
 }
 
-.sayso-loader-text {
-  color: #222831;
-  font-size: 1.1rem;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  text-align: center;
-  opacity: 0.9;
-  transition: opacity 0.3s;
-  will-change: opacity, transform;
-  overflow: visible;
-  white-space: nowrap;
-  text-overflow: unset;
-  display: inline-block;
+.loadingContainer{
+  height: 100%;
+  width: 100%;
 }
 
-.fade-in {
-  opacity: 0.9;
-  animation: fadeInText 0.3s;
+.loadingContainer p{
+  color: var(--sayso-indigo);
+  font-size: 26px;
+  font-weight: 400;
+  margin-top: 12px;
 }
 
-.fade-out {
-  opacity: 0;
-  animation: fadeOutText 0.3s;  
-}
-
-@keyframes fadeInText {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes fadeOutText {
-  from { opacity: 1; transform: translateY(0); }
-  to { opacity: 0; transform: translateY(-10px); }
-}

@@ -24,10 +24,9 @@ export default function ProspectsContainer() {
     const [creatingProspect, setCreatingProspect] = useState(false);
     const [displayingProspects, setDisplayingProspects] = useState([]);
     const [search, setSearch] = useState('');
-    const [loading, setLoading] = useState(true);
 
     //HOOKS
-    const { prospects, fetchProspects } = useProspectsContext();
+    const { prospects, fetchProspects, loading } = useProspectsContext();
     const { showToast } = useToast();
 
     //FUNCTIONS
@@ -54,13 +53,13 @@ export default function ProspectsContainer() {
     //EFFECTS
     useEffect(() => {
         setDisplayingProspects(prospects);
-        setLoading(false);
     }, [prospects]);
 
     useEffect(() => {
 
         handleSearchProspects(search);
     }, [search]);
+
 
     return (
         <div className='prospects-container-main'>
@@ -75,7 +74,7 @@ export default function ProspectsContainer() {
             </div>
             <CTABar active={false} />
             {
-                !displayingProspects.length > 0 ? (
+                displayingProspects?.length === 0 ? (
                     <div className='no-prospects-found-container'>
                         {
                             loading ? (

@@ -1,19 +1,19 @@
 import { useState, useEffect } from 'react';
 
 import { useToast } from '../context/ToastContext';
-import { useFiles } from '../hooks/useFiles';
+import { useProspectsContext } from '../context/ProspectsContext';
+import { useProspects } from '../hooks/useProspects';
 
 import SaysoModal from './SaysoModal';
 import Divider from './Divider';
-import FormLine from './FormLine';
 import NewFileInput from './NewFileInput';
 import ProspectFileCard from './ProspectFileCard';
 
-import { LuX, LuTrash, LuLoader, LuPaperclip } from 'react-icons/lu';
-
+import { LuX, LuPaperclip } from 'react-icons/lu';
 
 import '../styles/ProspectDetail.css';
 import '../styles/Buttons.css';
+import BtnPrimary from './BtnPrimary';
 
 export default function NewProspect({ setCreatingProspect }) {
     
@@ -24,6 +24,7 @@ export default function NewProspect({ setCreatingProspect }) {
     const [isDeleting, setIsDeleting] = useState(false);
     const [leaveModalVisible, setLeaveModalVisible] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [isSavingReady, setIsSavingReady] = useState(false);
     const [formData, setFormData] = useState({
         name: '',
         lastname: '',
@@ -34,24 +35,25 @@ export default function NewProspect({ setCreatingProspect }) {
 
     //HOOKS
     const { showToast } = useToast();
-    const { handleUploadFiles } = useFiles();
+    const { handleNewProspect } = useProspects();
+    const { fetchProspects } = useProspectsContext();
 
     //FUNCTIONS
-    const handleRemoveFile = async (fileId) => {
+    // const handleRemoveFile = async (fileId) => {
 
-        setDeleteFileModalVisible(false);
+    //     setDeleteFileModalVisible(false);
         
-        try {
-            setTimeout(() => {
-                showToast('success', 'File deleted successfully!');
-            }, 1000);
-        } catch (error) {
-            setIsDeleting(false);
-            showToast('error', 'Failed to delete file');
-            console.error('Error deleting prospect:', error);
-            return;
-        }
-    };
+    //     try {
+    //         setTimeout(() => {
+    //             showToast('success', 'File deleted successfully!');
+    //         }, 1000);
+    //     } catch (error) {
+    //         setIsDeleting(false);
+    //         showToast('error', 'Failed to delete file');
+    //         console.error('Error deleting prospect:', error);
+    //         return;
+    //     }
+    // };
 
     const handleCloseClick = () => {
         if(formData.name != '' || formData.email != '' || formData.lastname != '' || formData.company != '') {
@@ -73,7 +75,6 @@ export default function NewProspect({ setCreatingProspect }) {
         });
         setTimeout(() => {
             setCreatingProspect(false);
-
         }, 300);
     };
 
@@ -97,6 +98,21 @@ export default function NewProspect({ setCreatingProspect }) {
         }));
     }
 
+    const handleSaveClick = async () => {
+        setIsSaving(true);
+        try {
+            await handleNewProspect(formData);
+            fetchProspects();
+            handleClose();
+            showToast('success', 'Prospect created successfully!');
+        } catch (error) {
+            showToast('error', 'Failed to create prospect');
+            console.error('Error creating prospect:', error);
+        } finally {
+            setIsSaving(false);
+        }
+    }
+
     //EFFECTS
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -108,7 +124,11 @@ export default function NewProspect({ setCreatingProspect }) {
     }, []);
 
     useEffect(() => {
-        console.log(formData);
+        if(formData.name != '' && formData.email != '' && formData.lastname != '' && formData.company != '') {
+            setIsSavingReady(true);
+        } else {
+            setIsSavingReady(false);
+        }
     }, [formData]);
 
 
@@ -121,7 +141,7 @@ export default function NewProspect({ setCreatingProspect }) {
                         text={`Are you sure you want to leave this page?\nThis action cannot be undone and all unsaved data will be lost.`}
                         isDelete = {false}
                         primaryText="Continue"
-                        secondaryText="Leave"
+                        secondaryText="Yes, Leave"
                         onDeny={handleClose}
                         onConfirm={() => setLeaveModalVisible(false)}
                     />
@@ -201,9 +221,12 @@ export default function NewProspect({ setCreatingProspect }) {
                     </div>
                 </div>
                 <div className='add-prospect-footer'>
-                    <button className='main-primary-button'>
-                        <p>Save Prospect</p>
-                    </button>
+                    <BtnPrimary
+                        text="Save Prospect"
+                        onClick={handleSaveClick}
+                        isDisabled={!isSavingReady}
+                        isLoading={isSaving}
+                    />
                 </div>
             </div>
         </>
