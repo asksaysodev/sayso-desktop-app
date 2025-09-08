@@ -7,7 +7,7 @@ import { useProspects } from '../hooks/useProspects';
 import SaysoModal from './SaysoModal';
 import Divider from './Divider';
 import NewFileInput from './NewFileInput';
-import ProspectFileCard from './ProspectFileCard';
+import FileCard from './FileCard';
 
 import { LuX, LuPaperclip } from 'react-icons/lu';
 
@@ -207,7 +207,7 @@ export default function NewProspect({ setCreatingProspect }) {
                         <div className='prospect-detail-body-files-container-files'>
                             {
                                 formData.files.map((file, index) => (
-                                    <ProspectFileCard 
+                                    <FileCard 
                                         status={file.uploadStatus || 'default'} 
                                         file={file} 
                                         key={index}

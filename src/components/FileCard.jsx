@@ -4,9 +4,9 @@ import { LuTrash, LuLoader } from 'react-icons/lu';
 import { FaRegCircleCheck, FaRotateRight} from 'react-icons/fa6';
 import { GoFile } from 'react-icons/go';
 
-import '../styles/ProspectFileCard.css';
+import '../styles/FileCard.css';
 
-export default function ProspectFileCard({status, file, showDeleteModal, progress: propProgress = 0, fromDatabase = false, setFormData, setFileToDelete, deletingFileId = null}) {
+export default function FileCard({status, file, showDeleteModal, progress: propProgress = 0, fromDatabase = false, setFormData, setFileToDelete, deletingFileId = null}) {
 
     //STATE
     const [progress, setProgress] = useState(propProgress);

@@ -8,7 +8,7 @@ import SaysoModal from './SaysoModal';
 import Divider from './Divider';
 import FormLine from './FormLine';
 import NewFileInput from './NewFileInput';
-import ProspectFileCard from './ProspectFileCard';
+import FileCard from './FileCard';
 
 import { LuX, LuTrash, LuLoader, LuPaperclip } from 'react-icons/lu';
 
@@ -314,7 +314,7 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
                         <div className='prospect-detail-body-files-container-files'>
                             {
                                 prospectFiles.files.map((file, index) => (
-                                    <ProspectFileCard 
+                                    <FileCard 
                                         status={file.uploadStatus || 'default'} 
                                         file={file} 
                                         key={index}
@@ -333,7 +333,7 @@ export default function ProspectDetail({ prospect, setSelectedProspect, fetchPro
                                     <>
                                         {
                                             existingFiles.files.map((file, index) => (
-                                                <ProspectFileCard 
+                                                <FileCard 
                                                     status={'default'} 
                                                     file={file} 
                                                     key={index}

@@ -1,10 +1,23 @@
 import { NavLink } from 'react-router-dom'
 import {LuUsers, LuLogOut, LuChevronRight} from 'react-icons/lu'
+
 import CoachCTA from './CoachCTA';
-import '../styles/Sidebar.css';
 import Divider from './Divider';
 
+import { useAuth } from '../context/AuthContext';
+
+import '../styles/Sidebar.css';
+
 export default function Sidebar() {
+
+  //HOOKS
+  const { globalUser } = useAuth();
+
+//   //FUNCTIONS
+//   const handleLogout = () => {
+//     signOut();
+//   }
+
   return (
     <div className="sidebar-container">
         <div className='full-w'>
@@ -25,25 +38,23 @@ export default function Sidebar() {
         </div>
         <div className="sidebar-footer">
             <CoachCTA sidebar={true} active={false} />
-            {/* <span className='sidebar-footer-divider'></span> */}
             <Divider />
             <NavLink to="/account" >
                 <div className='account-widget'>
                     <div className='account-widget-active-container'>
                         <div className='account-widget-icon'>
-                            <p>FS</p>
+                            <p>{globalUser?.name?.charAt(0)}{globalUser?.lastname?.charAt(0)}</p>
                         </div>
                     </div>
                     <div className='account-widget-info'>
                         <div className='account-widget-info-header'>
-                            <h3>Frank Salsa</h3>
+                            <h3>{globalUser?.name} {globalUser?.lastname}</h3>
                             <LuChevronRight />
                         </div>
-                        <p>frank@sayso.com</p>
+                        <p>{globalUser?.email}</p>
                     </div>
                 </div>
             </NavLink>
-            {/* <span className='sidebar-footer-divider'></span> */}
             <Divider />
             <div className='logout-button'>
                 <LuLogOut />
