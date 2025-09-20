@@ -6,13 +6,14 @@ import ProspectListItem from './ProspectListItem';
 import ProspectDetail from './ProspectDetail';
 import NewProspect from './NewProspect';
 
+import { useProspectsContext } from '../context/ProspectsContext';
+import { useToast } from '../context/ToastContext';
+
 import {SlMagnifier} from 'react-icons/sl';
 import {GoPlus} from 'react-icons/go';  
 import {PiSquaresFourLight, PiListBullets } from 'react-icons/pi';
 import { LuBuilding, LuLoader, LuPaperclip} from 'react-icons/lu'
 
-import { useProspectsContext } from '../context/ProspectsContext';
-import { useToast } from '../context/ToastContext';
 
 import '../styles/ProspectsContainer.css';
 

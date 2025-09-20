@@ -164,12 +164,12 @@ Base styles for the dashboard window
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.formInput:focus {
+/* .formInput:focus {
     border-color: #a8c5e9; /* Softer focus color */
     outline: 0;
     box-shadow: 0 0 0 0.2rem rgba(70, 120, 190, 0.15); /* Softer focus shadow */
     background-color: #fff;
-}
+} */
 
 .formInput[type="file"] {
     padding: 7px 12px; /* Adjust padding for file input */
@@ -180,7 +180,7 @@ Base styles for the dashboard window
   text-align: right;
 }
 
-.formActions button {
+/* .formActions button {
     padding: 10px 20px;
     cursor: pointer;
     border-radius: 6px;
@@ -188,12 +188,7 @@ Base styles for the dashboard window
     transition: background-color 0.2s ease;
 }
 
-.formActions .btn-primary {
-    background-color: #4a85e5; /* Softer primary blue */
-    color: white;
-    border: none;
-    margin-left: 10px;
-}
+
 
 .formActions .btn-primary:hover {
     background-color: #3b70ca;

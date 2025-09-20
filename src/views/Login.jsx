@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
+
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+
 import Loader from '../components/Loader';
-import '../styles/Login.css';
-import BtnPrimary from '../components/BtnPrimary';
 import BtnSecondary from '../components/BtnSecondary';
+import LoginPrimaryBtn from '../components/LoginPrimaryBtn';
+
+import { useAuth } from '../context/AuthContext';
+
+import logoVertical from '/assets/logo-pos-vertical.png';
+import '../styles/Login.css';
 
 const Login = () => {
   const [isLoggingIn, setIsLoggingIn] = useState(true);
@@ -19,6 +24,7 @@ const Login = () => {
     password: '',
     repeatPassword: ''
   });
+  const [fieldErrors, setFieldErrors] = useState({});
   const [isBtnLoading, setIsBtnLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -30,11 +36,20 @@ const Login = () => {
       ...prevState,
       [name]: value
     }));
+    
+    // Clear field error when user starts typing
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
   };
 
   const handleToggleMode = () => {
     setIsLoggingIn(!isLoggingIn);
     setError(null);
+    setFieldErrors({});
     setSignupStep(1);
     // Reset all fields
     setFormData({
@@ -47,12 +62,43 @@ const Login = () => {
     });
   };
 
+  const validateField = (name, value) => {
+    switch (name) {
+      case 'email':
+        if (!value) return 'Email is required';
+        if (!/\S+@\S+\.\S+/.test(value)) return 'Please enter a valid email';
+        return '';
+      case 'password':
+        if (!value) return 'Password is required';
+        if (value.length < 6) return 'Password must be at least 6 characters';
+        return '';
+      case 'repeatPassword':
+        if (!value) return 'Please confirm your password';
+        if (value !== formData.password) return 'Passwords do not match';
+        return '';
+      case 'name':
+      case 'lastname':
+      case 'company':
+        if (!value) return 'This field is required';
+        return '';
+      default:
+        return '';
+    }
+  };
+
   const handleNextStep = (e) => {
     e.preventDefault();
     setError(null);
+    setFieldErrors({});
+    
     // Validate first step fields
-    if (!formData.name || !formData.lastname || !formData.company) {
-      setError('Please fill in all fields');
+    const errors = {};
+    if (!formData.name) errors.name = 'Name is required';
+    if (!formData.lastname) errors.lastname = 'Last name is required';
+    if (!formData.company) errors.company = 'Company is required';
+    
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       return;
     }
     setSignupStep(2);
@@ -61,14 +107,40 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
+    setFieldErrors({});
 
     // For signup step 1, just move to next step
     if (!isLoggingIn && signupStep === 1) {
-      if (!formData.name || !formData.lastname || !formData.company) {
-        setError('Please fill in all fields');
+      const errors = {};
+      if (!formData.name) errors.name = 'Name is required';
+      if (!formData.lastname) errors.lastname = 'Last name is required';
+      if (!formData.company) errors.company = 'Company is required';
+      
+      if (Object.keys(errors).length > 0) {
+        setFieldErrors(errors);
         return;
       }
       setSignupStep(2);
+      return;
+    }
+
+    // Validate current form fields
+    const errors = {};
+    if (isLoggingIn) {
+      if (!formData.email) errors.email = 'Email is required';
+      else if (!/\S+@\S+\.\S+/.test(formData.email)) errors.email = 'Please enter a valid email';
+      if (!formData.password) errors.password = 'Password is required';
+    } else {
+      if (!formData.email) errors.email = 'Email is required';
+      else if (!/\S+@\S+\.\S+/.test(formData.email)) errors.email = 'Please enter a valid email';
+      if (!formData.password) errors.password = 'Password is required';
+      else if (formData.password.length < 6) errors.password = 'Password must be at least 6 characters';
+      if (!formData.repeatPassword) errors.repeatPassword = 'Please confirm your password';
+      else if (formData.password !== formData.repeatPassword) errors.repeatPassword = 'Passwords do not match';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       return;
     }
 
@@ -120,101 +192,11 @@ const Login = () => {
     );
   }
 
-  const renderSignupStep1 = () => (
-    <>
-      <div className="formGroup">
-        <label htmlFor="name">Name</label>
-        <input
-          type="text"
-          id="name"
-          name="name"
-          className="formInput"
-          value={formData.name}
-          onChange={handleInputChange}
-          required
-        />
-      </div>
-      <div className="formGroup">
-        <label htmlFor="lastname">Last Name</label>
-        <input
-          type="text"
-          id="lastname"
-          name="lastname"
-          className="formInput"
-          value={formData.lastname}
-          onChange={handleInputChange}
-          required
-        />
-      </div>
-      <div className="formGroup">
-        <label htmlFor="company">Company</label>
-        <input
-          type="text"
-          id="company"
-          name="company"
-          className="formInput"
-          value={formData.company}
-          onChange={handleInputChange}
-          required
-        />
-      </div>
-      <div className="formActions">
-        <BtnPrimary type="submit" text="Continue" />
-      </div>
-    </>
-  );
-
-  const renderSignupStep2 = () => (
-    <>
-      <div className="formGroup">
-        <label htmlFor="email">Email</label>
-        <input
-          type="email"
-          id="email"
-          name="email"
-          className="formInput"
-          value={formData.email}
-          onChange={handleInputChange}
-          required
-        />
-      </div>
-      <div className="formGroup">
-        <label htmlFor="password">Password</label>
-        <input
-          type="password"
-          id="password"
-          name="password"
-          className="formInput"
-          value={formData.password}
-          onChange={handleInputChange}
-          required
-        />
-      </div>
-      <div className="formGroup">
-        <label htmlFor="repeatPassword">Repeat Password</label>
-        <input
-          type="password"
-          id="repeatPassword"
-          name="repeatPassword"
-          className="formInput"
-          value={formData.repeatPassword}
-          onChange={handleInputChange}
-          required
-        />
-      </div>
-      <div className="formActions">
-        <BtnPrimary type="submit" text="Sign Up" isLoading={isBtnLoading} isDisabled={isBtnLoading} />
-        <div className='mt-20'>
-          <BtnSecondary type="button" text="Back" onClick={() => setSignupStep(1)} />
-        </div>
-      </div>
-    </>
-  );
 
   return (
     <div className="loginContainer">
       <div className="loginForm">
-        <img src="./assets/logo.png" alt="Logo" style={{ display: 'block', margin: '20px auto', width: 72, height: 72 }} />
+        <img src={logoVertical} alt="Sayso" style={{ display: 'block', margin: '20px auto', height: 100 }} />
         <h2>{isLoggingIn ? 'Welcome Back!' : `Create Account`}</h2>
         {error && <div className="errorMessage">{error}</div>}
         <form onSubmit={handleSubmit}>
@@ -226,11 +208,11 @@ const Login = () => {
                   type="email"
                   id="email"
                   name="email"
-                  className="formInput"
+                  className={`formInput ${fieldErrors.email ? 'error' : ''}`}
                   value={formData.email}
                   onChange={handleInputChange}
-                  required
                 />
+                {fieldErrors.email && <div className="fieldError">{fieldErrors.email}</div>}
               </div>
               <div className="formGroup">
                 <label htmlFor="password">Password</label>
@@ -238,14 +220,14 @@ const Login = () => {
                   type="password"
                   id="password"
                   name="password"
-                  className="formInput"
+                  className={`formInput ${fieldErrors.password ? 'error' : ''}`}
                   value={formData.password}
                   onChange={handleInputChange}
-                  required
                 />
+                {fieldErrors.password && <div className="fieldError">{fieldErrors.password}</div>}
               </div>
               <div className="formActions">
-                <BtnPrimary type="submit" text="Sign In" isLoading={isBtnLoading} isDisabled={isBtnLoading} />
+                <LoginPrimaryBtn type="submit" text="Sign In" isLoading={isBtnLoading} isDisabled={isBtnLoading} />
               </div>
             </>
           ) : (
@@ -257,11 +239,11 @@ const Login = () => {
                     type="text"
                     id="name"
                     name="name"
-                    className="formInput"
+                    className={`formInput ${fieldErrors.name ? 'error' : ''}`}
                     value={formData.name}
                     onChange={handleInputChange}
-                    required
                   />
+                  {fieldErrors.name && <div className="fieldError">{fieldErrors.name}</div>}
                 </div>
                 <div className="formGroup">
                   <label htmlFor="lastname">Last Name</label>
@@ -269,11 +251,11 @@ const Login = () => {
                     type="text"
                     id="lastname"
                     name="lastname"
-                    className="formInput"
+                    className={`formInput ${fieldErrors.lastname ? 'error' : ''}`}
                     value={formData.lastname}
                     onChange={handleInputChange}
-                    required
                   />
+                  {fieldErrors.lastname && <div className="fieldError">{fieldErrors.lastname}</div>}
                 </div>
                 <div className="formGroup">
                   <label htmlFor="company">Company</label>
@@ -281,14 +263,14 @@ const Login = () => {
                     type="text"
                     id="company"
                     name="company"
-                    className="formInput"
+                    className={`formInput ${fieldErrors.company ? 'error' : ''}`}
                     value={formData.company}
                     onChange={handleInputChange}
-                    required
                   />
+                  {fieldErrors.company && <div className="fieldError">{fieldErrors.company}</div>}
                 </div>
                 <div className="formActions">
-                  <BtnPrimary type="submit" text="Continue" />
+                  <LoginPrimaryBtn type="submit" text="Continue" />
                 </div>
               </>
             ) : (
@@ -299,11 +281,11 @@ const Login = () => {
                     type="email"
                     id="email"
                     name="email"
-                    className="formInput"
+                    className={`formInput ${fieldErrors.email ? 'error' : ''}`}
                     value={formData.email}
                     onChange={handleInputChange}
-                    required
                   />
+                  {fieldErrors.email && <div className="fieldError">{fieldErrors.email}</div>}
                 </div>
                 <div className="formGroup">
                   <label htmlFor="password">Password</label>
@@ -311,11 +293,11 @@ const Login = () => {
                     type="password"
                     id="password"
                     name="password"
-                    className="formInput"
+                    className={`formInput ${fieldErrors.password ? 'error' : ''}`}
                     value={formData.password}
                     onChange={handleInputChange}
-                    required
                   />
+                  {fieldErrors.password && <div className="fieldError">{fieldErrors.password}</div>}
                 </div>
                 <div className="formGroup">
                   <label htmlFor="repeatPassword">Repeat Password</label>
@@ -323,14 +305,14 @@ const Login = () => {
                     type="password"
                     id="repeatPassword"
                     name="repeatPassword"
-                    className="formInput"
+                    className={`formInput ${fieldErrors.repeatPassword ? 'error' : ''}`}
                     value={formData.repeatPassword}
                     onChange={handleInputChange}
-                    required
                   />
+                  {fieldErrors.repeatPassword && <div className="fieldError">{fieldErrors.repeatPassword}</div>}
                 </div>
                 <div className="formActions">
-                  <BtnPrimary type="submit" text="Sign Up" isLoading={isBtnLoading} isDisabled={isBtnLoading} />
+                  {/* <BtnPrimary type="submit" text="Sign Up" isLoading={isBtnLoading} isDisabled={isBtnLoading} /> */}
                   <div className='mt-20'>
                     <BtnSecondary type="button" text="Back" onClick={() => setSignupStep(1)} />
                   </div>

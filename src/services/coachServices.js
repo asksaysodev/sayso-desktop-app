@@ -12,6 +12,35 @@ export const getDynamicContext = async (data) => {
   }
 };
 
+export const runCoach = async ( conversationContext, insights, signals, callProgress, prospectId ) => {
+
+  if(!conversationContext || !insights || !signals || !callProgress || !prospectId) {
+    console.log('conversationContext:', conversationContext);
+    console.log('insights:', insights);
+    console.log('signals:', signals);
+    console.log('callProgress:', callProgress);
+    console.log('prospectId:', prospectId);
+    throw new Error('Missing required parameters');
+  }
+
+  const data = {
+    conversationContext,
+    insights,
+    signals,
+    callProgress,
+    prospectId
+  }
+
+  try {
+
+    const response = await apiClient.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/sales-coach/run-coach`, data);
+    return response.data;
+  } catch (error) {
+    console.error('Error running coach:', error);
+    throw error;
+  }
+}
+
 // Helper function to format dynamicContext into readable text with enhanced instructions
 const formatDynamicContext = (dynamicContext) => {
   if (!dynamicContext) return 'No context available';
@@ -229,15 +258,15 @@ export const runChatCompletion = async (currentConversation, dynamicContext, pre
 
   try {   
 
-    // Parse previous insights - they might be objects with Message property
-    const previousInsightsFormatted = previousInsights.map((insight, index) => {
-      // Handle both string and object formats
-      const insightText = typeof insight === 'string' ? insight : insight.Message || insight.message || JSON.stringify(insight);
-      return `${index + 1}. ${insightText}`;
-    }).join('\n');
+    // // Parse previous insights - they might be objects with Message property
+    // const previousInsightsFormatted = previousInsights.map((insight, index) => {
+    //   // Handle both string and object formats
+    //   const insightText = typeof insight === 'string' ? insight : insight.Message || insight.message || JSON.stringify(insight);
+    //   return `${index + 1}. ${insightText}`;
+    // }).join('\n');
 
-    // Format dynamicContext into readable text
-    const contextText = formatDynamicContext(dynamicContext);
+    // // Format dynamicContext into readable text
+    // const contextText = formatDynamicContext(dynamicContext);
 
     // const systemMessage = {
     //   role: "system",

@@ -51,7 +51,7 @@
     "vite": "^5.3.1"
   },
   "build": {
-    "appId": "com.sayso.app",
+    "appId": "com.asksayso.app",
     "productName": "Sayso",
     "publish": {
       "provider": "github",
@@ -99,7 +99,11 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "assets/entitlements.mac.plist",
-      "entitlementsInherit": "assets/entitlements.mac.plist"
+      "entitlementsInherit": "assets/entitlements.mac.plist",
+      "notarize": {
+        "teamId": "Y57SJLCC9H"
+      },
+      "identity": "EXOMEND LLC (Y57SJLCC9H)"
     },
     "win": {
       "target": "nsis"

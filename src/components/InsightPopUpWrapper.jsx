@@ -17,7 +17,7 @@ export default function InsightPopUpWrapper() {
                 setDisplayMessage(null);
                 
             }, 200);
-        }, isIceBreaker ? 15000 : 12000);
+        }, isIceBreaker ? 15000 : 12000); 
 
     }
 

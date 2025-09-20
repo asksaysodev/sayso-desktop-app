@@ -73,3 +73,27 @@
     opacity: 0.8;
     cursor: not-allowed;
 }
+
+.login-primary-button{
+    background-color: var(--sayso-indigo);
+    width: 100%;
+    border-radius: 1px;
+    color: white;
+    height: 40px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 400;
+    transition: opacity 0.15s ease;
+    border: none;
+    outline: none;
+    border-radius: 60px;
+}
+
+.login-primary-button:hover{
+    opacity: 0.9;
+}
+
+.login-primary-button.loading {
+    opacity: 0.8;
+    cursor: not-allowed;
+}

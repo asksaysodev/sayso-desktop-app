@@ -52,17 +52,32 @@ let processedProspectChunks = new Set();
 function getDeviceIndexByName(targetDevices) {
   return new Promise((resolve, reject) => {
     const { exec } = require('child_process');
-    exec(`${getFfmpegPath()} -f avfoundation -list_devices true -i ""`, (err, stdout, stderr) => {
+    const ffmpegPath = getFfmpegPath();
+    console.log(`[DEBUG] Running FFmpeg command: ${ffmpegPath} -f avfoundation -list_devices true -i ""`);
+    
+    exec(`"${ffmpegPath}" -f avfoundation -list_devices true -i ""`, (err, stdout, stderr) => {
+      console.log(`[DEBUG] FFmpeg stdout:`, stdout);
+      console.log(`[DEBUG] FFmpeg stderr:`, stderr);
+      console.log(`[DEBUG] FFmpeg error:`, err);
+      
       const output = stderr.toString();
+      console.log(`[DEBUG] Parsing stderr output:`, output);
+      
       const lines = output.split('\n');
+      console.log(`[DEBUG] Split lines:`, lines);
+      
       const foundDevices = [];
-      lines.forEach(line => {
-        const match = line.match(/\[(\d+)\] (.*)/);
+      lines.forEach((line, index) => {
+        console.log(`[DEBUG] Processing line ${index}:`, line);
+        // Look for lines that contain [number] followed by a device name
+        const match = line.match(/\[(\d+)\] (.+)$/);
         if (match) {
+          console.log(`[DEBUG] Found device match:`, match);
           foundDevices.push({ index: match[1], name: match[2] });
         }
       });
 
+      console.log(`[DEBUG] Final foundDevices:`, foundDevices);
       // Log all found devices
       console.log('[Device List] AVFoundation input devices:');
       foundDevices.forEach(dev => console.log(`  [${dev.index}] ${dev.name}`));
@@ -114,7 +129,6 @@ async function initializeDevices() {
 }
 
 // Call initializeDevices when the module loads
-initializeDevices().catch(console.error);
 
 
 // const USER_MIC_DEVICE_ID = 'none:"1"';  // MacBook Pro Microphone (index 1)
@@ -152,20 +166,20 @@ const handleAudioResponse = async (filePath, speaker, metadata) => {
     
     // Send transcription data to renderer if we have valid transcript
     if (response && response.transcript && response.transcript.text && response.transcript.text.trim()) {
-      console.log(`[${speaker} Recording] Global mainWindow exists:`, !!global.mainWindow);
+      console.log(`[${speaker} Recording] Global coachWindow exists:`, !!global.coachWindow);
       
-      if (global.mainWindow) {
+      if (global.coachWindow && !global.coachWindow.isDestroyed()) {
         const transcriptionData = {
           text: response.transcript.text,
           speaker: speaker,
           timestamp: response.timestamp || Date.now()
         };
         
-        console.log(`[${speaker} Recording] Sending transcription data:`, transcriptionData);
-        global.mainWindow.webContents.send('transcription-data', transcriptionData);
-        console.log(`[${speaker} Recording] Sent transcription to renderer:`, response.transcript.text.substring(0, 50) + '...');
+        console.log(`[${speaker} Recording] Sending transcription data to coach window:`, transcriptionData);
+        global.coachWindow.webContents.send('transcription-data', transcriptionData);
+        console.log(`[${speaker} Recording] Sent transcription to coach window:`, response.transcript.text.substring(0, 50) + '...');
       } else {
-        console.error(`[${speaker} Recording] Global mainWindow is not set!`);
+        console.log(`[${speaker} Recording] Coach window not available or destroyed - skipping transcription`);
       }
     } else {
       console.log(`[${speaker} Recording] Skipping transcription - no valid text`);
@@ -659,5 +673,6 @@ module.exports = {
   startUserRecording, 
   startProspectRecording, 
   stopRecording,
+  initializeDevices, // Add this
   audioDeviceManager 
 };

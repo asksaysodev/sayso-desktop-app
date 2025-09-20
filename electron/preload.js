@@ -39,7 +39,8 @@ try {
   });
 
   contextBridge.exposeInMainWorld('electronAPI', {
-    resizeWindow: (height) => ipcRenderer.send('resize-coach-window', height)
+    resizeWindow: (width, height) => ipcRenderer.send('resize-coach-window', width, height),
+    closeCoachWindow: () => ipcRenderer.send('close-coach-window')
   });
 
   // Extract --indexHtmlPath from process.argv

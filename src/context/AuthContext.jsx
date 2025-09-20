@@ -36,6 +36,14 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+
+    setUser(null);
+    updateGlobalUserState(null);
+    setAuthToken(null);
+  }
+
   // Handle session expiration
   useEffect(() => {
     const handleSessionExpired = () => {
@@ -129,7 +137,7 @@ export const AuthProvider = ({ children }) => {
       return result
     },
     signIn: (data) => supabase.auth.signInWithPassword(data),
-    signOut: () => supabase.auth.signOut(),
+    handleSignOut,
     user,
     globalUser,
     authToken,

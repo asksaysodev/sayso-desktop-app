@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, screen, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const { WindowManager } = require('./utils/windowManager');
+const { WINDOW_CONFIG } = require('./utils/windowConfig');
 
 // Add file logging for production
 function setupLogging() {
@@ -141,7 +143,13 @@ console.log('[Main Process] Environment check:', {
 const wav = require('wav');
 const FormData = require('form-data');
 const axios = require('axios');
-const { startUserRecording, startProspectRecording, stopRecording, audioDeviceManager } = require('./recorder');
+const { 
+  startUserRecording, 
+  startProspectRecording, 
+  stopRecording,
+  initializeDevices,
+  audioDeviceManager
+} = require('./recorder');
 const audioQueue = require('./audioQueue');
 
 // Add command line switches for better camera support
@@ -206,9 +214,12 @@ const createDashboardWindow = () => {
   }
   const indexHtmlPath = path.join(process.resourcesPath, 'dist', 'index.html');
   const dashboardWindow = new BrowserWindow({
-    width: 1024,
-    height: 768,
+    width: 1400,
+    height: 900,
     icon: path.join(__dirname, '../public/assets/icon.icns'),
+    // Prevent fullscreen and maximize, but allow manual resizing
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
@@ -466,6 +477,11 @@ ipcMain.handle('start-audio-capture', async (event, params) => {
   console.log('🎤 [AUDIO CAPTURE] Audio device manager available:', !!audioDeviceManager);
 
   try {
+    // NEW: Detect devices before starting recording
+    console.log('🎤 [AUDIO CAPTURE] Step 0: Detecting audio devices...');
+    await initializeDevices();
+    console.log('🎤 [AUDIO CAPTURE] ✅ Audio devices detected successfully');
+
     // First, switch to Sayso Speaker device
     console.log('🎤 [AUDIO CAPTURE] Step 1: Switching to Sayso Speaker device...');
     await audioDeviceManager.switchToSaysoSpeaker();
@@ -770,39 +786,32 @@ app.on('web-contents-created', (event, contents) => {
 // Handler for opening coach window
 ipcMain.on('open-coach-window', () => {
   console.log('IPC: Received open-coach-window request');
+  console.log('IPC: Current global.coachWindow state:', !!global.coachWindow);
   createCoachWindow();
 });
 
 // --- Coach Window (Sales Coach Interface) ---
 const createCoachWindow = () => {
-
-  if (global.coachWindow) {
-    console.log('Coach window already exists, returning...');
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    console.log('Coach window already exists and is not destroyed, returning...');
     return;
+  }
+  
+  // Clean up any stale reference
+  if (global.coachWindow && global.coachWindow.isDestroyed()) {
+    console.log('Cleaning up destroyed coach window reference');
+    global.coachWindow = null;
   }
   
   console.log('Creating coach window...');
   
   const preloadScriptPath = path.join(__dirname, 'preload.js');
   
-  // Get the primary display to position the window at the top
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width: screenWidth } = primaryDisplay.workAreaSize;
-  
-  // Calculate position: center horizontally, 40px from top
-  const windowWidth = 800;
-  const x = Math.round((screenWidth - windowWidth) / 2);
-  const y = 40;
+  // Get window configuration from WindowManager
+  const windowConfig = WindowManager.getCoachWindowConfig();
   
   const coachWindow = new BrowserWindow({
-    width: windowWidth,
-    height: 80,
-    x: x,
-    y: y,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    visibleOnAllWorkspaces: true,
+    ...windowConfig,
     icon: path.join(__dirname, '../public/assets/icon.icns'),
     webPreferences: {
       preload: preloadScriptPath,
@@ -816,6 +825,9 @@ const createCoachWindow = () => {
     },
   });
 
+  console.log('Coach window created with dimensions:', windowConfig.width, 'x', windowConfig.height);
+  console.log('Actual window size:', coachWindow.getSize());
+
   // Store reference for IPC communication
   global.coachWindow = coachWindow;
 
@@ -826,20 +838,46 @@ const createCoachWindow = () => {
 
   coachWindow.loadURL(coachUrl);
   
+  // Ensure main window maintains its properties after coach window creation
+  if (dashboardWindowInstance && !dashboardWindowInstance.isDestroyed()) {
+    // Restore main window's frame and visibility properties
+    dashboardWindowInstance.setVisibleOnAllWorkspaces(false);
+    console.log('Main window visibility properties restored');
+  }
+  
   if (isDev) {
-    coachWindow.webContents.openDevTools();
+    // coachWindow.webContents.openDevTools();
   }
 
   coachWindow.on('closed', () => {
+    console.log('Coach window closed event fired, cleaning up reference');
     global.coachWindow = null;
+    
+    // Notify the main window that the coach window has closed
+    if (dashboardWindowInstance) {
+      dashboardWindowInstance.webContents.send('coach-window-closed');
+    }
   });
 
-  console.log('Coach window created successfully at position:', { x, y });
+  console.log('Coach window created successfully at position:', { x: windowConfig.x, y: windowConfig.y });
 };
 
-// Add this IPC handler for resizing the coach window
-ipcMain.on('resize-coach-window', (event, height) => {
-    if (global.coachWindow) {
-        global.coachWindow.setSize(800, height);
-    }
+// Update the resize handler to use WindowManager
+ipcMain.on('resize-coach-window', (event, width, height) => {
+  console.log(`IPC: Received resize-coach-window request: ${width}x${height}`);
+  WindowManager.resizeCoachWindow(global.coachWindow, width, height);
+});
+
+// Add this handler after the other IPC handlers around line 850
+ipcMain.on('close-coach-window', () => {
+  console.log('IPC: Received close-coach-window request');
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    console.log('Closing coach window...');
+    global.coachWindow.close();
+    // Immediately clean up the reference since we're closing it
+    global.coachWindow = null;
+  } else {
+    console.log('No valid coach window to close');
+    global.coachWindow = null; // Clean up stale reference
+  }
 });
