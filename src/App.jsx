@@ -86,9 +86,6 @@ function App() {
                     }
                   />
 
-                  {/* <Route path="/zoom-callback" element={<ZoomCallback />} />
-                  <Route path="/post-call/:meetingId/:prospectId/:sessionId" element={<PostCall />} />
-                  <Route path="/zoom-client-new/:meetingId/:prospectId/:sessionId" element={<ZoomClient />} /> */}
                 </Routes>
                 <InsightPopUpWrapper />
                 </div>

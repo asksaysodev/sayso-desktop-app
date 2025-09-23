@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 
 import Loader from '../components/Loader';
 import BtnSecondary from '../components/BtnSecondary';
-import LoginPrimaryBtn from '../components/LoginPrimaryBtn';
+import LoginBtn from '../components/LoginBtn';
 
 import { useAuth } from '../context/AuthContext';
 
@@ -227,7 +227,7 @@ const Login = () => {
                 {fieldErrors.password && <div className="fieldError">{fieldErrors.password}</div>}
               </div>
               <div className="formActions">
-                <LoginPrimaryBtn type="submit" text="Sign In" isLoading={isBtnLoading} isDisabled={isBtnLoading} />
+                <LoginBtn type="submit" text="Sign In" isLoading={isBtnLoading} isDisabled={isBtnLoading} />
               </div>
             </>
           ) : (
@@ -270,7 +270,7 @@ const Login = () => {
                   {fieldErrors.company && <div className="fieldError">{fieldErrors.company}</div>}
                 </div>
                 <div className="formActions">
-                  <LoginPrimaryBtn type="submit" text="Continue" />
+                  <LoginBtn type="submit" text="Continue" />
                 </div>
               </>
             ) : (
@@ -312,9 +312,9 @@ const Login = () => {
                   {fieldErrors.repeatPassword && <div className="fieldError">{fieldErrors.repeatPassword}</div>}
                 </div>
                 <div className="formActions">
-                  {/* <BtnPrimary type="submit" text="Sign Up" isLoading={isBtnLoading} isDisabled={isBtnLoading} /> */}
+                  <LoginBtn type="submit" text="Sign Up" isLoading={isBtnLoading} isDisabled={isBtnLoading} />
                   <div className='mt-20'>
-                    <BtnSecondary type="button" text="Back" onClick={() => setSignupStep(1)} />
+                    <LoginBtn type="button" text="Back" onClick={() => setSignupStep(1)} isSecondary={true} />
                   </div>
                 </div>
               </>

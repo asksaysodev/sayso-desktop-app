@@ -5,6 +5,8 @@ import { useSlack } from '../hooks/useSlack';
 import { LuLoader } from 'react-icons/lu';
 import { useToast } from '../context/ToastContext';
 
+import slackIcon from '/assets/slack-icon.png';
+
 const isElectron = window.electron && window.electron.openExternal;
 
 export default function AccountSettingsConnections() {
@@ -56,7 +58,7 @@ export default function AccountSettingsConnections() {
 
     //EFFECTS
     useEffect(() => {
-        setSlackConnected(globalUser?.slack_connected);
+        setSlackConnected(globalUser?.slack_connected); 
     }, [globalUser]);
 
     return (
@@ -64,7 +66,7 @@ export default function AccountSettingsConnections() {
             <div className='account-settings-connections-item-container'>
                 <div className='account-settings-connections-item-header'>
                     <div className="account-settings-connections-item-header-icon">
-                        <img src='/assets/slack-icon.png' alt="Slack Logo" />
+                        <img src={slackIcon} alt="Slack Logo" />
                     </div>
                     <h2>Slack</h2>
                 </div>

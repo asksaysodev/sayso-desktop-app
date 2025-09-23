@@ -6,7 +6,7 @@ export default function useCoach() {
 
     const getIceBreaker = async (prospectId) => {
         try {
-            const response = await apiClient.get(`/sales-coach/ice-breaker/${prospectId}`);
+            const response = await apiClient.get(`/sales-coach/ice-breaker/${prospectId}`); 
             console.log('response', response)
             return response.data.iceBreaker;
         } catch (error) {
@@ -24,16 +24,31 @@ export default function useCoach() {
         }
     }
 
-    const processCallSummary = useCallback(async (sessionId, prospectId) => {
+    const processCallSummary = useCallback(async (sessionId, prospectId, callDurationInSeconds, signals, callTimestamp) => {
 
         try {
-          if(!sessionId || !prospectId) {
-            throw new Error('Session ID and prospect ID are required');
+          if(!sessionId) {
+            throw new Error('Session ID is required');
+          }
+          if(!prospectId) {
+            throw new Error('Prospect ID is required');
+          }
+          if(!callDurationInSeconds) {
+            throw new Error('Call duration in seconds is required');
+          }
+          if(!signals) {
+            throw new Error('Signals are required');
+          }
+          if(!callTimestamp) {
+            throw new Error('Call timestamp is required');
           }
     
           const data = {
             sessionId,
-            prospectId
+            prospectId,
+            callDurationInSeconds,
+            signals,
+            callTimestamp
           }
     
           const response = await apiClient.post(

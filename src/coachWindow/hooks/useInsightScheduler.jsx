@@ -48,12 +48,22 @@ export default function  useInsightScheduler ( {displayMs = 15000, minIntervalMs
 
         const now = Date.now();
         
-        // ✅ FIX: If no insight has ever been shown (lastStart = 0), show immediately
+        // Check if the next item in queue is an ice breaker
+        const nextItem = queueRef.current[0];
+        const isIceBreaker = nextItem && nextItem.isIceBreaker === true;
+        
         let wait = 0;
-        if (lastStartRef.current === 0) {
-            wait = 0; // Show first insight immediately
+        
+        if (isIceBreaker) {
+            // Ice breakers display immediately, no waiting
+            wait = 0;
+            console.log('🧊 [useInsightScheduler] Ice breaker detected - showing immediately');
+        } else if (lastStartRef.current === 0) {
+            // First non-ice-breaker insight shows immediately
+            wait = 0;
             console.log('🎯 [useInsightScheduler] First insight - showing immediately');
         } else {
+            // Subsequent insights follow normal timing
             const earliestNextStart = lastStartRef.current + minIntervalMs;
             wait = Math.max(0, earliestNextStart - now);
             console.log('⏰ [useInsightScheduler] Subsequent insight - waiting', wait, 'ms');
@@ -65,18 +75,19 @@ export default function  useInsightScheduler ( {displayMs = 15000, minIntervalMs
             wait,
             lastStart: lastStartRef.current,
             minIntervalMs,
-            isFirstInsight: lastStartRef.current === 0
+            isFirstInsight: lastStartRef.current === 0,
+            isIceBreaker
         });
 
         showTimer.current = setTimeout(() => {
             const next = queueRef.current.shift();
             console.log('🎯 [useInsightScheduler] Displaying insight:', next);
-            setCurrentInsight(next); // ✅ FIX: Use setCurrentInsight instead of setCurrent
+            setCurrentInsight(next);
             lastStartRef.current = Date.now();
 
             hideTimer.current = setTimeout(() => {
                 console.log('👋 [useInsightScheduler] Hiding insight after', displayMs, 'ms');
-                setCurrentInsight(null); // ✅ FIX: Use setCurrentInsight instead of setCurrent
+                setCurrentInsight(null);
                 busyRef.current = false;
                 console.log('✅ [useInsightScheduler] Insight hidden, calling step() again');
                 step();

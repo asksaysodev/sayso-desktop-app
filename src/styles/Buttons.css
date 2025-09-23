@@ -84,7 +84,7 @@
     font-size: 14px;
     font-weight: 400;
     transition: opacity 0.15s ease;
-    border: none;
+    border: 1px solid var(--sayso-indigo);
     outline: none;
     border-radius: 60px;
 }
@@ -96,4 +96,15 @@
 .login-primary-button.loading {
     opacity: 0.8;
     cursor: not-allowed;
+}
+
+.login-primary-button.secondary{
+    background-color: white;
+    color: var(--sayso-indigo);
+    font-weight: 600;
+    opacity: 0.8;
+}
+
+.login-primary-button.secondary:hover{
+    opacity: 1;
 }

@@ -23,10 +23,11 @@ export const CoachWindowProvider = ({ children }) => {
     const [transcriptions, setTranscriptions] = useState([]);
     const [receivedInsights, setReceivedInsights] = useState([]);
     const [signals, setSignals] = useState([]);
+    const [callTimestamp, setCallTimestamp] = useState(null)
     // const [currentInsight, setCurrentInsight] = useState(null);
     const [callProgress, setCallProgress] = useState("early");
     // const [timerStartTime, setTimerStartTime] = useState(null);
-    const [lastInsightMessage, setLastInsightMessage] = useState('');
+    // const [lastInsightMessage, setLastInsightMessage] = useState('');
 
     
     
@@ -86,10 +87,6 @@ export const CoachWindowProvider = ({ children }) => {
         return "late";
     };
 
-    // Replace the updateCallProgress function with this reactive approach
-    // Remove this function entirely - we don't need it anymore
-
-    // In startCoach, remove the timerStartTime line:
     const getLast45SecondsOfTranscripts = () => {
         const nowInSeconds = Math.floor(Date.now() / 1000);
         const cutoffTime = nowInSeconds - 45;
@@ -158,10 +155,24 @@ export const CoachWindowProvider = ({ children }) => {
             
             console.log(`Starting coach for prospect: ${prospectId} with sessionId: ${newSessionId}`)
             const iceBreakerResponse = await getIceBreaker(prospectId);
-            if(iceBreakerResponse) {
+            if(iceBreakerResponse && iceBreakerResponse.iceBreaker) {
                 console.log('Ice breaker response:', iceBreakerResponse)
-                setIceBreaker(iceBreakerResponse.iceBreaker);
+                console.log('Ice breaker object:', iceBreakerResponse.iceBreaker)
+                console.log('Ice breaker message:', iceBreakerResponse.iceBreaker)
+                
+                // Check if the iceBreaker property exists and has content
+                const iceBreakerMessage = iceBreakerResponse.iceBreaker;
+                if (iceBreakerMessage && iceBreakerMessage.trim() !== '') {
+                    enqueue({
+                        message: iceBreakerMessage,
+                        isIceBreaker: true,
+                        insight: 'yes'
+                    });
+                } else {
+                    console.warn('⚠️ Ice breaker message is empty or undefined');
+                }
             } 
+            setCallTimestamp(Date.now())
             startLiveCoach({
                 accountId: globalUser.id,
                 prospectId: prospectId,
@@ -189,6 +200,7 @@ export const CoachWindowProvider = ({ children }) => {
         setIsCoachLoading(false)
         setCallDurationInSeconds(0)
         setTranscriptions([])
+        setCallTimestamp(null)
     }
 
     const stopCoach = async () => {
@@ -198,7 +210,7 @@ export const CoachWindowProvider = ({ children }) => {
             console.log('❌ [stopCoach] Setting isCoachActive to false')
             setIsCoachActive(false)
             stopLiveCoach()
-            await processCallSummary(sessionId, prospectId);
+            await processCallSummary(sessionId, prospectId, callDurationInSeconds, signals, callTimestamp);
             resetCoach()
         } catch (error) {
             console.error('❌ [stopCoach] Error stopping coach:', error)

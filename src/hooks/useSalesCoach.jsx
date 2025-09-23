@@ -86,7 +86,7 @@ export const useSalesCoach = () => {
 
       return response.data.summary;
     } catch (error) {
-      console.error('Error in getCallSummary:', error);
+      console.error('Error in getCallSummary:', error); 
     }
     
   }, []);

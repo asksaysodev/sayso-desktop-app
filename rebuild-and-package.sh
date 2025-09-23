@@ -21,7 +21,7 @@ echo "🏗️ Building the app..."
 npm run build
 
 # Package (electron-builder / forge / your tool)
-echo "📦 Packaging the app..."
+echo " Packaging the app..."
 npm run package
 
 # Sign the electron-builder created DMGs
@@ -35,59 +35,92 @@ if [ -f "${RELEASE_DIR}/Sayso-1.0.0-arm64.dmg" ]; then
   echo "✅ Signed Apple Silicon DMG"
 fi
 
-# Locate the .app we just built (first match wins)
-APP_PATH="$(ls -d ${RELEASE_DIR}/**/${APP_NAME}.app 2>/dev/null | head -n 1 || true)"
-if [[ -z "${APP_PATH}" ]]; then
-  echo "❌ Could not find ${APP_NAME}.app under ${RELEASE_DIR}/"
+# Find ALL .app bundles (both Intel and ARM64)
+echo "🔍 Looking for .app bundles..."
+APP_PATHS=($(ls -d ${RELEASE_DIR}/**/${APP_NAME}.app 2>/dev/null || true))
+
+if [[ ${#APP_PATHS[@]} -eq 0 ]]; then
+  echo "❌ Could not find any ${APP_NAME}.app under ${RELEASE_DIR}/"
   exit 1
 fi
-echo "✅ Found app: ${APP_PATH}"
 
-# Zip the .app correctly (preserves attrs)
-ZIP_PATH="${RELEASE_DIR}/${APP_NAME}.zip"
-echo "🗜️  Creating notarization zip: ${ZIP_PATH}"
-rm -f "${ZIP_PATH}"
-ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${ZIP_PATH}"
+echo "✅ Found ${#APP_PATHS[@]} app bundle(s):"
+for app_path in "${APP_PATHS[@]}"; do
+  echo "  - ${app_path}"
+done
 
-# Submit to Apple Notary Service and WAIT for result
-echo "🚀 Submitting to Apple Notary Service (blocking until done)..."
-xcrun notarytool submit "${ZIP_PATH}" \
-  --keychain-profile "${NOTARY_PROFILE}" \
-  --wait --progress
+# Function to notarize a single app bundle
+notarize_app() {
+  local app_path="$1"
+  local arch_name="$2"
+  
+  echo "🚀 Notarizing ${arch_name} app: ${app_path}"
+  
+  # Zip the .app correctly (preserves attrs)
+  local zip_path="${RELEASE_DIR}/${APP_NAME}-${arch_name}.zip"
+  echo "🗜️  Creating notarization zip: ${zip_path}"
+  rm -f "${zip_path}"
+  ditto -c -k --sequesterRsrc --keepParent "${app_path}" "${zip_path}"
 
-# Staple the ticket to the .app
-echo "📎 Stapling ticket to app..."
-xcrun stapler staple "${APP_PATH}"
-xcrun stapler validate "${APP_PATH}"
+  # Submit to Apple Notary Service and WAIT for result
+  echo "🚀 Submitting ${arch_name} to Apple Notary Service (blocking until done)..."
+  xcrun notarytool submit "${zip_path}" \
+    --keychain-profile "${NOTARY_PROFILE}" \
+    --wait --progress
 
-# Notarize the app bundle itself
-echo "🚀 Notarizing app bundle..."
-ZIP_PATH="${RELEASE_DIR}/${APP_NAME}-app.zip"
-rm -f "${ZIP_PATH}"
-ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${ZIP_PATH}"
+  # Staple the ticket to the .app
+  echo "📎 Stapling ticket to ${arch_name} app..."
+  xcrun stapler staple "${app_path}"
+  xcrun stapler validate "${app_path}"
+  
+  echo "✅ ${arch_name} app notarized and stapled successfully!"
+}
 
-echo "🚀 Submitting app bundle to Apple Notary Service..."
-xcrun notarytool submit "${ZIP_PATH}" \
-  --keychain-profile "${NOTARY_PROFILE}" \
-  --wait --progress
+# Notarize each app bundle
+for app_path in "${APP_PATHS[@]}"; do
+  # Determine architecture based on path
+  if [[ "$app_path" == *"mac-arm64"* ]]; then
+    arch_name="ARM64"
+  elif [[ "$app_path" == *"mac"* ]]; then
+    arch_name="Intel"
+  else
+    arch_name="Unknown"
+  fi
+  
+  notarize_app "$app_path" "$arch_name"
+done
 
-# Staple the ticket to the app bundle
-echo "📎 Stapling ticket to app bundle..."
-xcrun stapler staple "${APP_PATH}"
-xcrun stapler validate "${APP_PATH}"
+# Create DMGs for each notarized app
+echo " Creating DMGs for each architecture..."
+for app_path in "${APP_PATHS[@]}"; do
+  # Determine architecture and DMG name
+  if [[ "$app_path" == *"mac-arm64"* ]]; then
+    arch_name="ARM64"
+    dmg_name="${APP_NAME}-arm64.dmg"
+  elif [[ "$app_path" == *"mac"* ]]; then
+    arch_name="Intel"
+    dmg_name="${APP_NAME}-intel.dmg"
+  else
+    arch_name="Unknown"
+    dmg_name="${APP_NAME}.dmg"
+  fi
+  
+  echo " Creating ${arch_name} DMG: ${dmg_name}"
+  dmg_path="${RELEASE_DIR}/${dmg_name}"
+  rm -f "${dmg_path}"
+  hdiutil create -volname "${APP_NAME}" -srcfolder "${app_path}" -ov -format UDZO "${dmg_path}"
 
-# Rebuild a clean DMG from the stapled app
-echo " Creating DMG..."
-DMG_PATH="${RELEASE_DIR}/${DMG_NAME}"
-rm -f "${DMG_PATH}"
-hdiutil create -volname "${APP_NAME}" -srcfolder "${APP_PATH}" -ov -format UDZO "${DMG_PATH}"
+  # Sign the DMG
+  echo " Signing ${arch_name} DMG..."
+  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${dmg_path}"
 
-# Sign the DMG
-echo "🔐 Signing DMG..."
-codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${DMG_PATH}"
+  # Optional: staple the DMG too (nice for offline checks)
+  echo "📎 Stapling ticket to ${arch_name} DMG (optional)..."
+  xcrun stapler staple "${dmg_path}" || true
+  
+  echo "✅ ${arch_name} DMG created: ${dmg_path}"
+done
 
-# Optional: staple the DMG too (nice for offline checks)
-echo "📎 Stapling ticket to DMG (optional)..."
-xcrun stapler staple "${DMG_PATH}" || true
-
-echo "✅ Done! Artifacts in ${RELEASE_DIR}/" 
+echo "✅ Done! All artifacts in ${RELEASE_DIR}/"
+echo "📦 Created DMGs:"
+ls -la "${RELEASE_DIR}"/*.dmg 2>/dev/null || echo "No DMGs found" 

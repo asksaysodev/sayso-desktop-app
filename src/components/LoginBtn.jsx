@@ -1,10 +1,10 @@
 import { LuLoader } from 'react-icons/lu';
 import '../styles/Buttons.css';
 
-const LoginPrimaryBtn = ({ text, onClick, isDisabled = false, isLoading = false, isDelete = false }) => {
+const LoginBtn = ({ text, onClick, isDisabled = false, isLoading = false, isDelete = false, isSecondary = false }) => {
   return (
     <button 
-      className={`login-primary-button ${isLoading ? 'loading' : '' } ${isDelete ? 'delete' : ''}`} 
+      className={`login-primary-button ${isLoading ? 'loading' : '' } ${isDelete ? 'delete' : ''} ${isSecondary ? 'secondary' : ''}`} 
       onClick={onClick} 
       disabled={isDisabled}
       data-loading={isLoading}>
@@ -18,4 +18,4 @@ const LoginPrimaryBtn = ({ text, onClick, isDisabled = false, isLoading = false,
   );
 };
 
-export default LoginPrimaryBtn; 
+export default LoginBtn; 

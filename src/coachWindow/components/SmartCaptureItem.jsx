@@ -16,7 +16,7 @@ export default function SmartCaptureItem({signal, title}) {
         return '...' + phrase.substring(0, 90) + '...';
     }
 
-    console.log('signal received Gaga Mayhem', signal, title);
+    console.log('signal received', signal, title);
     const fakemessage = "I'd say we're definitely considering all the options. You've made a good case and I'll take everything we just said discussed into account before making a final decision";
 
     
