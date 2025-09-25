@@ -78,98 +78,6 @@ export default function CoachWindowMain() {
         }
     }
 
-    // const handleCloseInsight = (isIceBreaker) => {
-    //     // Clear any existing timeout to prevent overlapping timers
-    //     if (closeTimeoutRef.current) {
-    //         clearTimeout(closeTimeoutRef.current);
-    //     }
-
-    //     const displayTime = isIceBreaker ? 15000 : 12000;
-        
-    //     closeTimeoutRef.current = setTimeout(() => {
-    //         setIsClosingInsight(true);
-    //         setTimeout(() => {
-    //             setDisplayInsight(null);
-    //             setIsInsightDisplaying(false);
-                
-    //             // Process next insight in queue if any
-    //             setTimeout(() => {
-    //                 processNextInsight();
-    //             }, 300);
-                
-    //         }, 200);
-    //     }, displayTime); 
-
-    // }
-
-    // const processNextInsight = () => {
-    //     if (insightQueue.length > 0 && !isInsightDisplaying) {
-    //         const nextInsight = insightQueue[0];
-    //         setInsightQueue(prev => prev.slice(1));
-            
-    //         // Clear any existing timeout before showing next insight
-    //         if (closeTimeoutRef.current) {
-    //             clearTimeout(closeTimeoutRef.current);
-    //         }
-            
-    //         setDisplayInsight(nextInsight);
-    //         setIsInsightDisplaying(true);
-    //         setIsClosingInsight(false);
-    //         handleCloseInsight(nextInsight.isIceBreaker);
-    //         setLastInsightTime(Date.now());
-    //     }
-    // }
-
-    // const showInsightWithGuaranteedTime = (insight) => {
-    //     // Clear any existing timeout before showing new insight
-    //     if (closeTimeoutRef.current) {
-    //         clearTimeout(closeTimeoutRef.current);
-    //     }
-        
-    //     setDisplayInsight(insight);
-    //     setIsInsightDisplaying(true);
-    //     setIsClosingInsight(false);
-        
-    //     if(insight.isIceBreaker) {
-    //         setTimeout(() => {
-    //             handleCloseInsight(true);
-    //         }, 3000);
-    //     } else {
-    //         handleCloseInsight(false);
-    //     }
-    //     setLastInsightTime(Date.now());
-    // }
-
-    //EFFECTS
-    // useEffect(() => {
-    //     if (currentInsight && currentInsight.message && currentInsight.message !== '') {
-    //         const now = Date.now();
-    //         const timeSinceLastInsight = now - lastInsightTime;
-    //         const minDelay = 15000; // 15 seconds
-            
-    //         // If no insight is currently displayed and enough time has passed, show immediately
-    //         if (!displayInsight && !isInsightDisplaying && timeSinceLastInsight >= minDelay) {
-    //             showInsightWithGuaranteedTime(currentInsight);
-    //         } else {
-    //             // Queue the insight if coming too quickly
-    //             setInsightQueue(prev => [...prev, currentInsight]);
-    //         }
-    //     } 
-    // }, [currentInsight, displayInsight, isInsightDisplaying, lastInsightTime]);
-
-    // Process queue when no insight is displayed
-    // useEffect(() => {
-    //     if (!displayInsight && !isInsightDisplaying && insightQueue.length > 0) {
-    //         const now = Date.now();
-    //         const timeSinceLastInsight = now - lastInsightTime;
-    //         const minDelay = 15000; // 15 seconds
-            
-    //         if (timeSinceLastInsight >= minDelay) {
-    //             processNextInsight();
-    //         }
-    //     }
-    // }, [displayInsight, isInsightDisplaying, insightQueue.length, lastInsightTime]);
-
     useEffect(() => {
         let isResizing = false; // Flag to prevent feedback loop
         
@@ -235,14 +143,6 @@ export default function CoachWindowMain() {
 
     }, [prospects, inputSearch]);
 
-    // Cleanup timeout on unmount
-    // useEffect(() => {
-    //     return () => {
-    //         if (closeTimeoutRef.current) {
-    //             clearTimeout(closeTimeoutRef.current);
-    //         }
-    //     };
-    // }, []);
 
     return (
         <div className="coach-window" ref={containerRef}>

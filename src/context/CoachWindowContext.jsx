@@ -210,7 +210,7 @@ export const CoachWindowProvider = ({ children }) => {
             console.log('❌ [stopCoach] Setting isCoachActive to false')
             setIsCoachActive(false)
             stopLiveCoach()
-            await processCallSummary(sessionId, prospectId, callDurationInSeconds, signals, callTimestamp);
+            await processCallSummary(sessionId, prospectId, callDurationInSeconds, signals, receivedInsights, callTimestamp);
             resetCoach()
         } catch (error) {
             console.error('❌ [stopCoach] Error stopping coach:', error)
@@ -284,14 +284,16 @@ export const CoachWindowProvider = ({ children }) => {
             // Only add new detected signals with a valid signal name, and keep the existing ones!
             if(isCoachActiveRef.current) {
                 setSignals(prevSignals => {
-                    const newSignals = { ...prevSignals };
+                    const newSignals = [...prevSignals];
                     
                     (coachResponse.signals || []).forEach(signal => {
                         if (signal.detected && signal.signal) {
-                            newSignals[signal.signal] = {
+                            newSignals.push({
                                 detected: signal.detected,
-                                quote: signal.quote
-                            };
+                                signal: signal.signal,
+                                quote: signal.quote,
+                                timestamp: Date.now()
+                            });
                         }
                     });
                     
@@ -302,7 +304,7 @@ export const CoachWindowProvider = ({ children }) => {
 
                     const newInsightMessage = coachResponse.insights.Message;
 
-                    setReceivedInsights(prev => [...prev, newInsightMessage]);
+                    setReceivedInsights(prev => [...prev, {timestamp: Date.now(), message: newInsightMessage}]);
                   
                     enqueue({
                         message: newInsightMessage,
@@ -376,30 +378,6 @@ export const CoachWindowProvider = ({ children }) => {
         }
     }, [callDurationInSeconds, isCoachActive]);
 
-    // Remove the old timer useEffect entirely (lines 463-476)
-
-    // useEffect(() => {
-    //     if (!signalReceived || !Array.isArray(signalReceived)) {
-    //         return;
-    //     }
-
-    //     setSignals(prevSignals => {
-    //         const newSignals = { ...prevSignals };
-            
-    //         signalReceived.forEach(signalItem => {
-    //             const { signal, detected } = signalItem;
-                
-    //             // Only update if the signal is detected (true)
-    //             if (detected && (!(signal in prevSignals) || prevSignals[signal] === false)) {
-    //                 newSignals[signal] = true;
-    //             } else if (!(signal in prevSignals)) {
-    //                 newSignals[signal] = false;
-    //             }
-    //         });
-            
-    //         return newSignals;
-    //     });
-    // }, [signalReceived]);
     
     useEffect(() => {
         console.log('🔍 [useEffect] Setting up transcription listener');
@@ -479,12 +457,6 @@ export const CoachWindowProvider = ({ children }) => {
             });
         }
 
-        // Remove the problematic cleanup function - it's causing the issue!
-        // return () => {
-        //     if (!isCoachActive) {
-        //         resetCoach()
-        //     }
-        // };
     }, [transcriptions, isCoachActive]);
 
     // Remove the old timer useEffect entirely (lines 463-476)

@@ -24,8 +24,8 @@ export default function useCoach() {
         }
     }
 
-    const processCallSummary = useCallback(async (sessionId, prospectId, callDurationInSeconds, signals, callTimestamp) => {
-
+    const processCallSummary = useCallback(async (sessionId, prospectId, callDurationInSeconds, signals, insights, callTimestamp) => {
+        console.log('🔍 [processCallSummary] Session ID:', sessionId);
         try {
           if(!sessionId) {
             throw new Error('Session ID is required');
@@ -39,6 +39,9 @@ export default function useCoach() {
           if(!signals) {
             throw new Error('Signals are required');
           }
+          if(!insights) {
+            throw new Error('Insights are required');
+          }
           if(!callTimestamp) {
             throw new Error('Call timestamp is required');
           }
@@ -48,6 +51,7 @@ export default function useCoach() {
             prospectId,
             callDurationInSeconds,
             signals,
+            insights,
             callTimestamp
           }
     

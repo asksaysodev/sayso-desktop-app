@@ -66,28 +66,53 @@ function getDeviceIndexByName(targetDevices) {
       const lines = output.split('\n');
       console.log(`[DEBUG] Split lines:`, lines);
       
-      const foundDevices = [];
+      // Separate video and audio devices
+      const videoDevices = [];
+      const audioDevices = [];
+      let currentSection = null;
+      
       lines.forEach((line, index) => {
         console.log(`[DEBUG] Processing line ${index}:`, line);
+        
+        // Detect which section we're in
+        if (line.includes('AVFoundation video devices:')) {
+          currentSection = 'video';
+          return;
+        } else if (line.includes('AVFoundation audio devices:')) {
+          currentSection = 'audio';
+          return;
+        }
+        
         // Look for lines that contain [number] followed by a device name
         const match = line.match(/\[(\d+)\] (.+)$/);
-        if (match) {
+        if (match && currentSection) {
           console.log(`[DEBUG] Found device match:`, match);
-          foundDevices.push({ index: match[1], name: match[2] });
+          const device = { index: match[1], name: match[2] };
+          
+          if (currentSection === 'video') {
+            videoDevices.push(device);
+          } else if (currentSection === 'audio') {
+            audioDevices.push(device);
+          }
         }
       });
 
-      console.log(`[DEBUG] Final foundDevices:`, foundDevices);
+      console.log(`[DEBUG] Video devices:`, videoDevices);
+      console.log(`[DEBUG] Audio devices:`, audioDevices);
+      
       // Log all found devices
-      console.log('[Device List] AVFoundation input devices:');
-      foundDevices.forEach(dev => console.log(`  [${dev.index}] ${dev.name}`));
+      console.log('[Device List] AVFoundation video devices:');
+      videoDevices.forEach(dev => console.log(`  [${dev.index}] ${dev.name}`));
+      console.log('[Device List] AVFoundation audio devices:');
+      audioDevices.forEach(dev => console.log(`  [${dev.index}] ${dev.name}`));
 
       // Ensure targetDevices is an array
       const deviceArray = Array.isArray(targetDevices) ? targetDevices : [targetDevices];
       
       // Try to find the device by name in order (case-insensitive, partial match)
+      // ONLY search in audio devices, not video devices
       for (const deviceName of deviceArray) {
-        const found = foundDevices.find(dev =>
+        const found = audioDevices.find(dev =>
           dev.name.toLowerCase().includes(deviceName.toLowerCase())
         );
         if (found) {
@@ -96,12 +121,12 @@ function getDeviceIndexByName(targetDevices) {
         }
       }
 
-      // If none found, suggest available devices
-      const deviceNames = foundDevices.map(dev => dev.name).join(', ');
+      // If none found, suggest available audio devices only
+      const audioDeviceNames = audioDevices.map(dev => dev.name).join(', ');
       const targetDeviceNames = deviceArray.join(', ');
       return reject(
         new Error(
-          `None of the target devices [${targetDeviceNames}] were found. Available devices: ${deviceNames}`
+          `None of the target devices [${targetDeviceNames}] were found. Available audio devices: ${audioDeviceNames}`
         )
       );
     });
@@ -115,8 +140,6 @@ let PROSPECT_AUDIO_DEVICE_ID = null;
 // Initialize devices
 async function initializeDevices() {
   try {
-    // USER_MIC_DEVICE_ID = await getDeviceIndexByName('MacBook Pro Microphone');
-    // PROSPECT_AUDIO_DEVICE_ID = await getDeviceIndexByName('blackhole');
     USER_MIC_DEVICE_ID = await getDeviceIndexByName(['macbook', 'mac','macbook pro', 'macbook air', 'imac', 'microphone', 'mic']);
     PROSPECT_AUDIO_DEVICE_ID = await getDeviceIndexByName(['sayso speaker', 'sayso', 'blackhole']);
     console.log('[Device Resolver] Successfully initialized devices:');
