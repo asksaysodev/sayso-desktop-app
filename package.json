@@ -6,9 +6,13 @@
   "scripts": {
     "start": "electron .",
     "dev": "NODE_ENV=development concurrently \"vite\" \"electron electron/main.cjs\"",
-    "build": "vite build",
-    "package": "npm run build && electron-builder",
+    "build": "vite build --mode production",
+    "clean": "rm -rf dist/ release/ node_modules/.cache electron/native-audio/build .vite",
+    "clean-all": "npm run clean && rm -rf node_modules/ package-lock.json",
+    "rebuild-native": "cd electron/native-audio && npx node-gyp rebuild --target=36.9.1 --arch=arm64 --dist-url=https://electronjs.org/headers && cd ../..",
+    "package": "npm run rebuild-native && npm run build && electron-builder",
     "export": "chmod +x rebuild-and-package.sh && ./rebuild-and-package.sh",
+    "fresh-export": "npm run clean && npm run export",
     "test": "echo \"Error: no test specified\" && exit 1",
     "kill-port": "lsof -ti :5173 | xargs kill -9 || true",
     "rebuild-zoom": "cd electron/zoom-sdk && node-gyp rebuild",
@@ -59,11 +63,8 @@
       "owner": "your-github-username",
       "repo": "your-repo-name"
     },
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "assets/**/*"
-    ],
+    "afterPack": "scripts/sign-native-module.js",
+    "asar": false,
     "extraResources": [
       {
         "from": "assets",
@@ -111,10 +112,6 @@
     },
     "linux": {
       "target": "AppImage"
-    },
-    "asarUnpack": [
-      "electron/bin/SwitchAudioSource",
-      "electron/bin/ffmpeg"
-    ]
+    }
   }
 }

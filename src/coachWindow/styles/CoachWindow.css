@@ -44,7 +44,7 @@ body {
 
 .coach-window .main-container{
     position: relative;
-    /* height: 48px; */
+    height: 48px;
     width: fit-content; /* Changed from calc(100% - 40px) */
     min-width: 200px; /* Add a minimum width so it doesn't get too small */
     max-width: calc(100% - 40px); /* Keep the max width constraint */
@@ -186,7 +186,7 @@ body {
     width: 300px;
     max-height: 200px;
     top: 48px;
-    left: 290px;
+    left: 82px;
     z-index: 1000;
     margin-top: 12px;
     position: absolute;

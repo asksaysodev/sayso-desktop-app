@@ -1,0 +1,83 @@
+.native-audio-test {
+  padding: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.native-audio-test h2 {
+  color: #333;
+  margin-bottom: 20px;
+}
+
+.test-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.test-button {
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.test-button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.test-button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.loading {
+  color: #007bff;
+  font-style: italic;
+  margin: 10px 0;
+}
+
+.error {
+  background-color: #f8d7da;
+  color: #721c24;
+  padding: 10px;
+  border-radius: 5px;
+  margin: 10px 0;
+  border: 1px solid #f5c6cb;
+}
+
+.capture-status {
+  background-color: #d1ecf1;
+  color: #0c5460;
+  padding: 10px;
+  border-radius: 5px;
+  margin: 10px 0;
+  border: 1px solid #bee5eb;
+}
+
+.devices-list {
+  margin-top: 20px;
+}
+
+.devices-list h3 {
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.devices-list ul {
+  list-style: none;
+  padding: 0;
+}
+
+.devices-list li {
+  background-color: #f8f9fa;
+  padding: 10px;
+  margin: 5px 0;
+  border-radius: 5px;
+  border-left: 4px solid #007bff;
+}

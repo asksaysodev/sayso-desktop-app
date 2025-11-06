@@ -1,20 +1,16 @@
 const { contextBridge, ipcRenderer, app } = require('electron');
 
-// It's a good practice to log if the preload script is loaded
-// console.log('Preload script initializing...');
 
 try {
   contextBridge.exposeInMainWorld('electron', {
     ipcRenderer: {
       invoke: (channel, ...args) => {
-        // console.log(`Preload: ipcRenderer.invoke('${channel}', args:`, args, ')');
         return ipcRenderer.invoke(channel, ...args);
       },
       on: (channel, callback) => {
         console.log('🔌 PRELOAD: Setting up listener for channel:', channel);
         ipcRenderer.on(channel, (event, ...args) => {
           console.log('📨 PRELOAD: Received data on channel:', channel, args);
-          // Pass the first argument directly since we're sending a single object
           callback(args[0]);
         });
         return () => {
@@ -23,18 +19,48 @@ try {
         };
       },
       send: (channel, ...args) => {
-        // console.log(`Preload: ipcRenderer.send('${channel}', args:`, args, ')');
         ipcRenderer.send(channel, ...args);
       },
       removeAllListeners: (channel) => {
-        // console.log(`Preload: ipcRenderer.removeAllListeners('${channel}')`);
         ipcRenderer.removeAllListeners(channel);
+      },
+      off: (channel, callback) => {
+        console.log('🧹 PRELOAD: Removing listener for channel:', channel);
+        ipcRenderer.removeListener(channel, callback);
       }
-      // You can add other specific methods you frequently use if desired
     },
     // Add openExternal method for opening URLs in external browser
     openExternal: (url) => {
       ipcRenderer.send('open-external', url);
+    },
+    
+    // Native Audio Module API
+    nativeAudio: {
+      initialize: () => ipcRenderer.invoke('native-audio-initialize'),
+      listDevices: () => ipcRenderer.invoke('native-audio-list-devices'),
+      createDevice: (name, subDevices) => ipcRenderer.invoke('native-audio-create-device', { name, subDevices }),
+      deleteDevice: (deviceId) => ipcRenderer.invoke('native-audio-delete-device', { deviceId }),
+      requestPermission: () => ipcRenderer.invoke('native-audio-request-permission'),
+      startCapture: (options) => ipcRenderer.invoke('native-audio-start-capture', options),
+      stopCapture: () => ipcRenderer.invoke('native-audio-stop-capture'),
+      isCapturing: () => ipcRenderer.invoke('native-audio-is-capturing')
+    },
+    
+    // Dual Channel Recording API
+    recording: {
+      startDualChannel: (params) => ipcRenderer.invoke('start-audio-capture', params),
+      stopDualChannel: () => ipcRenderer.invoke('stop-audio-capture'),
+      compressAudio: (options) => ipcRenderer.invoke('compress-audio', options)
+    },
+    
+    // File Upload API
+    uploadFile: (options) => ipcRenderer.invoke('upload-file', { ...options }),
+    uploadBothFiles: (options) => ipcRenderer.invoke('upload-both-files', { ...options }),
+
+    // Permissions API
+    permissions: {
+      check: () => ipcRenderer.invoke('permissions-check'),
+      requestAll: () => ipcRenderer.invoke('permissions-request-all')
     }
   });
 
@@ -51,32 +77,9 @@ try {
     indexHtmlPath
   });
 
-  // console.log('Preload: contextBridge.exposeInMainWorld for "electron" successful.');
 
 } catch (error) {
   console.error('Preload Error: Failed to exposeInMainWorld:', error);
 }
 
-// Make sure contextIsolation is true and nodeIntegration is false
-// in your BrowserWindow settings in main.cjs for this to be secure and work correctly.
 
-// You can also listen for messages from main here if needed,
-// but for exposing APIs, the above is the primary pattern.
-ipcRenderer.on('main-process-message', (_event, message) => {
-  // console.log('Message from main process:', message);
-});
-
-// Notify that preload script has finished loading (optional)
-// window.addEventListener('DOMContentLoaded', () => {
-//   console.log('Preload: DOMContentLoaded, renderer is ready.');
-//   ipcRenderer.send('renderer-ready'); // Example: notify main
-// });
-
-// Clean up listeners when the window is unloaded (good practice)
-// window.addEventListener('beforeunload', () => {
-  // console.log('Preload: beforeunload, cleaning up listeners for "electron.ipcRenderer"');
-  // if (window.electron && window.electron.ipcRenderer && typeof window.electron.ipcRenderer.removeAllListeners === 'function') {
-    // This won't work as expected because removeAllListeners is on the original ipcRenderer, not the exposed one.
-    // Cleanup needs to be managed via the returned functions from .on() or by exposing removeAllListeners correctly.
-  // }
-// }); 

@@ -16,9 +16,9 @@ export default function CoachButtons({ isCoachActive, handleCoach, callDurationI
             {
                 isCoachActive ? (
                     <>
-                        <button className="coach-button pause" onClick={handleCoach}>
+                        {/* <button className="coach-button pause" onClick={handleCoach}>
                            <FaPause/>
-                        </button>
+                        </button> */}
                         <button className="coach-button stop" onClick={handleCoach}>
                             <FaStop/>
                         </button>
@@ -49,7 +49,7 @@ export default function CoachButtons({ isCoachActive, handleCoach, callDurationI
                                     </g>
                                 </g>
                             </svg>
-                            <p className={`${isCoachLoading ? 'hidden' : ''}`}>Start Coach</p>
+                            <p className={`${isCoachLoading ? 'hidden' : ''}`}>Launch</p>
                                 
                         
                         </button>

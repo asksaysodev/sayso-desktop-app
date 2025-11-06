@@ -3,8 +3,8 @@ import { runCoach } from '../services/coachServices';
 import { v4 } from 'uuid';
 
 import useCoach from '../coachWindow/hooks/useCoach';
-import useAudio from '../coachWindow/hooks/useAudio';
 import useInsightScheduler from '../coachWindow/hooks/useInsightScheduler';
+import { useAudioUpload } from '../coachWindow/hooks/useAudioUpload';
 
 const CoachWindowContext = createContext();
 
@@ -14,36 +14,77 @@ export const CoachWindowProvider = ({ children }) => {
     const [isCoachWindowOpen, setIsCoachWindowOpen] = useState(false)
     const [prospects, setProspects] = useState([])
     const [prospectId, setProspectId] = useState(null)
-    const [sessionId, setSessionId] = useState(null)
     const [iceBreaker, setIceBreaker] = useState(null)
     const [globalUser, setGlobalUser] = useState(null)
     const [isCoachActive, setIsCoachActive] = useState(false)
     const [isCoachLoading, setIsCoachLoading] = useState(false)
     const [callDurationInSeconds, setCallDurationInSeconds] = useState(0)
-    const [transcriptions, setTranscriptions] = useState([]);
-    const [receivedInsights, setReceivedInsights] = useState([]);
+    const [sessionData, setSessionData] = useState(null)
     const [signals, setSignals] = useState([]);
-    const [callTimestamp, setCallTimestamp] = useState(null)
-    // const [currentInsight, setCurrentInsight] = useState(null);
-    const [callProgress, setCallProgress] = useState("early");
-    // const [timerStartTime, setTimerStartTime] = useState(null);
-    // const [lastInsightMessage, setLastInsightMessage] = useState('');
-
     
-    
-    //REFS
-    const isCoachActiveRef = useRef(false);
-    const processTranscriptsRef = useRef(null);
-    const transcriptionsRef = useRef([]);
-
-
     //HOOKS
-    const { getIceBreaker, getProspects, processCallSummary } = useCoach()
-    const { startLiveCoach, stopLiveCoach } = useAudio()
-    const { currentInsight, enqueue, reset, pending } = useInsightScheduler({
-        displayMs: 12000,
-        minIntervalMs: 5000
-    });
+    const { getProspects } = useCoach()
+    const { compressAudioFile, uploadFullRecording, isCompressing, isUploading } = useAudioUpload()
+    
+    const currentInsight = null;
+
+    //AUDIO FUNCTIONS
+    const startDualChannelRecording = async (prospectId) => {
+        setIsCoachLoading(true)
+        console.log('🎤 [CoachWindowContext] Starting dual channel recording with prospectId:', prospectId);
+        
+        // Create session data to get sessionId and prospectId
+        const sessionData = createNewSessionData(prospectId);
+        
+        const recordingParams = {
+            sessionId: sessionData.sessionId,
+            prospectId: prospectId,
+            metadata: {
+                sessionId: sessionData.sessionId,
+                prospectId: sessionData.prospectId,
+                timestamp: sessionData.timestamp
+            }
+        };
+        
+        console.log('🎤 [CoachWindowContext] Recording params:', recordingParams);
+        
+        if (window.electron && window.electron.recording) {
+            try {
+                const result = await window.electron.recording.startDualChannel(recordingParams);
+                console.log('🎤 [CoachWindowContext] ✅ Recording started successfully:', result);
+                return result;
+            } catch (error) {
+                console.error('🎤 [CoachWindowContext] ❌ Error starting recording:', error);
+                throw error;
+            }
+            finally {
+                setIsCoachLoading(false)
+                setIsCoachActive(true)
+            }
+        } else {
+            console.error('🎤 [CoachWindowContext] ❌ Electron recording API is not available!');
+            console.error('🎤 [CoachWindowContext] window.electron:', window.electron);
+            throw new Error('Electron recording API not available');
+        }
+    };
+
+    const stopDualChannelRecording = async () => {
+        console.log('🎤 [CoachWindowContext] Stopping dual channel recording...');
+        
+        if (window.electron && window.electron.recording) {
+            try {
+                const result = await window.electron.recording.stopDualChannel();
+                console.log('🎤 [CoachWindowContext] ✅ Recording stopped successfully:', result);
+                return result;
+            } catch (error) {
+                console.error('🎤 [CoachWindowContext] ❌ Error stopping recording:', error);
+                throw error;
+            }
+        } else {
+            console.warn('🎤 [CoachWindowContext] Electron recording API is not available. Cannot stop recording.');
+            throw new Error('Electron recording API not available');
+        }
+    };
 
     //FUNCTIONS
     const openCoachWindow = () => {
@@ -69,60 +110,20 @@ export const CoachWindowProvider = ({ children }) => {
             console.warn('Electron not available, cannot close coach window');
         }
         
-        resetCoach()
+        // resetCoach()
     };
 
-    const transformTranscriptionsToMessages = (transcriptions) => {
-        return transcriptions.map(transcript => ({
-            role: "user",
-            content: `[${transcript.speaker.toUpperCase()}]: ${transcript.text}`
-        }));
-    };
-
-    // Keep the calculateCallProgress function but make it work with seconds
-    const calculateCallProgress = (elapsedSeconds) => {
-        const elapsedMinutes = elapsedSeconds / 60;
-        if (elapsedMinutes < 2) return "early";
-        if (elapsedMinutes < 7) return "middle";
-        return "late";
-    };
-
-    const getLast45SecondsOfTranscripts = () => {
-        const nowInSeconds = Math.floor(Date.now() / 1000);
-        const cutoffTime = nowInSeconds - 45;
-        
-        console.log(' [getLast45SecondsOfTranscripts] Current time:', nowInSeconds, 'Cutoff:', cutoffTime);
-        console.log('🔍 [getLast45SecondsOfTranscripts] Total transcripts in ref:', transcriptionsRef.current.length);
-        
-        const filtered = transcriptionsRef.current.filter(transcript => {
-            let transcriptTime = transcript.timestamp;
-            
-            if (transcriptTime > 9999999999) {
-                transcriptTime = Math.floor(transcriptTime / 1000);
-            }
-            
-            const isRecent = transcriptTime >= cutoffTime;
-            
-            console.log('🔍 [getLast45SecondsOfTranscripts] Transcript time:', transcriptTime, 'isRecent:', isRecent, 'text:', transcript.text?.substring(0, 50));
-            
-            return isRecent;
-        });
-        
-        console.log('🔍 [getLast45SecondsOfTranscripts] Filtered recent transcripts:', filtered.length);
-        return filtered;
-    };
-    
-    const hasRecentTranscripts = () => {
-        const recent = getLast45SecondsOfTranscripts();
-        const hasRecent = recent.length > 0;
-        console.log('🔍 [hasRecentTranscripts] Has recent transcripts:', hasRecent, 'count:', recent.length);
-        return hasRecent;
-    };
-
-    
+    const resetCoach = () => {
+        console.log('🎤 [CoachWindowContext] Resetting coach...')
+        setIsCoachActive(false)
+        setIsCoachLoading(false)
+        setCallDurationInSeconds(0)
+        setSessionData(null)
+        setSignals([])
+    }
 
     const fetchProspects = async () => {
-
+        
         try {
             const prospectsData = await getProspects()
             setProspects(prospectsData)
@@ -133,223 +134,40 @@ export const CoachWindowProvider = ({ children }) => {
         }
     }
 
-    const startCoach = async (prospectId) => {
-        setIsCoachLoading(true)
-        if(!globalUser) {
-            console.log('No global user found')
-            return
+    const createNewSessionData = (prospectId) => {
+        const newSessionId = v4()
+        const newSessionData = {
+            sessionId: newSessionId,
+            prospectId: prospectId,
+            timestamp: Date.now()
         }
-        if(!prospectId) {
-            console.log('No prospect id found')
-            return
-        }
-        console.log('Starting coach with prospect id:', prospectId)
-
-        try {
-            const newSessionId = v4();
-            setSessionId(newSessionId);
-            setProspectId(prospectId);
-            
-            // ✅ Remove this line - we don't need timerStartTime anymore
-            // setTimerStartTime(Date.now());
-            
-            console.log(`Starting coach for prospect: ${prospectId} with sessionId: ${newSessionId}`)
-            const iceBreakerResponse = await getIceBreaker(prospectId);
-            if(iceBreakerResponse && iceBreakerResponse.iceBreaker) {
-                console.log('Ice breaker response:', iceBreakerResponse)
-                console.log('Ice breaker object:', iceBreakerResponse.iceBreaker)
-                console.log('Ice breaker message:', iceBreakerResponse.iceBreaker)
-                
-                // Check if the iceBreaker property exists and has content
-                const iceBreakerMessage = iceBreakerResponse.iceBreaker;
-                if (iceBreakerMessage && iceBreakerMessage.trim() !== '') {
-                    enqueue({
-                        message: iceBreakerMessage,
-                        isIceBreaker: true,
-                        insight: 'yes'
-                    });
-                } else {
-                    console.warn('⚠️ Ice breaker message is empty or undefined');
-                }
-            } 
-            setCallTimestamp(Date.now())
-            startLiveCoach({
-                accountId: globalUser.id,
-                prospectId: prospectId,
-                meetingId: null,
-                sessionId: newSessionId
-            })
-            console.log('✅ [startCoach] Setting isCoachActive to true')
-            setIsCoachActive(true)
-        } catch (error) {
-            console.error('Error starting coach:', error)
-        } finally {
-            setIsCoachLoading(false)
-        }
+        setSessionData(newSessionData)
+        return newSessionData
     }
 
-    const resetCoach = () => {
-        setSignals([])
-        setReceivedInsights([])
-        // setCurrentInsight(null)
-        setProspectId(null)
-        setSessionId(null)
-        setLastInsightMessage('')
-        setIceBreaker(null)
-        setIsCoachActive(false)
-        setIsCoachLoading(false)
-        setCallDurationInSeconds(0)
-        setTranscriptions([])
-        setCallTimestamp(null)
-    }
+    const handleStopRecording = async () => {
 
-    const stopCoach = async () => {
-        console.log('🛑 [stopCoach] Stopping coach...')
-        setIsCoachLoading(true)
         try {
-            console.log('❌ [stopCoach] Setting isCoachActive to false')
+            setIsCoachLoading(true)
             setIsCoachActive(false)
-            stopLiveCoach()
-            await processCallSummary(sessionId, prospectId, callDurationInSeconds, signals, receivedInsights, callTimestamp);
-            resetCoach()
+            const result = await stopDualChannelRecording()
+            console.log('🎤 [CoachWindowContext] ✅ Recording stopped successfully:', result)
+            const uploadResults = await uploadFullRecording(result)
+            console.log('🎤 [CoachWindowContext] ✅ Files uploaded successfully:', uploadResults)
+            return result
         } catch (error) {
-            console.error('❌ [stopCoach] Error stopping coach:', error)
-        } finally {
+            console.error('🎤 [CoachWindowContext] ❌ Error stopping recording:', error)
+            throw error
+        }
+        finally {
             setIsCoachLoading(false)
+            resetCoach()
         }
     }
-
-    const processTranscriptsForInsights = useCallback(async () => {
-        
-        
-        try {
-            const accountId = globalUser.id
-            console.log('🔍 [processTranscriptsForInsights] Current state:', {
-                isCoachActive,
-                transcriptionsCount: transcriptions.length,
-                prospectId,
-                accountId,
-                insightsCount: receivedInsights.length
-            });
-            console.log('🔍 [processTranscriptsForInsights] Signals:', signals);
-
-            // Check if coach is active and we have a prospect ID
-            if (!isCoachActiveRef.current || !prospectId) {
-                console.log('⚠️ [processTranscriptsForInsights] Coach not active or no prospect ID, skipping insight processing', {
-                    isCoachActive: isCoachActiveRef.current,
-                    prospectId,
-                    stateIsCoachActive: isCoachActive
-                });
-                return;
-            }
-            //WE NEED TO GET THE LAST 45 SECONDS OF THE CALL IN TRANSCRIPTIONS
-            const recentTranscripts = getLast45SecondsOfTranscripts();
-            console.log('🔍 [processTranscriptsForInsights] Recent transcripts count:', recentTranscripts.length);
-            
-            if (recentTranscripts.length === 0) {
-                console.log('⚠️ [processTranscriptsForInsights] No recent transcripts, skipping insight processing');
-                return;
-            }
-            
-            //FORMAT THE TRANSCRIPTIONS INTO MESSAGES
-            const transformedMessages = transformTranscriptionsToMessages(recentTranscripts);
-            const conversationContext = transformedMessages.map(msg => msg.content).join('\n');
-            console.log('🔍 [processTranscriptsForInsights] Conversation context length:', conversationContext.length);
-            console.log('🔍 [processTranscriptsForInsights] Conversation preview:', conversationContext.substring(0, 200) + '...');
-
-            // Add this right before the runCoach call (around line 216)
-            console.log('🚀 [processTranscriptsForInsights] ===== CALLING RUNCOACH =====');
-            console.log('🚀 [processTranscriptsForInsights] Parameters being sent to runCoach:', {
-                conversationContext: conversationContext.substring(0, 200) + '...',
-                insightsCount: receivedInsights.length,
-                signalsCount: signals.length,
-                callProgress,
-                prospectId
-            });
-
-            //RUN THE COACH
-            console.log('🔍 [processTranscriptsForInsights] Signals:', signals);
-            const coachResponse = await runCoach(conversationContext, receivedInsights, signals, callProgress, prospectId);
-            console.log('🔍 [processTranscriptsForInsights] ===== RUNCOACH RESPONSE RECEIVED =====');
-            console.log('🎯 [processTranscriptsForInsights] Full coach response:', JSON.stringify(coachResponse, null, 2));
-            console.log('🚀 [processTranscriptsForInsights] Coach response:', coachResponse);
-            console.log('🚀 [processTranscriptsForInsights] Response type check:', {
-                isObject: typeof coachResponse === 'object',
-                hasInsight: 'Insight' in coachResponse,
-                hasMessage: 'Message' in coachResponse,
-                insightValue: coachResponse?.Insight,
-                messageValue: coachResponse?.Message
-            });
-
-            // Only add new detected signals with a valid signal name, and keep the existing ones!
-            if(isCoachActiveRef.current) {
-                setSignals(prevSignals => {
-                    const newSignals = [...prevSignals];
-                    
-                    (coachResponse.signals || []).forEach(signal => {
-                        if (signal.detected && signal.signal) {
-                            newSignals.push({
-                                detected: signal.detected,
-                                signal: signal.signal,
-                                quote: signal.quote,
-                                timestamp: Date.now()
-                            });
-                        }
-                    });
-                    
-                    return newSignals;
-                });
-
-                if(coachResponse.insights?.Insight === 'yes' && coachResponse.insights?.Message !== '') {
-
-                    const newInsightMessage = coachResponse.insights.Message;
-
-                    setReceivedInsights(prev => [...prev, {timestamp: Date.now(), message: newInsightMessage}]);
-                  
-                    enqueue({
-                        message: newInsightMessage,
-                        isIceBreaker: false,
-                        insight: 'yes'
-                    });
-                    
-                    console.log('✅ [processTranscriptsForInsights] ===== NEW INSIGHT GENERATED! =====');
-                    console.log('🎯 [processTranscriptsForInsights] Message:', newInsightMessage);
-                } else {
-                    console.log('❌ [processTranscriptsForInsights] No insight generated - Conditions not met:', {
-                        insightValue: coachResponse.insights?.Insight,
-                        messageValue: coachResponse.insights?.Message,
-                        insightIsYes: coachResponse.insights?.Insight === 'yes',
-                        messageNotEmpty: coachResponse.insights?.Message && coachResponse.insights?.Message !== ''
-                    });
-                }
-            } else {
-                console.log('❌ [processTranscriptsForInsights] Coach not active, skipping insight processing');
-                return;
-            }
-            
-
-
-            
-        } catch (error) {
-            console.error('❌ [processTranscriptsForInsights] Error processing transcripts:', error);
-        } 
-        
-        console.log('🏁 [processTranscriptsForInsights] ===== INSIGHT PROCESSING COMPLETE =====');
-    }, [prospectId, signals, callProgress, enqueue ]);
-
-    // Store the latest version of the function in a ref
-    processTranscriptsRef.current = processTranscriptsForInsights;
-    
-    // Keep the ref in sync with the state
-    useEffect(() => {
-        isCoachActiveRef.current = isCoachActive;
-        console.log('🔄 [useEffect] Updated isCoachActiveRef to:', isCoachActive, 'at', new Date().toISOString());
-    }, [isCoachActive]);
 
     //EFFECTS
     useEffect(() => {
         const globalUser = JSON.parse(localStorage.getItem('sayso-global-user'))
-        console.log('globalUser', globalUser)
         setGlobalUser(globalUser)
     }, [])
 
@@ -369,99 +187,6 @@ export const CoachWindowProvider = ({ children }) => {
     }, [isCoachActive])
 
     useEffect(() => {
-        if (isCoachActive && callDurationInSeconds > 0) {
-            const progress = calculateCallProgress(callDurationInSeconds);
-            setCallProgress(progress);
-            console.log(`🕐 [useEffect] Call progress updated: ${progress} (${callDurationInSeconds}s)`);
-        } else if (!isCoachActive) {
-            setCallProgress("early"); // Reset to early when coach stops
-        }
-    }, [callDurationInSeconds, isCoachActive]);
-
-    
-    useEffect(() => {
-        console.log('🔍 [useEffect] Setting up transcription listener');
-        console.log('🔍 [useEffect] Electron available:', !!window.electron);
-        console.log('🔍 [useEffect] IPC Renderer available:', !!window.electron?.ipcRenderer);
-
-        if (window.electron && window.electron.ipcRenderer) {
-            console.log('🔍 [useEffect] Setting up transcription-data listener');
-            
-            const handleTranscriptionData = (data) => {
-                console.log('🎤 [handleTranscriptionData] Received transcription data:', data);
-                console.log('🔍 [handleTranscriptionData] Data type:', typeof data);
-                console.log('🔍 [handleTranscriptionData] Data keys:', data ? Object.keys(data) : 'null');
-                console.log('🔍 [handleTranscriptionData] Has text property:', data && 'text' in data);
-                console.log('🔍 [handleTranscriptionData] Data.text:', data?.text);
-                
-                if (data && typeof data === 'object' && 'text' in data) {
-                    const newTranscription = {
-                        text: data.text,
-                        speaker: data.speaker || 'unknown',
-                        timestamp: data.timestamp 
-                    };
-                    
-                    console.log('🎤 [handleTranscriptionData] Processing new transcription:', {
-                        text: newTranscription.text,
-                        speaker: newTranscription.speaker,
-                        timestamp: newTranscription.timestamp
-                    });
-                    
-                    setTranscriptions(prev => {
-                        const updated = [...prev, newTranscription].sort((a, b) => a.timestamp - b.timestamp);
-                        // Update the ref with the latest transcriptions
-                        transcriptionsRef.current = updated;
-                        console.log('🎤 [handleTranscriptionData] Updated transcriptions count:', updated.length);
-                        console.log('🎤 [handleTranscriptionData] Updated transcriptions ref count:', transcriptionsRef.current.length);
-                        return updated;
-                    });
-                } else {
-                    console.warn('🎤 [handleTranscriptionData] Invalid transcription data received:', data);
-                }
-            };
-
-            // Add debugging for the listener setup
-            console.log('🔍 [useEffect] About to set up listener for transcription-data');
-            const cleanup = window.electron.ipcRenderer.on('transcription-data', handleTranscriptionData);
-            console.log('🔍 [useEffect] Listener set up, cleanup function:', typeof cleanup);
-
-            return () => {
-                console.log('🧹 [useEffect] Cleaning up transcription listener');
-                if (cleanup && typeof cleanup === 'function') {
-                    cleanup();
-                }
-            };
-        } else {
-            console.warn('🎤 [useEffect] Electron not available for transcription listener');
-        }
-    }, []);
-    
-    
-    
-    useEffect(() => {
-        console.log('🔍 [useEffect] Centralized insight processing effect triggered:', {
-            transcriptionsLength: transcriptions.length,
-            hasRecentTranscripts: hasRecentTranscripts(),
-            isCoachActive
-        });
-        
-        // Only start processing if we have enough transcripts, recent activity, and coach is active
-        if (transcriptions.length > 2 && hasRecentTranscripts() && isCoachActive) {
-            console.log('🚀 [useEffect] Conditions met - processing insights');
-            processTranscriptsRef.current();
-        } else {
-            console.log('🔍 [useEffect] Conditions not met for insight processing:', {
-                transcriptionsLength: transcriptions.length,
-                hasRecentTranscripts: hasRecentTranscripts(),
-                isCoachActive
-            });
-        }
-
-    }, [transcriptions, isCoachActive]);
-
-    // Remove the old timer useEffect entirely (lines 463-476)
-
-    useEffect(() => {
         if (window.electron && window.electron.ipcRenderer) {
             const handleCoachWindowClosed = () => {
                 console.log('🎯 [CoachWindowContext] Coach window closed event received');
@@ -477,13 +202,14 @@ export const CoachWindowProvider = ({ children }) => {
         }
     }, []);
 
+    
+
     const value = {
         prospects,
-        startCoach,
-        stopCoach,
         setProspectId,
         iceBreaker,
         isCoachActive,
+        setIsCoachActive,
         callDurationInSeconds,
         isCoachLoading, 
         isCoachWindowOpen,
@@ -491,7 +217,16 @@ export const CoachWindowProvider = ({ children }) => {
         closeCoachWindow,
         currentInsight,
         signals,
-        setSignals
+        setSignals,
+        createNewSessionData,   
+        sessionData,
+        startDualChannelRecording,
+        handleStopRecording,
+        compressAudioFile,
+        uploadFullRecording,
+        isCompressing,
+        isUploading,
+        resetCoach,
     }
 
     return (

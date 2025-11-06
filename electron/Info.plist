@@ -2,11 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>NSCameraUsageDescription</key>
-    <string>We need access to your camera for video calls</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>We need access to your microphone for audio calls</string>
-    <key>NSCameraUseContinuityCameraDeviceType</key>
-    <true/>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>We need access to system audio to create multi-output devices for call recording</string>
 </dict>
-</plist> 
+</plist>    

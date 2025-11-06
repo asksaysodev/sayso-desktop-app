@@ -49,6 +49,24 @@ for app_path in "${APP_PATHS[@]}"; do
   echo "  - ${app_path}"
 done
 
+# Check if NotaryProfile exists and is accessible
+echo "🔍 Verifying NotaryProfile '${NOTARY_PROFILE}' is accessible..."
+if ! xcrun notarytool history --keychain-profile "${NOTARY_PROFILE}" &>/dev/null; then
+  echo ""
+  echo "❌ ERROR: NotaryProfile '${NOTARY_PROFILE}' not found or not accessible!"
+  echo ""
+  echo "To fix this, create the profile with:"
+  echo "  xcrun notarytool store-credentials ${NOTARY_PROFILE} \\"
+  echo "    --apple-id YOUR_APPLE_ID \\"
+  echo "    --team-id Y57SJLCC9H"
+  echo ""
+  echo "You'll need an App-Specific Password from:"
+  echo "  https://appleid.apple.com/account/manage → Security → App-Specific Passwords"
+  echo ""
+  exit 1
+fi
+echo "✅ NotaryProfile verified and accessible"
+
 # Function to notarize a single app bundle
 notarize_app() {
   local app_path="$1"

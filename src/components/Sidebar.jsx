@@ -7,6 +7,7 @@ import {LuUsers, LuLogOut, LuChevronRight} from 'react-icons/lu'
 import CoachCTA from './CoachCTA';
 import Divider from './Divider';
 import SaysoModal from './SaysoModal';
+import NativeAudioTest from './NativeAudioTest';
 
 import { useAuth } from '../context/AuthContext';
 
@@ -68,6 +69,8 @@ export default function Sidebar() {
                         </div>
                     </div>
                 </NavLink>
+                <Divider />
+                <NativeAudioTest />
                 <Divider />
                 <div className='logout-button' onClick={() => setShowSignOutModal(true)}>
                     <LuLogOut />

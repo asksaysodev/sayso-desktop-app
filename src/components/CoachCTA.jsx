@@ -45,13 +45,31 @@ export default function CoachCTA({sidebar, active }) {
   }, []);
 
   const openCoachWindow = () => {
-      if (window.electron && window.electron.ipcRenderer) {
-          window.electron.ipcRenderer.send('open-coach-window');
-          setIsCoachWindowOpen(true);
-          localStorage.setItem('coach-window-open', 'true');
-      } else {
-          console.warn('Electron not available, cannot open coach window');
-          setIsCoachWindowOpen(false);
+      const tryOpen = () => {
+          if (window.electron && window.electron.ipcRenderer) {
+              window.electron.ipcRenderer.send('open-coach-window');
+              setIsCoachWindowOpen(true);
+              localStorage.setItem('coach-window-open', 'true');
+              return true;
+          }
+          return false;
+      };
+      
+      if (!tryOpen()) {
+          console.log('⏳ [CoachCTA] Electron not available yet, waiting...');
+          const checkInterval = setInterval(() => {
+              if (tryOpen()) {
+                  clearInterval(checkInterval);
+                  console.log('✅ [CoachCTA] Electron available, coach window opened');
+              }
+          }, 50);
+          
+          setTimeout(() => {
+              clearInterval(checkInterval);
+              if (!window.electron || !window.electron.ipcRenderer) {
+                  console.error('❌ [CoachCTA] Electron still not available after 1 second');
+              }
+          }, 1000);
       }
   };
 

@@ -1,8 +1,16 @@
-const { app, BrowserWindow, ipcMain, screen, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { WindowManager } = require('./utils/windowManager');
 const { WINDOW_CONFIG } = require('./utils/windowConfig');
+
+// Native audio module - will be loaded after logging is set up
+let nativeAudio = null;
+
+async function requestScreenRecordingPermission() {
+  const hasPermission = await systemPreferences.askForMediaAccess('screen');
+  return hasPermission;
+}
 
 // Add file logging for production
 function setupLogging() {
@@ -86,6 +94,69 @@ if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = 'production';
 }
 
+// Store active recording session metadata
+let activeRecordingSession = null;
+
+ipcMain.handle('start-audio-capture', async (event, params = {}) => {
+  console.log('[Main Process] Starting dual channel recording...');
+  console.log('[Main Process] Parameters:', JSON.stringify(params, null, 2));
+  
+  try {
+    const sessionId = params.sessionId || `session-${Date.now()}`;
+    
+    // Store session metadata for later reference
+    activeRecordingSession = {
+      sessionId,
+      prospectId: params.prospectId || null,
+    timestamp: Date.now(),
+    userStartMs: null,
+    systemStartMs: null
+    };
+    
+    // Pre-initialize user microphone to avoid start delay
+    try {
+      await prepareUserMicrophone();
+    } catch (e) {
+      console.warn('[Main Process] ⚠️ Mic prep failed, continuing with defaults:', e.message);
+    }
+
+  // Record start times just before invoking each start
+  const systemStartMs = Date.now();
+  activeRecordingSession.systemStartMs = systemStartMs;
+  const userStartMs = Date.now();
+  activeRecordingSession.userStartMs = userStartMs;
+
+  // Start both recordings in parallel
+  const [prospectResult, userResult] = await Promise.all([
+      // Prospect audio (system audio via native module)
+      nativeAudio.startSystemAudioCapture(params),
+      
+      // User audio (microphone via recorder)
+    startUserFullRecording({ ...params, metadata: { ...(params.metadata||{}), sessionId, prospectId: params.prospectId || null, userStartMs } })
+    ]);
+    
+    console.log('[Main Process] ✅ Dual channel recording started successfully');
+    console.log('[Main Process] Session ID:', sessionId);
+    console.log('[Main Process] Prospect file:', prospectResult?.filePath || 'Will be available on stop');
+    console.log('[Main Process] User file:', userResult || 'No file path returned');
+    
+    return {
+      success: true,
+      sessionId,
+      prospectFile: prospectResult?.filePath || null, // May be null until recording stops
+      userFile: userResult || null
+    };
+  } catch (error) {
+    console.error('[Main Process] ❌ Error starting dual recording:', error);
+    return {
+      success: false,
+      error: error.message,
+      prospectFile: null,
+      userFile: null
+    };
+  }
+});
+
 // Function to load environment variables
 function loadEnvironmentVariables() {
   const isDev = process.env.NODE_ENV !== 'production';
@@ -130,6 +201,11 @@ console.log('[Main Process] Environment loaded:', {
   VITE_BACKEND_BASE_URL: process.env.VITE_BACKEND_BASE_URL
 });
 
+// Additional backend URL logging
+console.log('[Main Process] Backend URL:', process.env.VITE_BACKEND_BASE_URL);
+console.log('[Main Process] Backend URL type:', typeof process.env.VITE_BACKEND_BASE_URL);
+console.log('[Main Process] Backend URL length:', process.env.VITE_BACKEND_BASE_URL?.length);
+
 // Add this after environment loading
 console.log('[Main Process] Environment check:', {
   NODE_ENV: process.env.NODE_ENV,
@@ -147,8 +223,11 @@ const {
   startUserRecording, 
   startProspectRecording, 
   stopRecording,
-  initializeDevices,
-  audioDeviceManager
+  startUserFullRecording,
+  startProspectFullRecording,
+  stopFullRecording,
+  prepareUserMicrophone,
+  compressAudioFile
 } = require('./recorder');
 const audioQueue = require('./audioQueue');
 
@@ -227,7 +306,7 @@ const createDashboardWindow = () => {
       webSecurity: true,
       // Enhanced media permissions for packaged app
       enableBlinkFeatures: 'MediaDevices,MediaStream,WebRTC',
-      permissions: ['media', 'camera', 'microphone'],
+      permissions: ['media', 'microphone'],
       // Add these for better camera support
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
@@ -252,7 +331,7 @@ const createDashboardWindow = () => {
 
   // Enhanced media permissions handler for packaged app
   dashboardWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowedPermissions = ['media', 'camera', 'microphone', 'display-capture'];
+    const allowedPermissions = ['media', 'microphone', 'display-capture'];
     console.log(`🔐 Permission requested: ${permission}`);
     
     if (allowedPermissions.includes(permission)) {
@@ -285,15 +364,9 @@ const createDashboardWindow = () => {
           return;
         }
         
-        // Request permissions early
-        navigator.mediaDevices.getUserMedia({ audio: true, video: true })
-          .then(stream => {
-            console.log('✅ Media permissions granted, stopping test stream');
-            stream.getTracks().forEach(track => track.stop());
-          })
-          .catch(err => {
-            console.error('❌ Error getting media permissions:', err);
-          });
+        // Do NOT auto-request permissions here. We only show macOS dialogs
+        // after the user confirms our custom modal (via permissions.requestAll).
+        console.log('ℹ️ Skipping automatic getUserMedia to avoid prompting macOS dialogs early.');
         
         // Enumerate devices
         navigator.mediaDevices.enumerateDevices()
@@ -415,6 +488,77 @@ ipcMain.on('open-external', (event, url) => {
   }
 });
 
+// --- Permissions Handlers ---
+// Check current permissions (non-interactive)
+ipcMain.handle('permissions-check', async () => {
+  try {
+    const micStatus = systemPreferences.getMediaAccessStatus('microphone');
+    console.log('[Permissions] check: micStatus =', micStatus, '(screen reported as false by design)');
+    const mic = micStatus === 'granted';
+    // macOS does not provide a reliable non-interactive API to check ScreenCaptureKit permission.
+    // We'll return false here and request explicitly via native module when needed.
+    const screen = false;
+    return { mic, screen };
+  } catch (e) {
+    console.error('[Permissions] ❌ Error checking permissions:', e);
+    return { mic: false, screen: false, error: e.message };
+  }
+});
+
+// Request microphone + screen recording permissions (interactive)
+ipcMain.handle('permissions-request-all', async () => {
+  try {
+    // 1) MICROPHONE FIRST (never triggers app restart)
+    const micStatus = systemPreferences.getMediaAccessStatus('microphone');
+    console.log('[Permissions] requestAll: initial micStatus =', micStatus);
+    let mic = false;
+    let micAction = 'none';
+    if (micStatus === 'granted') {
+      mic = true;
+      micAction = 'already-granted';
+    } else if (micStatus === 'not-determined') {
+      mic = await systemPreferences.askForMediaAccess('microphone');
+      micAction = 'asked';
+    } else {
+      // denied, restricted, unknown — open System Settings to guide the user
+      mic = false;
+      micAction = 'open-settings';
+      try {
+        await systemPreferences.openSystemPreferences('privacy', 'Microphone');
+      } catch (e) {
+        console.warn('[Permissions] ⚠️ Could not open System Settings for Microphone:', e?.message || e);
+      }
+    }
+
+    // If mic isn't granted, stop here and let the UI guide the user
+    if (!mic) {
+      console.log('[Permissions] requestAll: mic not granted, skipping screen request');
+      return { mic, screen: false, micStatus, screenStatus: 'skipped', micAction };
+    }
+
+    // 2) SCREEN RECORDING (may require restart on first grant)
+    let screen = false;
+    let screenRequested = false;
+    try {
+      if (nativeAudio && typeof nativeAudio.requestScreenRecordingPermission === 'function') {
+        const res = await nativeAudio.requestScreenRecordingPermission();
+        screen = !!res;
+        screenRequested = true;
+      } else {
+        console.warn('[Permissions] ⚠️ Native module missing requestScreenRecordingPermission');
+      }
+    } catch (err) {
+      console.warn('[Permissions] ⚠️ Screen permission request failed:', err?.message || err);
+      screen = false;
+    }
+    console.log('[Permissions] requestAll result:', { mic, screen, micAction, screenRequested });
+    return { mic, screen, micAction, screenRequested };
+  } catch (e) {
+    console.error('[Permissions] ❌ Error requesting permissions:', e);
+    return { mic: false, screen: false, error: e.message };
+  }
+});
+
 ipcMain.on('close-call-windows', () => {
   console.log('IPC: Received close-call-windows');
   if (mainTipWindowInstance) {
@@ -470,89 +614,295 @@ ipcMain.on('send-audio-chunk', (_event, float32AudioChunk) => {
 });
 
 // --- Audio Capture Handlers ---
-ipcMain.handle('start-audio-capture', async (event, params) => {
-  console.log('🎤 [AUDIO CAPTURE] === STARTING AUDIO CAPTURE ===');
-  console.log('🎤 [AUDIO CAPTURE] Params received:', JSON.stringify(params, null, 2));
-  console.log('🎤 [AUDIO CAPTURE] Global mainWindow exists:', !!global.mainWindow);
-  console.log('🎤 [AUDIO CAPTURE] Audio device manager available:', !!audioDeviceManager);
+// OLD HANDLER REMOVED - Audio capture functionality will be reimplemented with native ScreenCaptureKit
 
-  try {
-    // NEW: Detect devices before starting recording
-    console.log('🎤 [AUDIO CAPTURE] Step 0: Detecting audio devices...');
-    await initializeDevices();
-    console.log('🎤 [AUDIO CAPTURE] ✅ Audio devices detected successfully');
-
-    // First, switch to Sayso Speaker device
-    console.log('🎤 [AUDIO CAPTURE] Step 1: Switching to Sayso Speaker device...');
-    await audioDeviceManager.switchToSaysoSpeaker();
-    console.log('🎤 [AUDIO CAPTURE] ✅ Successfully switched to Sayso Speaker');
-
-    // Start both user and prospect recording
-    console.log('🎤 [AUDIO CAPTURE] Step 2: Starting user recording...');
-    startUserRecording({
-      duration: 8,
-      metadata: {
-        accountId: params.accountId,
-        prospectId: params.prospectId,
-        meetingId: params.meetingId,
-        sessionId: params.sessionId
-      },
-      onChunk: (filePath, speaker) => {
-        console.log(`🎤 [AUDIO CAPTURE] Received audio chunk from ${speaker}: ${filePath}`);
-      }
-    });
-    console.log('🎤 [AUDIO CAPTURE] ✅ User recording started successfully');
-
-    console.log('🎤 [AUDIO CAPTURE] Step 3: Starting prospect recording...');
-    startProspectRecording({
-      duration: 8,
-      metadata: {
-        accountId: params.accountId,
-        prospectId: params.prospectId,
-        meetingId: params.meetingId,
-        sessionId: params.sessionId
-      },
-      onChunk: (filePath, speaker) => {
-        console.log(`🎤 [AUDIO CAPTURE] Received audio chunk from ${speaker}: ${filePath}`);
-      }
-    });
-    console.log('🎤 [AUDIO CAPTURE] ✅ Prospect recording started successfully');
-
-    console.log('🎤 [AUDIO CAPTURE] === AUDIO CAPTURE STARTED SUCCESSFULLY ===');
-    return { status: "Audio capture processes started for user and prospect" };
-  } catch (error) {
-    console.error('🎤 [AUDIO CAPTURE] ❌ ERROR in audio capture:', error);
-    console.error('🎤 [AUDIO CAPTURE] Error stack:', error.stack);
-    console.error('🎤 [AUDIO CAPTURE] Error message:', error.message);
+// ipcMain.handle('stop-audio-capture', async () => {
+//   console.log('[Main Process] Received stop-audio-capture request.');
+//   try {
+//     stopRecording(); // Stop the recording processes
+//     console.log('[Main Process] stopRecording called.');
     
-    // Attempt to stop any potentially started processes
-    console.log('🎤 [AUDIO CAPTURE] Attempting to stop any started processes...');
+//     // Audio device restoration removed - no longer needed with ScreenCaptureKit approach
+    
+//     return { status: "Audio capture stopped" };
+//   } catch (error) {
+//     console.error('[Main Process] Error during stopRecording:', error);
+//     throw error;
+//   }
+// });
+
+ipcMain.handle('stop-audio-capture', async () => {
+  console.log('[Main Process] Stopping dual channel recording...');
+  
+  try {
+    // Stop both recordings in parallel
+    const [prospectResult, userResult] = await Promise.all([
+      nativeAudio.stopSystemAudioCapture(),
+      stopFullRecording()
+    ]);
+    
+    // Extract file paths and actual start times
+    let prospectFile = prospectResult?.filePath || null;
+    let userFile = userResult?.userFile || null;
+    // Pull start times from native/recorder, with session fallbacks
+    const prospectActualStartMs = prospectResult?.actualStartMs || activeRecordingSession?.systemStartMs || null;
+    const userActualStartMs = userResult?.actualStartMs || activeRecordingSession?.userStartMs || null;
+    
+    // Get session metadata (stored during start)
+    const sessionId = activeRecordingSession?.sessionId || null;
+    const prospectId = activeRecordingSession?.prospectId || null;
+    const userStartMs = activeRecordingSession?.userStartMs || null;
+    const systemStartMs = activeRecordingSession?.systemStartMs || null;
+
+    // Rename files to include millisecond start timestamps (for precise alignment)
     try {
-      stopRecording();
-      console.log('🎤 [AUDIO CAPTURE] ✅ Successfully stopped recording processes');
-    } catch (stopError) {
-      console.error('🎤 [AUDIO CAPTURE] ❌ Error stopping recording:', stopError);
+      if (prospectFile && systemStartMs) {
+        const dir = path.dirname(prospectFile);
+        const newProspect = path.join(dir, `system-${sessionId}-${systemStartMs}.caf`);
+        try { fs.renameSync(prospectFile, newProspect); prospectFile = newProspect; } catch (e) { console.warn('[Main Process] ⚠️ Could not rename system file:', e.message); }
+      }
+      if (userFile && userStartMs) {
+        const dirU = path.dirname(userFile);
+        const newUser = path.join(dirU, `user-${sessionId}-${userStartMs}.caf`);
+        if (path.basename(userFile) !== path.basename(newUser)) {
+          try { fs.renameSync(userFile, newUser); userFile = newUser; } catch (e) { console.warn('[Main Process] ⚠️ Could not rename user file:', e.message); }
+        }
+      }
+    } catch (e) {
+      console.warn('[Main Process] ⚠️ Rename step failed:', e.message);
     }
     
-    return { status: "Failed to start audio capture", error: error.message };
+    console.log('[Main Process] ✅ Dual channel recording stopped successfully');
+    console.log('[Main Process] Session ID:', sessionId);
+    console.log('[Main Process] Prospect file:', prospectFile || 'No file path returned');
+    console.log('[Main Process] User file:', userFile || 'No file path returned');
+    
+    // Clear session metadata
+    const savedSession = activeRecordingSession;
+    activeRecordingSession = null;
+    
+    // Return clean combined result for easy reference in compression/upload
+    return { 
+      success: prospectResult?.success !== false && !!userFile,
+      sessionId,
+      prospectId,
+      prospectFile,
+      userFile,
+      prospectActualStartMs,
+      userActualStartMs,
+      // Ready for file processing:
+      // await processAndUploadFiles({ prospectFile, userFile, sessionId, prospectId })
+    };
+  } catch (error) {
+    console.error('[Main Process] ❌ Error stopping dual recording:', error);
+    // Clear session on error
+    activeRecordingSession = null;
+    return {
+      success: false,
+      error: error.message,
+      sessionId: null,
+      prospectId: null,
+      prospectFile: null,
+      userFile: null
+    };
   }
 });
 
-ipcMain.handle('stop-audio-capture', async () => {
-  console.log('[Main Process] Received stop-audio-capture request.');
+// Compress audio file handler
+ipcMain.handle('compress-audio', async (event, options) => {
+  console.log('[Main Process] Compressing audio file:', options);
   try {
-    stopRecording(); // Stop the recording processes
-    console.log('[Main Process] stopRecording called.');
-    
-    // Restore the previous audio device
-    console.log('[Main Process] Restoring previous audio device...');
-    await audioDeviceManager.restorePreviousDevice();
-    console.log('[Main Process] Successfully restored previous audio device');
-    
-    return { status: "Audio capture stopped" };
+    const result = await compressAudioFile(options);
+    console.log('[Main Process] ✅ Audio compression successful:', result);
+    return result;
   } catch (error) {
-    console.error('[Main Process] Error during stopRecording:', error);
+    console.error('[Main Process] ❌ Error compressing audio:', error);
     throw error;
+  }
+});
+
+// Upload file handler - reads file from disk and uploads to server
+ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessToken, fileName, data }) => {
+  console.log('[Main Process] Uploading file:', { filePath, type, parentId, fileName });
+  
+  try {
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`File not found: ${filePath}`);
+    }
+    
+    if (!type || !parentId || !accessToken) {
+      throw new Error('Missing required parameters: type, parentId, and accessToken are required');
+    }
+    
+    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+    const fileStats = fs.statSync(filePath);
+    
+    console.log('[Main Process] File stats:', {
+      size: fileStats.size,
+      path: filePath
+    });
+    
+    // Create FormData with file stream
+    const formData = new FormData();
+    const fileStream = fs.createReadStream(filePath);
+    
+    // Use provided fileName or generate from filePath
+    const finalFileName = fileName || path.basename(filePath);
+    formData.append('audio', fileStream, finalFileName);
+    formData.append('type', type);
+    formData.append('prospectId', parentId);
+    
+    // Append data if provided, stringify if it's an object
+    if (data !== undefined && data !== null) {
+      const dataString = typeof data === 'string' ? data : JSON.stringify(data);
+      formData.append('data', dataString);
+    }
+    
+    // Upload to server
+    const url = `${baseUrl}/audio/transcript/upload`;
+    console.log('[Main Process] Uploading to:', url);
+    
+    const response = await axios.post(url, formData, {
+      headers: {
+        ...formData.getHeaders(),
+        'Authorization': `Bearer ${accessToken}`
+      },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      timeout: 300000, // 5 minute timeout for large files
+    });
+    
+    console.log('[Main Process] ✅ File upload successful:', response.data);
+    return response.data;
+    
+  } catch (error) {
+    console.error('[Main Process] ❌ Error uploading file:', error);
+    
+    // Create descriptive error message
+    let errorMessage = `Failed to upload file: ${error.message}`;
+    if (error.response?.data?.error) {
+      errorMessage += ` - Server error: ${error.response.data.error}`;
+    }
+    if (error.code === 'ECONNREFUSED') {
+      errorMessage = 'Could not connect to server. Please check if the server is running.';
+    }
+    if (error.code === 'ETIMEDOUT') {
+      errorMessage = 'Upload timed out. Please try again.';
+    }
+    
+    const uploadError = new Error(errorMessage);
+    uploadError.originalError = error;
+    uploadError.filePath = filePath;
+    throw uploadError;
+  }
+});
+
+// Upload both files handler - reads both files from disk and uploads to server together
+ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, accessToken }) => {
+  console.log('[Main Process] Uploading both files:', { 
+    userFile: user?.file, 
+    prospectFile: prospect?.file, 
+    sessionId 
+  });
+  
+  try {
+    // Validate inputs
+    if (!user?.file || user?.actualStartMs === undefined) {
+      throw new Error('User file and actualStartMs are required');
+    }
+
+    if (!prospect?.file || prospect?.actualStartMs === undefined) {
+      throw new Error('Prospect file and actualStartMs are required');
+    }
+
+    if (!sessionId) {
+      throw new Error('sessionId is required');
+    }
+
+    if (!accessToken) {
+      throw new Error('accessToken is required');
+    }
+
+    // Check if files exist
+    if (!fs.existsSync(user.file)) {
+      throw new Error(`User file not found: ${user.file}`);
+    }
+
+    if (!fs.existsSync(prospect.file)) {
+      throw new Error(`Prospect file not found: ${prospect.file}`);
+    }
+
+    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+    
+    // Get file stats
+    const userFileStats = fs.statSync(user.file);
+    const prospectFileStats = fs.statSync(prospect.file);
+    
+    console.log('[Main Process] File stats:', {
+      userFile: { size: userFileStats.size, path: user.file },
+      prospectFile: { size: prospectFileStats.size, path: prospect.file }
+    });
+    
+    // Create FormData with both file streams
+    const formData = new FormData();
+    
+    // Append user file
+    const userFileStream = fs.createReadStream(user.file);
+    const userFileName = path.basename(user.file);
+    formData.append('userAudio', userFileStream, userFileName);
+    
+    // Append prospect file
+    const prospectFileStream = fs.createReadStream(prospect.file);
+    const prospectFileName = path.basename(prospect.file);
+    formData.append('prospectAudio', prospectFileStream, prospectFileName);
+    
+    // Append metadata
+    const metadata = {
+      sessionId,
+      user: {
+        actualStartMs: user.actualStartMs
+      },
+      prospect: {
+        actualStartMs: prospect.actualStartMs
+      }
+    };
+    formData.append('data', JSON.stringify(metadata));
+    
+    // Upload to server
+    const url = `${baseUrl}/audio/transcript/upload`;
+    console.log('[Main Process] Uploading both files to:', url);
+    
+    const response = await axios.post(url, formData, {
+      headers: {
+        ...formData.getHeaders(),
+        'Authorization': `Bearer ${accessToken}`
+      },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      timeout: 600000, // 10 minute timeout for large files and processing
+    });
+    
+    console.log('[Main Process] ✅ Both files upload successful:', response.data);
+    return response.data;
+    
+  } catch (error) {
+    console.error('[Main Process] ❌ Error uploading both files:', error);
+    
+    // Create descriptive error message
+    let errorMessage = `Failed to upload both files: ${error.message}`;
+    if (error.response?.data?.error) {
+      errorMessage += ` - Server error: ${error.response.data.error}`;
+    }
+    if (error.code === 'ECONNREFUSED') {
+      errorMessage = 'Could not connect to server. Please check if the server is running.';
+    }
+    if (error.code === 'ETIMEDOUT') {
+      errorMessage = 'Upload timed out. Please try again.';
+    }
+    
+    const uploadError = new Error(errorMessage);
+    uploadError.originalError = error;
+    throw uploadError;
   }
 });
 
@@ -613,6 +963,15 @@ ipcMain.handle('reload-page', () => {
   return { status: "Page reloaded" };
 });
 
+// Add a simple test handler to verify IPC is working
+ipcMain.handle('test-simple', () => {
+  console.log('🔧 [DEBUG] Simple test handler called');
+  return { success: true, message: 'Simple test handler works!' };
+});
+console.log('🔧 [DEBUG] IPC handler "test-simple" registered');
+
+// Native Audio Module IPC Handlers moved to app.whenReady() after module loads
+
 // Handle protocol activation (when app is opened via sayso:// URL)
 app.on('open-url', (event, url) => {
   console.log('[Electron] open-url event:', url);
@@ -661,6 +1020,118 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
 app.whenReady().then(() => {
   console.log('🔍 [DEBUG] App is ready, setting up logging...');
   setupLogging();
+  
+  // Load native audio module AFTER logging is set up
+  console.log('🎤 [MAIN] Attempting to load native audio module...');
+  console.log('🎤 [MAIN] __dirname:', __dirname);
+  console.log('🎤 [MAIN] Process type:', process.type);
+  console.log('🎤 [MAIN] App is packaged:', app.isPackaged);
+  
+  try {
+    nativeAudio = require('./native-audio');
+    console.log('🎤 [MAIN] Native audio module loaded successfully');
+    console.log('🎤 [MAIN] Module exports:', Object.keys(nativeAudio));
+    
+    // Register IPC handlers AFTER native module is loaded
+    // Initialize native audio module
+    ipcMain.handle('native-audio-initialize', async () => {
+      try {
+        await nativeAudio.initialize();
+        return { success: true };
+      } catch (error) {
+        console.error('🎤 [MAIN] Failed to initialize native audio:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
+    // List output devices
+    ipcMain.handle('native-audio-list-devices', async () => {
+      try {
+        const devices = await nativeAudio.listOutputDevices();
+        return { success: true, devices };
+      } catch (error) {
+        console.error('🎤 [MAIN] Failed to list devices:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
+    // Create multi-output device
+    ipcMain.handle('native-audio-create-device', async (event, { name, subDevices }) => {
+      try {
+        const deviceId = await nativeAudio.createMultiOutputDevice(name, subDevices);
+        return { success: true, deviceId };
+      } catch (error) {
+        console.error('🎤 [MAIN] Failed to create device:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
+    // Delete multi-output device
+    ipcMain.handle('native-audio-delete-device', async (event, { deviceId }) => {
+      try {
+        const result = await nativeAudio.deleteMultiOutputDevice(deviceId);
+        return { success: result };
+      } catch (error) {
+        console.error('🎤 [MAIN] Failed to delete device:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
+    // Request screen recording permission
+    ipcMain.handle('native-audio-request-permission', async () => {
+      try {
+        const result = await nativeAudio.requestScreenRecordingPermission();
+        return { success: result };
+      } catch (error) {
+        console.error('🎤 [MAIN] Failed to request permission:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
+    // Start system audio capture
+    ipcMain.handle('native-audio-start-capture', async (event, options = {}) => {
+      try {
+        const result = await nativeAudio.startSystemAudioCapture(options);
+        return { success: result };
+      } catch (error) {
+        console.error('🎤 [MAIN] Failed to start capture:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
+    // Stop system audio capture
+    ipcMain.handle('native-audio-stop-capture', async () => {
+      try {
+        const result = await nativeAudio.stopSystemAudioCapture();
+        // Result is now {success, filePath}
+        return result;
+      } catch (error) {
+        console.error('🎤 [MAIN] Failed to stop capture:', error);
+        return { success: false, error: error.message, filePath: null };
+      }
+    });
+
+    // Check if system audio capture is active
+    ipcMain.handle('native-audio-is-capturing', async () => {
+      try {
+        const result = await nativeAudio.isSystemAudioCaptureActive();
+        return { success: true, isCapturing: result };
+      } catch (error) {
+        console.error('🎤 [MAIN] Failed to check capture status:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
+    console.log('🎤 [MAIN] Native audio IPC handlers registered');
+  } catch (error) {
+    console.error('🎤 [MAIN] Failed to load native audio module');
+    console.error('🎤 [MAIN] Error message:', error.message);
+    console.error('🎤 [MAIN] Error code:', error.code);
+    console.error('🎤 [MAIN] Error stack:', error.stack);
+    console.error('🎤 [MAIN] Full error:', error);
+    console.log('⚠️ [MAIN] Native audio module not available - IPC handlers not registered');
+  }
+  
   // ONLY create the dashboard window initially
   createDashboardWindow(); 
   
@@ -819,7 +1290,7 @@ const createCoachWindow = () => {
       nodeIntegration: false,
       webSecurity: true,
       enableBlinkFeatures: 'MediaDevices,MediaStream,WebRTC',
-      permissions: ['media', 'camera', 'microphone'],
+      permissions: ['media', 'microphone'],
       allowRunningInsecureContent: false,
       experimentalFeatures: false
     },

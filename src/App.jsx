@@ -4,7 +4,7 @@ import Dashboard from './views/Dashboard';
 import Login from './views/Login';
 import Home from './views/Home';
 import AuthGuard from './components/AuthGuard';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { ProspectsProvider } from './context/ProspectsContext';
 import GuestGuard from './components/GuestGuard';
 import { SalesCoachProvider } from './context/SalesCoachContext';
@@ -14,6 +14,7 @@ import './styles/App.css';
 import { ToastProvider } from './context/ToastContext';
 import Account from './views/Account';
 import Layout from './components/Layout';
+import SaysoModal from './components/SaysoModal';
 
 function App() {
 
@@ -88,6 +89,7 @@ function App() {
 
                 </Routes>
                 <InsightPopUpWrapper />
+                <PermissionsModalContainer />
                 </div>
                 <FloatingChecklistContainer />
               </SalesCoachProvider>
@@ -98,3 +100,20 @@ function App() {
 }
 
 export default App; 
+
+// Local component to render the permissions modal at the app root
+function PermissionsModalContainer() {
+  const { showPermissionsModal, setShowPermissionsModal, requestAllPermissions } = useAuth();
+  if (!showPermissionsModal) return null;
+  return (
+    <SaysoModal
+      title={"We need some permissions to work"}
+      text={"Sayso needs to access your audio, we will only use it when you launch a call"}
+      isDelete={false}
+      onDeny={() => setShowPermissionsModal(false)}
+      onConfirm={() => requestAllPermissions()}
+      primaryText={"Allow"}
+      secondaryText={"Cancel"}
+    />
+  );
+}

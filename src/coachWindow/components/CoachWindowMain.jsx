@@ -7,8 +7,6 @@ import { SlMagnifier } from 'react-icons/sl';
 import { useCoachWindowContext } from '../../context/CoachWindowContext'; 
 
 import CoachButtons from './CoachButtons';
-import SmartCaptureBox from './SmartCaptureBox';
-import CoachInsightContainer from './CoachInsightContainer';
 
 
 export default function CoachWindowMain() {
@@ -22,29 +20,19 @@ export default function CoachWindowMain() {
     const [isSelectProspectModalOpen, setIsSelectProspectModalOpen] = useState(false);
     const [inputSearch, setInputSearch] = useState('');
     const [displayedProspects, setDisplayedProspects] = useState([]);
-    // const [displayInsight, setDisplayInsight] = useState(null);
-    // const [isClosingInsight, setIsClosingInsight] = useState(false);
-    // const [insightQueue, setInsightQueue] = useState([]);
-    // const [lastInsightTime, setLastInsightTime] = useState(0);
-    // const closeTimeoutRef = useRef(null);
-    // const [isInsightDisplaying, setIsInsightDisplaying] = useState(false);
+    // const [isCoachActive, setIsCoachActive] = useState(false);
+    const [callDurationInSeconds, setCallDurationInSeconds] = useState(0);
 
     //CONTEXT / HOOKS
-    const { prospects, 
-        startCoach, 
-        setProspectId, 
-        stopCoach, 
-        isCoachActive, 
-        callDurationInSeconds, 
+    const { 
+        prospects, 
+        startDualChannelRecording,
+        handleStopRecording,
         isCoachLoading ,
-        currentInsight,
-        signals
+        isCoachActive,
+        resetCoach,
     } = useCoachWindowContext();
 
-    //FUNCTIONS
-    const handleSmartCapture = () => {
-        setIsSmartCaptureActive(!isSmartCaptureActive);
-    }
 
     const handleProspectSelectClick = () => {
         setIsSelectProspectModalOpen(!isSelectProspectModalOpen);
@@ -61,15 +49,21 @@ export default function CoachWindowMain() {
         console.log('handleCoach called')
         console.log('isCoachActive', isCoachActive)
         if(isCoachActive) {
-            await stopCoach()
+            await handleStopRecording()
+            
         } else {
             if(!selectedProspect) {
                 console.log('No prospect selected')
                 return
             }
-            await startCoach(selectedProspect.id)
+            console.log('Starting coach')
+            await startDualChannelRecording(selectedProspect.id)
+
+            console.log('Coach started')
         }
     }
+
+
 
     const handleCloseCoachWindow = () => {
         console.log('🎯 [CoachWindowMain] Close button clicked, closing window directly');
@@ -97,7 +91,8 @@ export default function CoachWindowMain() {
                 const padding = 20;    // Padding around content
                 
                 // Add 700px to width when displayInsight is true
-                const insightWidth = currentInsight ? 700 : 0;
+                // const insightWidth = currentInsight ? 700 : 0;
+                const insightWidth = 0;
                 const windowWidth = Math.max(minWidth, Math.min(maxWidth, contentWidth + padding + insightWidth));
                 
                 window.electronAPI.resizeWindow(windowWidth, windowHeight);
@@ -119,13 +114,8 @@ export default function CoachWindowMain() {
         }
 
         return () => resizeObserver.disconnect();
-    }, [prospects, isSelectProspectModalOpen, currentInsight]);
+    }, [prospects, isSelectProspectModalOpen]);
 
-    useEffect(() => {
-        if (selectedProspect) {
-            setProspectId(selectedProspect.id)
-        }
-    }, [selectedProspect])
 
     useEffect(() => {
         if(inputSearch === '') {
@@ -143,6 +133,17 @@ export default function CoachWindowMain() {
 
     }, [prospects, inputSearch]);
 
+    useEffect(() => {
+        if(isCoachActive) {
+            const interval = setInterval(() => {
+                setCallDurationInSeconds(prev => prev + 1)
+            }, 1000)
+            return () => clearInterval(interval)
+        } else {
+            setCallDurationInSeconds(0)
+        }
+    }, [isCoachActive])
+
 
     return (
         <div className="coach-window" ref={containerRef}>
@@ -152,13 +153,13 @@ export default function CoachWindowMain() {
                     <div className="coach-window-drag-container">
                         <MdDragIndicator/>
                     </div>
-                    <div className="coach-window-divider"></div>
+                    {/* <div className="coach-window-divider"></div>
                     <div className='coach-smart-capture-toggle-container' onClick={handleSmartCapture}>
                         <p>Show Smart Capture</p>
                         <div className='coach-smart-capture-toggle' data-active={isSmartCaptureActive} >
                             <span></span>
                         </div>
-                    </div>
+                    </div> */}
                     <div className="coach-window-divider"></div>
                     {
                         selectedProspect ? (
@@ -245,17 +246,17 @@ export default function CoachWindowMain() {
                         )
                     }
                 </div>
-                {
+                {/* {
                     isSmartCaptureActive && (
                         <SmartCaptureBox signals={signals} />
                     )
-                }
+                } */}
             </div>
-            {
+            {/* {
                 currentInsight && isCoachActive && (
                     <CoachInsightContainer displayInsight={currentInsight?.message}  />
                 )
-            }
+            } */}
         </div>
     );
 }
