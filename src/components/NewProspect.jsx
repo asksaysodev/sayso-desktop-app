@@ -39,22 +39,7 @@ export default function NewProspect({ setCreatingProspect }) {
     const { fetchProspects } = useProspectsContext();
 
     //FUNCTIONS
-    // const handleRemoveFile = async (fileId) => {
-
-    //     setDeleteFileModalVisible(false);
-        
-    //     try {
-    //         setTimeout(() => {
-    //             showToast('success', 'File deleted successfully!');
-    //         }, 1000);
-    //     } catch (error) {
-    //         setIsDeleting(false);
-    //         showToast('error', 'Failed to delete file');
-    //         console.error('Error deleting prospect:', error);
-    //         return;
-    //     }
-    // };
-
+  
     const handleCloseClick = () => {
         if(formData.name != '' || formData.email != '' || formData.lastname != '' || formData.company != '') {
             setLeaveModalVisible(true);

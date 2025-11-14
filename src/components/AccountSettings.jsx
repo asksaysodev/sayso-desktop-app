@@ -1,18 +1,15 @@
 import { useState } from 'react';
-
-import { useAuth } from '../context/AuthContext';
-
 import { LuUser, LuFileScan, LuBuilding, LuUnplug } from 'react-icons/lu';
 
 import AccountSettingsFiles from './AccountSettingsFiles';
 import AccountSettingsConnections from './AccountSettingsConnections';
 import FormLineAccount from './FormLineAccount';
 import SaysoModal from './SaysoModal';
-
-
-import '../styles/AccountSettings.css';
 import AccountSettingsCompany from './AccountSettingsCompany';
 
+import { useAuth } from '../context/AuthContext';
+
+import '../styles/AccountSettings.css';
 
 export default function AccountSettings() {
 

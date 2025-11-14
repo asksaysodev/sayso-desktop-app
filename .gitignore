@@ -14,4 +14,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # Electron build cache
-.electron/ 
+.electron/
+
+# Audio recordings (too large for git)
+electron/full_recordings/
+electron/chunks/ 

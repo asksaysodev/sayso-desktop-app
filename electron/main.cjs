@@ -2,15 +2,9 @@ const { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } = requir
 const path = require('node:path');
 const fs = require('node:fs');
 const { WindowManager } = require('./utils/windowManager');
-const { WINDOW_CONFIG } = require('./utils/windowConfig');
 
 // Native audio module - will be loaded after logging is set up
 let nativeAudio = null;
-
-async function requestScreenRecordingPermission() {
-  const hasPermission = await systemPreferences.askForMediaAccess('screen');
-  return hasPermission;
-}
 
 // Add file logging for production
 function setupLogging() {
@@ -81,8 +75,6 @@ function setupLogging() {
   }
 }
 
-// Call setup logging early
-// setupLogging(); // This line is removed as per the edit hint.
 
 // Add this right after setupLogging()
 console.log('🔍 [DEBUG] App name:', app.getName());
@@ -613,23 +605,6 @@ ipcMain.on('send-audio-chunk', (_event, float32AudioChunk) => {
     }
 });
 
-// --- Audio Capture Handlers ---
-// OLD HANDLER REMOVED - Audio capture functionality will be reimplemented with native ScreenCaptureKit
-
-// ipcMain.handle('stop-audio-capture', async () => {
-//   console.log('[Main Process] Received stop-audio-capture request.');
-//   try {
-//     stopRecording(); // Stop the recording processes
-//     console.log('[Main Process] stopRecording called.');
-    
-//     // Audio device restoration removed - no longer needed with ScreenCaptureKit approach
-    
-//     return { status: "Audio capture stopped" };
-//   } catch (error) {
-//     console.error('[Main Process] Error during stopRecording:', error);
-//     throw error;
-//   }
-// });
 
 ipcMain.handle('stop-audio-capture', async () => {
   console.log('[Main Process] Stopping dual channel recording...');

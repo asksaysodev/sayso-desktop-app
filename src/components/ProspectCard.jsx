@@ -1,6 +1,8 @@
 import { useState } from "react";
-import Divider from "./Divider";
 import { LuChevronRight, LuBuilding, LuPaperclip} from 'react-icons/lu'
+
+import Divider from "./Divider";
+
 import '../styles/ProspectCard.css';
 
 export default function ProspectCard({ handleSelectProspect, prospect }) {

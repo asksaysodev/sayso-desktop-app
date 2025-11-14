@@ -1,9 +1,12 @@
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
+import { v4 } from 'uuid';
+
+import { useSalesCoachContext } from '../context/SalesCoachContext';
 import { useAuth } from '../context/AuthContext';
 import { useAudioCapture } from './useAudioCapture';
-import { useSalesCoachContext } from '../context/SalesCoachContext';
+
 import apiClient from '../config/axios';
-import { v4 } from 'uuid';
+
 
 export const useSalesCoach = () => {
 

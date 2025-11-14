@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import Divider from './Divider';
 import { LuChevronRight } from 'react-icons/lu';
 import '../styles/ProspectListItem.css';
 

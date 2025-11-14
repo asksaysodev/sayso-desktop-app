@@ -893,63 +893,6 @@ async function startProspectFullRecording({ metadata = {} }) {
   }
 }
 
-// startProspectFullRecording function removed - will be reimplemented with native ScreenCaptureKit
-
-// New function to stop full recordings and get file paths
-// async function stopFullRecording() {
-//   console.log('[Recording Control] Stopping full recordings...');
-  
-//   const recordings = {
-//     userFile: global.userRecordingFile || null,
-//     prospectFile: global.prospectRecordingFile || null
-//   };
-  
-//   // Stop user recording (microphone via MediaRecorder)
-//   if (global.userMediaRecorder) {
-//     try {
-//       console.log('[Recording Control] Stopping user MediaRecorder...');
-//       global.userMediaRecorder.stop();
-//       console.log('[Recording Control] ✅ User MediaRecorder stopped');
-//     } catch (error) {
-//       console.error('[Recording Control] ❌ Error stopping user MediaRecorder:', error);
-//     }
-//     global.userMediaRecorder = null;
-//   }
-
-//   // Stop user audio stream
-//   if (global.userAudioStream) {
-//     try {
-//       console.log('[Recording Control] Stopping user audio stream...');
-//       global.userAudioStream.getTracks().forEach(track => track.stop());
-//       console.log('[Recording Control] ✅ User audio stream stopped');
-//     } catch (error) {
-//       console.error('[Recording Control] ❌ Error stopping user audio stream:', error);
-//     }
-//     global.userAudioStream = null;
-//   }
-
-//   // Stop prospect recording - will be reimplemented with native ScreenCaptureKit
-//   if (global.mediaRecorder) {
-//     try {
-//       console.log('[Recording Control] Stopping prospect MediaRecorder...');
-//       global.mediaRecorder.stop();
-//       console.log('[Recording Control] ✅ Prospect MediaRecorder stopped');
-//     } catch (error) {
-//       console.error('[Recording Control] ❌ Error stopping prospect MediaRecorder:', error);
-//     }
-//     global.mediaRecorder = null;
-//   }
-  
-//   // Clear global file paths
-//   global.userRecordingFile = null;
-//   global.prospectRecordingFile = null;
-  
-//   console.log('[Recording Control] ✅ Full recordings stopped');
-//   console.log('[Recording Control] Recorded files:', recordings);
-  
-//   return recordings;
-// }
-
 async function stopFullRecording() {
   console.log('[Recording Control] Stopping full recordings...');
   
@@ -1052,10 +995,6 @@ async function stopFullRecording() {
   
   return result;
 }
-
-// AudioRecorder class removed - will be reimplemented with native ScreenCaptureKit
-
-// AudioRecorder instance removed - will be reimplemented with native ScreenCaptureKit
 
 // Compress audio file from CAF to MP3 using FFmpeg
 async function compressAudioFile({ inputPath, outputPath, format = 'mp3', bitrate = '128k', sampleRate = 48000 }) {

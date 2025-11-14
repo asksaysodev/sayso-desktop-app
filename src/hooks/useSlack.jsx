@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
+
 import apiClient from '../config/axios';
 
 export const useSlack = () => {

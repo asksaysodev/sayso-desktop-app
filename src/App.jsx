@@ -1,71 +1,44 @@
-import { useEffect } from 'react';
-import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
-import Dashboard from './views/Dashboard';
+import { Routes, Route } from 'react-router-dom';
+
+//VIEWS
 import Login from './views/Login';
 import Home from './views/Home';
-import AuthGuard from './components/AuthGuard';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { ProspectsProvider } from './context/ProspectsContext';
-import GuestGuard from './components/GuestGuard';
-import { SalesCoachProvider } from './context/SalesCoachContext';
-import InsightPopUpWrapper from './components/InsightPopUpWrapper';
-import FloatingChecklistContainer from './components/FloatingChecklistContainer';
-import './styles/App.css';
-import { ToastProvider } from './context/ToastContext';
 import Account from './views/Account';
+
+//COMPONENTS
+import AuthGuard from './components/AuthGuard';
+import GuestGuard from './components/GuestGuard';
+import InsightPopUpWrapper from './components/InsightPopUpWrapper';
 import Layout from './components/Layout';
-import SaysoModal from './components/SaysoModal';
+import PermissionsModalContainer from './components/PermissionsModalContainer';
+
+//CONTEXT PROVIDERS
+import { AuthProvider } from './context/AuthContext';
+import { ProspectsProvider } from './context/ProspectsContext';
+import { SalesCoachProvider } from './context/SalesCoachContext';
+import { ToastProvider } from './context/ToastContext';
+
+//STYLES
+import './styles/App.css';
+import './styles/Dashboard.css';
 
 function App() {
-
-  const location = useLocation();
-  const navigate = useNavigate();
-  
-  // Conditionally apply styles based on route
-  const isFloatingWindow = location.pathname === '/' || location.pathname === '/sales-checklist';
-  const isDashboard = location.pathname === '/dashboard';
-
-  // Determine root class based on route
-  let rootClassName = '';
-  if (isFloatingWindow) {
-    rootClassName = 'App'; // Class for floating windows
-  } else if (isDashboard) {
-    rootClassName = 'DashboardApp'; // Class for dashboard
-  }
-
-  useEffect(() => {
-    // Check if we're in Electron and the API is available
-    if (window.electron && window.electron.ipcRenderer) {
-      const cleanup = window.electron.ipcRenderer.on('reset-to-home', (params) => {
-        // Extract meetingId and prospectId from params
-        const { meetingId, prospectId, sessionId } = params || {};
-        
-        if (meetingId && prospectId) {
-          const targetRoute = `/post-call/${meetingId}/${prospectId}/${sessionId}`; 
-          // Use React Router's navigate instead of window.location.hash
-          navigate(targetRoute);
-        } else {
-          // Use React Router's navigate instead of window.location.hash
-          navigate('/');
-        }
-      });
-      
-      return () => {  
-        if (cleanup && typeof cleanup === 'function') {
-          cleanup();
-        }
-      };
-    }
-  }, [navigate]);
 
   return (
       <ToastProvider>
         <AuthProvider>
           <ProspectsProvider>
               <SalesCoachProvider>
-                <div className={rootClassName}>
+                <div className='App'>
                 <Routes>
-                  <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
+                  <Route 
+                    path="/login" 
+                    element={
+                      <GuestGuard>
+                        <Login />
+                      </GuestGuard>
+                    } 
+                  />
                   <Route
                     path="/"
                     element={
@@ -86,12 +59,10 @@ function App() {
                       </AuthGuard>
                     }
                   />
-
                 </Routes>
                 <InsightPopUpWrapper />
                 <PermissionsModalContainer />
                 </div>
-                <FloatingChecklistContainer />
               </SalesCoachProvider>
           </ProspectsProvider>
         </AuthProvider>
@@ -100,20 +71,3 @@ function App() {
 }
 
 export default App; 
-
-// Local component to render the permissions modal at the app root
-function PermissionsModalContainer() {
-  const { showPermissionsModal, setShowPermissionsModal, requestAllPermissions } = useAuth();
-  if (!showPermissionsModal) return null;
-  return (
-    <SaysoModal
-      title={"We need some permissions to work"}
-      text={"Sayso needs to access your audio, we will only use it when you launch a call"}
-      isDelete={false}
-      onDeny={() => setShowPermissionsModal(false)}
-      onConfirm={() => requestAllPermissions()}
-      primaryText={"Allow"}
-      secondaryText={"Cancel"}
-    />
-  );
-}
