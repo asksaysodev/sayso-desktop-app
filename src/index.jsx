@@ -5,6 +5,8 @@ import App from './App';
 import './styles/App.css'; 
 import './styles/Colors.css';
 
+//SAYSO APP
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <HashRouter>
