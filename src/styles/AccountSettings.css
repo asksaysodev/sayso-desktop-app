@@ -206,6 +206,7 @@
     cursor: not-allowed;
     background-color: var(--sayso-border);
     opacity: 0.6;
+    color: var(--sayso-dark);
 }
 
 .form-line-input-container.editable{
@@ -221,6 +222,12 @@
 .form-line-input-container.saving{
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.form-line-container-label-title {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--sayso-darkgray);
 }
 
 .form-line-input-container p{

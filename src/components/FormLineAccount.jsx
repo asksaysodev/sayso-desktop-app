@@ -81,7 +81,8 @@ export default function FormLineAccount({ label, name, placeholder, value, edita
     }, [inputValue]);
 
     return (
-        <label className='form-line-container-label' htmlFor={name}>{label}
+        <label className='form-line-container-label' htmlFor={name}>
+            <p className='form-line-container-label-title'>{label}</p>
             <div className={`form-line-input-container ${editable ? 'editable' : ''} ${isSaving ? 'saving' : ''}`}>
                 {
                     isEditing ? (
