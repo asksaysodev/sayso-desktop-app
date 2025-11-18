@@ -12,12 +12,38 @@ Simple rules to keep our PRs clean and easy to review!
    git pull origin development
    ```
 
-2. **Create your feature branch:**
+2. **Create your branch:**
+
+   - Select your branch type from the following:
+
+   feature/ - Working on a new feature
+   Example: feature/recall-insights
+
+   bugfix/ - Bug fixes
+   Example: bugfix/payment-gateway-timeout
+
+   release/ - Preparing a new release
+   Example: release/v1.2.0
+
+   chore/ - Maintenance tasks
+   Example: chore/cleanup-unused-code
+
+   refactor/ - Code refactoring
+   Example: refactor/extract-auth-service
+
+   docs/ - Documentation updates
+   Example: docs/update-api-docs 
+
+   test/ - Adding or improving tests
+   Example: test/add-coverage-for-auth 
+
+   perf/ - Performance improvements
+   Example: perf/reduce-bundle-size
+
    ```bash
    git checkout -b feature/your-feature-name
    ```
-   - Use descriptive names: `feature/audiorecording`, `feature/slack-integration`, etc.
-   - Always prefix with `feature/` for new features
+   - Use descriptive names: `feature/audiorecording`, `bugfix/cors-error`, etc.
 
 3. **Make your changes** - Write your code, test it locally
 
