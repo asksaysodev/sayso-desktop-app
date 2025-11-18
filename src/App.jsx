@@ -11,6 +11,7 @@ import GuestGuard from './components/GuestGuard';
 import InsightPopUpWrapper from './components/InsightPopUpWrapper';
 import Layout from './components/Layout';
 import PermissionsModalContainer from './components/PermissionsModalContainer';
+import TopDragBar from './components/TopDragBar';
 
 //CONTEXT PROVIDERS
 import { AuthProvider } from './context/AuthContext';
@@ -30,38 +31,39 @@ function App() {
           <ProspectsProvider>
               <SalesCoachProvider>
                 <div className='App'>
-                <Routes>
-                  <Route 
-                    path="/login" 
-                    element={
-                      <GuestGuard>
-                        <Login />
-                      </GuestGuard>
-                    } 
-                  />
-                  <Route
-                    path="/"
-                    element={
-                      <AuthGuard>
-                        <Layout>
-                          <Home />
-                        </Layout>
-                      </AuthGuard>
-                    }
-                  />
-                  <Route
-                    path="/account"
-                    element={
-                      <AuthGuard>
-                        <Layout>
-                          <Account />
-                        </Layout>
-                      </AuthGuard>
-                    }
-                  />
-                </Routes>
-                <InsightPopUpWrapper />
-                <PermissionsModalContainer />
+                  {/* <TopDragBar /> */}
+                  <Routes>
+                    <Route 
+                      path="/login" 
+                      element={
+                        <GuestGuard>
+                          <Login />
+                        </GuestGuard>
+                      } 
+                    />
+                    <Route
+                      path="/"
+                      element={
+                        <AuthGuard>
+                          <Layout>
+                            <Home />
+                          </Layout>
+                        </AuthGuard>
+                      }
+                    />
+                    <Route
+                      path="/account"
+                      element={
+                        <AuthGuard>
+                          <Layout>
+                            <Account />
+                          </Layout>
+                        </AuthGuard>
+                      }
+                    />
+                  </Routes>
+                  <InsightPopUpWrapper />
+                  <PermissionsModalContainer />
                 </div>
               </SalesCoachProvider>
           </ProspectsProvider>

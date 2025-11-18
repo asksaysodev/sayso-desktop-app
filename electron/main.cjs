@@ -291,6 +291,16 @@ const createDashboardWindow = () => {
     // Prevent fullscreen and maximize, but allow manual resizing
     maximizable: false,
     fullscreenable: false,
+    roundedCorners: true,
+    vibrancy: 'under-window',
+    visualEffectState: 'active',
+    titleBarStyle: 'hiddenInset',
+    // titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#ffffff',
+      symbolColor: '#000000',
+      height: 30
+    },
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
