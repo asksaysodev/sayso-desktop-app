@@ -1,0 +1,215 @@
+.streaming-test {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.streaming-test-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.streaming-test-header h2 {
+  margin: 0;
+  color: #333;
+}
+
+.status-indicators {
+  display: flex;
+  gap: 15px;
+}
+
+.status-indicator {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.status-indicator.connected {
+  background-color: #4caf50;
+  color: white;
+}
+
+.status-indicator.disconnected {
+  background-color: #f44336;
+  color: white;
+}
+
+.status-indicator.connecting {
+  background-color: #ff9800;
+  color: white;
+}
+
+.status-indicator.error {
+  background-color: #f44336;
+  color: white;
+}
+
+.status-indicator.streaming {
+  background-color: #2196f3;
+  color: white;
+}
+
+.status-indicator.idle {
+  background-color: #9e9e9e;
+  color: white;
+}
+
+.session-info {
+  padding: 12px;
+  background-color: #e3f2fd;
+  border-radius: 6px;
+  margin-bottom: 15px;
+  font-size: 14px;
+  word-break: break-all;
+}
+
+.error-message {
+  padding: 12px;
+  background-color: #ffebee;
+  border-left: 4px solid #f44336;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  color: #c62828;
+  font-weight: 500;
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.controls button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-start {
+  background-color: #4caf50;
+  color: white;
+}
+
+.btn-start:hover:not(:disabled) {
+  background-color: #45a049;
+}
+
+.btn-stop {
+  background-color: #f44336;
+  color: white;
+}
+
+.btn-stop:hover:not(:disabled) {
+  background-color: #da190b;
+}
+
+.btn-status {
+  background-color: #2196f3;
+  color: white;
+}
+
+.btn-status:hover:not(:disabled) {
+  background-color: #0b7dda;
+}
+
+.btn-clear {
+  background-color: #9e9e9e;
+  color: white;
+}
+
+.btn-clear:hover:not(:disabled) {
+  background-color: #757575;
+}
+
+.logs-container {
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  overflow: hidden;
+  background-color: #fafafa;
+}
+
+.logs-header {
+  padding: 12px 16px;
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.logs-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.logs {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.log-entry {
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.log-entry.empty {
+  color: #999;
+  font-style: italic;
+  justify-content: center;
+  padding: 20px;
+}
+
+.log-entry.info {
+  background-color: #e3f2fd;
+  color: #1976d2;
+}
+
+.log-entry.success {
+  background-color: #e8f5e9;
+  color: #2e7d32;
+}
+
+.log-entry.error {
+  background-color: #ffebee;
+  color: #c62828;
+}
+
+.log-entry.warning {
+  background-color: #fff3e0;
+  color: #e65100;
+}
+
+.log-time {
+  color: #666;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.log-message {
+  flex: 1;
+  word-break: break-word;
+}
+

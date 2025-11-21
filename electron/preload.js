@@ -53,6 +53,22 @@ try {
       compressAudio: (options) => ipcRenderer.invoke('compress-audio', options)
     },
     
+    // Audio Streaming API
+    streaming: {
+      start: (params) => ipcRenderer.invoke('start-audio-streaming', params),
+      stop: (params) => ipcRenderer.invoke('stop-audio-streaming', params),
+      getStatus: () => ipcRenderer.invoke('get-streaming-status'),
+      // Listen for streaming events
+      onStatus: (callback) => {
+        ipcRenderer.on('streaming-status', (event, data) => callback(data));
+        return () => ipcRenderer.removeAllListeners('streaming-status');
+      },
+      onError: (callback) => {
+        ipcRenderer.on('streaming-error', (event, data) => callback(data));
+        return () => ipcRenderer.removeAllListeners('streaming-error');
+      }
+    },
+    
     // File Upload API
     uploadFile: (options) => ipcRenderer.invoke('upload-file', { ...options }),
     uploadBothFiles: (options) => ipcRenderer.invoke('upload-both-files', { ...options }),

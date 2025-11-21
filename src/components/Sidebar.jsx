@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 import { NavLink } from 'react-router-dom'
-import {LuUsers, LuLogOut, LuChevronRight} from 'react-icons/lu'
+import {LuUsers, LuLogOut, LuChevronRight, LuRadio} from 'react-icons/lu'
 
 
 import CoachCTA from './CoachCTA';
@@ -45,6 +45,13 @@ export default function Sidebar() {
                         <div className='sidebar-nav-item'>
                             <LuUsers />
                             <p>My Prospects</p>
+                        </div>
+                    </NavLink>
+                    <NavLink to="/streaming-test" >
+                        <div className="outline"></div>
+                        <div className='sidebar-nav-item'>
+                            <LuRadio />
+                            <p>Streaming Test</p>
                         </div>
                     </NavLink>
                 </div>

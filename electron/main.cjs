@@ -89,6 +89,90 @@ if (!process.env.NODE_ENV) {
 // Store active recording session metadata
 let activeRecordingSession = null;
 
+// Store AudioStreamer instance
+let audioStreamer = null;
+
+// Start audio streaming
+ipcMain.handle('start-audio-streaming', async (event, { token }) => {
+  try {
+    // Create AudioStreamer instance
+    audioStreamer = new AudioStreamer({
+      onUserConnected: () => {
+        event.sender.send('streaming-status', { user: 'connected' });
+      },
+      onProspectConnected: () => {
+        event.sender.send('streaming-status', { prospect: 'connected' });
+      },
+      onError: (stream, error) => {
+        event.sender.send('streaming-error', { stream, error: error.message });
+      }
+    });
+
+    // Start streaming (only needs token - gets sessionId internally)
+    await audioStreamer.start(token);
+
+    // Set up streaming callbacks
+    await startUserFullRecording({
+      metadata: { 
+        sessionId: audioStreamer.sessionId,
+        userStartMs: Date.now() 
+      },
+      streamingCallback: (buffer, format) => {
+        audioStreamer.addUserAudio(buffer, format);
+      }
+    });
+
+    await nativeAudio.startSystemAudioCapture({
+      streamingCallback: (buffer, format) => {
+        audioStreamer.addProspectAudio(buffer, format);
+      }
+    });
+
+    return { 
+      success: true, 
+      sessionId: audioStreamer.sessionId 
+    };
+  } catch (error) {
+    console.error('[Main Process] ❌ Error starting audio streaming:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Stop audio streaming
+ipcMain.handle('stop-audio-streaming', async (event, { sendTermination = true } = {}) => {
+  try {
+    // Stop streaming callbacks
+    await stopUserStreaming();
+    if (nativeAudio) {
+      nativeAudio.setStreamingCallback(null);
+    }
+
+    // Stop AudioStreamer (disconnects WebSockets)
+    if (audioStreamer) {
+      await audioStreamer.stop(sendTermination);
+      audioStreamer = null;
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[Main Process] ❌ Error stopping audio streaming:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get streaming status
+ipcMain.handle('get-streaming-status', async () => {
+  if (!audioStreamer) {
+    return { isStreaming: false };
+  }
+  return {
+    isStreaming: audioStreamer.isStreamingActive(),
+    userState: audioStreamer.getUserState(),
+    prospectState: audioStreamer.getProspectState(),
+    sessionId: audioStreamer.sessionId
+  };
+});
+
 ipcMain.handle('start-audio-capture', async (event, params = {}) => {
   console.log('[Main Process] Starting dual channel recording...');
   console.log('[Main Process] Parameters:', JSON.stringify(params, null, 2));
@@ -218,10 +302,12 @@ const {
   startUserFullRecording,
   startProspectFullRecording,
   stopFullRecording,
+  stopUserStreaming,
   prepareUserMicrophone,
   compressAudioFile
 } = require('./recorder');
 const audioQueue = require('./audioQueue');
+const { AudioStreamer } = require('./streaming/audioStreamer');
 
 // Add command line switches for better camera support
 app.commandLine.appendSwitch('enable-features', 'WebRTC,MediaDevices,MediaStream');
