@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../config/supabase';
 import '../styles/StreamingTest.css';
+import useCue from '../coachWindow/hooks/useCue';
 
 export default function StreamingTest() {
   const [isStreaming, setIsStreaming] = useState(false);
@@ -13,6 +14,8 @@ export default function StreamingTest() {
   const [error, setError] = useState(null);
   const [token, setToken] = useState(null);
 
+  const { handleStartCue } = useCue();
+
   // Add log helper
   const addLog = useCallback((message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString();
@@ -20,6 +23,15 @@ export default function StreamingTest() {
     setLogs(prev => [...prev, logEntry]);
     console.log(`[${timestamp}] ${message}`);
   }, []);
+
+  const testActualCue = async () => {
+    try {
+      const response = await handleStartCue();
+      console.log('response', response);
+    } catch (error) {
+      console.error('Error testing actual cue:', error);
+    }
+  }
 
   // Get token on mount
   useEffect(() => {
@@ -187,7 +199,8 @@ export default function StreamingTest() {
 
       <div className="controls">
         <button 
-          onClick={handleStart} 
+          // onClick={handleStart} 
+          onClick={() => testActualCue()}
           disabled={isStreaming || !token}
           className="btn-start"
         >

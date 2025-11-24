@@ -69,6 +69,27 @@ try {
       }
     },
     
+    // Cue API (handles 2 audio websockets + insights websocket)
+    cue: {
+      start: (params) => ipcRenderer.invoke('start-cue', params),
+      stop: () => ipcRenderer.invoke('stop-cue'),
+      // Listen for Cue status updates
+      onStatus: (callback) => {
+        ipcRenderer.on('cue-status', (event, data) => callback(data));
+        return () => ipcRenderer.removeAllListeners('cue-status');
+      },
+      // Listen for insights (TODO: will be implemented when insights websocket is added)
+      onInsight: (callback) => {
+        ipcRenderer.on('cue-insight', (event, data) => callback(data));
+        return () => ipcRenderer.removeAllListeners('cue-insight');
+      },
+      // Listen for Cue errors
+      onError: (callback) => {
+        ipcRenderer.on('cue-error', (event, data) => callback(data));
+        return () => ipcRenderer.removeAllListeners('cue-error');
+      }
+    },
+    
     // File Upload API
     uploadFile: (options) => ipcRenderer.invoke('upload-file', { ...options }),
     uploadBothFiles: (options) => ipcRenderer.invoke('upload-both-files', { ...options }),
