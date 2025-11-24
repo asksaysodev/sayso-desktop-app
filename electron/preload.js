@@ -53,6 +53,43 @@ try {
       compressAudio: (options) => ipcRenderer.invoke('compress-audio', options)
     },
     
+    // Audio Streaming API
+    streaming: {
+      start: (params) => ipcRenderer.invoke('start-audio-streaming', params),
+      stop: (params) => ipcRenderer.invoke('stop-audio-streaming', params),
+      getStatus: () => ipcRenderer.invoke('get-streaming-status'),
+      // Listen for streaming events
+      onStatus: (callback) => {
+        ipcRenderer.on('streaming-status', (event, data) => callback(data));
+        return () => ipcRenderer.removeAllListeners('streaming-status');
+      },
+      onError: (callback) => {
+        ipcRenderer.on('streaming-error', (event, data) => callback(data));
+        return () => ipcRenderer.removeAllListeners('streaming-error');
+      }
+    },
+    
+    // Cue API (handles 2 audio websockets + insights websocket)
+    cue: {
+      start: (params) => ipcRenderer.invoke('start-cue', params),
+      stop: () => ipcRenderer.invoke('stop-cue'),
+      // Listen for Cue status updates
+      onStatus: (callback) => {
+        ipcRenderer.on('cue-status', (event, data) => callback(data));
+        return () => ipcRenderer.removeAllListeners('cue-status');
+      },
+      // Listen for insights (TODO: will be implemented when insights websocket is added)
+      onInsight: (callback) => {
+        ipcRenderer.on('cue-insight', (event, data) => callback(data));
+        return () => ipcRenderer.removeAllListeners('cue-insight');
+      },
+      // Listen for Cue errors
+      onError: (callback) => {
+        ipcRenderer.on('cue-error', (event, data) => callback(data));
+        return () => ipcRenderer.removeAllListeners('cue-error');
+      }
+    },
+    
     // File Upload API
     uploadFile: (options) => ipcRenderer.invoke('upload-file', { ...options }),
     uploadBothFiles: (options) => ipcRenderer.invoke('upload-both-files', { ...options }),

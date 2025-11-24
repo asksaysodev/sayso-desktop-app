@@ -40,6 +40,7 @@ try {
 class AudioDeviceManager {
   constructor() {
     this.isInitialized = false;
+    this.streamingCallback = null; // Callback for streaming audio chunks
   }
 
   async initialize() {
@@ -76,13 +77,55 @@ class AudioDeviceManager {
     return nativeAudio.requestScreenRecordingPermission();
   }
 
+  /**
+   * Set streaming callback for real-time audio chunks
+   * @param {Function} callback - Callback function(buffer, format)
+   *   - buffer: Buffer containing raw audio data
+   *   - format: Object { sampleRate, channels, bitDepth, isFloat }
+   */
+  setStreamingCallback(callback) {
+    if (callback && typeof callback !== 'function') {
+      throw new Error('[AUDIO MANAGER] Streaming callback must be a function');
+    }
+    this.streamingCallback = callback;
+    
+    // Also set in native module if it supports it
+    // TODO: Implement native module method to set callback
+    // For now, this stores the callback for when native code is updated
+    if (nativeAudio.setStreamingCallback) {
+      nativeAudio.setStreamingCallback(callback);
+    }
+    
+    console.log(`🎤 [AUDIO MANAGER] Streaming callback ${callback ? 'set' : 'cleared'}`);
+  }
+
+  /**
+   * Start system audio capture with optional streaming callback
+   * @param {Object} options - Capture options
+   * @param {Function} options.streamingCallback - Optional callback for audio chunks
+   * @returns {Promise<Object>} - Result object with success and filePath
+   */
   async startSystemAudioCapture(options = {}) {
     await this.initialize();
-    return nativeAudio.startSystemAudioCapture(options);
+    
+    // Extract streaming callback from options if provided
+    const { streamingCallback, ...captureOptions } = options;
+    
+    // Set streaming callback if provided
+    if (streamingCallback) {
+      this.setStreamingCallback(streamingCallback);
+    }
+    
+    // Start capture with remaining options
+    return nativeAudio.startSystemAudioCapture(captureOptions);
   }
 
   async stopSystemAudioCapture() {
     await this.initialize();
+    
+    // Clear streaming callback when stopping
+    this.setStreamingCallback(null);
+    
     return nativeAudio.stopSystemAudioCapture();
   }
 

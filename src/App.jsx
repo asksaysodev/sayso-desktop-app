@@ -12,6 +12,7 @@ import InsightPopUpWrapper from './components/InsightPopUpWrapper';
 import Layout from './components/Layout';
 import PermissionsModalContainer from './components/PermissionsModalContainer';
 import TopDragBar from './components/TopDragBar';
+import StreamingTest from './components/StreamingTest';
 
 //CONTEXT PROVIDERS
 import { AuthProvider } from './context/AuthContext';
@@ -57,6 +58,16 @@ function App() {
                         <AuthGuard>
                           <Layout>
                             <Account />
+                          </Layout>
+                        </AuthGuard>
+                      }
+                    />
+                    <Route
+                      path="/streaming-test"
+                      element={
+                        <AuthGuard>
+                          <Layout>
+                            <StreamingTest />
                           </Layout>
                         </AuthGuard>
                       }

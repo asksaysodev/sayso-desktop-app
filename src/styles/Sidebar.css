@@ -59,12 +59,13 @@
   flex-direction: column;
   align-items: center;
   justify-content: start;
-  position: relative;
+  gap: 8px;
 }
 
 .sidebar-container a {
   width: 100%;
   text-decoration: none;
+  position: relative;
 }
 
 .sidebar-nav-container .outline {
@@ -84,7 +85,7 @@
 }
 
 
-.sidebar-nav-container:hover .outline {
+.sidebar-nav-container a:hover .outline {
     opacity: 1;
 }
 
@@ -93,7 +94,7 @@
     opacity: 0.8;
 }
 
-.sidebar-nav-container:hover svg {
+.sidebar-nav-container a:hover svg {
     opacity: 1;
 }
 
@@ -107,9 +108,7 @@
   background-color: var(--sayso-white);
   color: var(--sayso-indigo);
   color: black;
-  position: absolute;
-  top: 0;
-  left: 0;
+  position: relative;
   padding: 16px 8px;
   font-size: 16px;
 }

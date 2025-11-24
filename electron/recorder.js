@@ -640,10 +640,32 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
+// Store streaming callback for user audio
+let userStreamingCallback = null;
+
+/**
+ * Set streaming callback for user audio
+ * @param {Function} callback - Callback function(buffer, format)
+ *   - buffer: Buffer containing raw audio data
+ *   - format: Object { sampleRate, channels, bitDepth, isFloat }
+ */
+function setUserStreamingCallback(callback) {
+  if (callback && typeof callback !== 'function') {
+    throw new Error('[RECORDER] Streaming callback must be a function');
+  }
+  userStreamingCallback = callback;
+  console.log(`🎤 [RECORDER] User streaming callback ${callback ? 'set' : 'cleared'}`);
+}
+
 // New full recording functions for post-meeting processing
-async function startUserFullRecording({ metadata = {} }) {
+async function startUserFullRecording({ metadata = {}, streamingCallback = null } = {}) {
   console.log('🎤 [RECORDER] === STARTING USER FULL RECORDING (MICROPHONE) ===');
   console.log('🎤 [RECORDER] Metadata:', JSON.stringify(metadata, null, 2));
+  
+  // Set streaming callback if provided
+  if (streamingCallback) {
+    setUserStreamingCallback(streamingCallback);
+  }
   
   // Get the output directory - use user subfolder
   const baseDir = getWritableTempDir('full_recordings');
@@ -681,6 +703,7 @@ async function startUserFullRecording({ metadata = {} }) {
   console.log(`🎤 [RECORDER] Using microphone: [${micInfo.index}] ${micInfo.name}`);
   console.log(`🎤 [RECORDER] Output directory: ${baseDir}`);
   console.log(`🎤 [RECORDER] Output file: ${userAudioFile}`);
+  console.log(`🎤 [RECORDER] Streaming: ${userStreamingCallback ? 'enabled' : 'disabled'}`);
   
   try {
     // Use FFmpeg to record directly to CAF format (same as prospect audio)
@@ -707,6 +730,68 @@ async function startUserFullRecording({ metadata = {} }) {
     global.userFullRecordingProcess = spawn(getFfmpegPath(), ffmpegArgs);
     
     console.log('🎤 [RECORDER] FFmpeg process spawned for full recording, PID:', global.userFullRecordingProcess.pid);
+    
+    // If streaming is enabled, also spawn a separate FFmpeg process for streaming (raw PCM to stdout)
+    let streamingProcess = null;
+    if (userStreamingCallback) {
+      console.log('🎤 [RECORDER] Starting streaming FFmpeg process...');
+      
+      // Format info for streaming callback
+      const streamFormat = {
+        sampleRate: parseInt(AUDIO_SAMPLE_RATE), // 48000
+        channels: parseInt(AUDIO_CHANNELS), // 2
+        bitDepth: 16, // pcm_s16le
+        isFloat: false
+      };
+      
+      // FFmpeg args for streaming (output raw PCM to stdout)
+      const streamingArgs = [
+        '-f', 'avfoundation',
+        '-i', `:${micInfo.index}`,
+        '-af', `aresample=${AUDIO_SAMPLE_RATE}:async=1`,
+        '-ac', AUDIO_CHANNELS,
+        '-c:a', 'pcm_s16le', // PCM 16-bit
+        '-f', 's16le', // Raw PCM format
+        '-' // Output to stdout
+      ];
+      
+      streamingProcess = spawn(getFfmpegPath(), streamingArgs);
+      
+      // Handle streaming stdout data
+      streamingProcess.stdout.on('data', (chunk) => {
+        if (userStreamingCallback && chunk.length > 0) {
+          try {
+            // Convert to Buffer if needed
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            userStreamingCallback(buffer, streamFormat);
+          } catch (error) {
+            console.error('🎤 [RECORDER] Error in streaming callback:', error);
+          }
+        }
+      });
+      
+      streamingProcess.stderr.on('data', (data) => {
+        // Suppress FFmpeg stderr output for streaming process (it's verbose)
+        // Only log errors
+        const output = data.toString();
+        if (output.includes('Error')) {
+          console.error('🎤 [RECORDER] Streaming FFmpeg error:', output);
+        }
+      });
+      
+      streamingProcess.on('error', (error) => {
+        console.error('🎤 [RECORDER] Streaming FFmpeg process error:', error);
+      });
+      
+      streamingProcess.on('exit', (code, signal) => {
+        console.log(`🎤 [RECORDER] Streaming FFmpeg process exited with code ${code}, signal ${signal}`);
+      });
+      
+      // Store streaming process for cleanup
+      global.userStreamingProcess = streamingProcess;
+      
+      console.log('🎤 [RECORDER] ✅ Streaming FFmpeg process started');
+    }
     
     // Store listeners so we can remove them later
     const stderrHandler = (data) => {
@@ -748,6 +833,16 @@ async function startUserFullRecording({ metadata = {} }) {
       
       // Clean up listeners when process exits
       cleanupFFmpegListeners();
+      
+      // Clean up streaming process if it exists
+      if (global.userStreamingProcess) {
+        try {
+          global.userStreamingProcess.kill('SIGINT');
+          global.userStreamingProcess = null;
+        } catch (err) {
+          console.warn('🎤 [RECORDER] Error stopping streaming process:', err);
+        }
+      }
     };
     
     // Store handlers for cleanup
@@ -891,6 +986,32 @@ async function startProspectFullRecording({ metadata = {} }) {
     console.error('🎤 [RECORDER] ❌ Error starting system audio capture:', error);
     throw error;
   }
+}
+
+/**
+ * Stop user audio streaming (separate from file recording)
+ * Stops the streaming FFmpeg process and clears the callback
+ */
+async function stopUserStreaming() {
+  console.log('[Recording Control] Stopping user audio streaming...');
+  
+  // Stop user streaming process if it exists
+  if (global.userStreamingProcess) {
+    try {
+      console.log('[Recording Control] Stopping user streaming FFmpeg process...');
+      global.userStreamingProcess.kill('SIGINT');
+      await new Promise(resolve => setTimeout(resolve, 200));
+      console.log('[Recording Control] ✅ User streaming process stopped');
+    } catch (error) {
+      console.error('[Recording Control] ❌ Error stopping user streaming process:', error);
+    }
+    global.userStreamingProcess = null;
+  }
+  
+  // Clear streaming callback
+  setUserStreamingCallback(null);
+  
+  console.log('[Recording Control] ✅ User audio streaming stopped');
 }
 
 async function stopFullRecording() {
@@ -1061,7 +1182,9 @@ async function compressAudioFile({ inputPath, outputPath, format = 'mp3', bitrat
 }
 
 // Updated module exports - includes both chunked and full recording functions
-module.exports = { 
+module.exports = {
+  setUserStreamingCallback,
+  stopUserStreaming,
   // Original chunked recording functions (for backward compatibility)
   startUserRecording, 
   stopRecording,

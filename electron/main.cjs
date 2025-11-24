@@ -89,6 +89,203 @@ if (!process.env.NODE_ENV) {
 // Store active recording session metadata
 let activeRecordingSession = null;
 
+// Store AudioStreamer instance
+let audioStreamer = null;
+
+// Store Cue instances (separate from regular streaming)
+let cueAudioStreamer = null;
+
+// Start audio streaming
+ipcMain.handle('start-audio-streaming', async (event, { token }) => {
+  try {
+    // Create AudioStreamer instance
+    audioStreamer = new AudioStreamer({
+      onUserConnected: () => {
+        event.sender.send('streaming-status', { user: 'connected' });
+      },
+      onProspectConnected: () => {
+        event.sender.send('streaming-status', { prospect: 'connected' });
+      },
+      onError: (stream, error) => {
+        event.sender.send('streaming-error', { stream, error: error.message });
+      }
+    });
+
+    // Start streaming (only needs token - gets sessionId internally)
+    await audioStreamer.start(token);
+
+    // Set up streaming callbacks
+    await startUserFullRecording({
+      metadata: { 
+        sessionId: audioStreamer.sessionId,
+        userStartMs: Date.now() 
+      },
+      streamingCallback: (buffer, format) => {
+        audioStreamer.addUserAudio(buffer, format);
+      }
+    });
+
+    await nativeAudio.startSystemAudioCapture({
+      streamingCallback: (buffer, format) => {
+        audioStreamer.addProspectAudio(buffer, format);
+      }
+    });
+
+    return { 
+      success: true, 
+      sessionId: audioStreamer.sessionId 
+    };
+  } catch (error) {
+    console.error('[Main Process] ❌ Error starting audio streaming:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Stop audio streaming
+ipcMain.handle('stop-audio-streaming', async (event, { sendTermination = true } = {}) => {
+  try {
+    // Stop streaming callbacks
+    await stopUserStreaming();
+    if (nativeAudio) {
+      nativeAudio.setStreamingCallback(null);
+    }
+
+    // Stop AudioStreamer (disconnects WebSockets)
+    if (audioStreamer) {
+      await audioStreamer.stop(sendTermination);
+      audioStreamer = null;
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[Main Process] ❌ Error stopping audio streaming:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get streaming status
+ipcMain.handle('get-streaming-status', async () => {
+  if (!audioStreamer) {
+    return { isStreaming: false };
+  }
+  return {
+    isStreaming: audioStreamer.isStreamingActive(),
+    userState: audioStreamer.getUserState(),
+    prospectState: audioStreamer.getProspectState(),
+    sessionId: audioStreamer.sessionId
+  };
+});
+
+// Start Cue (handles 2 audio websockets: user + prospect)
+// TODO: Add insights websocket (3rd websocket) later
+ipcMain.handle('start-cue', async (event, { sessionId }) => {
+  try {
+    // Get token from utility (no need to pass from React!)
+    const token = await getAuthToken();
+    
+    if (!sessionId) {
+      throw new Error('SessionId is required');
+    }
+
+    // Create AudioStreamer for 2 audio websockets (user + prospect)
+    cueAudioStreamer = new AudioStreamer({
+      sessionId: sessionId, // Use provided sessionId from backend
+      onUserConnected: () => {
+        console.log('✅ [Cue] User stream connected');
+        event.sender.send('cue-status', { user: 'connected' });
+      },
+      onProspectConnected: () => {
+        console.log('✅ [Cue] Prospect stream connected');
+        event.sender.send('cue-status', { prospect: 'connected' });
+      },
+      onError: (stream, error) => {
+        console.error(`❌ [Cue] ${stream} stream error:`, error);
+        event.sender.send('cue-error', { stream, error: error.message });
+      }
+    });
+
+    // Start audio streaming (2 websockets)
+    await cueAudioStreamer.start(token);
+
+    // TODO: Create insights websocket (3rd websocket) here
+    // cueInsightsWebSocket = new WebSocketClient('insights', STREAMING_ENDPOINTS.insights, {
+    //   token: token,
+    //   sessionId: sessionId,
+    //   onConnected: () => {
+    //     console.log('✅ [Cue] Insights websocket connected');
+    //     event.sender.send('cue-status', { insights: 'connected' });
+    //   },
+    //   onError: (error) => {
+    //     console.error('❌ [Cue] Insights websocket error:', error);
+    //     event.sender.send('cue-error', { stream: 'insights', error: error.message });
+    //   }
+    // });
+    // cueInsightsWebSocket.on('message', (message) => {
+    //   event.sender.send('cue-insight', message);
+    // });
+    // await cueInsightsWebSocket.connect();
+
+    // Set up audio capture callbacks
+    await startUserFullRecording({
+      metadata: { 
+        sessionId: sessionId,
+        userStartMs: Date.now() 
+      },
+      streamingCallback: (buffer, format) => {
+        cueAudioStreamer.addUserAudio(buffer, format);
+      }
+    });
+
+    await nativeAudio.startSystemAudioCapture({
+      streamingCallback: (buffer, format) => {
+        cueAudioStreamer.addProspectAudio(buffer, format);
+      }
+    });
+
+    console.log(`✅ [Cue] Started successfully with sessionId: ${sessionId}`);
+    return { 
+      success: true, 
+      sessionId: sessionId 
+    };
+  } catch (error) {
+    console.error('[Main Process] ❌ Error starting Cue:', error);
+    // Clean up on error
+    cueAudioStreamer = null;
+    return { success: false, error: error.message };
+  }
+});
+
+// Stop Cue (closes all websockets)
+ipcMain.handle('stop-cue', async (event) => {
+  try {
+    // Stop audio capture
+    await stopUserStreaming();
+    if (nativeAudio) {
+      nativeAudio.setStreamingCallback(null);
+    }
+
+    // Stop audio websockets (2)
+    if (cueAudioStreamer) {
+      await cueAudioStreamer.stop(false); // Don't send termination message
+      cueAudioStreamer = null;
+    }
+
+    // TODO: Stop insights websocket (1) when implemented
+    // if (cueInsightsWebSocket) {
+    //   await cueInsightsWebSocket.disconnect();
+    //   cueInsightsWebSocket = null;
+    // }
+
+    console.log('✅ [Cue] Stopped successfully');
+    return { success: true };
+  } catch (error) {
+    console.error('[Main Process] ❌ Error stopping Cue:', error);
+    // Force cleanup on error
+    cueAudioStreamer = null;
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('start-audio-capture', async (event, params = {}) => {
   console.log('[Main Process] Starting dual channel recording...');
   console.log('[Main Process] Parameters:', JSON.stringify(params, null, 2));
@@ -218,10 +415,13 @@ const {
   startUserFullRecording,
   startProspectFullRecording,
   stopFullRecording,
+  stopUserStreaming,
   prepareUserMicrophone,
   compressAudioFile
 } = require('./recorder');
 const audioQueue = require('./audioQueue');
+const { AudioStreamer } = require('./streaming/audioStreamer');
+const { getAuthToken } = require('./utils/authTokens');
 
 // Add command line switches for better camera support
 app.commandLine.appendSwitch('enable-features', 'WebRTC,MediaDevices,MediaStream');
