@@ -11,13 +11,21 @@ export default function CoachCTA({sidebar, active }) {
     return localStorage.getItem('coach-window-open') === 'true';
   });
 
+  /**
+   * @param {boolean} isOpen
+   */
+  function updateCoachWindowOpenStates(isOpen) {
+    setIsCoachWindowOpen(isOpen);
+    localStorage.setItem('coach-window-open', String(isOpen));
+  }
+  
   // Listen for localStorage changes
   useEffect(() => {
     const handleStorageChange = (e) => {
       if (e.key === 'coach-window-open') {
         const isOpen = e.newValue === 'true';
         console.log(' [CoachCTA] localStorage changed, updating state:', isOpen);
-        setIsCoachWindowOpen(isOpen);
+        updateCoachWindowOpenStates(isOpen)
       }
     };
 
@@ -28,7 +36,7 @@ export default function CoachCTA({sidebar, active }) {
     if (window.electron && window.electron.ipcRenderer) {
       const handleCoachWindowClosed = () => {
         console.log('🎯 [CoachCTA] Coach window closed event received');
-        setIsCoachWindowOpen(false);
+        updateCoachWindowOpenStates(false)
       };
 
       window.electron.ipcRenderer.on('coach-window-closed', handleCoachWindowClosed);
@@ -48,8 +56,7 @@ export default function CoachCTA({sidebar, active }) {
       const tryOpen = () => {
           if (window.electron && window.electron.ipcRenderer) {
               window.electron.ipcRenderer.send('open-coach-window');
-              setIsCoachWindowOpen(true);
-              localStorage.setItem('coach-window-open', 'true');
+              updateCoachWindowOpenStates(true)
               return true;
           }
           return false;
@@ -74,19 +81,29 @@ export default function CoachCTA({sidebar, active }) {
   };
 
   const closeCoachWindow = () => {
-      if (window.electron && window.electron.ipcRenderer) {
-          window.electron.ipcRenderer.send('close-coach-window');
-          setIsCoachWindowOpen(false);
-          localStorage.setItem('coach-window-open', 'false');
-      }
+    if (window.electron && window.electron.ipcRenderer) {
+      window.electron.ipcRenderer.send('close-coach-window');
+      updateCoachWindowOpenStates(false)
+    }
   };
 
+  function handleOnPressStartCoach() {
+    if (isCoachWindowOpen) {
+      closeCoachWindow()
+    } else {
+      openCoachWindow()
+    }
+  }
+
   return (
-    <div className={`coach-cta-container ${sidebar ? 'sidebar' : ''} ${active ? 'active' : ''}`} onClick={isCoachWindowOpen ? closeCoachWindow : openCoachWindow}>
+    <div 
+      className={`coach-cta-container ${sidebar ? 'sidebar' : ''} ${active ? 'active' : ''}`}
+      onClick={handleOnPressStartCoach}
+    >
         {
-            !sidebar && (
-                <div className="outline"></div>
-            )
+          !sidebar && (
+              <div className="outline"></div>
+          )
         }
         <div className="main-button">
             <LuRocket />
