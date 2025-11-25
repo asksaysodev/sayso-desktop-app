@@ -19,7 +19,7 @@ export const CoachWindowProvider = ({ children }) => {
     const [callDurationInSeconds, setCallDurationInSeconds] = useState(0)
     const [sessionData, setSessionData] = useState(null)
     const [signals, setSignals] = useState([]);
-    
+
     //HOOKS
     const { getProspects } = useCoach()
     const { compressAudioFile, uploadFullRecording, isCompressing, isUploading } = useAudioUpload()
@@ -91,23 +91,45 @@ export const CoachWindowProvider = ({ children }) => {
     */
     function updateCoachWindowOpenStates(isOpen) {
         setIsCoachWindowOpen(isOpen);
-        localStorage.setItem('coach-window-open', String(isOpen));
     }
 
     const openCoachWindow = () => {
-    
-        if (window.electron && window.electron.ipcRenderer) {
-            window.electron.ipcRenderer.send('open-coach-window');
-            updateCoachWindowOpenStates(true)
-            console.log('🎤 [CoachWindowContext] Coach window opened --------');
-        } else {
-            console.warn('Electron not available, cannot open coach window');
-            updateCoachWindowOpenStates(false)
-        }
+        return new Promise((resolve, reject) => {
+            const tryOpen = () => {
+                if (window.electron?.ipcRenderer) {
+                    window.electron.ipcRenderer.send('open-coach-window');
+                    updateCoachWindowOpenStates(true);
+                    return true;
+                }
+                return false;
+            };
+            
+            if (!tryOpen()) {
+                console.log('⏳ [CoachWindowContext] Electron not ready, retrying...');
+                const checkInterval = setInterval(() => {
+                    if (tryOpen()) {
+                        clearInterval(checkInterval);
+                        console.log('✅ [CoachWindowContext] Coach window opened');
+                        resolve(true);
+                    }
+                }, 50);
+                
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    if (!window.electron?.ipcRenderer) {
+                        console.error('❌ [CoachWindowContext] Electron unavailable after timeout');
+                        updateCoachWindowOpenStates(false);
+                        reject(new Error('Electron not available'));
+                    }
+                }, 1000);
+            } else {
+                resolve(true);
+            }
+        });
     };
 
     const closeCoachWindow = () => {
-    
+
         if (window.electron && window.electron.ipcRenderer) {
             window.electron.ipcRenderer.send('close-coach-window');
             updateCoachWindowOpenStates(false)
@@ -217,6 +239,7 @@ export const CoachWindowProvider = ({ children }) => {
         callDurationInSeconds,
         isCoachLoading, 
         isCoachWindowOpen,
+        updateCoachWindowOpenStates,
         openCoachWindow,
         closeCoachWindow,
         currentInsight,
