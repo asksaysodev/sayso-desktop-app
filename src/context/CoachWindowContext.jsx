@@ -1,9 +1,7 @@
-import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { runCoach } from '../services/coachServices';
+import { createContext, useContext, useState, useEffect } from 'react';
 import { v4 } from 'uuid';
 
 import useCoach from '../coachWindow/hooks/useCoach';
-import useInsightScheduler from '../coachWindow/hooks/useInsightScheduler';
 import { useAudioUpload } from '../coachWindow/hooks/useAudioUpload';
 
 const CoachWindowContext = createContext();
@@ -87,16 +85,24 @@ export const CoachWindowProvider = ({ children }) => {
     };
 
     //FUNCTIONS
+    
+    /**
+    * @param {boolean} isOpen
+    */
+    function updateCoachWindowOpenStates(isOpen) {
+        setIsCoachWindowOpen(isOpen);
+        localStorage.setItem('coach-window-open', String(isOpen));
+    }
+
     const openCoachWindow = () => {
     
         if (window.electron && window.electron.ipcRenderer) {
             window.electron.ipcRenderer.send('open-coach-window');
-            setIsCoachWindowOpen(true);
-            localStorage.setItem('coach-window-open', 'true'); // Save to localStorage
+            updateCoachWindowOpenStates(true)
+            console.log('🎤 [CoachWindowContext] Coach window opened --------');
         } else {
             console.warn('Electron not available, cannot open coach window');
-            setIsCoachWindowOpen(false);
-            localStorage.setItem('coach-window-open', 'false');
+            updateCoachWindowOpenStates(false)
         }
     };
 
@@ -104,8 +110,7 @@ export const CoachWindowProvider = ({ children }) => {
     
         if (window.electron && window.electron.ipcRenderer) {
             window.electron.ipcRenderer.send('close-coach-window');
-            setIsCoachWindowOpen(false);
-            localStorage.setItem('coach-window-open', 'false'); // Save to localStorage
+            updateCoachWindowOpenStates(false)
         } else {
             console.warn('Electron not available, cannot close coach window');
         }
@@ -190,8 +195,7 @@ export const CoachWindowProvider = ({ children }) => {
         if (window.electron && window.electron.ipcRenderer) {
             const handleCoachWindowClosed = () => {
                 console.log('🎯 [CoachWindowContext] Coach window closed event received');
-                setIsCoachWindowOpen(false);
-                localStorage.setItem('coach-window-open', 'false'); // Save to localStorage
+                updateCoachWindowOpenStates(false)
             };
 
             window.electron.ipcRenderer.on('coach-window-closed', handleCoachWindowClosed);
