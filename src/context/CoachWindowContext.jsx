@@ -94,38 +94,36 @@ export const CoachWindowProvider = ({ children }) => {
     }
 
     const openCoachWindow = () => {
-        return new Promise((resolve, reject) => {
-            const tryOpen = () => {
-                if (window.electron?.ipcRenderer) {
-                    window.electron.ipcRenderer.send('open-coach-window');
-                    updateCoachWindowOpenStates(true);
-                    return true;
-                }
-                return false;
-            };
-            
-            if (!tryOpen()) {
-                console.log('⏳ [CoachWindowContext] Electron not ready, retrying...');
-                const checkInterval = setInterval(() => {
-                    if (tryOpen()) {
-                        clearInterval(checkInterval);
-                        console.log('✅ [CoachWindowContext] Coach window opened');
-                        resolve(true);
-                    }
-                }, 50);
-                
-                setTimeout(() => {
-                    clearInterval(checkInterval);
-                    if (!window.electron?.ipcRenderer) {
-                        console.error('❌ [CoachWindowContext] Electron unavailable after timeout');
-                        updateCoachWindowOpenStates(false);
-                        reject(new Error('Electron not available'));
-                    }
-                }, 1000);
-            } else {
-                resolve(true);
+        const tryOpen = () => {
+            if (window.electron?.ipcRenderer) {
+                window.electron.ipcRenderer.send('open-coach-window');
+                updateCoachWindowOpenStates(true);
+                return true;
             }
-        });
+            return false;
+        };
+        
+        if (!tryOpen()) {
+            console.log('⏳ [CoachWindowContext] Electron not ready, retrying...');
+            
+            let timeoutId;
+            
+            const checkInterval = setInterval(() => {
+                if (tryOpen()) {
+                    clearInterval(checkInterval);
+                    clearTimeout(timeoutId);
+                    console.log('[CoachWindowContext] Coach window opened');
+                }
+            }, 50);
+            
+            timeoutId = setTimeout(() => {
+                clearInterval(checkInterval);
+                if (!window.electron?.ipcRenderer) {
+                    console.error('[CoachWindowContext] Electron unavailable after timeout');
+                    updateCoachWindowOpenStates(false);
+                }
+            }, 1000);
+        }
     };
 
     const closeCoachWindow = () => {
