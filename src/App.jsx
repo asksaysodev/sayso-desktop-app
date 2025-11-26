@@ -53,7 +53,7 @@ function App() {
               </AuthGuard>
             }
           />
-          <Route
+          {/* <Route
             path="/streaming-test"
             element={
               <AuthGuard>
@@ -62,7 +62,7 @@ function App() {
                 </Layout>
               </AuthGuard>
             }
-          />
+          /> */}
         </Routes>
         <InsightPopUpWrapper />
         <PermissionsModalContainer />

@@ -654,7 +654,6 @@ function setUserStreamingCallback(callback) {
     throw new Error('[RECORDER] Streaming callback must be a function');
   }
   userStreamingCallback = callback;
-  console.log(`🎤 [RECORDER] User streaming callback ${callback ? 'set' : 'cleared'}`);
 }
 
 // New full recording functions for post-meeting processing
@@ -868,6 +867,82 @@ async function startUserFullRecording({ metadata = {}, streamingCallback = null 
     
   } catch (error) {
     console.error('🎤 [RECORDER] ❌ Error starting microphone recording:', error);
+    throw error;
+  }
+}
+
+// Streaming-only function for real-time processing (no file saving)
+async function startUserStreaming({ streamingCallback } = {}) {
+  if (!streamingCallback || typeof streamingCallback !== 'function') {
+    throw new Error('[RECORDER] streamingCallback is required for startUserStreaming');
+  }
+  
+  // Set streaming callback
+  setUserStreamingCallback(streamingCallback);
+  
+  // Detect active microphone
+  const micInfo = await detectActiveMicrophone();
+  
+  try {
+    // Format info for streaming callback
+    const streamFormat = {
+      sampleRate: parseInt(AUDIO_SAMPLE_RATE), // 48000
+      channels: parseInt(AUDIO_CHANNELS), // 2
+      bitDepth: 16, // pcm_s16le
+      isFloat: false
+    };
+    
+    // FFmpeg args for streaming (output raw PCM to stdout, no file)
+    const streamingArgs = [
+      '-f', 'avfoundation',
+      '-i', `:${micInfo.index}`,
+      '-af', `aresample=${AUDIO_SAMPLE_RATE}:async=1`,
+      '-ac', AUDIO_CHANNELS,
+      '-c:a', 'pcm_s16le', // PCM 16-bit
+      '-f', 's16le', // Raw PCM format
+      '-' // Output to stdout
+    ];
+    
+    const streamingProcess = spawn(getFfmpegPath(), streamingArgs);
+    
+    // Handle streaming stdout data
+    streamingProcess.stdout.on('data', (chunk) => {
+      if (userStreamingCallback && chunk.length > 0) {
+        try {
+          // Convert to Buffer if needed
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          userStreamingCallback(buffer, streamFormat);
+        } catch (error) {
+          console.error('🎤 [RECORDER] Error in streaming callback:', error);
+        }
+      }
+    });
+    
+    streamingProcess.stderr.on('data', (data) => {
+      // Suppress FFmpeg stderr output for streaming process (it's verbose)
+      // Only log errors
+      const output = data.toString();
+      if (output.includes('Error')) {
+        console.error('🎤 [RECORDER] Streaming FFmpeg error:', output);
+      }
+    });
+    
+    streamingProcess.on('error', (error) => {
+      console.error('🎤 [RECORDER] Streaming FFmpeg process error:', error);
+    });
+    
+      streamingProcess.on('exit', (code, signal) => {
+      });
+      
+      // Store streaming process for cleanup
+      global.userStreamingProcess = streamingProcess;
+      
+      return { success: true };
+    
+  } catch (error) {
+    console.error('🎤 [RECORDER] ❌ Error starting user streaming:', error);
+    // Clear callback on error
+    setUserStreamingCallback(null);
     throw error;
   }
 }
@@ -1194,6 +1269,9 @@ module.exports = {
   startProspectFullRecording,
   stopFullRecording,
   prepareUserMicrophone,
+  
+  // Streaming-only functions (for real-time processing like Cue - no file saving)
+  startUserStreaming,
   
   // Audio compression function
   compressAudioFile,

@@ -95,8 +95,6 @@ class AudioDeviceManager {
     if (nativeAudio.setStreamingCallback) {
       nativeAudio.setStreamingCallback(callback);
     }
-    
-    console.log(`🎤 [AUDIO MANAGER] Streaming callback ${callback ? 'set' : 'cleared'}`);
   }
 
   /**
@@ -118,6 +116,31 @@ class AudioDeviceManager {
     
     // Start capture with remaining options
     return nativeAudio.startSystemAudioCapture(captureOptions);
+  }
+
+  /**
+   * Start prospect audio streaming (streaming only, no file saving)
+   * Note: Currently the native module still creates a file, but this function
+   * is intended for streaming-only use cases like Cue.
+   * TODO: Optimize native module to skip file creation when streamingOnly flag is set
+   * @param {Function} streamingCallback - Required callback for audio chunks
+   * @returns {Promise<Object>} - Result object with success
+   */
+  async startProspectStreaming({ streamingCallback } = {}) {
+    await this.initialize();
+    
+    if (!streamingCallback || typeof streamingCallback !== 'function') {
+      throw new Error('[AUDIO MANAGER] streamingCallback is required for startProspectStreaming');
+    }
+    
+    // Set streaming callback
+    this.setStreamingCallback(streamingCallback);
+    
+    // Start capture (native module will still create a file, but we're using it for streaming)
+    // TODO: Add streamingOnly parameter to native module to skip file creation
+    const result = await nativeAudio.startSystemAudioCapture({});
+    
+    return { success: true };
   }
 
   async stopSystemAudioCapture() {

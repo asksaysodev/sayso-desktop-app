@@ -21,7 +21,6 @@ function setupLogging() {
     };
     
     fs.writeFileSync(debugPath, JSON.stringify(debugInfo, null, 2));
-    console.log('🔍 [DEBUG] Debug file created at:', debugPath);
   } catch (error) {
     console.error('🔍 [DEBUG] Error creating debug file:', error);
   }
@@ -76,10 +75,6 @@ function setupLogging() {
 }
 
 
-// Add this right after setupLogging()
-console.log('🔍 [DEBUG] App name:', app.getName());
-console.log('🔍 [DEBUG] User data path:', app.getPath('userData'));
-console.log('🔍 [DEBUG] Expected log directory:', path.join(app.getPath('userData'), 'logs'));
 
 // Load environment variables FIRST, before any other modules
 if (!process.env.NODE_ENV) {
@@ -121,13 +116,21 @@ ipcMain.handle('start-audio-streaming', async (event, { token }) => {
         userStartMs: Date.now() 
       },
       streamingCallback: (buffer, format) => {
-        audioStreamer.addUserAudio(buffer, format);
+        if (audioStreamer) {
+          audioStreamer.addUserAudio(buffer, format);
+        }
       }
     });
 
+    if (!nativeAudio) {
+      throw new Error('Native audio module not loaded. Please wait for app initialization.');
+    }
+
     await nativeAudio.startSystemAudioCapture({
       streamingCallback: (buffer, format) => {
-        audioStreamer.addProspectAudio(buffer, format);
+        if (audioStreamer) {
+          audioStreamer.addProspectAudio(buffer, format);
+        }
       }
     });
 
@@ -178,24 +181,28 @@ ipcMain.handle('get-streaming-status', async () => {
 
 // Start Cue (handles 2 audio websockets: user + prospect)
 // TODO: Add insights websocket (3rd websocket) later
-ipcMain.handle('start-cue', async (event, { sessionId }) => {
+ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
   try {
-    // Get token from utility (no need to pass from React!)
-    const token = await getAuthToken();
     
+    if (!token) {
+      throw new Error('Token is required');
+    }
+
     if (!sessionId) {
       throw new Error('SessionId is required');
+    }
+
+    if (!nativeAudio) {
+      throw new Error('Native audio module not loaded. Please wait for app initialization.');
     }
 
     // Create AudioStreamer for 2 audio websockets (user + prospect)
     cueAudioStreamer = new AudioStreamer({
       sessionId: sessionId, // Use provided sessionId from backend
       onUserConnected: () => {
-        console.log('✅ [Cue] User stream connected');
         event.sender.send('cue-status', { user: 'connected' });
       },
       onProspectConnected: () => {
-        console.log('✅ [Cue] Prospect stream connected');
         event.sender.send('cue-status', { prospect: 'connected' });
       },
       onError: (stream, error) => {
@@ -225,24 +232,31 @@ ipcMain.handle('start-cue', async (event, { sessionId }) => {
     // });
     // await cueInsightsWebSocket.connect();
 
-    // Set up audio capture callbacks
-    await startUserFullRecording({
-      metadata: { 
-        sessionId: sessionId,
-        userStartMs: Date.now() 
-      },
+    // Set up audio capture callbacks (streaming only - no file saving)
+    await startUserStreaming({
       streamingCallback: (buffer, format) => {
-        cueAudioStreamer.addUserAudio(buffer, format);
+        if (cueAudioStreamer) {
+          cueAudioStreamer.addUserAudio(buffer, format);
+        }
       }
     });
 
-    await nativeAudio.startSystemAudioCapture({
+    if (!nativeAudio) {
+      throw new Error('Native audio module not loaded. Please wait for app initialization.');
+    }
+
+    if (typeof nativeAudio.startProspectStreaming !== 'function') {
+      throw new Error('startProspectStreaming method not available. Native module may need to be rebuilt.');
+    }
+
+    await nativeAudio.startProspectStreaming({
       streamingCallback: (buffer, format) => {
-        cueAudioStreamer.addProspectAudio(buffer, format);
+        if (cueAudioStreamer) {
+          cueAudioStreamer.addProspectAudio(buffer, format);
+        }
       }
     });
 
-    console.log(`✅ [Cue] Started successfully with sessionId: ${sessionId}`);
     return { 
       success: true, 
       sessionId: sessionId 
@@ -258,9 +272,10 @@ ipcMain.handle('start-cue', async (event, { sessionId }) => {
 // Stop Cue (closes all websockets)
 ipcMain.handle('stop-cue', async (event) => {
   try {
-    // Stop audio capture
+    // Stop audio streaming (streaming only - no file recording to stop)
     await stopUserStreaming();
     if (nativeAudio) {
+      await nativeAudio.stopSystemAudioCapture();
       nativeAudio.setStreamingCallback(null);
     }
 
@@ -276,7 +291,6 @@ ipcMain.handle('stop-cue', async (event) => {
     //   cueInsightsWebSocket = null;
     // }
 
-    console.log('✅ [Cue] Stopped successfully');
     return { success: true };
   } catch (error) {
     console.error('[Main Process] ❌ Error stopping Cue:', error);
@@ -287,8 +301,10 @@ ipcMain.handle('stop-cue', async (event) => {
 });
 
 ipcMain.handle('start-audio-capture', async (event, params = {}) => {
-  console.log('[Main Process] Starting dual channel recording...');
-  console.log('[Main Process] Parameters:', JSON.stringify(params, null, 2));
+  if (isDev) {
+    console.log('[Main Process] Starting dual channel recording...');
+    console.log('[Main Process] Parameters:', JSON.stringify(params, null, 2));
+  }
   
   try {
     const sessionId = params.sessionId || `session-${Date.now()}`;
@@ -324,10 +340,12 @@ ipcMain.handle('start-audio-capture', async (event, params = {}) => {
     startUserFullRecording({ ...params, metadata: { ...(params.metadata||{}), sessionId, prospectId: params.prospectId || null, userStartMs } })
     ]);
     
-    console.log('[Main Process] ✅ Dual channel recording started successfully');
-    console.log('[Main Process] Session ID:', sessionId);
-    console.log('[Main Process] Prospect file:', prospectResult?.filePath || 'Will be available on stop');
-    console.log('[Main Process] User file:', userResult || 'No file path returned');
+    if (isDev) {
+      console.log('[Main Process] ✅ Dual channel recording started successfully');
+      console.log('[Main Process] Session ID:', sessionId);
+      console.log('[Main Process] Prospect file:', prospectResult?.filePath || 'Will be available on stop');
+      console.log('[Main Process] User file:', userResult || 'No file path returned');
+    }
     
     return {
       success: true,
@@ -365,11 +383,15 @@ function loadEnvironmentVariables() {
     for (const envPath of possiblePaths) {
       if (fs.existsSync(envPath)) {
         require('dotenv').config({ path: envPath });
-        console.log(`[Main Process] ✅ Loaded environment from: ${envPath}`);
+        if (isDev) {
+          console.log(`[Main Process] ✅ Loaded environment from: ${envPath}`);
+        }
         loaded = true;
         break;
       } else {
-        console.log(`[Main Process] ❌ Not found: ${envPath}`);
+        if (isDev) {
+          console.log(`[Main Process] ❌ Not found: ${envPath}`);
+        }
       }
     }
     
@@ -384,26 +406,6 @@ function loadEnvironmentVariables() {
 // Load environment variables
 loadEnvironmentVariables();
 
-// Log environment for debugging
-console.log('[Main Process] Environment loaded:', {
-  NODE_ENV: process.env.NODE_ENV,
-  VITE_BACKEND_BASE_URL: process.env.VITE_BACKEND_BASE_URL
-});
-
-// Additional backend URL logging
-console.log('[Main Process] Backend URL:', process.env.VITE_BACKEND_BASE_URL);
-console.log('[Main Process] Backend URL type:', typeof process.env.VITE_BACKEND_BASE_URL);
-console.log('[Main Process] Backend URL length:', process.env.VITE_BACKEND_BASE_URL?.length);
-
-// Add this after environment loading
-console.log('[Main Process] Environment check:', {
-  NODE_ENV: process.env.NODE_ENV,
-  VITE_BACKEND_BASE_URL: process.env.VITE_BACKEND_BASE_URL,
-  'env file path': process.env.NODE_ENV === 'production' 
-    ? path.resolve(__dirname, '../.env.production')
-    : path.resolve(__dirname, '../.env')
-});
-
 // Now require other modules that depend on environment variables
 const wav = require('wav');
 const FormData = require('form-data');
@@ -416,6 +418,7 @@ const {
   startProspectFullRecording,
   stopFullRecording,
   stopUserStreaming,
+  startUserStreaming,
   prepareUserMicrophone,
   compressAudioFile
 } = require('./recorder');
@@ -477,10 +480,13 @@ const createDashboardWindow = () => {
       return;
   }
   const preloadScriptPath = path.join(__dirname, 'preload.js');
-  console.log(`MAIN: Dashboard preload path calculated as: ${preloadScriptPath}`);
-  if (fs.existsSync(preloadScriptPath)) {
-    console.log(`MAIN: Preload script FOUND at: ${preloadScriptPath}`);
-  } else {
+  if (isDev) {
+    console.log(`MAIN: Dashboard preload path calculated as: ${preloadScriptPath}`);
+    if (fs.existsSync(preloadScriptPath)) {
+      console.log(`MAIN: Preload script FOUND at: ${preloadScriptPath}`);
+    }
+  }
+  if (!fs.existsSync(preloadScriptPath)) {
     console.error(`🔴🔴🔴 MAIN: Preload script NOT FOUND at: ${preloadScriptPath}`);
   }
   const indexHtmlPath = path.join(process.resourcesPath, 'dist', 'index.html');
@@ -534,31 +540,41 @@ const createDashboardWindow = () => {
   // Enhanced media permissions handler for packaged app
   dashboardWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
     const allowedPermissions = ['media', 'microphone', 'display-capture'];
-    console.log(`🔐 Permission requested: ${permission}`);
+    if (isDev) {
+      console.log(`🔐 Permission requested: ${permission}`);
+    }
     
     if (allowedPermissions.includes(permission)) {
-      console.log(`✅ Granting permission for: ${permission}`);
+      if (isDev) {
+        console.log(`✅ Granting permission for: ${permission}`);
+      }
       // Grant permission immediately for media access
       callback(true);
     } else {
-      console.log(`❌ Denying permission for: ${permission}`);
+      if (isDev) {
+        console.log(`❌ Denying permission for: ${permission}`);
+      }
       callback(false);
     }
   });
 
   // Enhanced device permission handler
   dashboardWindow.webContents.session.setDevicePermissionHandler((webContents, permission, deviceId) => {
-    console.log(`📱 Device permission requested for: ${permission} (${deviceId})`);
+    if (isDev) {
+      console.log(`📱 Device permission requested for: ${permission} (${deviceId})`);
+    }
     // Always allow device access for camera/microphone
     return true;
   });
 
   // Initialize media devices with better error handling
   dashboardWindow.webContents.on('did-finish-load', () => {
-    console.log('🚀 Window loaded, initializing media devices...');
+    if (isDev) {
+      console.log('🚀 Window loaded, initializing media devices...');
+    }
     dashboardWindow.webContents.executeJavaScript(`
       (function() {
-        console.log('🔍 Initializing media devices in renderer...');
+        ${isDev ? "console.log('🔍 Initializing media devices in renderer...');" : ''}
         
         // Check if mediaDevices is available
         if (!navigator.mediaDevices) {
@@ -568,16 +584,12 @@ const createDashboardWindow = () => {
         
         // Do NOT auto-request permissions here. We only show macOS dialogs
         // after the user confirms our custom modal (via permissions.requestAll).
-        console.log('ℹ️ Skipping automatic getUserMedia to avoid prompting macOS dialogs early.');
+        ${isDev ? "console.log('ℹ️ Skipping automatic getUserMedia to avoid prompting macOS dialogs early.');" : ''}
         
         // Enumerate devices
         navigator.mediaDevices.enumerateDevices()
           .then(devices => {
-            console.log('📱 Available media devices:', devices.map(d => ({
-              kind: d.kind,
-              deviceId: d.deviceId,
-              label: d.label
-            })));
+            ${isDev ? "console.log('📱 Available media devices:', devices.map(d => ({ kind: d.kind, deviceId: d.deviceId, label: d.label })));" : ''}
           })
           .catch(err => {
             console.error('❌ Error enumerating devices:', err);
@@ -588,16 +600,14 @@ const createDashboardWindow = () => {
 
   // Handle device change events
   dashboardWindow.webContents.on('media-devices-changed', () => {
-    console.log('🔄 Media devices changed, reinitializing...');
+    if (isDev) {
+      console.log('🔄 Media devices changed, reinitializing...');
+    }
     dashboardWindow.webContents.executeJavaScript(`
       if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
         navigator.mediaDevices.enumerateDevices()
           .then(devices => {
-            console.log('📱 Updated media devices:', devices.map(d => ({
-              kind: d.kind,
-              deviceId: d.deviceId,
-              label: d.label
-            })));
+            ${isDev ? "console.log('📱 Updated media devices:', devices.map(d => ({ kind: d.kind, deviceId: d.deviceId, label: d.label })));" : ''}
           })
           .catch(err => console.error('❌ Error enumerating devices:', err));
       }
@@ -626,10 +636,14 @@ const createDashboardWindow = () => {
   });
 
   dashboardWindow.webContents.setWindowOpenHandler(({ url }) => {
-    console.log('[Electron][setWindowOpenHandler] Attempt to open URL:', url);
+    if (isDev) {
+      console.log('[Electron][setWindowOpenHandler] Attempt to open URL:', url);
+    }
     // If the url is a file:// index.html with a hash, route it in the main window
     if (url.startsWith('file://') && url.includes('index.html#/post-call/')) {
-      console.log('[Electron][setWindowOpenHandler] Intercepted leaveUrl, loading in main window:', url);
+      if (isDev) {
+        console.log('[Electron][setWindowOpenHandler] Intercepted leaveUrl, loading in main window:', url);
+      }
       dashboardWindow.loadURL(url);
       return { action: 'deny' }; // Prevent new window
     }
@@ -637,14 +651,18 @@ const createDashboardWindow = () => {
   });
 
   dashboardWindow.webContents.on('will-navigate', (event, url) => {
-    console.log('[Electron][will-navigate] Navigation attempt to:', url);
+    if (isDev) {
+      console.log('[Electron][will-navigate] Navigation attempt to:', url);
+    }
 
     // Patch for malformed protocol
     if (url.startsWith('https://file///')) {
       event.preventDefault();
       // Fix to 'file:///' (with colon and three slashes)
       const fixedUrl = url.replace('https://file///', 'file:///');
-      console.log('[Electron][will-navigate] Fixed protocol, loading:', fixedUrl);
+      if (isDev) {
+        console.log('[Electron][will-navigate] Fixed protocol, loading:', fixedUrl);
+      }
       dashboardWindow.loadURL(fixedUrl);
     }
   });
@@ -653,35 +671,49 @@ const createDashboardWindow = () => {
 
 // --- IPC Handlers for Floating Windows ---
 ipcMain.on('launch-call-windows', () => {
-  console.log('IPC: Received launch-call-windows');
+  if (isDev) {
+    console.log('IPC: Received launch-call-windows');
+  }
   createMainTipWindow();
   createSideInfoWindow();
 });
 
 // Handler for opening URLs externally
 ipcMain.on('open-external', (event, url) => {
-  console.log('🎯 [Electron][open-external] IPC event received!');
-  console.log('🎯 [Electron][open-external] URL:', url);
-  console.log('🎯 [Electron][open-external] Event sender window ID:', event.sender.id);
+  if (isDev) {
+    console.log('🎯 [Electron][open-external] IPC event received!');
+    console.log('🎯 [Electron][open-external] URL:', url);
+    console.log('🎯 [Electron][open-external] Event sender window ID:', event.sender.id);
+  }
   
   try {
     shell.openExternal(url);
-    console.log('✅ [Electron][open-external] URL opened externally successfully');
+    if (isDev) {
+      console.log('✅ [Electron][open-external] URL opened externally successfully');
+    }
     
     // If it's a Zoom OAuth URL, send reset-to-home
     if (url.includes('zoom/auth')) {
-      console.log('🔄 [Electron][open-external] Zoom auth detected, sending reset-to-home [TRIGGER #1]');
+      if (isDev) {
+        console.log('🔄 [Electron][open-external] Zoom auth detected, sending reset-to-home [TRIGGER #1]');
+      }
       BrowserWindow.getAllWindows().forEach(win => {
-        console.log('📤 [Electron][open-external] Sending reset-to-home to window:', win.id);
+        if (isDev) {
+          console.log('📤 [Electron][open-external] Sending reset-to-home to window:', win.id);
+        }
         win.webContents.send('reset-to-home', { source: 'open-external-ipc', service: 'zoom' });
       });
     }
     
     // If it's a Slack OAuth URL, send reset-to-home
     if (url.includes('slack/auth')) {
-      console.log('🔄 [Electron][open-external] Slack auth detected, sending reset-to-home [TRIGGER #1]');
+      if (isDev) {
+        console.log('🔄 [Electron][open-external] Slack auth detected, sending reset-to-home [TRIGGER #1]');
+      }
       BrowserWindow.getAllWindows().forEach(win => {
-        console.log('📤 [Electron][open-external] Sending reset-to-home to window:', win.id);
+        if (isDev) {
+          console.log('📤 [Electron][open-external] Sending reset-to-home to window:', win.id);
+        }
         win.webContents.send('reset-to-home', { source: 'open-external-ipc', service: 'slack' });
       });
     }
@@ -695,7 +727,9 @@ ipcMain.on('open-external', (event, url) => {
 ipcMain.handle('permissions-check', async () => {
   try {
     const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-    console.log('[Permissions] check: micStatus =', micStatus, '(screen reported as false by design)');
+    if (isDev) {
+      console.log('[Permissions] check: micStatus =', micStatus, '(screen reported as false by design)');
+    }
     const mic = micStatus === 'granted';
     // macOS does not provide a reliable non-interactive API to check ScreenCaptureKit permission.
     // We'll return false here and request explicitly via native module when needed.
@@ -712,7 +746,9 @@ ipcMain.handle('permissions-request-all', async () => {
   try {
     // 1) MICROPHONE FIRST (never triggers app restart)
     const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-    console.log('[Permissions] requestAll: initial micStatus =', micStatus);
+    if (isDev) {
+      console.log('[Permissions] requestAll: initial micStatus =', micStatus);
+    }
     let mic = false;
     let micAction = 'none';
     if (micStatus === 'granted') {
@@ -734,7 +770,9 @@ ipcMain.handle('permissions-request-all', async () => {
 
     // If mic isn't granted, stop here and let the UI guide the user
     if (!mic) {
-      console.log('[Permissions] requestAll: mic not granted, skipping screen request');
+      if (isDev) {
+        console.log('[Permissions] requestAll: mic not granted, skipping screen request');
+      }
       return { mic, screen: false, micStatus, screenStatus: 'skipped', micAction };
     }
 
@@ -753,7 +791,9 @@ ipcMain.handle('permissions-request-all', async () => {
       console.warn('[Permissions] ⚠️ Screen permission request failed:', err?.message || err);
       screen = false;
     }
-    console.log('[Permissions] requestAll result:', { mic, screen, micAction, screenRequested });
+    if (isDev) {
+      console.log('[Permissions] requestAll result:', { mic, screen, micAction, screenRequested });
+    }
     return { mic, screen, micAction, screenRequested };
   } catch (e) {
     console.error('[Permissions] ❌ Error requesting permissions:', e);
@@ -762,7 +802,9 @@ ipcMain.handle('permissions-request-all', async () => {
 });
 
 ipcMain.on('close-call-windows', () => {
-  console.log('IPC: Received close-call-windows');
+  if (isDev) {
+    console.log('IPC: Received close-call-windows');
+  }
   if (mainTipWindowInstance) {
     mainTipWindowInstance.close();
     mainTipWindowInstance = null; // Ensure it's cleared
@@ -776,13 +818,17 @@ ipcMain.on('close-call-windows', () => {
 
 // Handler to start transcription process
 ipcMain.on('connect-whisper', (event) => {
-  console.log('IPC: Received connect-whisper (Start Transcription)');
+  if (isDev) {
+    console.log('IPC: Received connect-whisper (Start Transcription)');
+  }
   isTranscribingActive = true;
   currentAudioBuffer = [];
   isCurrentlyTranscribing = false;
   transcriptionWindow = BrowserWindow.fromWebContents(event.sender);
   if (transcriptionWindow) {
-      console.log('MAIN: Transcription activated for window.');
+      if (isDev) {
+        console.log('MAIN: Transcription activated for window.');
+      }
   } else {
        console.error('IPC connect-whisper: Could not find sender window.');
   }
@@ -817,7 +863,9 @@ ipcMain.on('send-audio-chunk', (_event, float32AudioChunk) => {
 
 
 ipcMain.handle('stop-audio-capture', async () => {
-  console.log('[Main Process] Stopping dual channel recording...');
+  if (isDev) {
+    console.log('[Main Process] Stopping dual channel recording...');
+  }
   
   try {
     // Stop both recordings in parallel
@@ -857,10 +905,12 @@ ipcMain.handle('stop-audio-capture', async () => {
       console.warn('[Main Process] ⚠️ Rename step failed:', e.message);
     }
     
-    console.log('[Main Process] ✅ Dual channel recording stopped successfully');
-    console.log('[Main Process] Session ID:', sessionId);
-    console.log('[Main Process] Prospect file:', prospectFile || 'No file path returned');
-    console.log('[Main Process] User file:', userFile || 'No file path returned');
+    if (isDev) {
+      console.log('[Main Process] ✅ Dual channel recording stopped successfully');
+      console.log('[Main Process] Session ID:', sessionId);
+      console.log('[Main Process] Prospect file:', prospectFile || 'No file path returned');
+      console.log('[Main Process] User file:', userFile || 'No file path returned');
+    }
     
     // Clear session metadata
     const savedSession = activeRecordingSession;
@@ -895,10 +945,14 @@ ipcMain.handle('stop-audio-capture', async () => {
 
 // Compress audio file handler
 ipcMain.handle('compress-audio', async (event, options) => {
-  console.log('[Main Process] Compressing audio file:', options);
+  if (isDev) {
+    console.log('[Main Process] Compressing audio file:', options);
+  }
   try {
     const result = await compressAudioFile(options);
-    console.log('[Main Process] ✅ Audio compression successful:', result);
+    if (isDev) {
+      console.log('[Main Process] ✅ Audio compression successful:', result);
+    }
     return result;
   } catch (error) {
     console.error('[Main Process] ❌ Error compressing audio:', error);
@@ -908,7 +962,9 @@ ipcMain.handle('compress-audio', async (event, options) => {
 
 // Upload file handler - reads file from disk and uploads to server
 ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessToken, fileName, data }) => {
-  console.log('[Main Process] Uploading file:', { filePath, type, parentId, fileName });
+  if (isDev) {
+    console.log('[Main Process] Uploading file:', { filePath, type, parentId, fileName });
+  }
   
   try {
     if (!fs.existsSync(filePath)) {
@@ -922,10 +978,12 @@ ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessTo
     const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
     const fileStats = fs.statSync(filePath);
     
-    console.log('[Main Process] File stats:', {
-      size: fileStats.size,
-      path: filePath
-    });
+    if (isDev) {
+      console.log('[Main Process] File stats:', {
+        size: fileStats.size,
+        path: filePath
+      });
+    }
     
     // Create FormData with file stream
     const formData = new FormData();
@@ -945,7 +1003,9 @@ ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessTo
     
     // Upload to server
     const url = `${baseUrl}/audio/transcript/upload`;
-    console.log('[Main Process] Uploading to:', url);
+    if (isDev) {
+      console.log('[Main Process] Uploading to:', url);
+    }
     
     const response = await axios.post(url, formData, {
       headers: {
@@ -957,7 +1017,9 @@ ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessTo
       timeout: 300000, // 5 minute timeout for large files
     });
     
-    console.log('[Main Process] ✅ File upload successful:', response.data);
+    if (isDev) {
+      console.log('[Main Process] ✅ File upload successful:', response.data);
+    }
     return response.data;
     
   } catch (error) {
@@ -984,11 +1046,13 @@ ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessTo
 
 // Upload both files handler - reads both files from disk and uploads to server together
 ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, accessToken }) => {
-  console.log('[Main Process] Uploading both files:', { 
-    userFile: user?.file, 
-    prospectFile: prospect?.file, 
-    sessionId 
-  });
+  if (isDev) {
+    console.log('[Main Process] Uploading both files:', { 
+      userFile: user?.file, 
+      prospectFile: prospect?.file, 
+      sessionId 
+    });
+  }
   
   try {
     // Validate inputs
@@ -1023,10 +1087,12 @@ ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, a
     const userFileStats = fs.statSync(user.file);
     const prospectFileStats = fs.statSync(prospect.file);
     
-    console.log('[Main Process] File stats:', {
-      userFile: { size: userFileStats.size, path: user.file },
-      prospectFile: { size: prospectFileStats.size, path: prospect.file }
-    });
+    if (isDev) {
+      console.log('[Main Process] File stats:', {
+        userFile: { size: userFileStats.size, path: user.file },
+        prospectFile: { size: prospectFileStats.size, path: prospect.file }
+      });
+    }
     
     // Create FormData with both file streams
     const formData = new FormData();
@@ -1055,7 +1121,9 @@ ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, a
     
     // Upload to server
     const url = `${baseUrl}/audio/transcript/upload`;
-    console.log('[Main Process] Uploading both files to:', url);
+    if (isDev) {
+      console.log('[Main Process] Uploading both files to:', url);
+    }
     
     const response = await axios.post(url, formData, {
       headers: {
@@ -1067,7 +1135,9 @@ ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, a
       timeout: 600000, // 10 minute timeout for large files and processing
     });
     
-    console.log('[Main Process] ✅ Both files upload successful:', response.data);
+    if (isDev) {
+      console.log('[Main Process] ✅ Both files upload successful:', response.data);
+    }
     return response.data;
     
   } catch (error) {
@@ -1093,21 +1163,27 @@ ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, a
 
 // --- Audio Queue Event Handlers ---
 audioQueue.on('queued', (item) => {
-  console.log(`[Audio Queue] Queued new audio chunk: ${item.filePath} (${item.speaker})`);
+  if (isDev) {
+    console.log(`[Audio Queue] Queued new audio chunk: ${item.filePath} (${item.speaker})`);
+  }
   if (dashboardWindowInstance) {
     dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
   }
 });
 
 audioQueue.on('processing', (item) => {
-  console.log(`[Audio Queue] Processing audio chunk: ${item.filePath} (${item.speaker})`);
+  if (isDev) {
+    console.log(`[Audio Queue] Processing audio chunk: ${item.filePath} (${item.speaker})`);
+  }
   if (dashboardWindowInstance) {
     dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
   }
 });
 
 audioQueue.on('completed', (item) => {
-  console.log(`[Audio Queue] Completed processing audio chunk: ${item.filePath} (${item.speaker})`);
+  if (isDev) {
+    console.log(`[Audio Queue] Completed processing audio chunk: ${item.filePath} (${item.speaker})`);
+  }
   if (dashboardWindowInstance) {
     dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
   }
@@ -1121,14 +1197,18 @@ audioQueue.on('failed', (item) => {
 });
 
 audioQueue.on('retrying', (item) => {
-  console.log(`[Audio Queue] Retrying audio chunk (attempt ${item.retries}): ${item.filePath} (${item.speaker})`);
+  if (isDev) {
+    console.log(`[Audio Queue] Retrying audio chunk (attempt ${item.retries}): ${item.filePath} (${item.speaker})`);
+  }
   if (dashboardWindowInstance) {
     dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
   }
 });
 
 audioQueue.on('queueEmpty', () => {
-  console.log('[Audio Queue] Queue is now empty');
+  if (isDev) {
+    console.log('[Audio Queue] Queue is now empty');
+  }
   if (dashboardWindowInstance) {
     dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
   }
@@ -1141,7 +1221,9 @@ ipcMain.handle('get-audio-queue-status', () => {
 
 // Add IPC handler for reloading the page
 ipcMain.handle('reload-page', () => {
-  console.log('🔄 [Electron] Reloading page...');
+  if (isDev) {
+    console.log('🔄 [Electron] Reloading page...');
+  }
   if (dashboardWindowInstance) {
     dashboardWindowInstance.reload();
   }
@@ -1150,18 +1232,18 @@ ipcMain.handle('reload-page', () => {
 
 // Add a simple test handler to verify IPC is working
 ipcMain.handle('test-simple', () => {
-  console.log('🔧 [DEBUG] Simple test handler called');
   return { success: true, message: 'Simple test handler works!' };
 });
-console.log('🔧 [DEBUG] IPC handler "test-simple" registered');
 
 // Native Audio Module IPC Handlers moved to app.whenReady() after module loads
 
 // Handle protocol activation (when app is opened via sayso:// URL)
 app.on('open-url', (event, url) => {
-  console.log('[Electron] open-url event:', url);
+  if (isDev) {
+    console.log('[Electron] open-url event:', url);
+    console.log('Protocol URL received:', url);
+  }
   event.preventDefault();
-  console.log('Protocol URL received:', url);
   
   // Parse the URL to extract parameters
   const urlObj = new URL(url);
@@ -1170,7 +1252,9 @@ app.on('open-url', (event, url) => {
   // Handle zoom callback
   if (urlObj.pathname === '/zoom-callback') {
     const connected = params.get('connected');
-    console.log('Zoom callback received, connected:', connected);
+    if (isDev) {
+      console.log('Zoom callback received, connected:', connected);
+    }
     
     // Send the callback data to the renderer process
     if (dashboardWindowInstance) {
@@ -1181,7 +1265,9 @@ app.on('open-url', (event, url) => {
 
 // Handle second instance (when app is already running and opened via protocol)
 app.on('second-instance', (event, commandLine, workingDirectory) => {
-  console.log('Second instance detected, command line:', commandLine);
+  if (isDev) {
+    console.log('Second instance detected, command line:', commandLine);
+  }
   
   // Focus the existing window
   if (dashboardWindowInstance) {
@@ -1203,19 +1289,11 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  console.log('🔍 [DEBUG] App is ready, setting up logging...');
   setupLogging();
   
   // Load native audio module AFTER logging is set up
-  console.log('🎤 [MAIN] Attempting to load native audio module...');
-  console.log('🎤 [MAIN] __dirname:', __dirname);
-  console.log('🎤 [MAIN] Process type:', process.type);
-  console.log('🎤 [MAIN] App is packaged:', app.isPackaged);
-  
   try {
     nativeAudio = require('./native-audio');
-    console.log('🎤 [MAIN] Native audio module loaded successfully');
-    console.log('🎤 [MAIN] Module exports:', Object.keys(nativeAudio));
     
     // Register IPC handlers AFTER native module is loaded
     // Initialize native audio module
@@ -1306,15 +1384,12 @@ app.whenReady().then(() => {
         return { success: false, error: error.message };
       }
     });
-
-    console.log('🎤 [MAIN] Native audio IPC handlers registered');
   } catch (error) {
     console.error('🎤 [MAIN] Failed to load native audio module');
     console.error('🎤 [MAIN] Error message:', error.message);
     console.error('🎤 [MAIN] Error code:', error.code);
     console.error('🎤 [MAIN] Error stack:', error.stack);
     console.error('🎤 [MAIN] Full error:', error);
-    console.log('⚠️ [MAIN] Native audio module not available - IPC handlers not registered');
   }
   
   // ONLY create the dashboard window initially
@@ -1346,10 +1421,6 @@ app.on('window-all-closed', () => {
   // you would add app.quit() here.
 });
 
-
-console.log("NODE_ENV:", process.env.NODE_ENV);
-console.log("Loaded FRONTEND_BASE_URL:", process.env.VITE_FRONTEND_BASE_URL);
-
 let lastLeaveUrl = null;
 let lastLeaveUrlTime = 0;
 let isProcessingPostCall = false;
@@ -1357,16 +1428,20 @@ let isProcessingPostCall = false;
 // Intercept navigation in ALL windows
 app.on('web-contents-created', (event, contents) => {
   contents.on('will-navigate', (event, url) => {
-    console.log('[Electron][DEBUG] will-navigate triggered:', {
-      url,
-      windowId: contents.id,
-      stack: new Error().stack
-    });
+    if (isDev) {
+      console.log('[Electron][DEBUG] will-navigate triggered:', {
+        url,
+        windowId: contents.id,
+        stack: new Error().stack
+      });
+    }
     if (url.includes('post-call')) {
       const now = Date.now();
       // Enhanced duplicate prevention
       if ((url === lastLeaveUrl && now - lastLeaveUrlTime < 3000) || isProcessingPostCall) {
-        console.log('[Electron][DEBUG] Skipping duplicate leaveUrl open:', url);
+        if (isDev) {
+          console.log('[Electron][DEBUG] Skipping duplicate leaveUrl open:', url);
+        }
         event.preventDefault();
         return;
       }
@@ -1388,22 +1463,30 @@ app.on('web-contents-created', (event, contents) => {
       const meetingId = params.get('meetingId');
       const prospectId = params.get('prospectId');
       const sessionId = params.get('sessionId'); // Added sessionId extraction
-      console.log('[Electron][DEBUG] will-navigate: Extracted params:', { meetingId, prospectId, sessionId });
+      if (isDev) {
+        console.log('[Electron][DEBUG] will-navigate: Extracted params:', { meetingId, prospectId, sessionId });
+      }
             // Send IPC to ALL windows
       BrowserWindow.getAllWindows().forEach(win => {
-        console.log('[Electron][DEBUG] will-navigate: Sending reset-to-home to window:', win.id, { meetingId, prospectId, sessionId });
+        if (isDev) {
+          console.log('[Electron][DEBUG] will-navigate: Sending reset-to-home to window:', win.id, { meetingId, prospectId, sessionId });
+        }
         win.webContents.send('reset-to-home', { meetingId, prospectId, sessionId });
       });
     }
   });
 
   contents.setWindowOpenHandler(({ url }) => {
-    console.log('[Electron][setWindowOpenHandler] Attempt to open URL:', url);
+    if (isDev) {
+      console.log('[Electron][setWindowOpenHandler] Attempt to open URL:', url);
+    }
     if (url.includes('post-call')) {
       const now = Date.now();
       // Enhanced duplicate prevention
       if ((url === lastLeaveUrl && now - lastLeaveUrlTime < 3000) || isProcessingPostCall) {
-        console.log('[Electron][DEBUG] Skipping duplicate post-call open in setWindowOpenHandler:', url);
+        if (isDev) {
+          console.log('[Electron][DEBUG] Skipping duplicate post-call open in setWindowOpenHandler:', url);
+        }
         return { action: 'deny' };
       }
       
@@ -1423,9 +1506,13 @@ app.on('web-contents-created', (event, contents) => {
       const meetingId = params.get('meetingId');
       const prospectId = params.get('prospectId');
       const sessionId = params.get('sessionId'); // Added sessionId extraction
-      console.log('[Electron][setWindowOpenHandler] Extracted params:', { meetingId, prospectId, sessionId });
+      if (isDev) {
+        console.log('[Electron][setWindowOpenHandler] Extracted params:', { meetingId, prospectId, sessionId });
+      }
       BrowserWindow.getAllWindows().forEach(win => {
-        console.log('[Electron][setWindowOpenHandler] Sending reset-to-home to window:', win.id, { meetingId, prospectId, sessionId });
+        if (isDev) {
+          console.log('[Electron][setWindowOpenHandler] Sending reset-to-home to window:', win.id, { meetingId, prospectId, sessionId });
+        }
         win.webContents.send('reset-to-home', { meetingId, prospectId, sessionId });
       });
       return { action: 'deny' };
@@ -1434,32 +1521,42 @@ app.on('web-contents-created', (event, contents) => {
   });
 
   contents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
-    console.log('[Electron][webRequest.onBeforeRequest] URL:', details.url);
+    if (isDev) {
+      console.log('[Electron][webRequest.onBeforeRequest] URL:', details.url);
+    }
     callback({});
   });
 });
 
 // Handler for opening coach window
 ipcMain.on('open-coach-window', () => {
-  console.log('IPC: Received open-coach-window request');
-  console.log('IPC: Current global.coachWindow state:', !!global.coachWindow);
+  if (isDev) {
+    console.log('IPC: Received open-coach-window request');
+    console.log('IPC: Current global.coachWindow state:', !!global.coachWindow);
+  }
   createCoachWindow();
 });
 
 // --- Coach Window (Sales Coach Interface) ---
 const createCoachWindow = () => {
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-    console.log('Coach window already exists and is not destroyed, returning...');
+    if (isDev) {
+      console.log('Coach window already exists and is not destroyed, returning...');
+    }
     return;
   }
   
   // Clean up any stale reference
   if (global.coachWindow && global.coachWindow.isDestroyed()) {
-    console.log('Cleaning up destroyed coach window reference');
+    if (isDev) {
+      console.log('Cleaning up destroyed coach window reference');
+    }
     global.coachWindow = null;
   }
   
-  console.log('Creating coach window...');
+  if (isDev) {
+    console.log('Creating coach window...');
+  }
   
   const preloadScriptPath = path.join(__dirname, 'preload.js');
   
@@ -1481,8 +1578,10 @@ const createCoachWindow = () => {
     },
   });
 
-  console.log('Coach window created with dimensions:', windowConfig.width, 'x', windowConfig.height);
-  console.log('Actual window size:', coachWindow.getSize());
+  if (isDev) {
+    console.log('Coach window created with dimensions:', windowConfig.width, 'x', windowConfig.height);
+    console.log('Actual window size:', coachWindow.getSize());
+  }
 
   // Store reference for IPC communication
   global.coachWindow = coachWindow;
@@ -1498,7 +1597,9 @@ const createCoachWindow = () => {
   if (dashboardWindowInstance && !dashboardWindowInstance.isDestroyed()) {
     // Restore main window's frame and visibility properties
     dashboardWindowInstance.setVisibleOnAllWorkspaces(false);
-    console.log('Main window visibility properties restored');
+    if (isDev) {
+      console.log('Main window visibility properties restored');
+    }
   }
   
   if (isDev) {
@@ -1506,7 +1607,9 @@ const createCoachWindow = () => {
   }
 
   coachWindow.on('closed', () => {
-    console.log('Coach window closed event fired, cleaning up reference');
+    if (isDev) {
+      console.log('Coach window closed event fired, cleaning up reference');
+    }
     global.coachWindow = null;
     
     // Notify the main window that the coach window has closed
@@ -1515,25 +1618,35 @@ const createCoachWindow = () => {
     }
   });
 
-  console.log('Coach window created successfully at position:', { x: windowConfig.x, y: windowConfig.y });
+  if (isDev) {
+    console.log('Coach window created successfully at position:', { x: windowConfig.x, y: windowConfig.y });
+  }
 };
 
 // Update the resize handler to use WindowManager
 ipcMain.on('resize-coach-window', (event, width, height) => {
-  console.log(`IPC: Received resize-coach-window request: ${width}x${height}`);
+  if (isDev) {
+    console.log(`IPC: Received resize-coach-window request: ${width}x${height}`);
+  }
   WindowManager.resizeCoachWindow(global.coachWindow, width, height);
 });
 
 // Add this handler after the other IPC handlers around line 850
 ipcMain.on('close-coach-window', () => {
-  console.log('IPC: Received close-coach-window request');
+  if (isDev) {
+    console.log('IPC: Received close-coach-window request');
+  }
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-    console.log('Closing coach window...');
+    if (isDev) {
+      console.log('Closing coach window...');
+    }
     global.coachWindow.close();
     // Immediately clean up the reference since we're closing it
     global.coachWindow = null;
   } else {
-    console.log('No valid coach window to close');
+    if (isDev) {
+      console.log('No valid coach window to close');
+    }
     global.coachWindow = null; // Clean up stale reference
   }
 });

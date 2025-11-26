@@ -1,6 +1,7 @@
 #include <nan.h>
 #include <node.h>
 #include <v8.h>
+#include <uv.h>
 #include <CoreAudio/CoreAudio.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <Foundation/Foundation.h>
@@ -12,6 +13,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstdio>
+#include <vector>
 
 using namespace v8;
 
@@ -33,6 +35,49 @@ static AudioStreamBasicDescription g_sourceFormat = {0};
 static AudioStreamBasicDescription g_fileFormat = {0};
 // Track the precise moment when the first audio buffer is received (ms since epoch)
 static double g_actualStartMs = 0.0;
+
+// Global streaming callback for real-time audio chunks
+static Nan::Persistent<v8::Function> g_streamingCallback;
+static uv_async_t* g_streamingAsyncHandle = nullptr;
+
+// Structure to pass audio data to async callback
+struct StreamingData {
+    std::vector<char> audioData;
+    double sampleRate;
+    int channels;
+    int bitDepth;
+    bool isFloat;
+};
+
+// Async callback handler (runs on main thread)
+static void StreamingAsyncCallback(uv_async_t* handle) {
+    Nan::HandleScope scope;
+    
+    // Get the data from the handle
+    StreamingData* data = static_cast<StreamingData*>(handle->data);
+    if (!data || g_streamingCallback.IsEmpty()) {
+        return;
+    }
+    
+    // Create Buffer from audio data
+    Local<Object> buffer = Nan::CopyBuffer(data->audioData.data(), data->audioData.size()).ToLocalChecked();
+    
+    // Create format object
+    Local<Object> format = Nan::New<Object>();
+    Nan::Set(format, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(data->sampleRate));
+    Nan::Set(format, Nan::New("channels").ToLocalChecked(), Nan::New<Integer>(data->channels));
+    Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(data->bitDepth));
+    Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(data->isFloat));
+    
+    // Invoke callback
+    Local<Function> callback = Nan::New(g_streamingCallback);
+    Local<Value> argv[2] = {buffer, format};
+    Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
+    
+    // Clean up
+    delete data;
+    handle->data = nullptr;
+}
 
 // Audio conversion function for 32-bit integer to float
 static bool convertInt32ToFloat(const char* sourceData, size_t sourceSize, char* destData, size_t& destSize) {
@@ -596,6 +641,28 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
     if (++sampleCount % 1000 == 0) {
         NSLog(@"🎤 [NATIVE] Recording... (%d samples written)", sampleCount);
     }
+    
+    // Invoke streaming callback if set (for real-time streaming)
+    if (!g_streamingCallback.IsEmpty() && g_streamingAsyncHandle) {
+        // Create data structure with audio data
+        StreamingData* data = new StreamingData();
+        data->audioData.assign(audioDataToWrite, audioDataToWrite + bytesToWrite);
+        data->sampleRate = g_audioFormat.mSampleRate;
+        data->channels = g_audioFormat.mChannelsPerFrame;
+        data->bitDepth = g_audioFormat.mBitsPerChannel;
+        data->isFloat = (g_audioFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0;
+        
+        // Set data and trigger async callback (will run on main thread)
+        g_streamingAsyncHandle->data = data;
+        uv_async_send(g_streamingAsyncHandle);
+        
+        // Log first few invocations for debugging
+        if (callbackCount <= 5) {
+            NSLog(@"📡 [NATIVE] Streaming callback queued: %u bytes, %.0fHz, %dch, %dbit, float=%d", 
+                  bytesToWrite, g_audioFormat.mSampleRate, g_audioFormat.mChannelsPerFrame, 
+                  g_audioFormat.mBitsPerChannel, data->isFloat ? 1 : 0);
+        }
+    }
 }
 
 // ScreenCaptureKit delegate
@@ -823,8 +890,20 @@ NAN_METHOD(StopSystemAudioCapture) {
         }
         g_isCapturing = false;
         
-        // Close audio file when stopping capture
-        closeAudioFile();
+    // Close audio file when stopping capture
+    closeAudioFile();
+    
+    // Clear streaming callback when stopping
+    g_streamingCallback.Reset();
+    
+    // Clean up async handle
+    if (g_streamingAsyncHandle) {
+        uv_async_t* handleToDelete = g_streamingAsyncHandle;
+        g_streamingAsyncHandle = nullptr;
+        uv_close((uv_handle_t*)handleToDelete, [](uv_handle_t* handle) {
+            delete reinterpret_cast<uv_async_t*>(handle);
+        });
+    }
     }];
     
     // Return result object with success, file path and actual start time
@@ -847,6 +926,44 @@ NAN_METHOD(StopSystemAudioCapture) {
     }
     
     info.GetReturnValue().Set(result);
+}
+
+// Set streaming callback for real-time audio chunks
+NAN_METHOD(SetStreamingCallback) {
+    if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
+        // Clear callback
+        g_streamingCallback.Reset();
+        
+        // Clean up async handle
+        if (g_streamingAsyncHandle) {
+            uv_async_t* handleToDelete = g_streamingAsyncHandle;
+            g_streamingAsyncHandle = nullptr;
+            uv_close((uv_handle_t*)handleToDelete, [](uv_handle_t* handle) {
+                delete reinterpret_cast<uv_async_t*>(handle);
+            });
+        }
+        
+        NSLog(@"🎤 [NATIVE] Streaming callback cleared");
+        info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
+        return;
+    }
+    
+    if (!info[0]->IsFunction()) {
+        Nan::ThrowTypeError("Callback must be a function");
+        return;
+    }
+    
+    // Store persistent reference to callback
+    g_streamingCallback.Reset(Nan::To<Function>(info[0]).ToLocalChecked());
+    
+    // Create async handle if it doesn't exist
+    if (!g_streamingAsyncHandle) {
+        g_streamingAsyncHandle = new uv_async_t();
+        uv_async_init(uv_default_loop(), g_streamingAsyncHandle, StreamingAsyncCallback);
+    }
+    
+    NSLog(@"🎤 [NATIVE] Streaming callback set");
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
 // Check if system audio capture is active
@@ -1034,6 +1151,9 @@ NAN_MODULE_INIT(Init) {
     
     Nan::Set(target, Nan::New("stopSystemAudioCapture").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(StopSystemAudioCapture)).ToLocalChecked());
+    
+    Nan::Set(target, Nan::New("setStreamingCallback").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(SetStreamingCallback)).ToLocalChecked());
     
     Nan::Set(target, Nan::New("isSystemAudioCaptureActive").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(IsSystemAudioCaptureActive)).ToLocalChecked());
