@@ -4,17 +4,21 @@ import '../styles/StreamingTest.css';
 import useCue from '../coachWindow/hooks/useCue';
 
 export default function StreamingTest() {
-  const [isStreaming, setIsStreaming] = useState(false);
   const [status, setStatus] = useState({
     user: 'disconnected',
-    prospect: 'disconnected',
-    sessionId: null
+    prospect: 'disconnected'
   });
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
   const [token, setToken] = useState(null);
 
-  const { handleStartCue } = useCue();
+  const { 
+    handleStartCue, 
+    handleStopCue, 
+    isCueActive, 
+    sessionId, 
+    isLoading 
+  } = useCue();
 
   // Add log helper
   const addLog = useCallback((message, type = 'info') => {
@@ -24,14 +28,6 @@ export default function StreamingTest() {
     console.log(`[${timestamp}] ${message}`);
   }, []);
 
-  const testActualCue = async () => {
-    try {
-      const response = await handleStartCue();
-      console.log('response', response);
-    } catch (error) {
-      console.error('Error testing actual cue:', error);
-    }
-  }
 
   // Get token on mount
   useEffect(() => {
@@ -52,22 +48,22 @@ export default function StreamingTest() {
     getToken();
   }, [addLog]);
 
-  // Listen for streaming events
+  // Listen for cue events
   useEffect(() => {
-    if (!window.electron?.streaming) {
-      addLog('⚠️ Streaming API not available', 'warning');
+    if (!window.electron?.cue) {
+      addLog('⚠️ Cue API not available', 'warning');
       return;
     }
 
-    // Listen for status updates
-    const unsubscribeStatus = window.electron.streaming.onStatus((data) => {
-      addLog(`📡 Status update: ${JSON.stringify(data)}`, 'info');
+    // Listen for status updates (when streams connect)
+    const unsubscribeStatus = window.electron.cue.onStatus((data) => {
+      addLog(`📡 Cue status update: ${JSON.stringify(data)}`, 'info');
       setStatus(prev => ({ ...prev, ...data }));
     });
 
     // Listen for errors
-    const unsubscribeError = window.electron.streaming.onError((data) => {
-      addLog(`❌ Streaming error [${data.stream}]: ${data.error}`, 'error');
+    const unsubscribeError = window.electron.cue.onError((data) => {
+      addLog(`❌ Cue error [${data.stream}]: ${data.error}`, 'error');
       setError(`${data.stream}: ${data.error}`);
     });
 
@@ -77,7 +73,7 @@ export default function StreamingTest() {
     };
   }, [addLog]);
 
-  // Start streaming
+  // Start cue streaming
   const handleStart = useCallback(async () => {
     if (!token) {
       addLog('❌ No token available. Please log in.', 'error');
@@ -85,82 +81,63 @@ export default function StreamingTest() {
       return;
     }
 
-    if (!window.electron?.streaming) {
-      addLog('❌ Streaming API not available', 'error');
-      setError('Streaming API not available');
+    if (!window.electron?.cue) {
+      addLog('❌ Cue API not available', 'error');
+      setError('Cue API not available');
       return;
     }
 
     try {
-      addLog('🚀 Starting audio streaming...', 'info');
+      addLog('🚀 Starting cue streaming...', 'info');
       setError(null);
       
-      const result = await window.electron.streaming.start({ token });
+      await handleStartCue();
       
-      if (result.success) {
-        setIsStreaming(true);
-        setStatus(prev => ({ ...prev, sessionId: result.sessionId }));
-        addLog(`✅ Streaming started successfully! SessionId: ${result.sessionId}`, 'success');
-      } else {
-        throw new Error(result.error || 'Failed to start streaming');
-      }
+      addLog('✅ Cue started successfully!', 'success');
     } catch (err) {
-      addLog(`❌ Failed to start streaming: ${err.message}`, 'error');
+      addLog(`❌ Failed to start cue: ${err.message}`, 'error');
       setError(err.message);
-      setIsStreaming(false);
     }
-  }, [token, addLog]);
+  }, [token, addLog, handleStartCue]);
 
-  // Stop streaming
+  // Stop cue streaming
   const handleStop = useCallback(async () => {
-    if (!window.electron?.streaming) {
-      addLog('❌ Streaming API not available', 'error');
+    if (!window.electron?.cue) {
+      addLog('❌ Cue API not available', 'error');
+      return;
+    }
+
+    if (!sessionId) {
+      addLog('❌ No active session to stop', 'error');
       return;
     }
 
     try {
-      addLog('🛑 Stopping audio streaming...', 'info');
+      addLog('🛑 Stopping cue streaming...', 'info');
       
-      const result = await window.electron.streaming.stop({ sendTermination: true });
+      await handleStopCue(sessionId);
       
-      if (result.success) {
-        setIsStreaming(false);
-        setStatus({
-          user: 'disconnected',
-          prospect: 'disconnected',
-          sessionId: null
-        });
-        addLog('✅ Streaming stopped successfully', 'success');
-      } else {
-        throw new Error(result.error || 'Failed to stop streaming');
-      }
+      setStatus({
+        user: 'disconnected',
+        prospect: 'disconnected'
+      });
+      addLog('✅ Cue stopped successfully', 'success');
     } catch (err) {
-      addLog(`❌ Failed to stop streaming: ${err.message}`, 'error');
+      addLog(`❌ Failed to stop cue: ${err.message}`, 'error');
       setError(err.message);
     }
-  }, [addLog]);
+  }, [addLog, handleStopCue, sessionId]);
 
-  // Get status
-  const handleGetStatus = useCallback(async () => {
-    if (!window.electron?.streaming) {
-      addLog('❌ Streaming API not available', 'error');
-      return;
-    }
-
-    try {
-      const currentStatus = await window.electron.streaming.getStatus();
-      addLog(`📊 Status: ${JSON.stringify(currentStatus)}`, 'info');
-      setStatus(prev => ({
-        ...prev,
-        user: currentStatus.userState || prev.user,
-        prospect: currentStatus.prospectState || prev.prospect,
-        sessionId: currentStatus.sessionId || prev.sessionId
-      }));
-      setIsStreaming(currentStatus.isStreaming || false);
-    } catch (err) {
-      addLog(`❌ Failed to get status: ${err.message}`, 'error');
-    }
-  }, [addLog]);
+  // Get status (shows current hook state)
+  const handleGetStatus = useCallback(() => {
+    const currentStatus = {
+      isCueActive,
+      sessionId,
+      isLoading,
+      streamStatus: status
+    };
+    addLog(`📊 Current Status: ${JSON.stringify(currentStatus, null, 2)}`, 'info');
+  }, [addLog, isCueActive, sessionId, isLoading, status]);
 
   // Clear logs
   const handleClearLogs = useCallback(() => {
@@ -179,15 +156,20 @@ export default function StreamingTest() {
           <div className={`status-indicator ${status.prospect}`}>
             Prospect: {status.prospect}
           </div>
-          <div className={`status-indicator ${isStreaming ? 'streaming' : 'idle'}`}>
-            {isStreaming ? '🟢 Streaming' : '⚪ Idle'}
+          <div className={`status-indicator ${isCueActive ? 'streaming' : 'idle'}`}>
+            {isCueActive ? '🟢 Cue Active' : '⚪ Idle'}
           </div>
+          {isLoading && (
+            <div className="status-indicator loading">
+              ⏳ Loading...
+            </div>
+          )}
         </div>
       </div>
 
-      {status.sessionId && (
+      {sessionId && (
         <div className="session-info">
-          <strong>Session ID:</strong> {status.sessionId}
+          <strong>Session ID:</strong> {sessionId}
         </div>
       )}
 
@@ -199,19 +181,18 @@ export default function StreamingTest() {
 
       <div className="controls">
         <button 
-          // onClick={handleStart} 
-          onClick={() => testActualCue()}
-          disabled={isStreaming || !token}
+          onClick={handleStart} 
+          disabled={isCueActive || isLoading || !token}
           className="btn-start"
         >
-          ▶️ Start Streaming
+          ▶️ Start Cue
         </button>
         <button 
           onClick={handleStop} 
-          disabled={!isStreaming}
+          disabled={!isCueActive || isLoading}
           className="btn-stop"
         >
-          ⏹️ Stop Streaming
+          ⏹️ Stop Cue
         </button>
         <button 
           onClick={handleGetStatus}

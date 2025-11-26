@@ -74,7 +74,6 @@ class AudioChunkBuffer {
     // Set format on first chunk
     if (!this.format) {
       this.format = { ...format };
-      console.log(`🎵 [AudioBuffer:${this.speaker}] Format set: ${format.sampleRate}Hz, ${format.channels}ch, ${format.bitDepth}bit`);
     } else {
       // Warn if format changes (but keep using first format)
       const formatChanged = 
@@ -157,10 +156,6 @@ class AudioChunkBuffer {
 
     // Update buffer with remaining data
     this.buffer = remainingBuffer;
-    
-    if (readyChunks.length > 0) {
-      console.log(`📦 [AudioBuffer:${this.speaker}] Extracted ${readyChunks.length} chunk(s), remaining: ${calculateDurationMs(this.buffer.length, this.format).toFixed(0)}ms`);
-    }
 
     return readyChunks;
   }

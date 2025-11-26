@@ -1,8 +1,7 @@
 import { useState } from "react";
 
 import apiClient from "../../config/axios";
-
-import { useAuth } from "../../context/AuthContext";
+import { supabase } from "../../config/supabase";
 
 export default function useCue() {
     
@@ -12,10 +11,6 @@ export default function useCue() {
     const [isCueActive, setIsCueActive] = useState(false);
     const [scenario, setScenario] = useState('buyer');
     const [isLoading, setIsLoading] = useState(false);
-
-    //CONTEXT
-    const { globalUser } = useAuth();
-    console.log('globalUser', globalUser);
 
     //FUNCTIONS
     const handleStartCue =async () => {
@@ -35,6 +30,7 @@ export default function useCue() {
                 throw new Error('Failed to create new cue session');
             }
             setSessionId(sessionResponse.sessionId);
+            await startCueStreaming(sessionResponse.sessionId);
             setIsCueActive(true);
         } catch (error) {
             console.error('Error starting cue:', error);
@@ -81,13 +77,44 @@ export default function useCue() {
             if(!sessionId) {
                 throw new Error('Session ID is required');
             }
-            // TO DO: STOP THE CUE SESSION ENDPOINT, RESET STATES
+            await window.electron.cue.stop();
         } catch (error) {
             console.error('Error stopping cue:', error);
             throw error;
         } finally {
             resetCueStates();
             setIsLoading(false);
+        }
+    }
+
+    const startCueStreaming = async (sessionId) => {
+        try {
+            if(!sessionId) {
+                throw new Error('Session ID is required');
+            }
+            
+            if (!window.electron?.cue) {
+                throw new Error('Electron cue API not available');
+            }
+            
+            const { data: {session}} = await supabase.auth.getSession();
+            
+            if(!session || !session.access_token) {
+                throw new Error('No session found');
+            }
+
+            const result = await window.electron.cue.start({ 
+                sessionId, 
+                token: session.access_token 
+            });
+
+            if(!result || !result.success) {
+                throw new Error('Failed to start cue streaming');
+            }
+            return result;
+        } catch (error) {
+            console.error('Error starting cue streaming:', error);
+            throw error;
         }
     }
 

@@ -47,13 +47,13 @@ export default function Sidebar() {
                             <p>My Prospects</p>
                         </div>
                     </NavLink>
-                    {/* <NavLink to="/streaming-test" >
+                    <NavLink to="/streaming-test" >
                         <div className="outline"></div>
                         <div className='sidebar-nav-item'>
                             <LuRadio />
                             <p>Streaming Test</p>
                         </div>
-                    </NavLink> */}
+                    </NavLink>
                 </div>
             </div>
             <div className="sidebar-footer">

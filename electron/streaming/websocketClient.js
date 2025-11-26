@@ -113,7 +113,6 @@ class WebSocketClient extends EventEmitter {
       url.searchParams.set('sessionId', this.sessionId);
       
       const wsUrl = url.toString();
-      console.log(`🔌 [WebSocketClient:${this.speaker}] Connecting to ${this.endpoint}...`);
       
       try {
         this.ws = new WebSocket(wsUrl);
@@ -133,7 +132,6 @@ class WebSocketClient extends EventEmitter {
           clearTimeout(timeout);
           this.state = 'connected';
           this.reconnectAttempts = 0; // Reset on successful connection
-          console.log(`✅ [WebSocketClient:${this.speaker}] Connected to ${this.endpoint}`);
           this.emit('connected');
           resolve();
         });
@@ -162,8 +160,6 @@ class WebSocketClient extends EventEmitter {
         // Connection closed
         this.ws.on('close', (code, reason) => {
           clearTimeout(timeout);
-          const reasonStr = reason ? reason.toString() : 'Unknown';
-          console.log(`🔌 [WebSocketClient:${this.speaker}] Connection closed: ${code} - ${reasonStr}`);
           this._handleDisconnect();
         });
         
@@ -254,7 +250,6 @@ class WebSocketClient extends EventEmitter {
     
     this.state = 'disconnected';
     this.reconnectAttempts = 0;
-    console.log(`🔌 [WebSocketClient:${this.speaker}] Disconnected`);
     this.emit('disconnected');
   }
 

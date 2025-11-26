@@ -75,14 +75,11 @@ class AudioStreamer {
         this.sessionId = await this._getSessionId(token);
       }
 
-      console.log(`🚀 [AudioStreamer] Starting streaming with sessionId: ${this.sessionId}`);
-
       // Create WebSocket clients
       this.userWebSocket = new WebSocketClient('user', STREAMING_ENDPOINTS.userStream, {
         token: this.token,
         sessionId: this.sessionId,
         onConnected: () => {
-          console.log('✅ [AudioStreamer] User stream connected');
           if (this.onUserConnected) this.onUserConnected();
         },
         onError: (error) => {
@@ -95,7 +92,6 @@ class AudioStreamer {
         token: this.token,
         sessionId: this.sessionId,
         onConnected: () => {
-          console.log('✅ [AudioStreamer] Prospect stream connected');
           if (this.onProspectConnected) this.onProspectConnected();
         },
         onError: (error) => {
@@ -113,8 +109,6 @@ class AudioStreamer {
       this.isStreaming = true;
       this.userSendFailures = 0;
       this.prospectSendFailures = 0;
-      
-      console.log('✅ [AudioStreamer] Streaming started successfully');
 
     } catch (error) {
       console.error('❌ [AudioStreamer] Failed to start streaming:', error);
@@ -135,7 +129,6 @@ class AudioStreamer {
     try {
       // TODO: Replace with actual endpoint when backend is ready
       // For now, return a temporary sessionId
-      console.log('⚠️ [AudioStreamer] Session endpoint not implemented, using temporary sessionId');
       return `temp-session-${Date.now()}`;
       
       // When backend is ready, uncomment this:
@@ -299,14 +292,11 @@ class AudioStreamer {
       return;
     }
 
-    console.log('🛑 [AudioStreamer] Stopping streaming...');
-
     try {
       // Send termination messages if requested
       if (sendTermination) {
         // TODO: Send termination message to backend when supported
         // For now, just disconnect
-        console.log('📤 [AudioStreamer] Termination message not yet implemented');
       }
 
       // Disconnect WebSockets (don't flush buffers per user request)
@@ -326,8 +316,6 @@ class AudioStreamer {
       this.isStreaming = false;
       this.userSendFailures = 0;
       this.prospectSendFailures = 0;
-
-      console.log('✅ [AudioStreamer] Streaming stopped');
 
     } catch (error) {
       console.error('❌ [AudioStreamer] Error stopping streaming:', error);
