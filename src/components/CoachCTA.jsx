@@ -6,11 +6,16 @@ import { useCoachWindowContext } from '../context/CoachWindowContext';
 export default function CoachCTA({sidebar, active }) {
     const { isCoachWindowOpen, closeCoachWindow, openCoachWindow } = useCoachWindowContext();
 
-    function handleOnPressStartCoach() {
+    async function handleOnPressStartCoach() {
         if (isCoachWindowOpen) {
-            closeCoachWindow()
+            closeCoachWindow();
         } else {
-            openCoachWindow()
+            try {
+                await openCoachWindow()
+            } catch (error) {
+                console.error('Error in handleOnPressStartCoach:', error);
+                // We could maybe show a toast
+            }
         }
     }
 

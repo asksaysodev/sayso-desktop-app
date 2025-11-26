@@ -6,6 +6,9 @@ import { useAudioUpload } from '../coachWindow/hooks/useAudioUpload';
 
 const CoachWindowContext = createContext();
 
+let openWindowCheckInterval = null;
+let openWindowTimeoutId = null;
+
 export const CoachWindowProvider = ({ children }) => {
 
     //STATE
@@ -106,31 +109,38 @@ export const CoachWindowProvider = ({ children }) => {
                 return false;
             };
             
-            if (!tryOpen()) {
-                console.log('⏳ [CoachWindowContext] Electron not ready, retrying...');
-                const checkInterval = setInterval(() => {
-                    if (tryOpen()) {
-                        clearInterval(checkInterval);
-                        console.log('✅ [CoachWindowContext] Coach window opened');
-                        resolve(true);
-                    }
-                }, 50);
-                
-                setTimeout(() => {
-                    clearInterval(checkInterval);
-                    if (!window.electron?.ipcRenderer) {
-                        console.error('❌ [CoachWindowContext] Electron unavailable after timeout');
-                        updateCoachWindowOpenStates(false);
-                        reject(new Error('Electron not available'));
-                    }
-                }, 1000);
-            } else {
+            if (tryOpen()) {
                 resolve(true);
+                return;
             }
+
+            console.log('⏳ [CoachWindowContext] Electron not ready, retrying...');
+            clearInterval(openWindowCheckInterval);
+            clearTimeout(openWindowTimeoutId);
+            
+            openWindowCheckInterval = setInterval(() => {
+                if (tryOpen()) {
+                    clearInterval(openWindowCheckInterval);
+                    clearTimeout(openWindowTimeoutId);
+                    console.log('[CoachWindowContext] Coach window opened');
+                    resolve(true);
+                }
+            }, 50);
+            
+            openWindowTimeoutId = setTimeout(() => {
+                clearInterval(openWindowCheckInterval);
+                if (!window.electron?.ipcRenderer) {
+                    console.error('[CoachWindowContext] Electron unavailable after timeout');
+                    updateCoachWindowOpenStates(false);
+                    reject(new Error('Electron not available - timeout after 1s'));
+                }
+            }, 1000);
         });
     };
 
     const closeCoachWindow = () => {
+        clearInterval(openWindowCheckInterval);
+        clearTimeout(openWindowTimeoutId);
 
         if (window.electron && window.electron.ipcRenderer) {
             window.electron.ipcRenderer.send('close-coach-window');
