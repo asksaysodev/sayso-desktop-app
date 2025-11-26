@@ -3,8 +3,6 @@ import { useState } from "react";
 import apiClient from "../../config/axios";
 import { supabase } from "../../config/supabase";
 
-import { useAuth } from "../../context/AuthContext";
-
 export default function useCue() {
     
     //STATE
@@ -13,10 +11,6 @@ export default function useCue() {
     const [isCueActive, setIsCueActive] = useState(false);
     const [scenario, setScenario] = useState('buyer');
     const [isLoading, setIsLoading] = useState(false);
-
-    //CONTEXT
-    const { globalUser } = useAuth();
-    console.log('globalUser', globalUser);
 
     //FUNCTIONS
     const handleStartCue =async () => {
