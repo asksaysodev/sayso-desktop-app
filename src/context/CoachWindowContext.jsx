@@ -11,14 +11,16 @@ export const CoachWindowProvider = ({ children }) => {
     //STATE
     const [isCoachWindowOpen, setIsCoachWindowOpen] = useState(false)
     const [prospects, setProspects] = useState([])
+    const [selectedProspect, setSelectedProspect] = useState(null)
     const [prospectId, setProspectId] = useState(null)
     const [iceBreaker, setIceBreaker] = useState(null)
     const [globalUser, setGlobalUser] = useState(null)
     const [isCoachActive, setIsCoachActive] = useState(false)
     const [isCoachLoading, setIsCoachLoading] = useState(false)
+    const [coachFeature, setCoachFeature] = useState('cue') // 'cue' or 'recall' FEATURE_FLAG_RECALL || FEATURE_FLAG_CUE_REAL_ESTATE
     const [callDurationInSeconds, setCallDurationInSeconds] = useState(0)
     const [sessionData, setSessionData] = useState(null)
-    const [signals, setSignals] = useState([]);
+    const [signals, setSignals] = useState([])
 
     //HOOKS
     const { getProspects } = useCoach()
@@ -232,6 +234,8 @@ export const CoachWindowProvider = ({ children }) => {
 
     const value = {
         prospects,
+        selectedProspect,
+        setSelectedProspect,
         setProspectId,
         iceBreaker,
         isCoachActive,
@@ -254,6 +258,8 @@ export const CoachWindowProvider = ({ children }) => {
         isCompressing,
         isUploading,
         resetCoach,
+        coachFeature,
+        setCoachFeature,
     }
 
     return (
@@ -266,6 +272,7 @@ export const CoachWindowProvider = ({ children }) => {
 export const useCoachWindowContext = () => {
   const context = useContext(CoachWindowContext);
   if (!context) {
+    console.log('useCoachWindowContext must be used within CoachWindowProvider')
     throw new Error('useCoachWindowContext must be used within CoachWindowProvider');
   }
   return context;

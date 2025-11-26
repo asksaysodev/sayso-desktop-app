@@ -1,31 +1,42 @@
-import { FaPause, FaStop } from "react-icons/fa6";
 import { LuLoader } from "react-icons/lu";
+import CoachActiveButtons from "./CoachActiveButtons";
+import { useCoachWindowContext } from "../../context/CoachWindowContext"; 
 
-// Function to format seconds into h:mm:ss format
-const formatDuration = (totalSeconds) => {
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
+export default function CoachButtons() {
+    const { 
+        isCoachLoading,
+        isCoachActive,
+        startDualChannelRecording,
+        handleStopRecording,
+        selectedProspect,
+        coachFeature,
+        callDurationInSeconds
+    } = useCoachWindowContext();
+
+    const handleCoach = async () => {
+        try {
+            if (isCoachActive) {
+                await handleStopRecording()
+            } else {
+                if (!selectedProspect || isCoachLoading) return;
     
-    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-};
+                await startDualChannelRecording(selectedProspect.id);
+            }
+        } catch (error) {
+            console.error('Error in handleCoach:', error);
+            // We could maybe show a toast
+        }
+    }
 
-export default function CoachButtons({ isCoachActive, handleCoach, callDurationInSeconds, isCoachLoading }) {
     return (
         <div className="coach-buttons-container">
             {
                 isCoachActive ? (
-                    <>
-                        {/* <button className="coach-button pause" onClick={handleCoach}>
-                           <FaPause/>
-                        </button> */}
-                        <button className="coach-button stop" onClick={handleCoach}>
-                            <FaStop/>
-                        </button>
-                        <div className="call-duration-container">
-                            <p className="call-duration">{formatDuration(callDurationInSeconds)}</p>
-                        </div>
-                    </>
+                    <CoachActiveButtons
+                        coachFeature={coachFeature} 
+                        handleCoach={handleCoach} 
+                        callDurationInSeconds={callDurationInSeconds} 
+                    />
                 ) : (
                     <>
                         <button className={`start-coach-button ${isCoachLoading ? 'loading' : ''}`} onClick={handleCoach}>
@@ -50,8 +61,6 @@ export default function CoachButtons({ isCoachActive, handleCoach, callDurationI
                                 </g>
                             </svg>
                             <p className={`${isCoachLoading ? 'hidden' : ''}`}>Launch</p>
-                                
-                        
                         </button>
                     </>
                 )

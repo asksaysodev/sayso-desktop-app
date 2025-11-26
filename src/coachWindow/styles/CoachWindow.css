@@ -427,6 +427,10 @@ body {
     background-color: var(--sayso-destructive);
 }
 
+.coach-window .coach-button.reset{
+    background-color: var(--sayso-warning);
+}
+
 .coach-buttons-container .start-coach-button{
     height: 32px;
     border: none;

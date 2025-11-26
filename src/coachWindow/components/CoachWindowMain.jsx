@@ -15,13 +15,10 @@ export default function CoachWindowMain() {
     const containerRef = useRef(null);
 
     //STATE
-    const [selectedProspect, setSelectedProspect] = useState(null);
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
     const [isSelectProspectModalOpen, setIsSelectProspectModalOpen] = useState(false);
     const [inputSearch, setInputSearch] = useState('');
     const [displayedProspects, setDisplayedProspects] = useState([]);
-    // const [isCoachActive, setIsCoachActive] = useState(false);
-    const [callDurationInSeconds, setCallDurationInSeconds] = useState(0);
 
     //CONTEXT / HOOKS
     const { 
@@ -30,9 +27,10 @@ export default function CoachWindowMain() {
         handleStopRecording,
         isCoachLoading ,
         isCoachActive,
+        selectedProspect,
+        setSelectedProspect,
         resetCoach,
     } = useCoachWindowContext();
-
 
     const handleProspectSelectClick = () => {
         setIsSelectProspectModalOpen(!isSelectProspectModalOpen);
@@ -44,26 +42,6 @@ export default function CoachWindowMain() {
         setIsSelectProspectModalOpen(false);
         setInputSearch('');
     }
-
-    const handleCoach = async () => {
-        console.log('handleCoach called')
-        console.log('isCoachActive', isCoachActive)
-        if(isCoachActive) {
-            await handleStopRecording()
-            
-        } else {
-            if(!selectedProspect) {
-                console.log('No prospect selected')
-                return
-            }
-            console.log('Starting coach')
-            await startDualChannelRecording(selectedProspect.id)
-
-            console.log('Coach started')
-        }
-    }
-
-
 
     const handleCloseCoachWindow = () => {
         console.log('🎯 [CoachWindowMain] Close button clicked, closing window directly');
@@ -133,18 +111,6 @@ export default function CoachWindowMain() {
 
     }, [prospects, inputSearch]);
 
-    useEffect(() => {
-        if(isCoachActive) {
-            const interval = setInterval(() => {
-                setCallDurationInSeconds(prev => prev + 1)
-            }, 1000)
-            return () => clearInterval(interval)
-        } else {
-            setCallDurationInSeconds(0)
-        }
-    }, [isCoachActive])
-
-
     return (
         <div className="coach-window" ref={containerRef}>
             <div className={`main-container coach-box-bubble`}>
@@ -207,7 +173,7 @@ export default function CoachWindowMain() {
                                             <ul>
                                                 {displayedProspects.map((prospect, index) => (
                                                     <div key={prospect.id}>
-                                                        <li key={prospect.id} onClick={() => handleProspectSelect(prospect)} >
+                                                        <li key={prospect.id} onClick={() => handleProspectSelect(prospect)}>
                                                             <div className='prospect-initials-container'>
                                                                 <p>{prospect.name.charAt(0).toUpperCase()}{prospect.lastname.charAt(0).toUpperCase()}</p>
                                                             </div>
@@ -230,12 +196,7 @@ export default function CoachWindowMain() {
                     }
                     {
                         selectedProspect && (
-                            <CoachButtons
-                                isCoachActive={isCoachActive}
-                                handleCoach={handleCoach}
-                                callDurationInSeconds={callDurationInSeconds}
-                                isCoachLoading={isCoachLoading}
-                            />
+                            <CoachButtons />
                         )
                     }
                     {
