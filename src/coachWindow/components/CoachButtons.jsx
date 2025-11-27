@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { LuLoader } from "react-icons/lu";
 import CoachActiveButtons from "./CoachActiveButtons";
 import { useCoachWindowContext } from "../../context/CoachWindowContext"; 
@@ -10,7 +11,7 @@ export default function CoachButtons() {
         handleStopRecording,
         selectedProspect,
         coachFeature,
-        callDurationInSeconds
+        callDurationInSeconds,
     } = useCoachWindowContext();
 
     const handleCoach = async () => {

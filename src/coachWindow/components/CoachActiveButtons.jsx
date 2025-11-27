@@ -1,6 +1,7 @@
 import React from "react";
 import { FaPause, FaStop } from "react-icons/fa6";
 import { GrPowerReset } from "react-icons/gr";
+import { useCoachWindowContext } from "../../context/CoachWindowContext";
 
 // Function to format seconds into h:mm:ss format
 const formatDuration = (totalSeconds) => {
@@ -12,11 +13,16 @@ const formatDuration = (totalSeconds) => {
 };
 
 export default function CoachActiveButtons({ coachFeature, handleCoach, callDurationInSeconds }) {
+    const { addInsight } = useCoachWindowContext();
 
     const showTimer = coachFeature === 'recall' || coachFeature === 'cue';
 
     function handleResetCue() {
         console.log('handleResetCue called');
+        addInsight({
+            message: 'Reset Cue',
+            priority: 'high'
+        });
     }
 
     return (

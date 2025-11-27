@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 
 import { MdDragIndicator } from 'react-icons/md';
 import { IoChevronDown , IoChevronUp, IoClose } from 'react-icons/io5';
@@ -7,7 +7,20 @@ import { SlMagnifier } from 'react-icons/sl';
 import { useCoachWindowContext } from '../../context/CoachWindowContext'; 
 
 import CoachButtons from './CoachButtons';
+import InsightWrapper from './InsightWrapper';
 
+const defaultConfig = {
+    /** Display duration of the toast */
+    displayDuration: 6000,
+    /** Time between toasts - allows exit animation (300ms) to complete with buffer */
+    transitionDelay: 500, 
+    /** Time until the toast expires */
+    expirationTime: 30000,
+    /** Animation duration of the toast */
+    animationDuration: 300,
+    /** Time until the toast is considered too old to display */
+    maxAgeBeforeDisplay: 90000, // 90s
+};
 
 export default function CoachWindowMain() {
 
@@ -30,6 +43,8 @@ export default function CoachWindowMain() {
         selectedProspect,
         setSelectedProspect,
         resetCoach,
+        currentInsight, 
+        showNext
     } = useCoachWindowContext();
 
     const handleProspectSelectClick = () => {
@@ -110,6 +125,10 @@ export default function CoachWindowMain() {
         }
 
     }, [prospects, inputSearch]);
+
+    const onCompleteInsight = useCallback(() => {
+        showNext();
+    }, [showNext]);
 
     return (
         <div className="coach-window" ref={containerRef}>
@@ -218,6 +237,16 @@ export default function CoachWindowMain() {
                     <CoachInsightContainer displayInsight={currentInsight?.message}  />
                 )
             } */}
+            {currentInsight && isCoachActive && (
+                <InsightWrapper 
+                    onComplete={onCompleteInsight}
+                    priority={currentInsight?.priority}
+                    insightText={currentInsight?.message}
+                    displayDuration={defaultConfig.displayDuration}
+                    transitionDelay={defaultConfig.transitionDelay}
+                    animationDuration={defaultConfig.animationDuration}
+                />
+            )}
         </div>
     );
 }

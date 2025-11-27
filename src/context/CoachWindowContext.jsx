@@ -3,6 +3,7 @@ import { v4 } from 'uuid';
 
 import useCoach from '../coachWindow/hooks/useCoach';
 import { useAudioUpload } from '../coachWindow/hooks/useAudioUpload';
+import useCue from '../coachWindow/hooks/useCue';
 
 const CoachWindowContext = createContext();
 
@@ -28,9 +29,8 @@ export const CoachWindowProvider = ({ children }) => {
     //HOOKS
     const { getProspects } = useCoach()
     const { compressAudioFile, uploadFullRecording, isCompressing, isUploading } = useAudioUpload()
+    const { currentInsight, insightsQueue, showNext, addInsight } = useCue();
     
-    const currentInsight = null;
-
     //AUDIO FUNCTIONS
     const startDualChannelRecording = async (prospectId) => {
         setIsCoachLoading(true)
@@ -257,6 +257,9 @@ export const CoachWindowProvider = ({ children }) => {
         openCoachWindow,
         closeCoachWindow,
         currentInsight,
+        insightsQueue,
+        showNext,
+        addInsight,
         signals,
         setSignals,
         createNewSessionData,   
@@ -267,9 +270,10 @@ export const CoachWindowProvider = ({ children }) => {
         uploadFullRecording,
         isCompressing,
         isUploading,
-        resetCoach,
+        resetCoach, 
         coachFeature,
         setCoachFeature,
+        setCallDurationInSeconds,
     }
 
     return (
