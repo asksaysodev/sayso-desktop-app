@@ -18,11 +18,11 @@ export default function CoachActiveButtons({ coachFeature, handleCoach }) {
 
     return (
         <>
-            {/* {coachFeature === 'cue' &&  */}
+            {coachFeature === 'cue' && 
                 <button className="coach-button reset" onClick={handleResetCue}>
                     <GrPowerReset/>
                 </button>
-            {/* } */}
+            }
             {/* <button className="coach-button pause" onClick={handleCoach}>
                 <FaPause/>
             </button> */}
