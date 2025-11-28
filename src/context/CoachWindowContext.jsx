@@ -22,7 +22,7 @@ export const CoachWindowProvider = ({ children }) => {
     const [isCoachActive, setIsCoachActive] = useState(false)
     const [isCoachLoading, setIsCoachLoading] = useState(false)
     const [coachFeature, setCoachFeature] = useState('cue') // 'cue' or 'recall' FEATURE_FLAG_RECALL || FEATURE_FLAG_CUE_REAL_ESTATE
-    const [callDurationInSeconds, setCallDurationInSeconds] = useState(0)
+    // const [callDurationInSeconds, setCallDurationInSeconds] = useState(0)
     const [sessionData, setSessionData] = useState(null)
     const [signals, setSignals] = useState([])
 
@@ -215,17 +215,6 @@ export const CoachWindowProvider = ({ children }) => {
     }, [])
 
     useEffect(() => {
-        if(isCoachActive) {
-            const interval = setInterval(() => {
-                setCallDurationInSeconds(prev => prev + 1)
-            }, 1000)
-            return () => clearInterval(interval)
-        } else {
-            setCallDurationInSeconds(0)
-        }
-    }, [isCoachActive])
-
-    useEffect(() => {
         if (window.electron && window.electron.ipcRenderer) {
             const handleCoachWindowClosed = () => {
                 console.log('🎯 [CoachWindowContext] Coach window closed event received');
@@ -250,7 +239,6 @@ export const CoachWindowProvider = ({ children }) => {
         iceBreaker,
         isCoachActive,
         setIsCoachActive,
-        callDurationInSeconds,
         isCoachLoading, 
         isCoachWindowOpen,
         updateCoachWindowOpenStates,
@@ -273,7 +261,6 @@ export const CoachWindowProvider = ({ children }) => {
         resetCoach, 
         coachFeature,
         setCoachFeature,
-        setCallDurationInSeconds,
     }
 
     return (

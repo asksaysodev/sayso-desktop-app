@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
 import { MdDragIndicator } from 'react-icons/md';
-import { IoChevronDown , IoChevronUp, IoClose } from 'react-icons/io5';
-import { SlMagnifier } from 'react-icons/sl';
+import { IoClose } from 'react-icons/io5';
 
-import { useCoachWindowContext } from '../../context/CoachWindowContext'; 
+import { useCoachWindowStore } from '../../store/coachWindowStore';
 
 import CoachButtons from './CoachButtons';
 import InsightWrapper from './InsightWrapper';
+import SelectProspectDropdown from './SelectProspectDropdown';
+import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 
+// cue
 const defaultConfig = {
     /** Display duration of the toast */
     displayDuration: 6000,
@@ -29,34 +31,18 @@ export default function CoachWindowMain() {
 
     //STATE
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
-    const [isSelectProspectModalOpen, setIsSelectProspectModalOpen] = useState(false);
-    const [inputSearch, setInputSearch] = useState('');
-    const [displayedProspects, setDisplayedProspects] = useState([]);
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
     //CONTEXT / HOOKS
-    const { 
-        prospects, 
-        startDualChannelRecording,
-        handleStopRecording,
-        isCoachLoading ,
-        isCoachActive,
-        selectedProspect,
-        setSelectedProspect,
-        resetCoach,
-        currentInsight, 
-        showNext
-    } = useCoachWindowContext();
+    const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
+    const coachFeature = useCoachWindowStore(state => state.coachFeature);
 
-    const handleProspectSelectClick = () => {
-        setIsSelectProspectModalOpen(!isSelectProspectModalOpen);
-        setInputSearch('');
-    }
-
-    const handleProspectSelect = (prospect) => {
-        setSelectedProspect(prospect);
-        setIsSelectProspectModalOpen(false);
-        setInputSearch('');
-    }
+    const selectedProspect = useCoachWindowStore(state => state.recall.selectedProspect);
+    const leadType = useCoachWindowStore(state => state.cue.leadType);
+    const currentInsight = useCoachWindowStore(state => state.cue.currentInsight);
+    const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
+    const isCueDisplaying = useCoachWindowStore(state => state.cue.isDisplaying);
+    const showNext = useCoachWindowStore(state => state.cue_showNext);
 
     const handleCloseCoachWindow = () => {
         console.log('🎯 [CoachWindowMain] Close button clicked, closing window directly');
@@ -76,7 +62,7 @@ export default function CoachWindowMain() {
                 const contentWidth = containerRef.current.scrollWidth;
                 
                 // Calculate responsive dimensions
-                const windowHeight = Math.max(48, (isSelectProspectModalOpen ? 298 : contentHeight + 8 ))
+                const windowHeight = Math.max(48, (isDropdownOpen ? 298 : contentHeight + 8 ))
                 
                 // Width based on content with min/max constraints
                 const minWidth = 300;  // Minimum usable width
@@ -107,28 +93,23 @@ export default function CoachWindowMain() {
         }
 
         return () => resizeObserver.disconnect();
-    }, [prospects, isSelectProspectModalOpen]);
-
-
-    useEffect(() => {
-        if(inputSearch === '') {
-            setDisplayedProspects(prospects);
-            return;
-        }
-
-        const filteredProspects = prospects.filter(prospect => prospect.name.toLowerCase().includes(inputSearch.toLowerCase()) || prospect.email.toLowerCase().includes(inputSearch.toLowerCase()) || prospect.company.toLowerCase().includes(inputSearch.toLowerCase()));
-
-        if(filteredProspects.length > 0) {
-            setDisplayedProspects(filteredProspects);
-        } else {
-            setDisplayedProspects([]);
-        }
-
-    }, [prospects, inputSearch]);
+    }, [isDropdownOpen]);
 
     const onCompleteInsight = useCallback(() => {
         showNext();
     }, [showNext]);
+
+     // Auto-trigger showNext when queue has items and nothing is currently displaying
+     useEffect(() => {
+        if (insightsQueue.length > 0 && !isCueDisplaying && !currentInsight) {
+            showNext();
+        }
+    }, [insightsQueue, isCueDisplaying, currentInsight]);
+
+    const DropdownComponent = {
+        recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
+        cue: <SelectLeadTypeDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
+    };
 
     return (
         <div className="coach-window" ref={containerRef}>
@@ -146,78 +127,18 @@ export default function CoachWindowMain() {
                         </div>
                     </div> */}
                     <div className="coach-window-divider"></div>
-                    {
-                        selectedProspect ? (
-                            <button className='coach-window-selected-prospect-button' onClick={() => handleProspectSelectClick()} data-open={isSelectProspectModalOpen} disabled={isCoachActive}>
-                                <div className='coach-window-select-prospect-button-text'>
-                                    <div className='coach-window-selected-prospect-initials-container'>
-                                        <p>{selectedProspect.name.charAt(0).toUpperCase()}{selectedProspect.lastname.charAt(0).toUpperCase()}</p>
-                                    </div>
-                                    <div className='coach-window-selected-prospect-button-text-container'>
-                                        <p >{selectedProspect.name} {selectedProspect.lastname}</p>
-                                        {
-                                            !isCoachActive && (
-                                                <>
-                                                    {isSelectProspectModalOpen ? <IoChevronUp /> : <IoChevronDown />}
-                                                </>
-
-                                            )
-                                        }
-                                    </div>
-                                </div>
-                            </button>
-                        ):(
-                            <button className='coach-window-select-prospect-button' onClick={() => handleProspectSelectClick()} data-open={isSelectProspectModalOpen}>
-                                <div className='coach-window-select-prospect-button-text'>
-                                    <p>Select Prospect</p>
-                                    <>
-                                        {isSelectProspectModalOpen ? <IoChevronUp /> : <IoChevronDown />}
-                                    </>
-                                </div>
-                            </button>
+                    { 
+                        DropdownComponent[coachFeature] && (
+                            DropdownComponent[coachFeature]
                         )
                     }
+
                     {
-                        isSelectProspectModalOpen && (
-                            <div className='coach-window-select-prospect-modal' data-open={isSelectProspectModalOpen}>
-                                <div className='coach-window-select-prospect-modal-content'>
-                                    <div className='searchbar-container'>
-                                        <SlMagnifier />
-                                        <input type="text" placeholder='Search Prospects' value={inputSearch} onChange={(e) => setInputSearch(e.target.value)} />
-                                    </div>
-                                    {
-                                        inputSearch !== '' && displayedProspects.length === 0 ? (
-                                            <p className='no-prospects-found-text'>No prospects found</p>
-                                        ):(
-                                            <ul>
-                                                {displayedProspects.map((prospect, index) => (
-                                                    <div key={prospect.id}>
-                                                        <li key={prospect.id} onClick={() => handleProspectSelect(prospect)}>
-                                                            <div className='prospect-initials-container'>
-                                                                <p>{prospect.name.charAt(0).toUpperCase()}{prospect.lastname.charAt(0).toUpperCase()}</p>
-                                                            </div>
-                                                            <div className='prospect-info-container'>
-                                                                <h4>{prospect.name} {prospect.lastname}</h4>
-                                                                <p>{prospect.email}</p>
-                                                            </div>
-                                                        </li>
-                                                        {index !== displayedProspects.length - 1 && (
-                                                            <span className='ul-divider'></span>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </ul>
-                                        )
-                                    }
-                                </div>
-                            </div>
-                            )
-                    }
-                    {
-                        selectedProspect && (
+                        (selectedProspect || leadType) && (
                             <CoachButtons />
                         )
                     }
+
                     {
                         !isCoachActive && (
                             <button className='close-coach-button-container' onClick={() => handleCloseCoachWindow()}>
@@ -232,11 +153,7 @@ export default function CoachWindowMain() {
                     )
                 } */}
             </div>
-            {/* {
-                currentInsight && isCoachActive && (
-                    <CoachInsightContainer displayInsight={currentInsight?.message}  />
-                )
-            } */}
+            
             {currentInsight && isCoachActive && (
                 <InsightWrapper 
                     onComplete={onCompleteInsight}

@@ -1,10 +1,12 @@
 import {LuRocket} from 'react-icons/lu'
 
 import '../styles/CoachCTA.css';
-import { useCoachWindowContext } from '../context/CoachWindowContext';
+import { useCoachWindowStore } from '../store/coachWindowStore';
 
 export default function CoachCTA({sidebar, active }) {
-    const { isCoachWindowOpen, closeCoachWindow, openCoachWindow } = useCoachWindowContext();
+    const isCoachWindowOpen = useCoachWindowStore(state => state.isCoachWindowOpen);
+    const openCoachWindow = useCoachWindowStore(state => state.openCoachWindow);
+    const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
 
     async function handleOnPressStartCoach() {
         if (isCoachWindowOpen) {

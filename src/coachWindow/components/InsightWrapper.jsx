@@ -19,7 +19,7 @@ import '../styles/Cue.css';
     }
  */}
 
-export default function InsightWrapper({ onComplete, priority, insightText, displayDuration, transitionDelay, animationDuration }) {
+export default function InsightWrapper({ onComplete, insightText, displayDuration, transitionDelay, animationDuration }) {
     const [isVisible, setIsVisible] = useState(false);
     const [isExiting, setIsExiting] = useState(false);
 
@@ -55,15 +55,11 @@ export default function InsightWrapper({ onComplete, priority, insightText, disp
 
     return (
         <div
-        className={`toast toast--${priority} ${isVisible ? 'toast--visible' : ''} ${isExiting ? 'toast--exiting' : ''}`}
+        className={`toast ${isVisible ? 'toast--visible' : ''} ${isExiting ? 'toast--exiting' : ''}`}
         style={{
             '--animation-duration': `${animationDuration}ms`,
         }}
     >
-        {/* <div className="toast__content">
-            <div className="toast__priority-badge">{priority}</div>
-            <div className="toast__text">{insightText}</div>
-        </div> */}
         <div className="toast__text">{insightText}</div>
     </div>
     )
