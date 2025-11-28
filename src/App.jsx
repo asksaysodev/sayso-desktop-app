@@ -4,6 +4,7 @@ import { Routes, Route } from 'react-router-dom';
 import Login from './views/Login';
 import Home from './views/Home';
 import Account from './views/Account';
+import Admin  from './views/Admin/Admin';
 
 //COMPONENTS
 import AuthGuard from './components/AuthGuard';
@@ -53,7 +54,7 @@ function App() {
               </AuthGuard>
             }
           />
-          {/* <Route
+          <Route
             path="/streaming-test"
             element={
               <AuthGuard>
@@ -62,7 +63,17 @@ function App() {
                 </Layout>
               </AuthGuard>
             }
-          /> */}
+          />
+          <Route
+            path="/admin"
+            element={
+              <AuthGuard>
+                <Layout>
+                  <Admin />
+                </Layout>
+              </AuthGuard>
+            }
+          />
         </Routes>
         <InsightPopUpWrapper />
         <PermissionsModalContainer />

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 import { NavLink } from 'react-router-dom'
-import {LuUsers, LuLogOut, LuChevronRight, LuRadio} from 'react-icons/lu'
+import {LuUsers, LuLogOut, LuChevronRight, LuRadio, LuSettings} from 'react-icons/lu'
 
 
 import CoachCTA from './CoachCTA';
@@ -21,6 +21,8 @@ export default function Sidebar() {
 
     //HOOKS
     const { globalUser, handleSignOut } = useAuth();
+
+    console.log('globalUser', globalUser);
 
 
     return (
@@ -54,6 +56,15 @@ export default function Sidebar() {
                             <p>Streaming Test</p>
                         </div>
                     </NavLink>
+                    {globalUser?.isAdmin && (
+                    <NavLink to="/admin" >
+                        <div className="outline"></div>
+                        <div className='sidebar-nav-item'>
+                            <LuSettings />
+                            <p>Admin</p>
+                        </div>
+                    </NavLink>
+                    )}
                 </div>
             </div>
             <div className="sidebar-footer">
