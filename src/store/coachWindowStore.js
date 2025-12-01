@@ -63,7 +63,7 @@ export const useCoachWindowStore = create((set, get) => ({
     isCoachLoading: false,
     callDurationInSeconds: 0,
     sessionData: null,
-    coachFeature: 'cue', // 'cue' or 'recall'
+    coachFeature: 'recall', // 'cue' or 'recall'
 
     audio: {...AUDIO_INITIAL_STATE},
 
