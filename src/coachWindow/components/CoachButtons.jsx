@@ -1,27 +1,55 @@
 import { LuLoader } from "react-icons/lu";
 import CoachActiveButtons from "./CoachActiveButtons";
-import { useCoachWindowContext } from "../../context/CoachWindowContext"; 
+import { useCoachWindowStore } from "../../store/coachWindowStore";
 
 export default function CoachButtons() {
-    const { 
-        isCoachLoading,
-        isCoachActive,
-        startDualChannelRecording,
-        handleStopRecording,
-        selectedProspect,
-        coachFeature,
-        callDurationInSeconds
-    } = useCoachWindowContext();
+    const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
+    const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
+    const coachFeature = useCoachWindowStore(state => state.coachFeature);
 
+    const recall_startDualChannelRecording = useCoachWindowStore(state => state.recall_startDualChannelRecording);
+    const recall_handleStopRecording = useCoachWindowStore(state => state.recall_handleStopRecording);
+    const recall_selectedProspect = useCoachWindowStore(state => state.recall.selectedProspect);
+    
+    const cue_handleStartCue = useCoachWindowStore(state => state.cue_handleStartCue);
+    const cue_handleStopCue = useCoachWindowStore(state => state.cue_handleStopCue);
+
+    const COACH_ACTIONS = {
+        recall: {
+            start: async (prospect) => {
+                if (!prospect) return;
+                await recall_startDualChannelRecording(prospect.id);
+            },
+            stop: async () => {
+                await recall_handleStopRecording();
+            },
+            validate: (prospect) => !!prospect && !!prospect.id,
+        },
+        cue: {
+            start: async () => {
+                await cue_handleStartCue();
+            },
+            stop: async () => {
+                await cue_handleStopCue();
+            },
+            validate: () => true,
+        }
+    }
+    
     const handleCoach = async () => {
         try {
+            if (!coachFeature || isCoachLoading) return;
+
+            const actions = COACH_ACTIONS[coachFeature];
+            if (!actions) return;
+
             if (isCoachActive) {
-                await handleStopRecording()
+                await actions.stop();
             } else {
-                if (!selectedProspect || isCoachLoading) return;
-    
-                await startDualChannelRecording(selectedProspect.id);
+                if (!actions.validate(recall_selectedProspect)) return;
+                await actions.start(recall_selectedProspect);
             }
+
         } catch (error) {
             console.error('Error in handleCoach:', error);
             // We could maybe show a toast
@@ -32,11 +60,7 @@ export default function CoachButtons() {
         <div className="coach-buttons-container">
             {
                 isCoachActive ? (
-                    <CoachActiveButtons
-                        coachFeature={coachFeature} 
-                        handleCoach={handleCoach} 
-                        callDurationInSeconds={callDurationInSeconds} 
-                    />
+                    <CoachActiveButtons coachFeature={coachFeature} handleCoach={handleCoach}/>
                 ) : (
                     <>
                         <button className={`start-coach-button ${isCoachLoading ? 'loading' : ''}`} onClick={handleCoach}>

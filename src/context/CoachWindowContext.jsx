@@ -3,6 +3,7 @@ import { v4 } from 'uuid';
 
 import useCoach from '../coachWindow/hooks/useCoach';
 import { useAudioUpload } from '../coachWindow/hooks/useAudioUpload';
+import useCue from '../coachWindow/hooks/useCue';
 
 const CoachWindowContext = createContext();
 
@@ -21,16 +22,15 @@ export const CoachWindowProvider = ({ children }) => {
     const [isCoachActive, setIsCoachActive] = useState(false)
     const [isCoachLoading, setIsCoachLoading] = useState(false)
     const [coachFeature, setCoachFeature] = useState('cue') // 'cue' or 'recall' FEATURE_FLAG_RECALL || FEATURE_FLAG_CUE_REAL_ESTATE
-    const [callDurationInSeconds, setCallDurationInSeconds] = useState(0)
+    // const [callDurationInSeconds, setCallDurationInSeconds] = useState(0)
     const [sessionData, setSessionData] = useState(null)
     const [signals, setSignals] = useState([])
 
     //HOOKS
     const { getProspects } = useCoach()
     const { compressAudioFile, uploadFullRecording, isCompressing, isUploading } = useAudioUpload()
+    const { currentInsight, insightsQueue, showNext, addInsight } = useCue();
     
-    const currentInsight = null;
-
     //AUDIO FUNCTIONS
     const startDualChannelRecording = async (prospectId) => {
         setIsCoachLoading(true)
@@ -215,17 +215,6 @@ export const CoachWindowProvider = ({ children }) => {
     }, [])
 
     useEffect(() => {
-        if(isCoachActive) {
-            const interval = setInterval(() => {
-                setCallDurationInSeconds(prev => prev + 1)
-            }, 1000)
-            return () => clearInterval(interval)
-        } else {
-            setCallDurationInSeconds(0)
-        }
-    }, [isCoachActive])
-
-    useEffect(() => {
         if (window.electron && window.electron.ipcRenderer) {
             const handleCoachWindowClosed = () => {
                 console.log('🎯 [CoachWindowContext] Coach window closed event received');
@@ -250,13 +239,15 @@ export const CoachWindowProvider = ({ children }) => {
         iceBreaker,
         isCoachActive,
         setIsCoachActive,
-        callDurationInSeconds,
         isCoachLoading, 
         isCoachWindowOpen,
         updateCoachWindowOpenStates,
         openCoachWindow,
         closeCoachWindow,
         currentInsight,
+        insightsQueue,
+        showNext,
+        addInsight,
         signals,
         setSignals,
         createNewSessionData,   
@@ -267,7 +258,7 @@ export const CoachWindowProvider = ({ children }) => {
         uploadFullRecording,
         isCompressing,
         isUploading,
-        resetCoach,
+        resetCoach, 
         coachFeature,
         setCoachFeature,
     }

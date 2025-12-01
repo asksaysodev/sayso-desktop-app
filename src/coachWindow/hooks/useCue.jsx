@@ -1,16 +1,37 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 import apiClient from "../../config/axios";
 import { supabase } from "../../config/supabase";
 
+const PRIORITY_ORDER = {
+    high: 3,
+    mid: 2,
+    low: 1,
+};
+
+const config = {
+    /** Display duration of the toast */
+    displayDuration: 6000,
+    /** Time between toasts - allows exit animation (300ms) to complete with buffer */
+    transitionDelay: 500, 
+    /** Time until the toast expires */
+    expirationTime: 30000,
+    /** Animation duration of the toast */
+    animationDuration: 300,
+    /** Time until the toast is considered too old to display */
+    maxAgeBeforeDisplay: 90000, // 90s
+};
+
 export default function useCue() {
     
     //STATE
-    const [insights, setInsights] = useState([]);
+    const [insightsQueue, setInsightsQueue] = useState([]);
+    const [currentInsight, setCurrentInsight] = useState(null);
     const [sessionId, setSessionId] = useState(null);
     const [isCueActive, setIsCueActive] = useState(false);
     const [scenario, setScenario] = useState('buyer');
     const [isLoading, setIsLoading] = useState(false);
+    const [isDisplaying, setIsDisplaying] = useState(false);
 
     //FUNCTIONS
     const handleStartCue =async () => {
@@ -121,12 +142,73 @@ export default function useCue() {
     const resetCueStates = () => {
         setIsCueActive(false);
         setSessionId(null);
-        setInsights([]);
+        setInsightsQueue([]);
         setScenario(null);
     }
 
+
+    /** For handling cases where the toast has expiresAt property and is expired */
+    const removeExpired = (queue) => {
+        const now = Date.now();
+        return queue.filter(insight => insight.expiresAt && insight.expiresAt > now);
+    };
+
+    /** Handle cases where the toast has lived longer than maxAgeBeforeDisplay - meaning it should not be displayed */
+    const removeTooOld = (queue) => {
+        const now = Date.now();
+        return queue.filter(insight => {
+            const age = now - insight.createdAt;
+            return age <= config.maxAgeBeforeDisplay;
+        });
+    };
+
+    const sortByPriority = (queue) => {
+        return [...queue].sort((a, b) => PRIORITY_ORDER[b.priority] - PRIORITY_ORDER[a.priority]);
+    };
+
+    const addInsight = useCallback((insight) => {
+        const newInsight = {
+            ...insight,
+            // This we should rethink it. Because, do we want to set the timestamp here at the frontend?
+            // because imagine that we receive the Cue/Insight from the backend but for some reason it's an old one.
+            // we well treat it as a new one and it will be displayed. The timestamp i believe should be set at the backend.
+            createdAt: insight.createdAt || Date.now(),
+            // SAme with this maybe. This I also believe is not even necessary. Because
+            // we already have the createdAt property. Think more about this.
+            expiresAt: insight.expiresAt || Date.now() + config.expirationTime,
+        };
+        setInsightsQueue(prevQueue => {
+            const validQueue = removeExpired(prevQueue);
+            const notTooOldQueue = removeTooOld(validQueue);
+            const newQueue = [...notTooOldQueue, newInsight];
+            return sortByPriority(newQueue);
+        });
+    }, []);
+
+    const showNext = useCallback(() => {
+        setInsightsQueue(prevQueue => {
+            const validQueue = removeExpired(prevQueue);
+            const notTooOldQueue = removeTooOld(validQueue);
+            const sortedQueue = sortByPriority(notTooOldQueue);
+            
+            // Si ya filtramos los demasiado viejos, el siguiente toast es válido
+            const nextInsight = sortedQueue.length > 0 ? sortedQueue[0] : null;
+            setCurrentInsight(nextInsight);
+            setIsDisplaying(nextInsight !== null);
+            
+            return nextInsight ? sortedQueue.slice(1) : [];
+        });
+    }, []);
+
+    // Auto-trigger showNext when queue has items and nothing is currently displaying
+    useEffect(() => {
+        if (insightsQueue.length > 0 && !isDisplaying && !currentInsight) {
+            showNext();
+        }
+    }, [insightsQueue, isDisplaying, currentInsight]);
+
     return {
-        insights,
+        insightsQueue,
         sessionId,
         isCueActive,
         scenario,
@@ -134,6 +216,10 @@ export default function useCue() {
         createNewCueSession,
         handleSetScenario,  
         handleStopCue,
-        isLoading
+        isLoading,
+        currentInsight, 
+        setCurrentInsight,
+        showNext,
+        addInsight
     }
 }

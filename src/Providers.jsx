@@ -3,7 +3,6 @@ import { AuthProvider } from './context/AuthContext';
 import { ProspectsProvider } from './context/ProspectsContext';
 import { SalesCoachProvider } from './context/SalesCoachContext';
 import { ToastProvider } from './context/ToastContext';
-import { CoachWindowProvider } from './context/CoachWindowContext';
 
 export default function Providers({ children }) {
     return (
@@ -11,9 +10,7 @@ export default function Providers({ children }) {
             <AuthProvider>
                 <ProspectsProvider>
                     <SalesCoachProvider>
-                        <CoachWindowProvider>
-                            {children}
-                        </CoachWindowProvider>
+                        {children}
                     </SalesCoachProvider>
                 </ProspectsProvider>
             </AuthProvider>
