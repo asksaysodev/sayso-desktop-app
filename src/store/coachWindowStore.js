@@ -5,6 +5,7 @@ import { getProspects } from '../coachWindow/services/recallService';
 import { stopDualChannelRecording, startDualChannelRecording } from '../coachWindow/services/audioRecordingService';
 import { cue_startStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
+import apiClient from '../config/axios';
 
 export const CUE_PRIORITY_ORDER = {
     high: 3,
@@ -63,7 +64,7 @@ export const useCoachWindowStore = create((set, get) => ({
     isCoachLoading: false,
     callDurationInSeconds: 0,
     sessionData: null,
-    coachFeature: 'recall', // 'cue' or 'recall'
+    coachFeature: 'cue', // 'cue' or 'recall'
 
     audio: {...AUDIO_INITIAL_STATE},
 
@@ -345,10 +346,12 @@ export const useCoachWindowStore = create((set, get) => ({
         }
     },
 
-    cue_handleStopCue: async (sessionId) => {
+    cue_handleStopCue: async () => {
         set({ isCoachLoading: true });
 
         try {
+            const sessionId = get().sessionData?.sessionId;
+
             if(!sessionId) {
                 throw new Error('Session ID is required');
             }

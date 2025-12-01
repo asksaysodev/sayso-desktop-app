@@ -57,7 +57,7 @@ export default function AdminPanel() {
                     instructions: item.instructions
                 };
             });
-            const response = await postCueSignals(leadType, signals);
+            const response = await postCueSignals(leadType, allSignalsSanitized);
             console.log('response', response);
             setSignals('');
             showToast('success', 'Signals submitted successfully!');
