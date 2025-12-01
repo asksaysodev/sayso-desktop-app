@@ -3,6 +3,7 @@ import { v4 } from 'uuid';
 import { uploadFullRecording } from '../coachWindow/services/audioUploadService';
 import { getProspects } from '../coachWindow/services/recallService';
 import { stopDualChannelRecording, startDualChannelRecording } from '../coachWindow/services/audioRecordingService';
+import { cue_startStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
 
 export const CUE_PRIORITY_ORDER = {
@@ -312,12 +313,12 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     cue_handleStartCue: async () => {
-        set({ isLoading: true });
+        set({ isCoachLoading: true });
 
         try {
-            const currentLeadType = !get().cue.leadType;
+            const currentLeadType = get().cue.leadType;
 
-            if (isCueActive) {
+            if (get().isCoachActive) {
                 throw new Error('Cue is already active');
             }
             if (!currentLeadType) {
@@ -327,36 +328,39 @@ export const useCoachWindowStore = create((set, get) => ({
                 throw new Error('Scenario must be either "buyer" or "seller"');
             }  
 
-            const sessionData = await get().createNewCueSession(leadType);
+            const sessionData = await get().cue_createNewSession(currentLeadType);
             
             if (!sessionData || !sessionData.sessionId) {
                 throw new Error('Failed to create new cue session');
             }
 
+            await cue_startStreaming(sessionData.sessionId);
             set({ sessionData, isCoachActive: true });
 
         } catch (error) {
             console.error('Error starting cue:', error);
             throw error;
         } finally {
-            set({ isLoading: true })
+            set({ isCoachLoading: false })
         }
     },
 
-    cue_handleStopCue: async () => {
+    cue_handleStopCue: async (sessionId) => {
         set({ isCoachLoading: true });
 
         try {
-            if(!sessionData || !sessionData.id) {
+            if(!sessionId) {
                 throw new Error('Session ID is required');
             }
-            // TO DO: STOP THE CUE SESSION ENDPOINT, RESET STATES
+
+            await window.electron.cue.stop();
+
         } catch (error) {
             console.error('Error stopping cue:', error);
             throw error;
         } finally {
-            resetCueStates();
-            setIsLoading(false);
+            get().cue_resetStates();
+            // set({ isCoachLoading: false })
         }
     },
 
