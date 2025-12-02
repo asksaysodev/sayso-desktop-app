@@ -417,11 +417,6 @@ export const useCoachWindowStore = create((set, get) => ({
 }));
 
 // Methods for use outside React (e.g. shortcuts feature)
-export const recall_startRecordingFromShortcut = () => {
-    const prospectId = useCoachWindowStore.getState().selectedProspect?.prospectId;
-    return useCoachWindowStore.getState().startDualChannelRecording(prospectId);
-};
-
-export const recall_stopRecordingFromShortcut = () => {
-    return useCoachWindowStore.getState().handleStopRecording();
+export const openCoachWindow = () => {
+    return useCoachWindowStore.getState().openCoachWindow();
 };

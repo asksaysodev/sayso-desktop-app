@@ -44,7 +44,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        'coach-window': resolve(__dirname, 'coach-window.html')
+        'coach-window': resolve(__dirname, 'coach-window.html'),
+        'tray-menu': resolve(__dirname, 'tray-menu.html')
       },
       output: {
         manualChunks: undefined, // Disable manual chunks for better Electron compatibility
