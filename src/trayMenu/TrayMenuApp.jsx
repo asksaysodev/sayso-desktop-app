@@ -1,0 +1,84 @@
+import React, { useEffect, useState } from 'react';
+
+/**
+ * Tray Menu App - Custom menu window for system tray
+ * Replaces native Electron tray menu with custom BrowserWindow for better control
+ */
+const TrayMenuApp = () => {
+  const [isCoachOpen, setIsCoachOpen] = useState(false);
+
+  useEffect(() => {
+    // Listen for coach window state changes from main process
+    const handleCoachWindowState = (state) => {
+      setIsCoachOpen(state.isOpen);
+    };
+
+    if (window.electron?.ipcRenderer) {
+      window.electron.ipcRenderer.on('coach-window-state', handleCoachWindowState);
+    }
+
+    if (window.electron?.ipcRenderer) {
+      window.electron.ipcRenderer.send('get-coach-window-state');
+    }
+
+    return () => {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.removeAllListeners('coach-window-state');
+      }
+    };
+  }, []);
+
+  const handleToggleCoach = () => {
+    if (window.electron?.ipcRenderer) {
+      if (isCoachOpen) {
+        window.electron.ipcRenderer.send('close-coach-window');
+      } else {
+        window.electron.ipcRenderer.send('open-coach-window');
+      }
+    }
+  };
+
+  const handleQuit = () => {
+    if (window.electron?.ipcRenderer) {
+      window.electron.ipcRenderer.send('quit-app');
+    }
+  };
+
+  return (
+    <div className="tray-menu">
+      <div className="tray-menu-header">
+        <span className="tray-menu-title">Sayso</span>
+      </div>
+      
+      <div className="tray-menu-items">
+        <button 
+          className="tray-menu-item"
+          onClick={handleToggleCoach}
+        >
+          <div className="tray-menu-item-icon">
+            <img 
+              src={isCoachOpen ? '/assets/tray-toggle-on.png' : '/assets/tray-toggle-off.png'}
+              alt={isCoachOpen ? 'Close' : 'Open'}
+              className="tray-menu-item-icon-img"
+            />
+          </div>
+          <span className="tray-menu-item-label">
+            {isCoachOpen ? 'Close Coach' : 'Start Coach'}
+          </span>
+        </button>
+
+        <div className="tray-menu-separator" />
+
+        <button 
+          className="tray-menu-item"
+          onClick={handleQuit}
+        >
+          <span className="tray-menu-item-label">Quit</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default TrayMenuApp;
+

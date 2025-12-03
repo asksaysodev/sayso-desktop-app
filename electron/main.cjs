@@ -1,7 +1,8 @@
-const { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { WindowManager } = require('./utils/windowManager');
+const { nativeImage } = require('electron/common');
 
 // Native audio module - will be loaded after logging is set up
 let nativeAudio = null;
@@ -74,7 +75,223 @@ function setupLogging() {
   }
 }
 
+// ===== HELPER FUNCTIONS =====
+function isCoachWindowOpen() {
+  return global.coachWindow && !global.coachWindow.isDestroyed();
+}
 
+// ===== CUSTOM TRAY MENU WINDOW ===== 
+let tray = null;
+let trayMenuWindow = null;
+
+/**
+ * Creates and positions the custom tray menu window near the tray icon
+ */
+function createTrayMenuWindow() {
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    if (trayMenuWindow.isVisible()) {
+      hideTrayMenu();
+    } else {
+      showTrayMenu();
+    }
+    return;
+  }
+
+  const preloadScriptPath = path.join(__dirname, 'preload.js');
+  
+  // Create a frameless, always-on-top window
+  trayMenuWindow = new BrowserWindow({
+    width: 264,
+    height: 124,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: true,
+    vibrancy: 'menu',
+    visualEffectState: 'active',
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: preloadScriptPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      backgroundThrottling: false,
+    },
+  });
+
+  const trayMenuUrl = isDev
+    ? 'http://localhost:5173/tray-menu.html'
+    : `file://${path.join(__dirname, '../dist/tray-menu.html')}`;
+
+  trayMenuWindow.loadURL(trayMenuUrl);
+
+  // Handle blur (click outside) to close the menu
+  // trayMenuWindow.on('blur', () => {
+  //   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+  //     // hideTrayMenu();
+  //   }
+  // });
+
+  trayMenuWindow.on('closed', () => {
+    trayMenuWindow = null;
+  });
+}
+
+/**
+ * Shows the tray menu window positioned near the tray icon
+ */
+function showTrayMenu() {
+  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) {
+    createTrayMenuWindow();
+    // Wait a bit for the window to be created before positioning
+    setTimeout(() => {
+      if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+        positionTrayMenu();
+        trayMenuWindow.show();
+      }
+    }, 100);
+  } else {
+    positionTrayMenu();
+    trayMenuWindow.show();
+  }
+
+  // Send initial coach window state
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.webContents.send('coach-window-state', {
+      isOpen: isCoachWindowOpen()
+    });
+  }
+}
+
+/**
+ * Hides the tray menu window
+ */
+function hideTrayMenu() {
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.hide();
+  }
+}
+
+/**
+ * Positions the tray menu window near the tray icon
+ * macOS: positions below the menu bar on the right side
+ */
+function positionTrayMenu() {
+  if (!trayMenuWindow || trayMenuWindow.isDestroyed() || !tray) return;
+
+  const trayBounds = tray.getBounds();
+  const windowBounds = trayMenuWindow.getBounds();
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const workArea = primaryDisplay.workArea;
+
+  let x, y;
+
+  if (process.platform === 'darwin') {
+    // macOS: Position below menu bar, aligned with tray icon
+    x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
+    y = Math.round(trayBounds.y + trayBounds.height + 5);
+    
+    // Ensure window stays within screen bounds
+    if (x + windowBounds.width > workArea.x + workArea.width) {
+      x = workArea.x + workArea.width - windowBounds.width - 5;
+    }
+    if (x < workArea.x) {
+      x = workArea.x + 5;
+    }
+  } else if (process.platform === 'win32') {
+    // Windows: Position above taskbar, aligned with tray icon
+    x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
+    y = Math.round(trayBounds.y - windowBounds.height - 5);
+  } else {
+    // Linux: Position below tray icon
+    x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
+    y = Math.round(trayBounds.y + trayBounds.height + 5);
+  }
+
+  trayMenuWindow.setPosition(x, y, false);
+}
+
+/**
+ * Registers the tray icon and sets up click handlers
+ */
+function registerTrayIconMenu() {
+  const iconPath = path.join(__dirname, '../assets/tray-icon44Template.png');
+  
+  let icon = nativeImage.createFromPath(iconPath);
+  
+  if (icon.isEmpty()) {
+    console.error('❌ Tray icon failed to load! Icon is empty.');
+    return;
+  }
+  
+  icon = icon.resize({ width: 19, height: 19 });
+  icon.setTemplateImage(true);
+  
+  tray = new Tray(icon);
+  tray.setToolTip('Sayso');
+
+  tray.on('click', () => {
+    if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
+      hideTrayMenu();
+    } else {
+      showTrayMenu();
+    }
+  });
+
+  tray.on('right-click', () => {
+    if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
+      hideTrayMenu();
+    } else {
+      showTrayMenu();
+    }
+  });
+}
+
+/**
+ * Updates tray menu state when coach window opens/closes
+ */
+function updateTrayMenu() {
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.webContents.send('coach-window-state', {
+      isOpen: isCoachWindowOpen()
+    });
+  }
+}
+
+// ===== GLOBAL SHORTCUTS ===== 
+const shortcuts = [
+  {
+    // Open coach window widget
+    fn: () => {
+      if (isCoachWindowOpen()) {
+        global.coachWindow.close();
+      } else {
+        createCoachWindow();
+      }
+    },
+    keyCombination: 'Control+S'
+  }
+];
+
+function setupGlobalShortcut() {
+  shortcuts.forEach(({ fn, keyCombination }) => {
+    globalShortcut.register(keyCombination, () => {
+      fn();
+    });
+  })
+}
+
+function unregisterGlobalShortcuts() {
+  shortcuts.forEach(({ keyCombination }) => {
+    globalShortcut.unregister(keyCombination);
+  })
+}
 
 // Load environment variables FIRST, before any other modules
 if (!process.env.NODE_ENV) {
@@ -1394,8 +1611,9 @@ app.whenReady().then(() => {
   
   // ONLY create the dashboard window initially
   createDashboardWindow(); 
+  registerTrayIconMenu();
+  setupGlobalShortcut();
   
-
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
@@ -1417,6 +1635,9 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+
+  unregisterGlobalShortcuts();
+
   // If you want the app to quit when the dashboard closes even on macOS,
   // you would add app.quit() here.
 });
@@ -1535,6 +1756,24 @@ ipcMain.on('open-coach-window', () => {
     console.log('IPC: Current global.coachWindow state:', !!global.coachWindow);
   }
   createCoachWindow();
+  // Don't hide tray menu - let user interact with it while it's open
+});
+
+// Handler for getting coach window state
+ipcMain.on('get-coach-window-state', (event) => {
+  event.sender.send('coach-window-state', {
+    isOpen: isCoachWindowOpen()
+  });
+});
+
+// Handler for getting coach window state (async version for invoke)
+ipcMain.handle('get-coach-window-open-state', () => {
+  return isCoachWindowOpen();
+});
+
+// Handler for quitting the app
+ipcMain.on('quit-app', () => {
+  app.quit();
 });
 
 // --- Coach Window (Sales Coach Interface) ---
@@ -1546,21 +1785,12 @@ const createCoachWindow = () => {
     return;
   }
   
-  // Clean up any stale reference
   if (global.coachWindow && global.coachWindow.isDestroyed()) {
-    if (isDev) {
-      console.log('Cleaning up destroyed coach window reference');
-    }
     global.coachWindow = null;
-  }
-  
-  if (isDev) {
-    console.log('Creating coach window...');
   }
   
   const preloadScriptPath = path.join(__dirname, 'preload.js');
   
-  // Get window configuration from WindowManager
   const windowConfig = WindowManager.getCoachWindowConfig();
   
   const coachWindow = new BrowserWindow({
@@ -1578,12 +1808,6 @@ const createCoachWindow = () => {
     },
   });
 
-  if (isDev) {
-    console.log('Coach window created with dimensions:', windowConfig.width, 'x', windowConfig.height);
-    console.log('Actual window size:', coachWindow.getSize());
-  }
-
-  // Store reference for IPC communication
   global.coachWindow = coachWindow;
 
   // dev vs prod URL for the coach window (use the HTML that bootstraps src/coachWindow/index.jsx)
@@ -1616,11 +1840,19 @@ const createCoachWindow = () => {
     if (dashboardWindowInstance) {
       dashboardWindowInstance.webContents.send('coach-window-closed');
     }
+    
+    updateTrayMenu();
   });
 
   if (isDev) {
     console.log('Coach window created successfully at position:', { x: windowConfig.x, y: windowConfig.y });
   }
+
+  if (dashboardWindowInstance) {
+    dashboardWindowInstance.webContents.send('coach-window-opened');
+  }
+
+  updateTrayMenu();
 };
 
 // Update the resize handler to use WindowManager
@@ -1649,4 +1881,5 @@ ipcMain.on('close-coach-window', () => {
     }
     global.coachWindow = null; // Clean up stale reference
   }
+  // Don't hide tray menu - let user continue interacting with it
 });
