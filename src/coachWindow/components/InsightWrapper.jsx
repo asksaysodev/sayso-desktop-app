@@ -24,28 +24,22 @@ export default function InsightWrapper({ onComplete, insightText, displayDuratio
     const [isExiting, setIsExiting] = useState(false);
 
     useEffect(() => {
-        console.log('InsightText', insightText);
         const calculatedDisplayDuration = calculateInsightDisplayDuration(insightText);
         const finalDisplayDuration = calculatedDisplayDuration || displayDuration;
-        console.log('finalDisplayDuration', finalDisplayDuration);
 
         const enterTimer = setTimeout(() => {
-            console.log('Setting isVisible to true');
             setIsVisible(true);
         }, 10);
 
         const exitTimer = setTimeout(() => {
-            console.log('Setting isExiting to true');
             setIsExiting(true);
         }, finalDisplayDuration - animationDuration);
 
         const completeTimer = setTimeout(() => {
-            console.log('Calling onComplete');
             onComplete();
         }, finalDisplayDuration + transitionDelay);
 
         return () => {
-            console.log('Cleaning up timers');
             clearTimeout(enterTimer);
             clearTimeout(exitTimer);
             clearTimeout(completeTimer);

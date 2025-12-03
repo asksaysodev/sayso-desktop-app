@@ -59,7 +59,6 @@ let openWindowTimeoutId = null;
 
 export const useCoachWindowStore = create((set, get) => ({
     // ========== SHARED STATE ========== //
-    // Note: isCoachWindowOpen removed - use Electron's global.coachWindow as source of truth
     isCoachActive: false,
     isCoachLoading: false,
     callDurationInSeconds: 0,

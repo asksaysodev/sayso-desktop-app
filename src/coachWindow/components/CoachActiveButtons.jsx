@@ -11,7 +11,7 @@ export default function CoachActiveButtons({ coachFeature, handleCoach }) {
 
     function handleResetCue() {
         addInsight({
-            message: 'Reset Cue',
+            message: 'I suggest that you tell him about the different payments methods. I suggest that you tell him about the different payments methods. I suggest that you tell him about the different payments methods. I suggest that you tell him about the different payments methods.',
             priority: 'high'
         });
     }
@@ -22,7 +22,7 @@ export default function CoachActiveButtons({ coachFeature, handleCoach }) {
                 <button className="coach-button reset" onClick={handleResetCue}>
                     <GrPowerReset/>
                 </button>
-            }
+            } 
             {/* <button className="coach-button pause" onClick={handleCoach}>
                 <FaPause/>
             </button> */}
