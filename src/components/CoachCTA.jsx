@@ -44,8 +44,8 @@ export default function CoachCTA({sidebar, active }) {
 
             return () => {
                 try {
-                    ipcRenderer.removeListener('coach-window-closed', handleCoachWindowClosed);
-                    ipcRenderer.removeListener('coach-window-opened', handleCoachWindowOpened);
+                    ipcRenderer.off('coach-window-closed', handleCoachWindowClosed);
+                    ipcRenderer.off('coach-window-opened', handleCoachWindowOpened);
                 } catch (error) {
                     console.error('Error removing coach window listeners:', error);
                 }
