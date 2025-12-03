@@ -32,8 +32,8 @@ export default function CoachCTA({sidebar, active }) {
             window.electron.ipcRenderer.on('coach-window-opened', handleCoachWindowOpened);
 
             return () => {
-                window.electron.ipcRenderer.removeAllListeners('coach-window-closed');
-                window.electron.ipcRenderer.removeAllListeners('coach-window-opened');
+                window.electron.ipcRenderer.removeListener('coach-window-closed', handleCoachWindowClosed);
+                window.electron.ipcRenderer.removeListener('coach-window-opened', handleCoachWindowOpened);
             };
         }
     }, []);
