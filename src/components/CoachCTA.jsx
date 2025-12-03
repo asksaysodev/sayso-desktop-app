@@ -10,16 +10,18 @@ export default function CoachCTA({sidebar, active }) {
     const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
 
     useEffect(() => {
+        const ipcRenderer = window.electron?.ipcRenderer;
+
         const syncState = async () => {
-            if (window.electron?.ipcRenderer) {
-                const isOpen = await window.electron.ipcRenderer.invoke('get-coach-window-open-state');
+            if (ipcRenderer) {
+                const isOpen = await ipcRenderer.invoke('get-coach-window-open-state');
                 setIsCoachWindowOpen(isOpen);
             }
         };
 
         syncState();
 
-        if (window.electron?.ipcRenderer) {
+        if (ipcRenderer) {
             const handleCoachWindowClosed = () => {
                 setIsCoachWindowOpen(false);
             };
@@ -28,12 +30,12 @@ export default function CoachCTA({sidebar, active }) {
                 setIsCoachWindowOpen(true);
             };
 
-            window.electron.ipcRenderer.on('coach-window-closed', handleCoachWindowClosed);
-            window.electron.ipcRenderer.on('coach-window-opened', handleCoachWindowOpened);
+            ipcRenderer.on('coach-window-closed', handleCoachWindowClosed);
+            ipcRenderer.on('coach-window-opened', handleCoachWindowOpened);
 
             return () => {
-                window.electron.ipcRenderer.removeListener('coach-window-closed', handleCoachWindowClosed);
-                window.electron.ipcRenderer.removeListener('coach-window-opened', handleCoachWindowOpened);
+                ipcRenderer.removeListener('coach-window-closed', handleCoachWindowClosed);
+                ipcRenderer.removeListener('coach-window-opened', handleCoachWindowOpened);
             };
         }
     }, []);
