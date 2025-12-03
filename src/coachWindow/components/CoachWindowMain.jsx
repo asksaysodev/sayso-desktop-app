@@ -43,12 +43,11 @@ export default function CoachWindowMain() {
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
     const isCueDisplaying = useCoachWindowStore(state => state.cue.isDisplaying);
     const showNext = useCoachWindowStore(state => state.cue_showNext);
+    const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
 
     const handleCloseCoachWindow = () => {
         console.log('🎯 [CoachWindowMain] Close button clicked, closing window directly');
-        if(window.electronAPI) {
-            window.electronAPI.closeCoachWindow()
-        }
+        closeCoachWindow()
     }
 
     useEffect(() => {

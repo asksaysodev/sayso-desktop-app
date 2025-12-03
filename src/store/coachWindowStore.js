@@ -58,7 +58,7 @@ let openWindowTimeoutId = null;
 
 export const useCoachWindowStore = create((set, get) => ({
     // ========== SHARED STATE ========== //
-    isCoachWindowOpen: false,
+    // Note: isCoachWindowOpen removed - use Electron's global.coachWindow as source of truth
     isCoachActive: false,
     isCoachLoading: false,
     callDurationInSeconds: 0,
@@ -76,40 +76,39 @@ export const useCoachWindowStore = create((set, get) => ({
     setIsCoachLoading: (isCoachLoading) => set({ isCoachLoading }),
     setCoachFeature: (coachFeature) => set({ coachFeature }),
 
+
     openCoachWindow: () => {
         return new Promise((resolve, reject) => {
             const tryOpen = () => {
                 if (window.electron?.ipcRenderer) {
                     window.electron.ipcRenderer.send('open-coach-window');
-                    set({ isCoachWindowOpen: true });
                     return true;
                 }
                 return false;
             };
-            
+
             if (tryOpen()) {
                 resolve(true);
                 return;
             }
 
-            console.log('⏳ [CoachWindowContext] Electron not ready, retrying...');
+            console.log('⏳ [CoachWindowStore] Electron not ready, retrying...');
             clearInterval(openWindowCheckInterval);
             clearTimeout(openWindowTimeoutId);
-            
+
             openWindowCheckInterval = setInterval(() => {
                 if (tryOpen()) {
                     clearInterval(openWindowCheckInterval);
                     clearTimeout(openWindowTimeoutId);
-                    console.log('[CoachWindowContext] Coach window opened');
+                    console.log('[CoachWindowStore] Coach window opened');
                     resolve(true);
                 }
             }, 50);
-            
+
             openWindowTimeoutId = setTimeout(() => {
                 clearInterval(openWindowCheckInterval);
                 if (!window.electron?.ipcRenderer) {
-                    console.error('[CoachWindowContext] Electron unavailable after timeout');
-                    set({ isCoachWindowOpen: false });
+                    console.error('[CoachWindowStore] Electron unavailable after timeout');
                     reject(new Error('Electron not available - timeout after 1s'));
                 }
             }, 1000);
@@ -122,12 +121,9 @@ export const useCoachWindowStore = create((set, get) => ({
 
         if (window.electron && window.electron.ipcRenderer) {
             window.electron.ipcRenderer.send('close-coach-window');
-            set({ isCoachWindowOpen: false });
         } else {
-            console.warn('Electron not available, cannot close coach window');
+            console.warn('[CoachWindowStore] Electron not available, cannot close coach window');
         }
-        
-        // resetCoach()
     },
 
     shared_resetCoach: () => set({

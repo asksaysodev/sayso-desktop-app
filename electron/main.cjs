@@ -1766,6 +1766,11 @@ ipcMain.on('get-coach-window-state', (event) => {
   });
 });
 
+// Handler for getting coach window state (async version for invoke)
+ipcMain.handle('get-coach-window-open-state', () => {
+  return isCoachWindowOpen();
+});
+
 // Handler for quitting the app
 ipcMain.on('quit-app', () => {
   app.quit();
@@ -1842,7 +1847,11 @@ const createCoachWindow = () => {
   if (isDev) {
     console.log('Coach window created successfully at position:', { x: windowConfig.x, y: windowConfig.y });
   }
-  
+
+  if (dashboardWindowInstance) {
+    dashboardWindowInstance.webContents.send('coach-window-opened');
+  }
+
   updateTrayMenu();
 };
 

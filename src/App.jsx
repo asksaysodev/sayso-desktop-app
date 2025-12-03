@@ -20,7 +20,7 @@ import './styles/Dashboard.css';
 import Providers from './Providers';
 
 function App() {
-
+  
   return (
     <Providers>
       <div className='App'>
