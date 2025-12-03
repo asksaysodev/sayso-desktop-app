@@ -14,8 +14,13 @@ export default function CoachCTA({sidebar, active }) {
 
         const syncState = async () => {
             if (ipcRenderer) {
-                const isOpen = await ipcRenderer.invoke('get-coach-window-open-state');
-                setIsCoachWindowOpen(isOpen);
+                try {
+                    const isOpen = await ipcRenderer.invoke('get-coach-window-open-state');
+                    setIsCoachWindowOpen(isOpen);
+                } catch (error) {
+                    console.error('Error checking coach window state:', error);
+                    setIsCoachWindowOpen(false);
+                }
             }
         };
 
@@ -30,12 +35,20 @@ export default function CoachCTA({sidebar, active }) {
                 setIsCoachWindowOpen(true);
             };
 
-            ipcRenderer.on('coach-window-closed', handleCoachWindowClosed);
-            ipcRenderer.on('coach-window-opened', handleCoachWindowOpened);
+            try {
+                ipcRenderer.on('coach-window-closed', handleCoachWindowClosed);
+                ipcRenderer.on('coach-window-opened', handleCoachWindowOpened);
+            } catch (error) {
+                console.error('Error setting up coach window listeners:', error);
+            }
 
             return () => {
-                ipcRenderer.removeListener('coach-window-closed', handleCoachWindowClosed);
-                ipcRenderer.removeListener('coach-window-opened', handleCoachWindowOpened);
+                try {
+                    ipcRenderer.removeListener('coach-window-closed', handleCoachWindowClosed);
+                    ipcRenderer.removeListener('coach-window-opened', handleCoachWindowOpened);
+                } catch (error) {
+                    console.error('Error removing coach window listeners:', error);
+                }
             };
         }
     }, []);
