@@ -1,0 +1,12 @@
+.dashboard-panel-main {
+    width: calc(100% - 260px);
+    height: 100vh;
+    padding: 32px 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: start;
+    overflow: hidden;
+    position: relative;
+    color: #000;
+}
