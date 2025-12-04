@@ -25,7 +25,8 @@
 .toast {
   min-width: 300px;
   max-width: 380px;
-  padding: 8px 14px;
+  min-height: 40px;
+  padding: 6px 14px;
   margin-left: 12px;
   display: flex;
   justify-content: start;
@@ -53,7 +54,8 @@
   content: '';
   position: absolute;
   left: -8px;
-  top: 18%;
+  /* top: 18%; */
+  top: 28px;
   /* Only translateY for vertical centering - parent's translateX will move this too */
   transform: translateY(-50%);
   width: 0;

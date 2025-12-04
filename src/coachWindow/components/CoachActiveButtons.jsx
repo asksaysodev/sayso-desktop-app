@@ -1,4 +1,3 @@
-import React from "react";
 import { FaPause, FaStop } from "react-icons/fa6";
 import { GrPowerReset } from "react-icons/gr";
 import CallTimer from "./CallTimer";
