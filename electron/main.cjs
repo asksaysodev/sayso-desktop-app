@@ -317,7 +317,21 @@ ipcMain.handle('start-audio-streaming', async (event, { token }) => {
       },
       onProspectConnected: () => {
         event.sender.send('streaming-status', { prospect: 'connected' });
-      },
+		// Listen for messages from prospect WebSocket
+        if (cueAudioStreamer.prospectWebSocket) {
+            cueAudioStreamer.prospectWebSocket.on('message', (message) => {
+                // Log received message
+                console.log('📨 [Main] Received message from prospect WebSocket:', message);
+                
+                // Check if it's an insight message
+                if (message.type === 'insight') {
+                    console.log('💡 [Main] Insight received:', message.data);
+                    // Forward to renderer process
+                    event.sender.send('cue-insight', message.data);
+                }
+            });
+        };
+	},
       onError: (stream, error) => {
         event.sender.send('streaming-error', { stream, error: error.message });
       }
@@ -421,6 +435,20 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
       },
       onProspectConnected: () => {
         event.sender.send('cue-status', { prospect: 'connected' });
+		// Listen for messages from prospect WebSocket
+        if (cueAudioStreamer.prospectWebSocket) {
+            cueAudioStreamer.prospectWebSocket.on('message', (message) => {
+                // Log received message
+                console.log('📨 [Main] Received message from prospect WebSocket:', message);
+                
+                // Check if it's an insight message
+                if (message.type === 'insight') {
+                    console.log('💡 [Main] Insight received:', message.data);
+                    // Forward to renderer process
+                    event.sender.send('cue-insight', message.data);
+                }
+            });
+        }
       },
       onError: (stream, error) => {
         console.error(`❌ [Cue] ${stream} stream error:`, error);
