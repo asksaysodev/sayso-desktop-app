@@ -1,14 +1,20 @@
-export default function InformativeCard({ title, icon, description, children }) {
+export default function InformativeCard({ title, icon, description, children, rightContent }) {
     return (
         <div className="informative-card-container">
             <div className="informative-card-header">
-                {icon}
-                <p>{title}</p>
+                <div className="informative-card-header-title">
+                    {icon}
+                    <p>{title}</p>
+                </div>
+
+                {rightContent}
             </div>
 
-            {children && children}
+            <div className="informative-card-content-container">
+                {children && children}
 
-            <p className="informative-card-description">{description}</p>
+                <p className="informative-card-description">{description}</p>
+            </div>
         </div>
     )
 }

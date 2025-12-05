@@ -17,6 +17,8 @@ export default function DashboardPanel() {
                 <MinutesRemaining />
                 <WeeklyActivityCard />
             </div>
+
+            
         </div>
     )
 }
