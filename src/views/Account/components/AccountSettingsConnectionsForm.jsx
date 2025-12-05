@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 
-import { useAuth } from '../context/AuthContext';
-import { useSlack } from '../hooks/useSlack';
 import { LuLoader } from 'react-icons/lu';
-import { useToast } from '../context/ToastContext';
 
 import slackIcon from '/assets/slack-icon.png';
+import { useAuth } from '../../../context/AuthContext';
+import { useSlack } from '../../../hooks/useSlack';
+import { useToast } from '../../../context/ToastContext';
 
 const isElectron = window.electron && window.electron.openExternal;
 
-export default function AccountSettingsConnections() {
+export default function AccountSettingsConnectionsForm() {
 
     //STATE
     const [slackConnected, setSlackConnected] = useState(false);

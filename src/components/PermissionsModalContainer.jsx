@@ -5,7 +5,7 @@ const isDev = process.env.NODE_ENV !== 'production';
 
 export default function PermissionsModalContainer() {
     const { showPermissionsModal, setShowPermissionsModal, requestAllPermissions } = useAuth();
-    if (!showPermissionsModal || isDev) return null;
+    if (!showPermissionsModal) return null;
     return (
         <SaysoModal
             title={"We need some permissions to work"}
