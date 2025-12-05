@@ -8,6 +8,7 @@ import {
     LuSettings,
     LuCreditCard,
     LuCircleUser,
+    LuCircleHelp,
 } from 'react-icons/lu'
 
 
@@ -99,7 +100,11 @@ export default function Sidebar() {
                     </div>
                 </NavLink>
                 <Divider />
-                <div className='logout-button' onClick={() => setShowSignOutModal(true)}>
+                <div className='sidebar-footer-button' onClick={() => window.electron?.openExternal('mailto:dev@asksayso.com')}>
+                    <LuCircleHelp />
+                    <p>Support</p>
+                </div>
+                <div className='sidebar-footer-button' onClick={() => setShowSignOutModal(true)}>
                     <LuLogOut />
                     <p>Log Out</p>
                 </div>
