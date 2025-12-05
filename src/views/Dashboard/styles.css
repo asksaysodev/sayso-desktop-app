@@ -9,12 +9,12 @@
     overflow: hidden;
     position: relative;
     color: #000;
+    gap: 24px;
 }
 
 .dashboard-container-header {
     width: 100%;
     justify-content: start;
-    margin-bottom: 32px;
 }
 
 .dashboard-container-header h1 {
@@ -28,7 +28,7 @@
 .dashboard-cards-container {
     width: 100%;
     display: flex;
-    gap: 10px;
+    gap: 20px;
 }
 
 /* ===== Informative Card ===== */
@@ -223,4 +223,79 @@
     font-size: 12px;
     line-height: 16px;
     font-weight: 500;
+}
+
+/* ===== Insights ===== */
+
+.insights-container {
+    border: 1px solid var(--sayso-border);
+    background: #FFF;
+    width: 100%;
+    display: flex;
+    box-shadow: 0px 1px 2px 0px #0000000D;
+    border-radius: 12px;
+}
+
+.insights-header {
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+    padding: 24px;
+}
+.insights-header p {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--sayso-darkgray);
+    line-height: 100%;
+}
+
+.insights-header-right-content {
+    display: flex;
+    gap: 16px;
+}
+
+.search-input-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-input-icon-left {
+    position: absolute;
+    left: 12px;
+    color: var(--sayso-lightgray);
+    font-size: 16px;
+    pointer-events: none;
+}
+
+.search-input {
+    padding: 8px 60px 8px 36px;
+    border: 1px solid var(--sayso-border);
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    width: 240px;
+}
+
+.search-input:focus {
+    border-color: var(--sayso-indigo);
+}
+
+.search-input::placeholder {
+    color: var(--sayso-lightgray);
+}
+
+.search-input-shortcut {
+    position: absolute;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--sayso-lightgray);
+    font-size: 12px;
+    pointer-events: none;
+}
+
+.search-input-shortcut svg {
+    font-size: 14px;
 }
