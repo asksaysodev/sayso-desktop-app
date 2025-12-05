@@ -32,3 +32,17 @@ export const cue_startStreaming = async (sessionId) => {
         throw error;
     }
 }
+
+export const cue_stopStreaming = async () => {
+    try {
+        if (!window.electron?.cue) {
+            throw new Error('Electron cue API not available');
+        }
+
+        await window.electron.cue.stop();
+
+    } catch (error) {
+        console.error('Error stopping cue streaming:', error);
+        throw error;
+    }
+}

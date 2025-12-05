@@ -30,6 +30,7 @@ export default function CoachButtons() {
                 await cue_handleStartCue();
             },
             stop: async () => {
+				console.log('Stopping cue');
                 await cue_handleStopCue();
             },
             validate: () => true,

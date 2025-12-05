@@ -3,7 +3,7 @@ import { v4 } from 'uuid';
 import { uploadFullRecording } from '../coachWindow/services/audioUploadService';
 import { getProspects } from '../coachWindow/services/recallService';
 import { stopDualChannelRecording, startDualChannelRecording } from '../coachWindow/services/audioRecordingService';
-import { cue_startStreaming } from '../coachWindow/services/cueService';
+import { cue_startStreaming, cue_stopStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
 import apiClient from '../config/axios';
 
@@ -342,23 +342,42 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     cue_handleStopCue: async () => {
+        console.log('Cue_handleStopCue');
         set({ isCoachLoading: true });
 
         try {
             const sessionId = get().sessionData?.sessionId;
-
+            console.log('sessionId', sessionId);
             if(!sessionId) {
                 throw new Error('Session ID is required');
             }
 
-            await window.electron.cue.stop();
+			await cue_stopStreaming();
+			console.log('cue_stopStreaming');
+			const sessionData = await get().cue_stopSession(sessionId);
+			console.log('sessionData', sessionData);
+			if(!sessionData || !sessionData.session) {
+				throw new Error('Failed to stop cue session');
+			}
+			set({ sessionData, isCoachActive: false });
 
         } catch (error) {
             console.error('Error stopping cue:', error);
             throw error;
         } finally {
+			set({ isCoachLoading: false })
             get().cue_resetStates();
-            // set({ isCoachLoading: false })
+        }
+    },
+
+    cue_stopSession: async (sessionId) => {
+
+        try {
+            const response = await apiClient.post(`/cue/session/stop/${sessionId}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error stopping cue session:', error);
+            throw error;
         }
     },
 
