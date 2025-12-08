@@ -26,6 +26,8 @@ const defaultConfig = {
 
 export default function CoachWindowMain() {
 
+	console.log('CoachWindowMain UPDATED');
+
     //REFS
     const containerRef = useRef(null);
 

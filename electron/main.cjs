@@ -132,13 +132,35 @@ function createTrayMenuWindow() {
   trayMenuWindow.loadURL(trayMenuUrl);
 
   // Handle blur (click outside) to close the menu
-  // trayMenuWindow.on('blur', () => {
-  //   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
-  //     // hideTrayMenu();
-  //   }
-  // });
+  // Add a small delay to prevent race conditions with menu item clicks
+  let blurTimeout = null;
+  trayMenuWindow.on('blur', () => {
+    // Clear any existing timeout
+    if (blurTimeout) {
+      clearTimeout(blurTimeout);
+    }
+    // Add a small delay to allow menu item clicks to complete
+    blurTimeout = setTimeout(() => {
+      if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
+        hideTrayMenu();
+      }
+      blurTimeout = null;
+    }, 100);
+  });
+
+  // Clear timeout if window regains focus
+  trayMenuWindow.on('focus', () => {
+    if (blurTimeout) {
+      clearTimeout(blurTimeout);
+      blurTimeout = null;
+    }
+  });
 
   trayMenuWindow.on('closed', () => {
+    if (blurTimeout) {
+      clearTimeout(blurTimeout);
+      blurTimeout = null;
+    }
     trayMenuWindow = null;
   });
 }
@@ -221,13 +243,46 @@ function positionTrayMenu() {
  * Registers the tray icon and sets up click handlers
  */
 function registerTrayIconMenu() {
-  const iconPath = path.join(__dirname, '../assets/tray-icon44Template.png');
+  // Use process.resourcesPath in production (where extraResources are placed)
+  // Use __dirname in development
+  const iconPath = isDev
+    ? path.join(__dirname, '../assets/tray-icon44Template.png')
+    : path.join(process.resourcesPath, 'assets', 'tray-icon44Template.png');
+  
+  console.log('🔍 [Tray Icon] Loading icon from:', iconPath);
+  console.log('🔍 [Tray Icon] isDev:', isDev);
+  console.log('🔍 [Tray Icon] process.resourcesPath:', process.resourcesPath);
+  console.log('🔍 [Tray Icon] __dirname:', __dirname);
   
   let icon = nativeImage.createFromPath(iconPath);
   
   if (icon.isEmpty()) {
     console.error('❌ Tray icon failed to load! Icon is empty.');
-    return;
+    console.error('❌ Tray icon path attempted:', iconPath);
+    console.error('❌ File exists?', fs.existsSync(iconPath));
+    
+    // Fallback: try alternative paths
+    const fallbackPaths = [
+      path.join(process.resourcesPath, 'assets', 'tray-icon44Template.png'),
+      path.join(__dirname, '../assets/tray-icon44Template.png'),
+      path.join(__dirname, '../../assets/tray-icon44Template.png'),
+    ];
+    
+    for (const fallbackPath of fallbackPaths) {
+      console.log('🔄 Trying fallback path:', fallbackPath);
+      if (fs.existsSync(fallbackPath)) {
+        icon = nativeImage.createFromPath(fallbackPath);
+        if (!icon.isEmpty()) {
+          console.log('✅ Found icon at fallback path:', fallbackPath);
+          break;
+        }
+      }
+    }
+    
+    if (icon.isEmpty()) {
+      console.error('❌ All tray icon paths failed! Tray icon will not be displayed.');
+      return;
+    }
   }
   
   icon = icon.resize({ width: 19, height: 19 });
@@ -1910,4 +1965,23 @@ ipcMain.on('close-coach-window', () => {
     global.coachWindow = null; // Clean up stale reference
   }
   // Don't hide tray menu - let user continue interacting with it
+});
+
+// Handler for demo insights from AdminPanel
+ipcMain.on('demo-insight', (event, insightData) => {
+  if (isDev) {
+    console.log('💡 [Main] Received demo insight:', insightData);
+  }
+  
+  // Forward to coach window if it exists
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    global.coachWindow.webContents.send('cue-insight', insightData);
+    if (isDev) {
+      console.log('✅ [Main] Demo insight forwarded to coach window');
+    }
+  } else {
+    if (isDev) {
+      console.warn('⚠️ [Main] Coach window not available, cannot send demo insight');
+    }
+  }
 });

@@ -5,9 +5,10 @@ import { useAdmin } from '../../hooks/useAdmin';
 import { useToast } from '../../context/ToastContext';
 
 import './AdminPanel.css';
+import { useCoachWindowStore } from '../../store/coachWindowStore';
 
 
-export default function AdminPanel() {
+export default function AdminPanel() { 
 
     //HOOKS
     const { postCueSignals } = useAdmin();
@@ -68,11 +69,42 @@ export default function AdminPanel() {
             setIsSubmitting(false);
         }
     }
+
+	const testInsight = (index) => {
+		console.log('testInsight', index);
+
+		const messages = [
+			'Ask: You mentioned the long commute. What areas would make your mornings easier?',
+			'Ask: You said the last agent didn\'t listen. What did they miss that you want done right this time?',
+			'Ask: When you think about monthly payment instead of price, what feels comfortable?',
+			'Say: When we meet, we can lay out the first few steps so you don\'t have to guess.',
+			'Say: We can look at real numbers when we meet. That usually makes the budget part much clearer.',
+		];
+		
+		const insightData = {
+			message: messages[index],
+			priority: 'high',
+			appointmentBooked: false,
+		};
+
+		// Send via IPC to main process, which forwards to coach window
+		if (window.electron?.ipcRenderer) {
+			window.electron.ipcRenderer.send('demo-insight', insightData);
+			console.log('📤 [AdminPanel] Demo insight sent via IPC:', insightData);
+		} else {
+			console.warn('⚠️ [AdminPanel] Electron IPC not available, cannot send demo insight');
+		}
+	}
     return (
         <div className='admin-panel-main'>
             <div className='admin-panel-header'>
                 <h2>Admin Panel</h2>
             </div>
+			<button onClick={() => testInsight(0)}>Test Insight 1</button>
+			<button onClick={() => testInsight(1)}>Test Insight 2</button>
+			<button onClick={() => testInsight(2)}>Test Insight 3</button>
+			<button onClick={() => testInsight(3)}>Test Insight 4</button>
+			<button onClick={() => testInsight(4)}>Test Insight 5</button>
             <div className='admin-panel-body'>
                 <div className='admin-panel-selector-container'>
                     <label>Select a lead type</label>
