@@ -332,7 +332,7 @@ endif
 
 quiet_cmd_regen_makefile = ACTION Regenerating $@
 cmd_regen_makefile = cd $(srcdir); "/Users/francofernandez/Desktop/Gen AI/Sayso/client/electron/native-audio/node_modules/node-gyp/gyp/gyp_main.py" -fmake --ignore-environment "-Dlibrary=shared_library" "-Dvisibility=default" "-Dnode_root_dir=/Users/francofernandez/Library/Caches/node-gyp/36.9.1" "-Dnode_gyp_dir=/Users/francofernandez/Desktop/Gen AI/Sayso/client/electron/native-audio/node_modules/node-gyp" "-Dnode_lib_file=/Users/francofernandez/Library/Caches/node-gyp/36.9.1/<(target_arch)/node.lib" "-Dmodule_root_dir=/Users/francofernandez/Desktop/Gen AI/Sayso/client/electron/native-audio" "-Dnode_engine=v8" "--depth=." "-Goutput_dir=." "--generator-output=build" "-I/Users/francofernandez/Desktop/Gen AI/Sayso/client/electron/native-audio/build/config.gypi" "-I/Users/francofernandez/Desktop/Gen AI/Sayso/client/electron/native-audio/node_modules/node-gyp/addon.gypi" -I/Users/francofernandez/Library/Caches/node-gyp/36.9.1/include/node/common.gypi "--toplevel-dir=." binding.gyp
-Makefile: $(srcdir)/node_modules/node-gyp/addon.gypi $(srcdir)/build/config.gypi $(srcdir)/../../../../../../Library/Caches/node-gyp/36.9.1/include/node/common.gypi $(srcdir)/binding.gyp
+Makefile: $(srcdir)/binding.gyp $(srcdir)/node_modules/node-gyp/addon.gypi $(srcdir)/build/config.gypi $(srcdir)/../../../../../../Library/Caches/node-gyp/36.9.1/include/node/common.gypi
 	$(call do_cmd,regen_makefile)
 
 # "all" is a concatenation of the "all" targets from all the included

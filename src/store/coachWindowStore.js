@@ -389,6 +389,7 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     cue_addInsight: (insight) => {
+        console.log('cue_addInsight', insight);
         const newInsight = {
             ...insight,
             // This we should rethink it. Because, do we want to set the timestamp here at the frontend?
