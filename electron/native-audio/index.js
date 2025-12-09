@@ -48,6 +48,7 @@ class AudioDeviceManager {
     
     try {
       // Initialize the native module
+      console.log('INITIALIZINIIININGING')
       await nativeAudio.initialize();
       this.isInitialized = true;
       console.log('🎤 [AUDIO MANAGER] Native audio module initialized');

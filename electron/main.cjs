@@ -1515,6 +1515,7 @@ app.whenReady().then(() => {
     // Register IPC handlers AFTER native module is loaded
     // Initialize native audio module
     ipcMain.handle('native-audio-initialize', async () => {
+      console.log('11111')
       try {
         await nativeAudio.initialize();
         return { success: true };
