@@ -86,6 +86,7 @@
 
 .sayso-modal-action-secondary{
     border: 1px solid var(--sayso-lightgray);
+    color: var(--sayso-dark);
 }
 
 .sayso-modal-action-secondary:hover{

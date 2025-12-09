@@ -2,7 +2,6 @@ import { Routes, Route } from 'react-router-dom';
 
 //VIEWS
 import Login from './views/Login';
-import Home from './views/Home';
 // import Account from './views/Account';
 import Admin  from './views/Admin/Admin';
 import Dashboard from './views/Dashboard';
@@ -39,17 +38,6 @@ function App() {
           />
           <Route
             path="/"
-            element={
-              <AuthGuard>
-                <Layout>
-                  <Home />
-                  {/* <Dashboard /> */}
-                </Layout>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/dashboard"
             element={
               <AuthGuard>
                 <Layout>

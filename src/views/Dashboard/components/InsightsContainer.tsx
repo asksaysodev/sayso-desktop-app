@@ -351,7 +351,7 @@ export default function InsightsContainer() {
                     ? filteredInsights.map(([ date, insights ]) => {
                         return (
                             <InsightCollapsibleTable 
-                                key={date}
+                                    key={date}
                                     groupDate={date} 
                                     groupInsights={insights}
                                     openedInsights={openedInsights} 

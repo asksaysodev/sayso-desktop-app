@@ -51,14 +51,6 @@ export default function Sidebar() {
                         <div className="outline"></div>
                         <div className='sidebar-nav-item'>
                             <LuUsers />
-                            {/* <p>My Prospects</p> */}
-                            <p>OLd Dashboard</p>
-                        </div>
-                    </NavLink>
-                    <NavLink to="/dashboard" >
-                        <div className="outline"></div>
-                        <div className='sidebar-nav-item'>
-                            <LuUsers />
                             <p>Dashboard</p>
                         </div>
                     </NavLink>
