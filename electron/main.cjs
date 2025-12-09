@@ -221,7 +221,7 @@ function positionTrayMenu() {
  * Registers the tray icon and sets up click handlers
  */
 function registerTrayIconMenu() {
-  const iconPath = path.join(__dirname, '../assets/tray-icon44Template.png');
+  const iconPath = path.join(__dirname, '../public/assets/tray-icon44Template.png');
   
   let icon = nativeImage.createFromPath(iconPath);
   
