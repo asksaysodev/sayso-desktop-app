@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { LuPlus, LuMinus } from 'react-icons/lu';
 import './InsightCollapsibleTable.css';
 
@@ -41,19 +41,19 @@ export default function InsightCollapsibleTable({ groupDate, groupInsights, open
                         </tr>
                     </thead>
                     <tbody>
-                        {groupInsights.map((insight, index) => {
+                        {groupInsights.map(({ id, cue, date, leadType }, index) => {
                             const isLastItem = index === groupInsights.length - 1;
                             return (
-                                <>
-                                    <tr key={insight.id} className='table-row'>
+                                <Fragment key={id}>
+                                    <tr key={id} className='table-row'>
                                         <td className='time-cell'>
-                                            {dayjs(insight.date).format('h:mm A')}
+                                            {dayjs(date).format('h:mm A')}
                                         </td>
                                         <td className='insight-cell'>
-                                            {insight.cue}
+                                            {cue}
                                         </td>
                                         <td className='lead-type-cell'>
-                                            {insight.leadType}
+                                            {leadType}
                                         </td>
                                     </tr>
                                     {!isLastItem && (
@@ -63,7 +63,7 @@ export default function InsightCollapsibleTable({ groupDate, groupInsights, open
                                             </td>
                                         </tr>
                                     )}
-                                </>
+                                </Fragment>
                             )
                         })}
                     </tbody>
