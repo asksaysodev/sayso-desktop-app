@@ -8,23 +8,19 @@ const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
 
   useEffect(() => {
-    // Listen for coach window state changes from main process
+    const ipcRenderer = window.electron?.ipcRenderer;
+    
+    if (!ipcRenderer) return;
+
     const handleCoachWindowState = (state) => {
       setIsCoachOpen(state.isOpen);
     };
 
-    if (window.electron?.ipcRenderer) {
-      window.electron.ipcRenderer.on('coach-window-state', handleCoachWindowState);
-    }
-
-    if (window.electron?.ipcRenderer) {
-      window.electron.ipcRenderer.send('get-coach-window-state');
-    }
+    ipcRenderer.on('coach-window-state', handleCoachWindowState);
+    ipcRenderer.send('get-coach-window-state');
 
     return () => {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.removeAllListeners('coach-window-state');
-      }
+      ipcRenderer.off('coach-window-state', handleCoachWindowState);
     };
   }, []);
 
