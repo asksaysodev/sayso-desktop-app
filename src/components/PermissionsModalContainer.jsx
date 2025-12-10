@@ -39,7 +39,7 @@ export default function PermissionsModalContainer() {
         }
         : {
             title: "We need some permissions to work",
-            text: "Sayso AI Coach needs access to your microphone and screen recording to provide insights during your calls. We only use these when you launch a session.",
+            text: "Sayso needs access to your microphone and screen and system audio recording to provide insights during your calls. We only use these when you launch a session.",
             primaryText: "Allow"
         };
 
