@@ -105,9 +105,34 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     openCoachWindow: async () => {
-        const hasPermissions = localStorage.getItem('coachPermissionsGranted') === 'true';
+        const cachedPermissions = localStorage.getItem('coachPermissionsGranted') === 'true';
         
-        if (!hasPermissions) {
+        // If permissions are cached, revalidate to detect OS-level revocations
+        if (cachedPermissions) {
+            try {
+                // Re-check permissions to detect if user revoked them in macOS settings
+                const permissionsStatus = await window.electron?.permissions?.check();
+                
+                // If microphone permission was revoked, clear cache and show modal
+                if (!permissionsStatus?.mic) {
+                    console.log('[CoachWindowStore] Permissions revoked in OS settings, clearing cache');
+                    localStorage.removeItem('coachPermissionsGranted');
+                    set({ showPermissionsModal: true, needsSystemSettings: false });
+                    return false;
+                }
+                
+                // Mic is still granted - proceed to open window
+                // Note: Screen permission can't be reliably checked without requesting,
+                // so we'll handle that when actually trying to use it
+            } catch (error) {
+                console.error('[CoachWindowStore] Error checking permissions:', error);
+                // On error, clear cache and show modal to be safe
+                localStorage.removeItem('coachPermissionsGranted');
+                set({ showPermissionsModal: true, needsSystemSettings: false });
+                return false;
+            }
+        } else {
+            // No cached permissions, show modal
             set({ showPermissionsModal: true, needsSystemSettings: false });
             return false;
         }
