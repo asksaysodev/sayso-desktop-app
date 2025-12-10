@@ -77,7 +77,7 @@
 .card-content-bold-text {
     color: var(--sayso-darkgray);
     font-size: 48px;
-    font-weight: 600;
+    font-weight: 500;
 }
 .card-content-lighter-text {
     color: var(--sayso-lightgray);
