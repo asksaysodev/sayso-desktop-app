@@ -1,7 +1,15 @@
 import { useState } from 'react';
 
 import { NavLink } from 'react-router-dom'
-import {LuUsers, LuLogOut, LuChevronRight, LuSettings} from 'react-icons/lu'
+import {
+    LuUsers,
+    LuLogOut,
+    LuChevronRight,
+    LuSettings,
+    LuCreditCard,
+    LuCircleUser,
+    LuCircleHelp,
+} from 'react-icons/lu'
 
 
 import CoachCTA from './CoachCTA';
@@ -43,7 +51,7 @@ export default function Sidebar() {
                         <div className="outline"></div>
                         <div className='sidebar-nav-item'>
                             <LuUsers />
-                            <p>My Prospects</p>
+                            <p>Dashboard</p>
                         </div>
                     </NavLink>
                     {globalUser?.isAdmin && (
@@ -55,6 +63,20 @@ export default function Sidebar() {
                         </div>
                     </NavLink>
                     )}
+                    <NavLink to="/account" >
+                        <div className="outline"></div>
+                        <div className='sidebar-nav-item'>
+                            <LuCircleUser />
+                            <p>Account</p>
+                        </div>
+                    </NavLink>
+                    <NavLink to="/subscription" >
+                        <div className="outline"></div>
+                        <div className='sidebar-nav-item'>
+                            <LuCreditCard />
+                            <p>Subscription</p>
+                        </div>
+                    </NavLink>
                 </div>
             </div>
             <div className="sidebar-footer">
@@ -77,7 +99,11 @@ export default function Sidebar() {
                     </div>
                 </NavLink>
                 <Divider />
-                <div className='logout-button' onClick={() => setShowSignOutModal(true)}>
+                <div className='sidebar-footer-button' onClick={() => window.electron?.openExternal('mailto:dev@asksayso.com')}>
+                    <LuCircleHelp />
+                    <p>Support</p>
+                </div>
+                <div className='sidebar-footer-button' onClick={() => setShowSignOutModal(true)}>
                     <LuLogOut />
                     <p>Log Out</p>
                 </div>

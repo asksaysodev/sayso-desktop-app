@@ -1,6 +1,8 @@
 import { useAuth } from '../context/AuthContext';
 import SaysoModal from './SaysoModal';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 export default function PermissionsModalContainer() {
     const { showPermissionsModal, setShowPermissionsModal, requestAllPermissions } = useAuth();
     if (!showPermissionsModal) return null;

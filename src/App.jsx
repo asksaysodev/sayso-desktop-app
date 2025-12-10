@@ -2,9 +2,10 @@ import { Routes, Route } from 'react-router-dom';
 
 //VIEWS
 import Login from './views/Login';
-import Home from './views/Home';
-import Account from './views/Account';
+// import Account from './views/Account';
 import Admin  from './views/Admin/Admin';
+import Dashboard from './views/Dashboard';
+import Subscription from './views/Subscription/index';
 
 //COMPONENTS
 import AuthGuard from './components/AuthGuard';
@@ -18,6 +19,7 @@ import StreamingTest from './components/StreamingTest';
 import './styles/App.css';
 import './styles/Dashboard.css';
 import Providers from './Providers';
+import Account from './views/Account';
 
 function App() {
   
@@ -39,7 +41,7 @@ function App() {
             element={
               <AuthGuard>
                 <Layout>
-                  <Home />
+                  <Dashboard />
                 </Layout>
               </AuthGuard>
             }
@@ -49,6 +51,7 @@ function App() {
             element={
               <AuthGuard>
                 <Layout>
+                  {/* <Account /> */}
                   <Account />
                 </Layout>
               </AuthGuard>
@@ -70,6 +73,16 @@ function App() {
               <AuthGuard>
                 <Layout>
                   <Admin />
+                </Layout>
+              </AuthGuard>
+            }
+          />
+           <Route
+            path="/subscription"
+            element={
+              <AuthGuard>
+                <Layout>
+                  <Subscription />
                 </Layout>
               </AuthGuard>
             }

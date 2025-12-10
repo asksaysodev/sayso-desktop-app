@@ -38,6 +38,7 @@
   top: 4px;
   left: 0;
   transition: background-color 0.17s ease;
+  outline-style: none;
 }
 
 .coach-cta-container:hover .main-button {

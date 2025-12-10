@@ -1,17 +1,14 @@
 import { useState, useEffect } from "react";
 
-import { useAuth } from "../context/AuthContext";
-import { useFiles } from "../hooks/useFiles";
-import { useToast } from "../context/ToastContext";
-
-import NewFileInput from "./NewFileInput";
-import FileCard from "./FileCard";
-import SaysoModal from "./SaysoModal";
-
-import '../styles/AccountSettings.css';
+import FileCard from "../../../components/FileCard";
+import NewFileInput from "../../../components/NewFileInput";
 import { LuLoader } from "react-icons/lu";
 
-export default function AccountSettingsFiles() {
+import { useAuth } from "../../../context/AuthContext";
+import { useFiles } from "../../../hooks/useFiles";
+import { useToast } from "../../../context/ToastContext";
+
+export default function AccountSettingsFilesForm() {
 
     //STATE
     const [existingFiles, setExistingFiles] = useState([]);
@@ -154,7 +151,7 @@ export default function AccountSettingsFiles() {
                 )
             }
             <div className='files-upload-button-container'>
-                <NewFileInput 
+                <NewFileInput
                     id="accountFile"
                     onChange={handleFileChange}
                     accept=".pdf,.txt,.docx,.doc"
@@ -184,7 +181,7 @@ export default function AccountSettingsFiles() {
                 }
                 {
                     existingFiles && existingFiles.length > 0 && existingFiles.map((file, index) => (
-                        <FileCard 
+                        <FileCard
                             status={'default'} 
                             file={file} 
                             key={index}

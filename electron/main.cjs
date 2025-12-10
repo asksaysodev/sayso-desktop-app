@@ -102,7 +102,7 @@ function createTrayMenuWindow() {
   // Create a frameless, always-on-top window
   trayMenuWindow = new BrowserWindow({
     width: 264,
-    height: 124,
+    height: 128,
     show: false,
     frame: false,
     transparent: true,
@@ -132,35 +132,13 @@ function createTrayMenuWindow() {
   trayMenuWindow.loadURL(trayMenuUrl);
 
   // Handle blur (click outside) to close the menu
-  // Add a small delay to prevent race conditions with menu item clicks
-  let blurTimeout = null;
-  trayMenuWindow.on('blur', () => {
-    // Clear any existing timeout
-    if (blurTimeout) {
-      clearTimeout(blurTimeout);
-    }
-    // Add a small delay to allow menu item clicks to complete
-    blurTimeout = setTimeout(() => {
-      if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
-        hideTrayMenu();
-      }
-      blurTimeout = null;
-    }, 100);
-  });
-
-  // Clear timeout if window regains focus
-  trayMenuWindow.on('focus', () => {
-    if (blurTimeout) {
-      clearTimeout(blurTimeout);
-      blurTimeout = null;
-    }
-  });
+  // trayMenuWindow.on('blur', () => {
+  //   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+  //     // hideTrayMenu();
+  //   }
+  // });
 
   trayMenuWindow.on('closed', () => {
-    if (blurTimeout) {
-      clearTimeout(blurTimeout);
-      blurTimeout = null;
-    }
     trayMenuWindow = null;
   });
 }
@@ -243,46 +221,13 @@ function positionTrayMenu() {
  * Registers the tray icon and sets up click handlers
  */
 function registerTrayIconMenu() {
-  // Use process.resourcesPath in production (where extraResources are placed)
-  // Use __dirname in development
-  const iconPath = isDev
-    ? path.join(__dirname, '../assets/tray-icon44Template.png')
-    : path.join(process.resourcesPath, 'assets', 'tray-icon44Template.png');
-  
-  console.log('🔍 [Tray Icon] Loading icon from:', iconPath);
-  console.log('🔍 [Tray Icon] isDev:', isDev);
-  console.log('🔍 [Tray Icon] process.resourcesPath:', process.resourcesPath);
-  console.log('🔍 [Tray Icon] __dirname:', __dirname);
+  const iconPath = path.join(__dirname, '../public/assets/tray-icon44Template.png');
   
   let icon = nativeImage.createFromPath(iconPath);
   
   if (icon.isEmpty()) {
     console.error('❌ Tray icon failed to load! Icon is empty.');
-    console.error('❌ Tray icon path attempted:', iconPath);
-    console.error('❌ File exists?', fs.existsSync(iconPath));
-    
-    // Fallback: try alternative paths
-    const fallbackPaths = [
-      path.join(process.resourcesPath, 'assets', 'tray-icon44Template.png'),
-      path.join(__dirname, '../assets/tray-icon44Template.png'),
-      path.join(__dirname, '../../assets/tray-icon44Template.png'),
-    ];
-    
-    for (const fallbackPath of fallbackPaths) {
-      console.log('🔄 Trying fallback path:', fallbackPath);
-      if (fs.existsSync(fallbackPath)) {
-        icon = nativeImage.createFromPath(fallbackPath);
-        if (!icon.isEmpty()) {
-          console.log('✅ Found icon at fallback path:', fallbackPath);
-          break;
-        }
-      }
-    }
-    
-    if (icon.isEmpty()) {
-      console.error('❌ All tray icon paths failed! Tray icon will not be displayed.');
-      return;
-    }
+    return;
   }
   
   icon = icon.resize({ width: 19, height: 19 });
@@ -372,21 +317,7 @@ ipcMain.handle('start-audio-streaming', async (event, { token }) => {
       },
       onProspectConnected: () => {
         event.sender.send('streaming-status', { prospect: 'connected' });
-		// Listen for messages from prospect WebSocket
-        if (cueAudioStreamer.prospectWebSocket) {
-            cueAudioStreamer.prospectWebSocket.on('message', (message) => {
-                // Log received message
-                console.log('📨 [Main] Received message from prospect WebSocket:', message);
-                
-                // Check if it's an insight message
-                if (message.type === 'insight') {
-                    console.log('💡 [Main] Insight received:', message.data);
-                    // Forward to renderer process
-                    event.sender.send('cue-insight', message.data);
-                }
-            });
-        };
-	},
+      },
       onError: (stream, error) => {
         event.sender.send('streaming-error', { stream, error: error.message });
       }
@@ -490,20 +421,6 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
       },
       onProspectConnected: () => {
         event.sender.send('cue-status', { prospect: 'connected' });
-		// Listen for messages from prospect WebSocket
-        if (cueAudioStreamer.prospectWebSocket) {
-            cueAudioStreamer.prospectWebSocket.on('message', (message) => {
-                // Log received message
-                console.log('📨 [Main] Received message from prospect WebSocket:', message);
-                
-                // Check if it's an insight message
-                if (message.type === 'insight') {
-                    console.log('💡 [Main] Insight received:', message.data);
-                    // Forward to renderer process
-                    event.sender.send('cue-insight', message.data);
-                }
-            });
-        }
       },
       onError: (stream, error) => {
         console.error(`❌ [Cue] ${stream} stream error:`, error);
@@ -1598,6 +1515,7 @@ app.whenReady().then(() => {
     // Register IPC handlers AFTER native module is loaded
     // Initialize native audio module
     ipcMain.handle('native-audio-initialize', async () => {
+      console.log('11111')
       try {
         await nativeAudio.initialize();
         return { success: true };
@@ -1965,23 +1883,4 @@ ipcMain.on('close-coach-window', () => {
     global.coachWindow = null; // Clean up stale reference
   }
   // Don't hide tray menu - let user continue interacting with it
-});
-
-// Handler for demo insights from AdminPanel
-ipcMain.on('demo-insight', (event, insightData) => {
-  if (isDev) {
-    console.log('💡 [Main] Received demo insight:', insightData);
-  }
-  
-  // Forward to coach window if it exists
-  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-    global.coachWindow.webContents.send('cue-insight', insightData);
-    if (isDev) {
-      console.log('✅ [Main] Demo insight forwarded to coach window');
-    }
-  } else {
-    if (isDev) {
-      console.warn('⚠️ [Main] Coach window not available, cannot send demo insight');
-    }
-  }
 });

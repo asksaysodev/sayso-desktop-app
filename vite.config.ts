@@ -10,12 +10,12 @@ const copyEnvFiles = () => {
     writeBundle() {
       const envFiles = ['.env', '.env.production', '.env.development'];
       const destDirs = ['dist', 'electron']; // Copy to both directories
-      
+
       destDirs.forEach(destDir => {
         envFiles.forEach(envFile => {
           const sourcePath = resolve(__dirname, envFile);
           const destPath = resolve(__dirname, destDir, envFile);
-          
+
           if (existsSync(sourcePath)) {
             copyFileSync(sourcePath, destPath);
             console.log(`📁 Copied ${envFile} to ${destDir}/`);
@@ -37,6 +37,11 @@ export default defineConfig({
   optimizeDeps: {
     include: ['ws'],
   },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, './src'),
+    },
+  },
   base: './', // Use relative paths for Electron
   build: {
     outDir: 'dist', // Output directory for the build
@@ -53,7 +58,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173, 
+    port: 5173,
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -92,4 +97,4 @@ export default defineConfig({
   // Ensure assets are properly handled
   publicDir: 'public',
   assetsInclude: ['**/*.png', '**/*.jpg', '**/*.jpeg', '**/*.gif', '**/*.svg', '**/*.ico', '**/*.icns'],
-}); 
+});
