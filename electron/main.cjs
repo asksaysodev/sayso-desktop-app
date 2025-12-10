@@ -425,6 +425,18 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
       onError: (stream, error) => {
         console.error(`❌ [Cue] ${stream} stream error:`, error);
         event.sender.send('cue-error', { stream, error: error.message });
+      },
+      onMessage: (message) => {
+        // Forward insight messages to renderer process
+        if (message && message.type === 'insight' && message.data) {
+          // Forward to coach window if it exists
+          if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+            global.coachWindow.webContents.send('cue-insight', message.data);
+            if (isDev) {
+              console.log('💡 [Main Process] Insight forwarded to coach window:', message.data);
+            }
+          }
+        }
       }
     });
 
