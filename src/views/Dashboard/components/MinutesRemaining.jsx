@@ -1,16 +1,22 @@
-import { LuClock } from "react-icons/lu";
+import { LuHourglass } from "react-icons/lu";
 import InformativeCard from "./InformativeCard";
 
-export default function MinutesRemaining() {
+export default function MinutesRemaining({ accountUsage }) {
+    const { remainingMinutes, rolloverMinutes } = accountUsage || {};
+
+    const cardDescription = `${remainingMinutes} plan min + ${rolloverMinutes} rollover min`;
+
     return (
         <InformativeCard 
-            icon={<LuClock />}
+            icon={<LuHourglass />}
             title={'Minutes Remaining'}
-            description={'275 plan min + 40 rollover min'}
+            description={cardDescription}
         >
             <div className='card-content-container'>
                 <div>
-                    <p className='card-content-lighter-text'><span className='card-content-bold-text'>315</span> min left</p>
+                    <p className='card-content-lighter-text'>
+                        <span className='card-content-bold-text'>{remainingMinutes}</span> min left
+                    </p>
                 </div>
             </div>
         </InformativeCard>
