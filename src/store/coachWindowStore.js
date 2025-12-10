@@ -71,13 +71,47 @@ export const useCoachWindowStore = create((set, get) => ({
 
     recall: {...RECALL_INITIAL_STATE},
 
+    // ========== PERMISSIONS STATE ========== //
+    showPermissionsModal: false,
+    needsSystemSettings: false,
+
     // ========== SHARED ACTIONS ========== //
     setIsCoachActive: (isCoachActive) => set({ isCoachActive }),
     setIsCoachLoading: (isCoachLoading) => set({ isCoachLoading }),
     setCoachFeature: (coachFeature) => set({ coachFeature }),
 
+    // ========== PERMISSIONS ACTIONS ========== //
+    requestPermissions: async () => {
+        try {
+            const result = await window.electron.permissions.requestAll();
+            if (result?.mic && result?.screen) {
+                localStorage.setItem('coachPermissionsGranted', 'true');
+                set({ showPermissionsModal: false, needsSystemSettings: false });
+                return true;
+            }
+            
+            set({ needsSystemSettings: true });
+            return false;
+            
+        } catch (error) {
+            console.error('Error requesting permissions:', error);
+            set({ needsSystemSettings: true });
+            return false;
+        }
+    },
 
-    openCoachWindow: () => {
+    closePermissionsModal: () => {
+        set({ showPermissionsModal: false, needsSystemSettings: false });
+    },
+
+    openCoachWindow: async () => {
+        const hasPermissions = localStorage.getItem('coachPermissionsGranted') === 'true';
+        
+        if (!hasPermissions) {
+            set({ showPermissionsModal: true, needsSystemSettings: false });
+            return false;
+        }
+
         return new Promise((resolve, reject) => {
             const tryOpen = () => {
                 if (window.electron?.ipcRenderer) {
