@@ -75,8 +75,8 @@ export default function AdminPanel() {
 
 		const messages = [
 			'Ask: You mentioned the long commute. What areas would make your mornings easier?',
-			'Ask: You said the last agent didn\'t listen. What did they miss that you want done right this time?',
-			'Ask: When you think about monthly payment instead of price, what feels comfortable?',
+			'Say: Let\'s look at a couple neighborhoods together when we sit down. Seeing them side by side helps things click.',
+			'Ask: You said the last agent didn’t listen. What did they miss that you want done right this time?',
 			'Say: When we meet, we can lay out the first few steps so you don\'t have to guess.',
 			'Say: We can look at real numbers when we meet. That usually makes the budget part much clearer.',
 		];
