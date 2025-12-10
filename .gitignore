@@ -22,4 +22,17 @@ yarn-error.log*
 
 # Audio recordings (too large for git)
 electron/full_recordings/
-electron/chunks/ 
+electron/chunks/
+
+# macOS system files
+.DS_Store
+**/.DS_Store
+
+# Native module build files (auto-generated, contain user-specific paths)
+electron/native-audio/build/Makefile
+electron/native-audio/build/binding.Makefile
+electron/native-audio/build/config.gypi
+electron/native-audio/build/*.target.mk
+electron/native-audio/build/node_gyp_bins/
+electron/native-audio/build/*.d
+electron/native-audio/build/*.o

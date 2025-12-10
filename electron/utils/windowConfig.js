@@ -7,8 +7,8 @@ const WINDOW_CONFIG = {
     MAX_WIDTH: 1200,
     MIN_HEIGHT: 48,
     MAX_HEIGHT: 600,
-    OFFSET_Y: 40, // Distance from top of screen
-    OFFSET_X: 20, // Distance from left of screen
+    OFFSET_Y: 80, // Distance from top of screen
+    OFFSET_X: 100, // Distance from left of screen
     FRAME: false,
     TRANSPARENT: true,
     ALWAYS_ON_TOP: true,

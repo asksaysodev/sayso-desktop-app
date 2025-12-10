@@ -192,11 +192,12 @@ body {
     position: absolute;
     -webkit-app-region: no-drag;
     padding: 12px;
-
     border-radius: 16px;
     background-color: white;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1);
-    display: flex;
+	border: 1px solid var(--sayso-border);
+	border: none;
+    /* box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1); */
+	display: flex;
     flex-direction: column;
     align-items: start;
     justify-content: start;
@@ -334,7 +335,6 @@ body {
     height: 100%;
     border: none;
     outline: none;
-    /* border: 1px solid red; */
 }
 
 .coach-window-select-prospect-modal .no-prospects-found-text{
@@ -377,7 +377,7 @@ body {
     align-items: center;
     justify-content: start;
     gap: 8px;
-    padding-right: 8px;
+    padding-right: 12px;
     padding-left: 22px;
     margin-left: -24px;
     border-top-right-radius: 100px;
@@ -428,7 +428,7 @@ body {
 }
 
 .coach-window .coach-button.reset{
-    background-color: var(--sayso-warning);
+    background-color: var(--sayso-reset-orange);
 }
 
 .coach-buttons-container .start-coach-button{
@@ -519,7 +519,6 @@ body {
     cursor: pointer;
     -webkit-app-region: no-drag;
     opacity: 0.8;
-    /* background-color: var(--sayso-indigo); */
     border: none
 
 }

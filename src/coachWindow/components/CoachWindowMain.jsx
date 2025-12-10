@@ -26,6 +26,8 @@ const defaultConfig = {
 
 export default function CoachWindowMain() {
 
+	console.log('CoachWindowMain UPDATED');
+
     //REFS
     const containerRef = useRef(null);
 
@@ -98,11 +100,40 @@ export default function CoachWindowMain() {
         showNext();
     }, [showNext]);
 
-     // Auto-trigger showNext when queue has items and nothing is currently displaying
-     useEffect(() => {
-        if (insightsQueue.length > 0 && !isCueDisplaying && !currentInsight) {
-            showNext();
-        }
+	useEffect(() => {
+		// Only set up listener when Cue is active
+		if (!isCoachActive || coachFeature !== 'cue') return;
+		
+		if (!window.electron?.cue?.onInsight) {
+			console.warn('⚠️ [CoachWindowMain] Electron cue.onInsight not available');
+			return;
+		}
+		
+		console.log('[CoachWindowMain] Setting up insight listener');
+		
+		const unsubscribe = window.electron.cue.onInsight((insightData) => {
+			console.log('[CoachWindowMain] Insight:', insightData);
+			
+			// Call store action to add insight
+			const addInsight = useCoachWindowStore.getState().cue_addInsight;
+			
+			addInsight({
+				message: insightData.message,
+				priority: insightData.priority,
+				appointmentBooked: insightData.appointmentBooked || false,
+			});
+		});
+		
+		return () => {
+			unsubscribe();
+		};
+	}, [isCoachActive, coachFeature]);
+
+    // Auto-trigger showNext when queue has items and nothing is currently displaying
+	useEffect(() => {
+		if (insightsQueue.length > 0 && !isCueDisplaying && !currentInsight) {
+			showNext();
+		}
     }, [insightsQueue, isCueDisplaying, currentInsight]);
 
     const DropdownComponent = {
@@ -114,7 +145,6 @@ export default function CoachWindowMain() {
         <div className="coach-window" ref={containerRef}>
             <div className={`main-container coach-box-bubble`}>
                 <div className='main-toolbar'>
-
                     <div className="coach-window-drag-container">
                         <MdDragIndicator/>
                     </div>

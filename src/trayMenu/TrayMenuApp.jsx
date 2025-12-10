@@ -27,7 +27,7 @@ const TrayMenuApp = () => {
   const handleToggleCoach = () => {
     if (window.electron?.ipcRenderer) {
       if (isCoachOpen) {
-        window.electron.ipcRenderer.send('close-coach-window');
+        window.electron.ipcRenderer.send('close-coach-window'); 
       } else {
         window.electron.ipcRenderer.send('open-coach-window');
       }
