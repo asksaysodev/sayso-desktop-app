@@ -1884,3 +1884,22 @@ ipcMain.on('close-coach-window', () => {
   }
   // Don't hide tray menu - let user continue interacting with it
 });
+
+// Handler for demo insights from AdminPanel - forwards to coach window
+ipcMain.on('demo-insight', (event, insightData) => {
+  if (isDev) {
+    console.log('📤 [Main Process] Received demo-insight:', insightData);
+  }
+  
+  // Forward to coach window if it exists and is not destroyed
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    global.coachWindow.webContents.send('cue-insight', insightData);
+    if (isDev) {
+      console.log('✅ [Main Process] Demo insight forwarded to coach window');
+    }
+  } else {
+    if (isDev) {
+      console.warn('⚠️ [Main Process] Coach window not available, cannot forward demo insight');
+    }
+  }
+});
