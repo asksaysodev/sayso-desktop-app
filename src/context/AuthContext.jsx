@@ -12,7 +12,6 @@ export const AuthProvider = ({ children }) => {
   const [globalUser, setGlobalUser] = useState(null)
   const [authToken, setAuthToken] = useState(null)
   const [userLoading, setUserLoading] = useState(true)
-  const [showPermissionsModal, setShowPermissionsModal] = useState(false)
   const prevUserRef = useRef(null)
   const location = useLocation()
 
@@ -95,41 +94,6 @@ export const AuthProvider = ({ children }) => {
   }, [location])
 
   useEffect(() => {
-    if (!user) return; // only after login
-    (async () => {
-      try {
-        const stored = localStorage.getItem('hasPermissions');
-        console.log('[Permissions] Stored hasPermissions =', stored);
-        const perms = await window.electron.permissions.check();
-        console.log('[Permissions] Electron check result =', perms);
-        const ok = !!(perms?.mic && perms?.screen);
-        localStorage.setItem('hasPermissions', String(ok));
-        if (!ok) setShowPermissionsModal(true);
-      } catch (e) {
-        console.error('[Permissions] Check failed:', e);
-        localStorage.setItem('hasPermissions', 'false');
-        setShowPermissionsModal(true);
-      }
-    })();
-  }, [user]);
-
-  // Request all permissions from Electron (mic + screen)
-  const requestAllPermissions = async () => {
-    try {
-      const res = await window.electron.permissions.requestAll();
-      const ok = !!(res?.mic && res?.screen);
-      localStorage.setItem('hasPermissions', String(ok));
-      if (ok) {
-        setShowPermissionsModal(false);
-      }
-      return ok;
-    } catch (e) {
-      localStorage.setItem('hasPermissions', 'false');
-      return false;
-    }
-  };
-
-  useEffect(() => {
     let timeoutId;
 
     // Always set userLoading to true when user changes (even if user is null)
@@ -180,11 +144,6 @@ export const AuthProvider = ({ children }) => {
     userLoading,
     loading,
     updateGlobalUser,
-    // Permissions state/actions for first-run modal
-    showPermissionsModal,
-    setShowPermissionsModal,
-    requestAllPermissions,
-  
   }
 
   return (

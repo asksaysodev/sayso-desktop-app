@@ -2,33 +2,30 @@ import {LuRocket} from 'react-icons/lu'
 
 import '../styles/CoachCTA.css';
 import { useCoachWindowStore } from '../store/coachWindowStore';
-import { useEffect, useState } from 'react';
 
 export default function CoachCTA({sidebar, active }) {
     const openCoachWindow = useCoachWindowStore(state => state.openCoachWindow);
     const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
 
-
     async function handleOnPressCoachButton() {
         const ipcRenderer = window.electron?.ipcRenderer;
-        if (ipcRenderer) {
-            const isOpen = await ipcRenderer.invoke('get-coach-window-open-state');
+        if (!ipcRenderer) return;
+        
+        const isOpen = await ipcRenderer.invoke('get-coach-window-open-state');
 
-            if (isOpen) {
-                closeCoachWindow();
-            } else {
-                try {
-                    await openCoachWindow();
-                } catch (error) {
-                    console.error('Error in handleOnPressStartCoach:', error);
-                    // We could maybe show a toast
-                }    
+        if (isOpen) {
+            closeCoachWindow();
+        } else {
+            try {
+                await openCoachWindow();
+            } catch (error) {
+                console.error('Error opening coach window:', error);
             }
         }
     }
 
     return (
-        <div 
+        <div
             className={`coach-cta-container ${sidebar ? 'sidebar' : ''} ${active ? 'active' : ''}`}
             onClick={handleOnPressCoachButton}
         >
