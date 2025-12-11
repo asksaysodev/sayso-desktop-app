@@ -32,6 +32,7 @@ const AUDIO_INITIAL_STATE = {
 };
 
 const CUE_INITIAL_STATE = {
+    isResettingCueSession: false,
     insightsQueue: [],
     currentInsight: null,
     isInsightDisplaying: false,
@@ -401,20 +402,16 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     cue_handleStopCue: async () => {
-        console.log('Cue_handleStopCue');
         set({ isCoachLoading: true });
 
         try {
             const sessionId = get().sessionData?.sessionId;
-            console.log('sessionId', sessionId);
             if(!sessionId) {
                 throw new Error('Session ID is required');
             }
 
 			await cue_stopStreaming();
-			console.log('cue_stopStreaming');
 			const sessionData = await get().cue_stopSession(sessionId);
-			console.log('sessionData', sessionData);
 			if(!sessionData || !sessionData.session) {
 				throw new Error('Failed to stop cue session');
 			}
@@ -442,9 +439,62 @@ export const useCoachWindowStore = create((set, get) => ({
 
     cue_resetStates: () => {
         set({
-            ...getInitialSharedState(),
-            cue: { ...CUE_INITIAL_STATE }
+            callDurationInSeconds: 0,
+            sessionData: null,
+            cue: { 
+                ...CUE_INITIAL_STATE, 
+                leadType: get().cue.leadType, 
+            }
         })
+    },
+
+    cue_onPressResetSession: async () => {
+        if (get().cue.isResettingCueSession) return;
+
+        set({ cue: { ...get().cue, isResettingCueSession: true } });
+        
+        try {
+            const sessionId = get().sessionData?.sessionId;
+            
+            if (sessionId) {
+                await cue_stopStreaming();
+                await get().cue_stopSession(sessionId);
+            }
+            
+            set({
+                callDurationInSeconds: 0,
+                sessionData: null,
+                cue: {
+                    ...CUE_INITIAL_STATE,
+                    isResettingCueSession: true,
+                    leadType: get().cue.leadType,
+                }
+            })
+
+            const sessionData = await get().cue_createNewSession(get().cue.leadType);
+            
+            if (!sessionData || !sessionData.sessionId) {
+                throw new Error('Failed to create new cue session');
+            }
+
+            await cue_startStreaming(sessionData.sessionId);
+
+            set({ 
+                sessionData,
+                isCoachActive: true 
+            });
+        } catch (error) {
+            console.error('Error resetting cue session:', error);
+            set({ isCoachActive: false });
+            throw error;
+        } finally {
+            set({
+                cue: {
+                    ...get().cue,
+                    isResettingCueSession: false,
+                }
+            });
+        }
     },
 
     cue_addInsight: (insight) => {
