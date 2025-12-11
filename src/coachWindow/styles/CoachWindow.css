@@ -431,7 +431,8 @@ body {
     background-color: var(--sayso-reset-orange);
 }
 
-.coach-window .coach-button.stop.loading{
+.coach-window .coach-button.stop.loading,
+.coach-window .coach-button.reset.loading {
     opacity: 0.8;
     cursor: not-allowed;
 }

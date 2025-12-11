@@ -150,7 +150,6 @@
   border-radius: 8px;
   padding: 16px 8px;
   background-color: white;
-  cursor: pointer;
   margin: 16px 0;
 }
 
@@ -181,10 +180,6 @@
   transition: transform 0.2s ease;
   color: black;
   opacity: 0.8;
-}
-
-.account-widget:hover {
-    background-color: var(--sayso-white);
 }
 
 .account-widget:hover svg {
@@ -233,10 +228,6 @@
   font-size: 18px;
   font-weight: 500;
   margin-right: 8px;
-}
-
-.account-widget:hover .account-widget-icon  {
-    background-color: white;
 }
 
 .active .account-widget-icon  {

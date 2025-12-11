@@ -454,6 +454,8 @@ export const useCoachWindowStore = create((set, get) => ({
         set({ cue: { ...get().cue, isResettingCueSession: true } });
         
         try {
+            const currentLeadType = get().cue.leadType;
+
             const sessionId = get().sessionData?.sessionId;
             
             if (sessionId) {
@@ -467,11 +469,11 @@ export const useCoachWindowStore = create((set, get) => ({
                 cue: {
                     ...CUE_INITIAL_STATE,
                     isResettingCueSession: true,
-                    leadType: get().cue.leadType,
+                    leadType: currentLeadType,
                 }
             })
 
-            const sessionData = await get().cue_createNewSession(get().cue.leadType);
+            const sessionData = await get().cue_createNewSession(currentLeadType);
             
             if (!sessionData || !sessionData.sessionId) {
                 throw new Error('Failed to create new cue session');

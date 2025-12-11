@@ -19,7 +19,7 @@ export default function CoachActiveButtons({ coachFeature, handleCoach }) {
         <>
             {coachFeature === 'cue' && 
                 <button 
-                    className="coach-button reset"
+                    className={`coach-button reset ${isResettingCueSession ? 'loading' : ''}`}
                     onClick={cue_onPressResetSession} 
                     disabled={disableButtons}
                 >

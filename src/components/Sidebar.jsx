@@ -82,7 +82,6 @@ export default function Sidebar() {
             <div className="sidebar-footer">
                 <CoachCTA sidebar={true} active={false} />
                 <Divider />
-                <NavLink to="/account" >
                     <div className='account-widget'>
                         <div className='account-widget-active-container'>
                             <div className='account-widget-icon'>
@@ -92,12 +91,10 @@ export default function Sidebar() {
                         <div className='account-widget-info'>
                             <div className='account-widget-info-header'>
                                 <h3>{globalUser?.name} {globalUser?.lastname}</h3>
-                                <LuChevronRight />
                             </div>
                             <p>{globalUser?.email}</p>
                         </div>
                     </div>
-                </NavLink>
                 <Divider />
                 <div className='sidebar-footer-button' onClick={() => window.electron?.openExternal('mailto:dev@asksayso.com')}>
                     <LuCircleHelp />
