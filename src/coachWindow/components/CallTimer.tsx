@@ -10,14 +10,14 @@ const formatDuration = (totalSeconds) => {
     return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 };
 
-export default function CallTimer() {
+export default function CallTimer({ shouldStopTimer }: { shouldStopTimer: boolean }) {
     const callDurationInSeconds = useCoachWindowStore(state => state.callDurationInSeconds);
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const incrementCallDuration = useCoachWindowStore(state => state.incrementCallDuration);
     const resetCallDuration = useCoachWindowStore(state => state.resetCallDuration);
 
     useEffect(() => {
-        if(isCoachActive) {
+        if(isCoachActive && !shouldStopTimer) {
             const interval = setInterval(() => {
                 incrementCallDuration();
             }, 1000)
@@ -25,7 +25,7 @@ export default function CallTimer() {
         } else {
             resetCallDuration()
         }
-    }, [isCoachActive])
+    }, [isCoachActive, shouldStopTimer])
 
     return (
         <div className="call-duration-container">

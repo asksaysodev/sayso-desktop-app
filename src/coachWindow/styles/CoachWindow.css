@@ -412,7 +412,7 @@ body {
     align-items: center;
     justify-content: center;
     font-size: 16px;
-    
+    position: relative;
 }
 
 .coach-window .coach-buttons-container .coach-button:hover{
@@ -429,6 +429,19 @@ body {
 
 .coach-window .coach-button.reset{
     background-color: var(--sayso-reset-orange);
+}
+
+.coach-window .coach-button.stop.loading,
+.coach-window .coach-button.reset.loading {
+    opacity: 0.8;
+    cursor: not-allowed;
+}
+
+.coach-window .coach-button .loading-spinner {
+    position: absolute;
+    color: white;
+    font-size: 16px;
+    animation: spin 1s linear infinite;
 }
 
 .coach-buttons-container .start-coach-button{
