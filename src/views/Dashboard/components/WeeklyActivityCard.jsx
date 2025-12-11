@@ -73,7 +73,7 @@ export default function WeeklyActivityCard() {
                         <div className='activity-bar-container'>
                             <div
                                 className={`activity-bar ${shouldAnimate ? 'animate' : ''}`}
-                                style={{ height: `${(activity?.minutes ?? 0 / totalMinutes) * 100}%` }}
+                                style={{ height: `${((activity?.minutes ?? 0) / totalMinutes) * 100}%` }}
                                 onMouseMove={(e) => handleMouseMove(e, index)}
                                 onMouseLeave={handleMouseLeave}
                             />
