@@ -48,7 +48,7 @@ export default function InsightsContainer() {
         queryKey: ['insights', page],
         queryFn: () => getInsights(page)
     });
-
+    
     const { insights = [], hasNextPage = false} = insightsData || {};
 
     useEffect(() => {
@@ -211,7 +211,9 @@ export default function InsightsContainer() {
                     </>
                 ) : (
                     <div className='empty-insights-container'>
-                        <p className='empty-insights-text'>No results found...</p>
+                        <p className='empty-insights-text'>
+                            {allInsights.length === 0 ? 'No Insights yet.' : 'No results found...'}
+                        </p>
                     </div>
                 )}
             </div>
