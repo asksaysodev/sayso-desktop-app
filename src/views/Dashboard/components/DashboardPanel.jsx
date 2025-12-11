@@ -1,10 +1,9 @@
 import CTABar from '../../../components/CTABar';
-import MinutesUsedCard from './MinutesUsedCard';
-import MinutesRemaining from './MinutesRemaining';
-import WeeklyActivityCard from './WeeklyActivityCard';
 import InsightsContainer from './InsightsContainer';
+import InformativeCardsContainer from './InformativeCardsContainer';
 
 export default function DashboardPanel() {
+
     return (
         <div className='dashboard-panel-main'>
             <div className='dashboard-container-header'>
@@ -13,11 +12,7 @@ export default function DashboardPanel() {
 
             <CTABar active={false} />
 
-            <div className='dashboard-cards-container'>
-                <MinutesUsedCard />
-                <MinutesRemaining />
-                <WeeklyActivityCard />
-            </div>
+            <InformativeCardsContainer />
 
             <InsightsContainer />
         </div>

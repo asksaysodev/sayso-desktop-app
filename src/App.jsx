@@ -22,19 +22,19 @@ import Providers from './Providers';
 import Account from './views/Account';
 
 function App() {
-  
+
   return (
     <Providers>
       <div className='App'>
         {/* <TopDragBar /> */}
         <Routes>
-          <Route 
-            path="/login" 
+          <Route
+            path="/login"
             element={
               <GuestGuard>
                 <Login />
               </GuestGuard>
-            } 
+            }
           />
           <Route
             path="/"
@@ -95,4 +95,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;

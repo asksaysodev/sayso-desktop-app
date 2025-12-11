@@ -3,6 +3,12 @@ import { Fragment, useState } from 'react';
 import { LuPlus, LuMinus } from 'react-icons/lu';
 import './InsightCollapsibleTable.css';
 
+const LEAD_TYPE_MAP = {
+    'buyer': 'Buyer',
+    'seller': 'Seller',
+    'all': 'All',
+}
+
 export default function InsightCollapsibleTable({ groupDate, groupInsights, openedInsights, setOpenedInsights }) {
 
     const isCollapsed = !openedInsights.includes(groupDate);
@@ -41,19 +47,19 @@ export default function InsightCollapsibleTable({ groupDate, groupInsights, open
                         </tr>
                     </thead>
                     <tbody>
-                        {groupInsights.map(({ id, cue, date, leadType }, index) => {
+                        {groupInsights.map(({ id, timestamp, message, lead_type }, index) => {
                             const isLastItem = index === groupInsights.length - 1;
                             return (
                                 <Fragment key={id}>
                                     <tr key={id} className='table-row'>
                                         <td className='time-cell'>
-                                            {dayjs(date).format('h:mm A')}
+                                            {dayjs(timestamp).format('h:mm A')}
                                         </td>
                                         <td className='insight-cell'>
-                                            {cue}
+                                            {message}
                                         </td>
                                         <td className='lead-type-cell'>
-                                            {leadType}
+                                            {LEAD_TYPE_MAP[lead_type]}
                                         </td>
                                     </tr>
                                     {!isLastItem && (

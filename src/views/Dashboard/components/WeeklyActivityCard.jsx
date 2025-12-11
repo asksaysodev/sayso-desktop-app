@@ -2,30 +2,43 @@ import { useState } from "react";
 import { LuChartColumnIncreasing } from "react-icons/lu";
 import InformativeCard from "./InformativeCard";
 import WeekSelector from "./WeekSelector";
+import getWeeklyActivity from "../services/getWeeklyActivity";
+import { useQuery } from "@tanstack/react-query";
+import WeeklyActivityLoaderSkeleton from "./WeeklyActivityLoaderSkeleton";
 
 export default function WeeklyActivityCard() {
     const [hoveredBar, setHoveredBar] = useState(null);
     const [tooltipY, setTooltipY] = useState(0);
-    const [currentWeek, setCurrentWeek] = useState(null);
     const [shouldAnimate, setShouldAnimate] = useState(true);
+    const [weekOffset, setWeekOffset] = useState(0);
 
-    const weekData = [
-        { day: 'M', minutes: 45 },
-        { day: 'T', minutes: 32 },
-        { day: 'W', minutes: 28 },
-        { day: 'T', minutes: 18 },
-        { day: 'F', minutes: 52 },
-        { day: 'S', minutes: 15 },
-        { day: 'S', minutes: 8 }
-    ];
+    const { data: weeklyActivity, isLoading: isLoadingWeeklyActivity, error: errorWeeklyActivity } = useQuery({
+        queryKey: ['weeklyActivity', weekOffset],
+        queryFn: () => getWeeklyActivity(weekOffset),
+    });
+    
+    const { totalMinutes = 0, hasNextWeek, hasPreviousWeek, dailyActivity = [] } = weeklyActivity || {};
+        /**
+         * dailyActivity es un array de objetos con las siguientes propiedades:
+         * {
+         *  date: {date: '2025-12-08', dayLong: 'Monday', dayShort: 'M'},
+         *  activity: {minutes: 0, sessions: 0, features: Array(0), bookedAppointments: 0}
+         * }
+         */
 
-    const totalMinutes = weekData.reduce((sum, day) => sum + day.minutes, 0);
-    const maxMinutes = Math.max(...weekData.map(d => d.minutes));
-
-    // esto cuando hagamos un fetch de data al cambiar de fecha no sera necesario, usaremos el loading state
-    const handleWeekChange = (weekRange) => {
+    /**
+     * Handles week navigation by updating the offset
+     * @param {'prev' | 'next'} direction - Direction to navigate
+     */
+    const handleWeekChange = (direction) => {
         setShouldAnimate(false);
-        setCurrentWeek(weekRange);
+        
+        if (direction === 'prev') {
+            setWeekOffset(prev => prev + 1);
+        } else if (direction === 'next') {
+            setWeekOffset(prev => Math.max(0, prev - 1));
+        }
+        
         setTimeout(() => setShouldAnimate(true), 10);
     };
 
@@ -40,36 +53,46 @@ export default function WeeklyActivityCard() {
         setHoveredBar(null);
     };
 
+    const renderContent = () => {
+        if (isLoadingWeeklyActivity) {
+            return <WeeklyActivityLoaderSkeleton />
+        }
+
+        return (
+            <div className='activity-chart-container'>
+                {dailyActivity.map(({ date, activity }, index) => (
+                    <div key={date.date} className='activity-bar-wrapper'>
+                        {hoveredBar === index && (
+                            <div
+                                className='activity-tooltip'
+                                style={{ top: `${tooltipY}px` }}
+                            >
+                                {activity?.minutes ?? 0} min
+                            </div>
+                        )}
+                        <div className='activity-bar-container'>
+                            <div
+                                className={`activity-bar ${shouldAnimate ? 'animate' : ''}`}
+                                style={{ height: `${((activity?.minutes ?? 0) / totalMinutes) * 100}%` }}
+                                onMouseMove={(e) => handleMouseMove(e, index)}
+                                onMouseLeave={handleMouseLeave}
+                            />
+                        </div>
+                        <p className='activity-day-label'>{date.dayShort}</p>
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
     return (
           <InformativeCard
                 icon={<LuChartColumnIncreasing />}
                 title={'Activity'}
                 description={`${totalMinutes} total minutes this week`}
-                rightContent={<WeekSelector onWeekChange={handleWeekChange} />}
+                rightContent={<WeekSelector onWeekChange={handleWeekChange} hasNextWeek={hasNextWeek} hasPreviousWeek={hasPreviousWeek} weekOffset={weekOffset}/>}
             >
-                <div className='activity-chart-container'>
-                    {weekData.map((data, index) => (
-                        <div key={index} className='activity-bar-wrapper'>
-                            {hoveredBar === index && (
-                                <div
-                                    className='activity-tooltip'
-                                    style={{ top: `${tooltipY}px` }}
-                                >
-                                    {data.minutes} min
-                                </div>
-                            )}
-                            <div className='activity-bar-container'>
-                                <div
-                                    className={`activity-bar ${shouldAnimate ? 'animate' : ''}`}
-                                    style={{ height: `${(data.minutes / maxMinutes) * 100}%` }}
-                                    onMouseMove={(e) => handleMouseMove(e, index)}
-                                    onMouseLeave={handleMouseLeave}
-                                />
-                            </div>
-                            <p className='activity-day-label'>{data.day}</p>
-                        </div>
-                    ))}
-                </div>
+                {renderContent()}
             </InformativeCard>
     )
 }
