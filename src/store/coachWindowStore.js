@@ -439,6 +439,7 @@ export const useCoachWindowStore = create((set, get) => ({
 
     cue_resetStates: () => {
         set({
+            isCoachActive: false,
             callDurationInSeconds: 0,
             sessionData: null,
             cue: { 
