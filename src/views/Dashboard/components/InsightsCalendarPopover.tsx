@@ -14,9 +14,10 @@ export const INITIAL_DATE_RANGE: DateRange = {
 
 export default function InsightsCalendarPopover({ applyDateRangeFilter }: Props) {
     const [dateRange, setDateRange] = useState<DateRange>(INITIAL_DATE_RANGE);
+    const [open, setOpen] = useState(false);
 
     return (
-        <Popover>
+        <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
                 <button className="sayso-outlined-button">
                     <LuCalendar /> Search by date
@@ -43,7 +44,10 @@ export default function InsightsCalendarPopover({ applyDateRangeFilter }: Props)
 
                     <button 
                         className="sayso-submit-button" 
-                        onClick={() => applyDateRangeFilter(dateRange)}
+                        onClick={() => {
+                            applyDateRangeFilter(dateRange);
+                            setOpen(false);
+                        }}
                     >
                         Apply
                     </button>
