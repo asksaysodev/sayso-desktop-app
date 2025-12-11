@@ -425,6 +425,18 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
       onError: (stream, error) => {
         console.error(`❌ [Cue] ${stream} stream error:`, error);
         event.sender.send('cue-error', { stream, error: error.message });
+      },
+      onMessage: (message) => {
+        // Forward insight messages to renderer process
+        if (message && message.type === 'insight' && message.data) {
+          // Forward to coach window if it exists
+          if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+            global.coachWindow.webContents.send('cue-insight', message.data);
+            if (isDev) {
+              console.log('💡 [Main Process] Insight forwarded to coach window:', message.data);
+            }
+          }
+        }
       }
     });
 
@@ -1883,4 +1895,23 @@ ipcMain.on('close-coach-window', () => {
     global.coachWindow = null; // Clean up stale reference
   }
   // Don't hide tray menu - let user continue interacting with it
+});
+
+// Handler for demo insights from AdminPanel - forwards to coach window
+ipcMain.on('demo-insight', (event, insightData) => {
+  if (isDev) {
+    console.log('📤 [Main Process] Received demo-insight:', insightData);
+  }
+  
+  // Forward to coach window if it exists and is not destroyed
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    global.coachWindow.webContents.send('cue-insight', insightData);
+    if (isDev) {
+      console.log('✅ [Main Process] Demo insight forwarded to coach window');
+    }
+  } else {
+    if (isDev) {
+      console.warn('⚠️ [Main Process] Coach window not available, cannot forward demo insight');
+    }
+  }
 });

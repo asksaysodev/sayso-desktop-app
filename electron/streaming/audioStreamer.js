@@ -43,6 +43,7 @@ class AudioStreamer {
     this.onUserConnected = options.onUserConnected || null;
     this.onProspectConnected = options.onProspectConnected || null;
     this.onError = options.onError || null;
+    this.onMessage = options.onMessage || null;
     
     // Error tracking
     this.userSendFailures = 0;
@@ -97,6 +98,16 @@ class AudioStreamer {
         onError: (error) => {
           console.error('❌ [AudioStreamer] Prospect stream error:', error);
           if (this.onError) this.onError('prospect', error);
+        }
+      });
+
+      // Listen for messages from prospect websocket (insights come through here)
+      this.prospectWebSocket.on('message', (message) => {
+        // Check if it's an insight message
+        if (message && typeof message === 'object' && message.type === 'insight') {
+          if (this.onMessage) {
+            this.onMessage(message);
+          }
         }
       });
 

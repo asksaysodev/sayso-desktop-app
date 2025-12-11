@@ -43,7 +43,7 @@ export default function CoachWindowMain() {
     const leadType = useCoachWindowStore(state => state.cue.leadType);
     const currentInsight = useCoachWindowStore(state => state.cue.currentInsight);
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
-    const isCueDisplaying = useCoachWindowStore(state => state.cue.isDisplaying);
+    const isCueDisplaying = useCoachWindowStore(state => state.cue.isInsightDisplaying);
     const showNext = useCoachWindowStore(state => state.cue_showNext);
     const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
 
@@ -134,7 +134,7 @@ export default function CoachWindowMain() {
 		if (insightsQueue.length > 0 && !isCueDisplaying && !currentInsight) {
 			showNext();
 		}
-    }, [insightsQueue, isCueDisplaying, currentInsight]);
+    }, [insightsQueue, isCueDisplaying, currentInsight, showNext]);
 
     const DropdownComponent = {
         recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,

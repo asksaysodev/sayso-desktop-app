@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom';
 
 import Loader from './Loader';
+import SaysoLoader from './SaysoLoader';
 
 import { useAuth } from '../context/AuthContext';
 
@@ -13,7 +14,7 @@ const AuthGuard = ({ children }) => {
 
   // Show loading state while checking authentication
   if (loading || userLoading) {
-    return <Loader />;
+    return <SaysoLoader />;
   }
 
   // If not authenticated, redirect to login
