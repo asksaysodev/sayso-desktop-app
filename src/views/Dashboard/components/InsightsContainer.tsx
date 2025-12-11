@@ -319,10 +319,6 @@ export default function InsightsContainer() {
                             <InputGroupAddon>
                                 <LuSearch />
                             </InputGroupAddon>
-                            <InputGroupAddon align='inline-end'>
-                                <LuCommand />
-                                <span>+ K</span>
-                            </InputGroupAddon>
                         </InputGroup>
                    </div>
 

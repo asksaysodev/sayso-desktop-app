@@ -22,7 +22,7 @@ export default function InsightsCalendarPopover({ applyDateRangeFilter }: Props)
                     <LuCalendar /> Search by date
                 </button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto overflow-hidden p-0" align="start">
+            <PopoverContent className="w-auto overflow-hidden p-0" align="end">
                 <Calendar
                     mode="range"
                     selected={dateRange}
