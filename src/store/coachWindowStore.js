@@ -416,13 +416,14 @@ export const useCoachWindowStore = create((set, get) => ({
 				throw new Error('Failed to stop cue session');
 			}
 			set({ sessionData, isCoachActive: false });
+            
+            get().cue_resetStates();
 
         } catch (error) {
             console.error('Error stopping cue:', error);
             throw error;
         } finally {
 			set({ isCoachLoading: false })
-            get().cue_resetStates();
         }
     },
 
@@ -439,7 +440,6 @@ export const useCoachWindowStore = create((set, get) => ({
 
     cue_resetStates: () => {
         set({
-            isCoachActive: false,
             callDurationInSeconds: 0,
             sessionData: null,
             cue: { 
