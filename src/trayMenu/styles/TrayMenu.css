@@ -54,6 +54,11 @@ body {
   color: #374151;
 }
 
+.tray-menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .tray-menu-item:hover {
   background: rgba(255, 255, 255, 0.06);
 }
