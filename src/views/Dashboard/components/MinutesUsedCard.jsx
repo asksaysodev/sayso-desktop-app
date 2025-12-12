@@ -2,7 +2,7 @@ import { LuClock } from "react-icons/lu";
 import InformativeCard from "./InformativeCard";
 
 export default function MinutesUsedCard({ accountUsage }) {
-    const { usedMinutes, planMinutes } = accountUsage || {};
+    const { usedMinutes = 0, planMinutes = 0 } = accountUsage || {};
 
     const usedPercentage = ((usedMinutes / planMinutes) * 100).toFixed(2);
 
