@@ -43,8 +43,10 @@ export default function WeeklyActivityCard() {
     };
 
     const handleMouseMove = (e, index) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const y = e.clientY - rect.top;
+        const barRect = e.currentTarget.getBoundingClientRect();
+        const wrapperRect = e.currentTarget.closest('.activity-bar-wrapper').getBoundingClientRect();
+        
+        const y = e.clientY - wrapperRect.top;
         setTooltipY(y);
         setHoveredBar(index);
     };
@@ -72,7 +74,7 @@ export default function WeeklyActivityCard() {
                         )}
                         <div className='activity-bar-container'>
                             <div
-                                className={`activity-bar ${shouldAnimate ? 'animate' : ''}`}
+                                className={`activity-bar ${shouldAnimate ? 'animate' : ''} ${!activity?.minutes ? 'zero-activity-bar' : ''}`}
                                 style={{ height: `${((activity?.minutes ?? 0) / totalMinutes) * 100}%` }}
                                 onMouseMove={(e) => handleMouseMove(e, index)}
                                 onMouseLeave={handleMouseLeave}
