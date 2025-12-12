@@ -29,6 +29,22 @@
   padding: 0 16px;
 }
 
+.coach-cta-container .main-button .text-container {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	height: 100%;
+}
+
+.coach-cta-container .main-button span {
+	font-style: italic;
+	font-size: 14px;
+	color: white;
+	font-weight: 400;
+	margin-left: 14px;
+	opacity: 0.75;
+}
+
 .coach-cta-container .outline {
   width: 100%;
   height: 100%;
@@ -42,8 +58,12 @@
 }
 
 .coach-cta-container:hover .main-button {
-  background-color: var(--sayso-yellow);
-  color: var(--sayso-indigo);
+	background-color: var(--sayso-yellow);
+	color: var(--sayso-indigo);
+}
+
+.coach-cta-container:hover .main-button span {
+	color: var(--sayso-indigo);
 }
 
 .coach-cta-container:hover .outline {

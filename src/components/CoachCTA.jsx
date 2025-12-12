@@ -35,8 +35,10 @@ export default function CoachCTA({sidebar, active }) {
                 )
             }
             <div className="main-button">
-                <LuRocket />
-                <p>{'Start AI Coach' }</p>
+				<div className="text-container">
+					<p>{'Start Coach' }</p>
+					<span>Ctrl + S</span>
+				</div>
             </div>
         </div>
     );
