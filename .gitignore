@@ -36,3 +36,5 @@ electron/native-audio/build/*.target.mk
 electron/native-audio/build/node_gyp_bins/
 electron/native-audio/build/*.d
 electron/native-audio/build/*.o
+electron/bin/ffmpeg.x86_64.bak
+electron/bin/ffmpeg
