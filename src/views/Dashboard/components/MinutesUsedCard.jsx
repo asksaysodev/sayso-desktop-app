@@ -19,7 +19,7 @@ export default function MinutesUsedCard({ accountUsage }) {
                     </p>
                 </div>
                 <div className='progress-bar-container'>
-                    <div className='progress-bar-fill' style={{ width: '37%' }}/>
+                    <div className='progress-bar-fill' style={{ width: `${usedPercentage ?? 0}%` }}/>
                 </div>
             </div>
         </InformativeCard>
