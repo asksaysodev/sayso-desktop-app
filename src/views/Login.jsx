@@ -171,9 +171,7 @@ const Login = () => {
         if (error) throw error;
       }
 
-      // Redirect to the page they tried to visit or dashboard
-      const from = location.state?.from?.pathname || '/';
-      navigate(from, { replace: true });
+      navigate('/', { replace: true });
     } catch (err) {
       setError(err.message);
       console.error('Authentication error:', err);
