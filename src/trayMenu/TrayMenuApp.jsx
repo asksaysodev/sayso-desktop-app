@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import trayToggleOn from '/assets/tray-toggle-on.png';
+import trayToggleOff from '/assets/tray-toggle-off.png';
 
 /**
  * Tray Menu App - Custom menu window for system tray
@@ -53,7 +55,7 @@ const TrayMenuApp = () => {
         >
           <div className="tray-menu-item-icon">
             <img 
-              src={isCoachOpen ? '/assets/tray-toggle-on.png' : '/assets/tray-toggle-off.png'}
+              src={isCoachOpen ? trayToggleOn : trayToggleOff}
               alt={isCoachOpen ? 'Close' : 'Open'}
               className="tray-menu-item-icon-img"
             />
