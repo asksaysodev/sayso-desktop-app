@@ -1,0 +1,91 @@
+.formGroup {
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.formGroup label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: var(--sayso-darkgray);
+}
+
+.formInput {
+  outline: none;
+  padding: 11px 13px;
+  border: 1px solid var(--sayso-border);
+  border-radius: 6px;
+  font-size: 0.95em;
+  background-color: white;
+  color: var(--sayso-darkgray);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.formInput:focus {
+  border: 1px solid var(--sayso-indigo);
+  outline: none;
+}
+
+.formInput:invalid {
+  outline: none;
+  box-shadow: none;
+}
+
+.formInput:invalid:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Custom validation error styling */
+.formInput:invalid {
+  border-color: #dc3545;
+  background-color: #fff5f5;
+}
+
+.formInput:invalid:focus {
+  border-color: #dc3545;
+  box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.15);
+}
+
+/* Custom error styling for validation */
+.formInput.error {
+  border-color: #dc3545;
+  background-color: #fff5f5;
+}
+
+.formInput.error:focus {
+  border-color: #dc3545;
+  box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.15);
+}
+
+/* Custom error message styling */
+.formGroup .fieldError {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background-color: #dc3545;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  margin-top: 4px;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Error message arrow pointer */
+.formGroup .fieldError::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 12px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid #dc3545;
+}
+
