@@ -123,6 +123,7 @@
       "gatekeeperAssess": false,
       "entitlements": "assets/entitlements.mac.plist",
       "entitlementsInherit": "assets/entitlements.mac.plist",
+      "infoPlist": "electron/Info.plist",
       "notarize": {
         "teamId": "Y57SJLCC9H"
       },
