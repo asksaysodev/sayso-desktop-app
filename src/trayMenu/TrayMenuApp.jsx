@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import trayToggleOn from '/assets/tray-toggle-on.png';
 import trayToggleOff from '/assets/tray-toggle-off.png';
+import { useAuth } from '@/context/AuthContext';
 
 /**
  * Tray Menu App - Custom menu window for system tray
@@ -8,11 +9,16 @@ import trayToggleOff from '/assets/tray-toggle-off.png';
  */
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
+  const [userAuthenticated, setUserAuthenticated] = useState(null);
 
   useEffect(() => {
     const ipcRenderer = window.electron?.ipcRenderer;
     
     if (!ipcRenderer) return;
+
+    const handleUserAuth = (state) => {
+      setUserAuthenticated(state.authUser);
+    };
 
     const handleCoachWindowState = (state) => {
       setIsCoachOpen(state.isOpen);
@@ -21,24 +27,32 @@ const TrayMenuApp = () => {
     ipcRenderer.on('coach-window-state', handleCoachWindowState);
     ipcRenderer.send('get-coach-window-state');
 
+    ipcRenderer.on('user-auth', handleUserAuth);
+    ipcRenderer.send('get-user-auth');
+
     return () => {
       ipcRenderer.off('coach-window-state', handleCoachWindowState);
+      ipcRenderer.off('user-auth', handleUserAuth);
     };
   }, []);
 
   const handleToggleCoach = () => {
-    if (window.electron?.ipcRenderer) {
+    const ipcRenderer = window.electron?.ipcRenderer;
+
+    if (ipcRenderer) {
       if (isCoachOpen) {
-        window.electron.ipcRenderer.send('close-coach-window'); 
+        ipcRenderer.send('close-coach-window'); 
       } else {
-        window.electron.ipcRenderer.send('open-coach-window');
+        ipcRenderer.send('open-coach-window');
       }
     }
   };
 
   const handleQuit = () => {
-    if (window.electron?.ipcRenderer) {
-      window.electron.ipcRenderer.send('quit-app');
+    const ipcRenderer = window.electron?.ipcRenderer;
+
+    if (ipcRenderer) {
+      ipcRenderer.send('quit-app');
     }
   };
 
@@ -52,6 +66,7 @@ const TrayMenuApp = () => {
         <button 
           className="tray-menu-item"
           onClick={handleToggleCoach}
+          disabled={!userAuthenticated}
         >
           <div className="tray-menu-item-icon">
             <img 

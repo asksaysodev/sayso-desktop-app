@@ -1540,7 +1540,6 @@ app.whenReady().then(() => {
     // Register IPC handlers AFTER native module is loaded
     // Initialize native audio module
     ipcMain.handle('native-audio-initialize', async () => {
-      console.log('11111')
       try {
         await nativeAudio.initialize();
         return { success: true };
@@ -1774,6 +1773,38 @@ app.on('web-contents-created', (event, contents) => {
     callback({});
   });
 });
+
+
+// Authenticated User
+global.authUser = false;
+/**
+ * Handler for getting user auth state
+ * Sends current authentication status to requesting window
+ */
+ipcMain.on('get-user-auth', (event) => {
+  event.sender.send('user-auth', {
+    authUser: global.authUser
+  });
+});
+
+/**
+ * Handler for updating user auth state
+ */
+ipcMain.on('update-user-auth', (event, { isAuthenticated }) => {
+  global.authUser = isAuthenticated;
+  
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.webContents.send('user-auth', {
+      authUser: global.authUser
+    });
+  }
+  
+  if (global.mainWindow && !global.mainWindow.isDestroyed()) {
+    global.mainWindow.webContents.send('user-auth', {
+      authUser: global.authUser
+    });
+  }
+})
 
 // Handler for opening coach window
 ipcMain.on('open-coach-window', () => {

@@ -42,6 +42,10 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     updateGlobalUserState(null);
     setAuthToken(null);
+    
+    if (window.electron?.ipcRenderer) {
+      window.electron.ipcRenderer.send('update-user-auth', { isAuthenticated: false });
+    }
   }
 
   // Handle session expiration
@@ -105,11 +109,19 @@ export const AuthProvider = ({ children }) => {
         getAccount(user.email).then((account) => {
           updateGlobalUserState(account)
           setUserLoading(false)
+          
+          if (window.electron?.ipcRenderer) {
+            window.electron.ipcRenderer.send('update-user-auth', { isAuthenticated: true });
+          }
         })
       }, 300) // 300ms delay
     } else {
       updateGlobalUserState(null)
       setUserLoading(false)
+      
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.send('update-user-auth', { isAuthenticated: false });
+      }
     }
 
     return () => {
