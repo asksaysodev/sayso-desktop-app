@@ -327,14 +327,27 @@ ipcMain.handle('start-audio-streaming', async (event, { token }) => {
     await audioStreamer.start(token);
 
     // Set up streaming callbacks
+    let userCallbackInvocationCount = 0;
     await startUserFullRecording({
       metadata: { 
         sessionId: audioStreamer.sessionId,
         userStartMs: Date.now() 
       },
       streamingCallback: (buffer, format) => {
+        userCallbackInvocationCount++;
+        if (userCallbackInvocationCount === 1) {
+          console.log('🎤 [MAIN] ✅ User audio streaming callback invoked for first time!');
+          console.log('🎤 [MAIN] First chunk size:', buffer.length, 'bytes');
+          console.log('🎤 [MAIN] Format:', JSON.stringify(format));
+        }
+        if (userCallbackInvocationCount % 100 === 0) {
+          console.log(`🎤 [MAIN] User audio callback invoked ${userCallbackInvocationCount} times`);
+        }
+        
         if (audioStreamer) {
           audioStreamer.addUserAudio(buffer, format);
+        } else {
+          console.error('🎤 [MAIN] ❌ AudioStreamer not available when callback invoked!');
         }
       }
     });

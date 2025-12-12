@@ -170,6 +170,7 @@ class AudioStreamer {
    */
   addUserAudio(buffer, format) {
     if (!this.isStreaming) {
+      console.warn('⚠️ [AudioStreamer] User audio received but streaming is not active');
       return; // Silently ignore if not streaming
     }
 
@@ -213,11 +214,16 @@ class AudioStreamer {
    */
   _processUserChunks() {
     if (!this.userWebSocket || !this.userWebSocket.isConnected()) {
+      console.warn('⚠️ [AudioStreamer] User chunks ready but WebSocket not connected');
       return; // Can't send if not connected
     }
 
     try {
       const readyChunks = this.userBuffer.getReadyChunks();
+      
+      if (readyChunks.length > 0) {
+        console.log(`🎤 [AudioStreamer] Processing ${readyChunks.length} ready user audio chunks`);
+      }
       
       for (const chunk of readyChunks) {
         try {
@@ -231,6 +237,7 @@ class AudioStreamer {
             this.userSendFailures = 0; // Reset failure count on success
           } else {
             this.userSendFailures++;
+            console.warn(`⚠️ [AudioStreamer] User audio send failed (${this.userSendFailures}/${this.maxSendFailures})`);
             if (this.userSendFailures >= this.maxSendFailures) {
               console.error(`❌ [AudioStreamer] User stream: Max send failures reached (${this.maxSendFailures})`);
               if (this.onError) {

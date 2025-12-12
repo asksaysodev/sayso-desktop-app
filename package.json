@@ -123,7 +123,10 @@
       "gatekeeperAssess": false,
       "entitlements": "assets/entitlements.mac.plist",
       "entitlementsInherit": "assets/entitlements.mac.plist",
-      "infoPlist": "electron/Info.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "We need access to your microphone for audio calls",
+        "NSAudioCaptureUsageDescription": "We need access to system audio to create multi-output devices for call recording"
+      },
       "notarize": {
         "teamId": "Y57SJLCC9H"
       },

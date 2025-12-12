@@ -660,10 +660,16 @@ function setUserStreamingCallback(callback) {
 async function startUserFullRecording({ metadata = {}, streamingCallback = null } = {}) {
   console.log('🎤 [RECORDER] === STARTING USER FULL RECORDING (MICROPHONE) ===');
   console.log('🎤 [RECORDER] Metadata:', JSON.stringify(metadata, null, 2));
+  console.log('🎤 [RECORDER] Streaming callback provided:', !!streamingCallback);
+  console.log('🎤 [RECORDER] Streaming callback type:', typeof streamingCallback);
   
   // Set streaming callback if provided
   if (streamingCallback) {
+    console.log('🎤 [RECORDER] Setting user streaming callback...');
     setUserStreamingCallback(streamingCallback);
+    console.log('🎤 [RECORDER] ✅ User streaming callback set');
+  } else {
+    console.log('🎤 [RECORDER] ⚠️ No streaming callback provided - streaming will be disabled');
   }
   
   // Get the output directory - use user subfolder
@@ -696,10 +702,17 @@ async function startUserFullRecording({ metadata = {}, streamingCallback = null 
   const userAudioFile = path.join(baseDir, `user-${sessionId}-${startMs}.caf`);
   
   // Detect active microphone
+  console.log('🎤 [RECORDER] Detecting active microphone...');
   const micInfo = await detectActiveMicrophone();
+  
+  if (!micInfo) {
+    console.error('🎤 [RECORDER] ❌ Failed to detect microphone!');
+    throw new Error('Microphone detection failed');
+  }
   
   console.log(`🎤 [RECORDER] Starting full microphone recording with FFmpeg`);
   console.log(`🎤 [RECORDER] Using microphone: [${micInfo.index}] ${micInfo.name}`);
+  console.log(`🎤 [RECORDER] Microphone detection successful`);
   console.log(`🎤 [RECORDER] Output directory: ${baseDir}`);
   console.log(`🎤 [RECORDER] Output file: ${userAudioFile}`);
   console.log(`🎤 [RECORDER] Streaming: ${userStreamingCallback ? 'enabled' : 'disabled'}`);
@@ -754,10 +767,31 @@ async function startUserFullRecording({ metadata = {}, streamingCallback = null 
         '-' // Output to stdout
       ];
       
-      streamingProcess = spawn(getFfmpegPath(), streamingArgs);
+      const ffmpegPath = getFfmpegPath();
+      console.log('🎤 [RECORDER] Streaming FFmpeg path:', ffmpegPath);
+      console.log('🎤 [RECORDER] Streaming FFmpeg args:', streamingArgs.join(' '));
+      console.log('🎤 [RECORDER] Streaming microphone index:', micInfo.index, 'name:', micInfo.name);
+      
+      streamingProcess = spawn(ffmpegPath, streamingArgs);
+      
+      // Track audio data flow
+      let totalBytesReceived = 0;
+      let chunkCount = 0;
+      let firstChunkTime = null;
       
       // Handle streaming stdout data
       streamingProcess.stdout.on('data', (chunk) => {
+        chunkCount++;
+        totalBytesReceived += chunk.length;
+        if (!firstChunkTime) {
+          firstChunkTime = Date.now();
+          console.log(`🎤 [RECORDER] ✅ First audio chunk received! Size: ${chunk.length} bytes, Time: ${new Date().toISOString()}`);
+        }
+        
+        if (chunkCount % 100 === 0) {
+          console.log(`🎤 [RECORDER] Streaming audio data flowing: ${chunkCount} chunks, ${totalBytesReceived} total bytes`);
+        }
+        
         if (userStreamingCallback && chunk.length > 0) {
           try {
             // Convert to Buffer if needed
@@ -766,28 +800,64 @@ async function startUserFullRecording({ metadata = {}, streamingCallback = null 
           } catch (error) {
             console.error('🎤 [RECORDER] Error in streaming callback:', error);
           }
+        } else {
+          console.warn(`🎤 [RECORDER] ⚠️ Chunk received but callback not available or chunk empty. Callback: ${!!userStreamingCallback}, Chunk length: ${chunk.length}`);
         }
       });
       
       streamingProcess.stderr.on('data', (data) => {
-        // Suppress FFmpeg stderr output for streaming process (it's verbose)
-        // Only log errors
+        // Log all stderr output for debugging (FFmpeg logs to stderr)
         const output = data.toString();
-        if (output.includes('Error')) {
-          console.error('🎤 [RECORDER] Streaming FFmpeg error:', output);
+        const lines = output.split('\n').filter(line => line.trim());
+        
+        for (const line of lines) {
+          const lowerLine = line.toLowerCase();
+          if (lowerLine.includes('error') || lowerLine.includes('failed') || lowerLine.includes('permission') || lowerLine.includes('denied')) {
+            console.error('🎤 [RECORDER] ⚠️ Streaming FFmpeg stderr (ERROR):', line);
+          } else if (lowerLine.includes('avfoundation') || lowerLine.includes('input') || lowerLine.includes('output') || lowerLine.includes('stream')) {
+            console.log('🎤 [RECORDER] Streaming FFmpeg stderr (INFO):', line);
+          }
         }
       });
       
       streamingProcess.on('error', (error) => {
-        console.error('🎤 [RECORDER] Streaming FFmpeg process error:', error);
+        console.error('🎤 [RECORDER] ❌ Streaming FFmpeg process spawn error:', error.message);
+        console.error('🎤 [RECORDER] Error code:', error.code);
+        console.error('🎤 [RECORDER] Error stack:', error.stack);
       });
       
       streamingProcess.on('exit', (code, signal) => {
-        console.log(`🎤 [RECORDER] Streaming FFmpeg process exited with code ${code}, signal ${signal}`);
+        const exitReason = code === null ? 'unknown' : code === 0 ? 'normal' : 'error';
+        console.log(`🎤 [RECORDER] Streaming FFmpeg process exited:`);
+        console.log(`🎤 [RECORDER]   - Exit code: ${code} (${exitReason})`);
+        console.log(`🎤 [RECORDER]   - Signal: ${signal || 'none'}`);
+        console.log(`🎤 [RECORDER]   - Total chunks received: ${chunkCount}`);
+        console.log(`🎤 [RECORDER]   - Total bytes received: ${totalBytesReceived}`);
+        console.log(`🎤 [RECORDER]   - First chunk time: ${firstChunkTime ? new Date(firstChunkTime).toISOString() : 'never'}`);
+        
+        if (code !== 0 && code !== null) {
+          console.error(`🎤 [RECORDER] ❌ Streaming FFmpeg exited with error code ${code}! This may indicate microphone access failure.`);
+        }
+        
+        if (chunkCount === 0) {
+          console.error(`🎤 [RECORDER] ❌ No audio chunks received! Microphone may not be accessible or FFmpeg failed to start capture.`);
+        }
       });
+      
+      // Log process start
+      console.log(`🎤 [RECORDER] Streaming FFmpeg process spawned, PID: ${streamingProcess.pid}`);
       
       // Store streaming process for cleanup
       global.userStreamingProcess = streamingProcess;
+      
+      // Set a timeout to check if we're receiving data
+      setTimeout(() => {
+        if (chunkCount === 0) {
+          console.error(`🎤 [RECORDER] ⚠️ WARNING: No audio chunks received after 3 seconds! Process PID: ${streamingProcess.pid}, Still running: ${!streamingProcess.killed}`);
+        } else {
+          console.log(`🎤 [RECORDER] ✅ Audio streaming confirmed: ${chunkCount} chunks received in first 3 seconds`);
+        }
+      }, 3000);
       
       console.log('🎤 [RECORDER] ✅ Streaming FFmpeg process started');
     }
