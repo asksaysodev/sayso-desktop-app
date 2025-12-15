@@ -7,17 +7,11 @@ import { cue_startStreaming, cue_stopStreaming } from '../coachWindow/services/c
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
 import apiClient from '../config/axios';
 
-export const CUE_PRIORITY_ORDER = {
-    high: 3,
-    mid: 2,
-    low: 1,
-};
-
 export const CUE_CONFIG = {
     /** Display duration of the toast */
     displayDuration: 6000,
     /** Time between toasts - allows exit animation (300ms) to complete with buffer */
-    transitionDelay: 500, 
+    transitionDelay: 500,
     /** Time until the toast expires */
     expirationTime: 30000,
     /** Animation duration of the toast */
@@ -90,10 +84,10 @@ export const useCoachWindowStore = create((set, get) => ({
                 set({ showPermissionsModal: false, needsSystemSettings: false });
                 return true;
             }
-            
+
             set({ needsSystemSettings: true });
             return false;
-            
+
         } catch (error) {
             console.error('Error requesting permissions:', error);
             set({ needsSystemSettings: true });
@@ -107,13 +101,13 @@ export const useCoachWindowStore = create((set, get) => ({
 
     openCoachWindow: async () => {
         const cachedPermissions = localStorage.getItem('coachPermissionsGranted') === 'true';
-        
+
         // If permissions are cached, revalidate to detect OS-level revocations
         if (cachedPermissions) {
             try {
                 // Re-check permissions to detect if user revoked them in macOS settings
                 const permissionsStatus = await window.electron?.permissions?.check();
-                
+
                 // If microphone permission was revoked, clear cache and show modal
                 if (!permissionsStatus?.mic) {
                     console.log('[CoachWindowStore] Permissions revoked in OS settings, clearing cache');
@@ -121,7 +115,7 @@ export const useCoachWindowStore = create((set, get) => ({
                     set({ showPermissionsModal: true, needsSystemSettings: false });
                     return false;
                 }
-                
+
                 // Mic is still granted - proceed to open window
                 // Note: Screen permission can't be reliably checked without requesting,
                 // so we'll handle that when actually trying to use it
@@ -197,7 +191,7 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     resetCallDuration: () => set({ callDurationInSeconds: 0 }),
-    
+
     recall_createNewSessionData: (prospectId) => {
         if (!prospectId) return null;
 
@@ -212,18 +206,18 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     // ========== RECALL ACTIONS ========== //
-    setSelectedProspect: (selectedProspect) => set((state) => ({ 
-        recall: { 
-            ...state.recall, 
-            selectedProspect 
-        } 
+    setSelectedProspect: (selectedProspect) => set((state) => ({
+        recall: {
+            ...state.recall,
+            selectedProspect
+        }
     })),
-    
-    setProspects: (prospects) => set((state) => ({ 
-        recall: { 
-            ...state.recall, 
-            prospects 
-        } 
+
+    setProspects: (prospects) => set((state) => ({
+        recall: {
+            ...state.recall,
+            prospects
+        }
     })),
 
     recall_fetchProspects: async () => {
@@ -236,7 +230,7 @@ export const useCoachWindowStore = create((set, get) => ({
 
         try {
             const prospectsData = await getProspects();
-            
+
             set((state) => ({
                 recall: {
                     ...state.recall,
@@ -258,7 +252,7 @@ export const useCoachWindowStore = create((set, get) => ({
 
     recall_startDualChannelRecording: async (prospectId) => {
         set({ isCoachLoading: true })
-        
+
         try {
             // Create session data to get sessionId and prospectId
             const sessionData = get().recall_createNewSessionData(prospectId);
@@ -279,7 +273,7 @@ export const useCoachWindowStore = create((set, get) => ({
             };
 
             const result = await startDualChannelRecording(recordingParams);
-            set({ 
+            set({
                 isCoachLoading: false,
                 isCoachActive: true
             })
@@ -299,32 +293,32 @@ export const useCoachWindowStore = create((set, get) => ({
 
             const result = await stopDualChannelRecording();
             console.log('[Store] Recording stopped:', result);
-            
-            set((state) => ({ 
-                audio: { 
-                    ...state.audio, 
-                    isCompressing: true 
+
+            set((state) => ({
+                audio: {
+                    ...state.audio,
+                    isCompressing: true
                 }
             }));
-            
-            set((state) => ({ 
-                audio: { 
-                    ...state.audio, 
-                    isUploading: true, 
-                    isCompressing: false 
+
+            set((state) => ({
+                audio: {
+                    ...state.audio,
+                    isUploading: true,
+                    isCompressing: false
                 }
             }));
             const uploadResults = await uploadFullRecording(result);
             console.log('[Store] Files uploaded:', uploadResults);
-            
-            set((state) => ({ 
-                audio: { 
-                    ...state.audio, 
-                    isUploading: false 
+
+            set((state) => ({
+                audio: {
+                    ...state.audio,
+                    isUploading: false
                 }
             }));
             return uploadResults;
-            
+
         } catch (error) {
             console.error('[Store] Error:', error);
             throw error;
@@ -334,13 +328,13 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     setSignals: (signals) => set((state) => ({
-        recall: { ...state.recall, signals } 
+        recall: { ...state.recall, signals }
     })),
 
     recall_resetCoach: () => {
         set((state) => ({
             ...getInitialSharedState(),
-            recall: { 
+            recall: {
                 ...RECALL_INITIAL_STATE,
                 selectedProspect: state.recall.selectedProspect,
                 prospects: state.recall.prospects,
@@ -349,8 +343,8 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     // ========== CUE ACTIONS ========== //
-    setLeadType: (leadType) => set((state) => ({ 
-        cue: { ...state.cue, leadType } 
+    setLeadType: (leadType) => set((state) => ({
+        cue: { ...state.cue, leadType }
     })),
 
     cue_createNewSession: async (leadType) => {
@@ -382,10 +376,10 @@ export const useCoachWindowStore = create((set, get) => ({
             }
             if (currentLeadType !== 'buyer' && currentLeadType !== 'seller') {
                 throw new Error('Scenario must be either "buyer" or "seller"');
-            }  
+            }
 
             const sessionData = await get().cue_createNewSession(currentLeadType);
-            
+
             if (!sessionData || !sessionData.sessionId) {
                 throw new Error('Failed to create new cue session');
             }
@@ -416,7 +410,7 @@ export const useCoachWindowStore = create((set, get) => ({
 				throw new Error('Failed to stop cue session');
 			}
 			set({ sessionData, isCoachActive: false });
-            
+
             get().cue_resetStates();
 
         } catch (error) {
@@ -442,9 +436,9 @@ export const useCoachWindowStore = create((set, get) => ({
         set({
             callDurationInSeconds: 0,
             sessionData: null,
-            cue: { 
-                ...CUE_INITIAL_STATE, 
-                leadType: get().cue.leadType, 
+            cue: {
+                ...CUE_INITIAL_STATE,
+                leadType: get().cue.leadType,
             }
         })
     },
@@ -453,17 +447,17 @@ export const useCoachWindowStore = create((set, get) => ({
         if (get().cue.isResettingCueSession) return;
 
         set({ cue: { ...get().cue, isResettingCueSession: true } });
-        
+
         try {
             const currentLeadType = get().cue.leadType;
 
             const sessionId = get().sessionData?.sessionId;
-            
+
             if (sessionId) {
                 await cue_stopStreaming();
                 await get().cue_stopSession(sessionId);
             }
-            
+
             set({
                 callDurationInSeconds: 0,
                 sessionData: null,
@@ -475,16 +469,16 @@ export const useCoachWindowStore = create((set, get) => ({
             })
 
             const sessionData = await get().cue_createNewSession(currentLeadType);
-            
+
             if (!sessionData || !sessionData.sessionId) {
                 throw new Error('Failed to create new cue session');
             }
 
             await cue_startStreaming(sessionData.sessionId);
 
-            set({ 
+            set({
                 sessionData,
-                isCoachActive: true 
+                isCoachActive: true
             });
         } catch (error) {
             console.error('Error resetting cue session:', error);
@@ -501,7 +495,6 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     cue_addInsight: (insight) => {
-        console.log('cue_addInsight', insight);
         const newInsight = {
             ...insight,
             // This we should rethink it. Because, do we want to set the timestamp here at the frontend?
@@ -512,9 +505,7 @@ export const useCoachWindowStore = create((set, get) => ({
             // we already have the createdAt property. Think more about this.
             expiresAt: insight.expiresAt || Date.now() + CUE_CONFIG.expirationTime,
         };
-
         const prevQueue = get().cue.insightsQueue;
-
         const validQueue = cue_removeExpired(prevQueue);
         const notTooOldQueue = cue_removeTooOld(validQueue);
         const newQueue = [...notTooOldQueue, newInsight];
@@ -527,12 +518,9 @@ export const useCoachWindowStore = create((set, get) => ({
 
     cue_showNext: () => {
         const prevQueue = get().cue.insightsQueue;
-
         const validQueue = cue_removeExpired(prevQueue);
         const notTooOldQueue = cue_removeTooOld(validQueue);
         const sortedQueue = cue_sortByPriority(notTooOldQueue);
-
-        // Si ya filtramos los demasiado viejos, el siguiente toast es válido
         const nextInsight = sortedQueue.length > 0 ? sortedQueue[0] : null;
 
         set((state) => ({

@@ -64,7 +64,7 @@ export default function CoachWindowMain() {
 
     useEffect(() => {
         let isResizing = false;
-
+        console.log('entra al effect the resize', {currentInsight})
         const updateWindowSize = () => {
             if (containerRef.current && window.electronAPI && !isResizing) {
                 isResizing = true;
@@ -159,10 +159,12 @@ export default function CoachWindowMain() {
 
     // Auto-trigger showNext when queue has items and nothing is currently displaying
 	useEffect(() => {
-		if (insightsQueue.length > 0 && !isCueDisplaying && !currentInsight) {
+        console.log('coachchchchchc useeffect')
+		if (insightsQueue.length > 0 && !isCueDisplaying) {
+            console.log('pre showNext!')
 			showNext();
 		}
-    }, [insightsQueue, isCueDisplaying, currentInsight, showNext]);
+    }, [insightsQueue, isCueDisplaying, showNext]);
 
     const DropdownComponent = {
         recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
@@ -213,6 +215,7 @@ export default function CoachWindowMain() {
 
             {currentInsight && isCoachActive && (
                 <InsightWrapper
+                    key={currentInsight?.message}
                     onComplete={onCompleteInsight}
                     priority={currentInsight?.priority}
                     insightText={currentInsight?.message}

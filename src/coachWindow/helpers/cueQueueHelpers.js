@@ -1,4 +1,4 @@
-import { CUE_CONFIG, CUE_PRIORITY_ORDER } from "../../store/coachWindowStore";
+import { CUE_CONFIG } from "../../store/coachWindowStore";
 
 /** For handling cases where the toast has expiresAt property and is expired */
 export const cue_removeExpired = (queue) => {
@@ -16,5 +16,5 @@ export const cue_removeTooOld = (queue) => {
 };
 
 export const cue_sortByPriority = (queue) => {
-    return [...queue].sort((a, b) => CUE_PRIORITY_ORDER[b.priority] - CUE_PRIORITY_ORDER[a.priority]);
+    return [...queue].sort((a, b) => a.priority - b.priority);
 };
