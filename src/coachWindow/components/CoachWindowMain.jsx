@@ -11,7 +11,7 @@ import SelectProspectDropdown from './SelectProspectDropdown';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 
 const CONTENT_WIDTH_SIZES = {
-    BASE: 300,
+    BASE: 370,
     CUE: 795,
     READY_TO_LAUNCH: 400,
     MAX_WIDTH: 900
@@ -39,7 +39,6 @@ export default function CoachWindowMain() {
     //STATE
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-	const [isInsightsWindowOpen, setIsInsightsWindowOpen] = useState(false);
 
     //CONTEXT / HOOKS
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
@@ -57,91 +56,6 @@ export default function CoachWindowMain() {
         closeCoachWindow()
     }
 
-    // a ver, el primer problema que veo es el maxWidth, deberia ser 800 y pico.
-    // segundo, cuando no hay mas insight, el width no se resetea porque ya de por si contentWidth cambio debido al previo resize...
-    // por eso -> quizas hacer que contentWidth sea siempre 300, lo malo si hacemos, es que tendria que traer lead type de la store para que cuando cambie.
-    // tambien sumarle el width.
-    //  O dejarlo como esta pero que en vez de hacer const insightWidth = hasInsight ? 395 : 0;
-    // lo que sea condicional es si sumas insightWidth o lo resta, tiene sentido?
-    // useEffect(() => {
-    //     console.log('entra al effect the resize')
-    //     let isResizing = false; // Flag to prevent feedback loop
-
-    //     const updateWindowSize = () => {
-    //         if (containerRef.current && window.electronAPI && !isResizing) {
-    //             isResizing = true; // Set flag to prevent recursive calls
-
-    //             const contentHeight = containerRef.current.scrollHeight;
-    //             // const contentWidth = containerRef.current.scrollWidth;
-    //
-
-    //             // Calculate responsive dimensions
-    //             const windowHeight = Math.max(45, (isDropdownOpen ? 220 : contentHeight ))
-
-    //             // Width based on content with min/max constraints
-    //             const minWidth = 300;  // Minimum usable width
-    //             const maxWidth = 1200; // Maximum width before it gets too wide
-
-    //             // Only track currentInsight - it's the source of truth for what's displayed
-    //             // When showNext() runs, it atomically updates currentInsight and clears the queue if empty
-    //             // So if currentInsight is null, there's nothing displayed (even if queue has items, they'll become currentInsight immediately)
-    //             // Note: CSS transforms don't affect scrollWidth, so we manually add the insight width when present
-    //             const hasInsight = currentInsight !== null;
-    //             console.log('hasInsight', hasInsight)
-    //             const insightWidth = hasInsight ? 395 : 0;
-
-    //             // contentWidth is the base width (doesn't include insight due to CSS transforms)
-    //             // Simply add insightWidth when an insight is present
-    //             const windowWidth = Math.max(minWidth, Math.min(maxWidth, contentWidth + insightWidth));
-
-    //             console.log('🔍 [updateWindowSize]', {
-    //                 currentInsight: currentInsight !== null ? 'exists' : 'null',
-    //                 insightsQueueLength: insightsQueue.length,
-    //                 hasInsight,
-    //                 contentWidth,
-    //                 insightWidth,
-    //                 windowWidth,
-    //                 windowHeight,
-    //                 isDropdownOpen
-    //             });
-
-    //             console.log('before resize', windowWidth, windowHeight)
-    //             window.electronAPI.resizeWindow(windowWidth, windowHeight);
-
-    //             // Reset flag after a short delay
-    //             setTimeout(() => {
-    //                 isResizing = false;
-    //             }, 100);
-    //         }
-    //     };
-
-    //     // When currentInsight becomes null, add a small delay to ensure DOM has updated
-    //     // When it appears, update immediately
-    //     const delay = currentInsight === null ? 50 : 0;
-
-    //     let rafId = null;
-    //     const timeoutId = setTimeout(() => {
-    //         // Use double requestAnimationFrame to ensure DOM has fully updated
-    //         rafId = requestAnimationFrame(() => {
-    //             requestAnimationFrame(() => {
-    //                 updateWindowSize();
-    //             });
-    //         });
-    //     }, delay);
-
-    //     // Use ResizeObserver for automatic size updates
-    //     const resizeObserver = new ResizeObserver(updateWindowSize);
-    //     if (containerRef.current) {
-    //         resizeObserver.observe(containerRef.current);
-    //     }
-
-    //     return () => {
-    //         clearTimeout(timeoutId);
-    //         if (rafId) cancelAnimationFrame(rafId);
-    //         resizeObserver.disconnect();
-    //     };
-    // }, [isDropdownOpen, currentInsight]); // Only track currentInsight for width - it's the source of truth
-
     function getContentSizeByCurrentState() {
       if (currentInsight !== null) return CONTENT_WIDTH_SIZES.CUE;
       if (leadType !== null) return CONTENT_WIDTH_SIZES.READY_TO_LAUNCH;
@@ -149,7 +63,6 @@ export default function CoachWindowMain() {
     }
 
     useEffect(() => {
-        console.log('entra al effect the resize')
         let isResizing = false;
 
         const updateWindowSize = () => {
@@ -212,32 +125,6 @@ export default function CoachWindowMain() {
     const onCompleteInsight = useCallback(() => {
         showNext();
     }, [showNext]);
-
-	useEffect(() => {
-		// When currentInsight appears, set to true immediately
-		if (currentInsight !== null) {
-			setIsInsightsWindowOpen(true);
-			return;
-		}
-
-		// When currentInsight disappears
-		if (currentInsight === null) {
-			// If there are queued insights, keep it open (they'll show next)
-			if (insightsQueue.length > 0) {
-				setIsInsightsWindowOpen(true);
-				return;
-			}
-
-			// Otherwise, delay closing to allow exit animation to complete
-			// Keep window expanded for displayDuration + transitionDelay to ensure smooth transition
-			const closeDelay = defaultConfig.displayDuration + defaultConfig.transitionDelay;
-			const timeoutId = setTimeout(() => {
-				setIsInsightsWindowOpen(false);
-			}, closeDelay);
-
-			return () => clearTimeout(timeoutId);
-		}
-	}, [currentInsight, insightsQueue.length]);
 
 	useEffect(() => {
 		// Only set up listener when Cue is active
