@@ -1,7 +1,7 @@
 import CustomInput from '@/components/CustomInput';
 import LoginBtn from '@/components/LoginBtn';
 
-export default function SignUpStepOneFormInputs({ formData, handleInputChange, fieldErrors }) {
+export default function SignUpStepOneFormInputs({ formData, handleInputChange, handleBlur, fieldErrors }) {
     return (
         <>
             <CustomInput
@@ -11,6 +11,7 @@ export default function SignUpStepOneFormInputs({ formData, handleInputChange, f
                 label="Name"
                 value={formData.name}
                 onChange={handleInputChange}
+                onBlur={handleBlur}
                 error={fieldErrors.name}
             />
             <CustomInput
@@ -20,6 +21,7 @@ export default function SignUpStepOneFormInputs({ formData, handleInputChange, f
                 label="Last Name"
                 value={formData.lastname}
                 onChange={handleInputChange}
+                onBlur={handleBlur}
                 error={fieldErrors.lastname}
             />
             <CustomInput
@@ -29,6 +31,7 @@ export default function SignUpStepOneFormInputs({ formData, handleInputChange, f
                 label="Company"
                 value={formData.company}
                 onChange={handleInputChange}
+                onBlur={handleBlur}
                 error={fieldErrors.company}
             />
             <div className="formActions">
