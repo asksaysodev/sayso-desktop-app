@@ -3,7 +3,7 @@ import './styles.css';
 
 /**
  * Reusable form input component with label and error handling.
- * 
+ *
  * @param {string} type - Input type (text, email, password, etc.)
  * @param {string} id - Input ID for label association
  * @param {string} name - Input name attribute
@@ -14,19 +14,19 @@ import './styles.css';
  * @param {string} className - Additional CSS classes for the input
  * @param {object} rest - Any additional props to pass to the input element
  */
-const CustomInput = ({ 
-  type = 'text', 
-  id, 
-  name, 
-  label, 
-  value, 
-  onChange, 
-  error, 
+const CustomInput = ({
+  type = 'text',
+  id,
+  name,
+  label,
+  value,
+  onChange,
+  error,
   className = '',
-  ...rest 
+  ...rest
 }) => {
   return (
-    <div className="formGroup">
+    <div className="customInputFormGroup">
       <label htmlFor={id}>{label}</label>
       <input
         type={type}
@@ -43,4 +43,3 @@ const CustomInput = ({
 };
 
 export default CustomInput;
-

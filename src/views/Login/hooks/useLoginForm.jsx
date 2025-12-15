@@ -22,8 +22,24 @@ export default function useLoginForm() {
   });
   const [fieldErrors, setFieldErrors] = useState({});
   const [isBtnLoading, setIsBtnLoading] = useState(false);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const navigate = useNavigate();
   const { signIn, signUp } = useAuth();
+
+  const validateSingleField = (fieldName, value) => {
+    const testData = { ...formData, [fieldName]: value };
+    let errors = {};
+
+    if (!isLoggingIn && signupStep === 1) {
+      errors = validateStepOneFields(testData);
+    } else if (isLoggingIn) {
+      errors = validateLoginFields(testData);
+    } else {
+      errors = validateSignupFields(testData);
+    }
+
+    return errors[fieldName] || '';
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -33,10 +49,27 @@ export default function useLoginForm() {
     }));
     
     if (fieldErrors[name]) {
-      setFieldErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
+      const fieldError = validateSingleField(name, value);
+      if (!fieldError) {
+        setFieldErrors(prev => ({
+          ...prev,
+          [name]: ''
+        }));
+      }
+    }
+  };
+
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    
+    if (hasAttemptedSubmit) {
+      const fieldError = validateSingleField(name, value);
+      if (fieldError) {
+        setFieldErrors(prev => ({
+          ...prev,
+          [name]: fieldError
+        }));
+      }
     }
   };
 
@@ -45,6 +78,7 @@ export default function useLoginForm() {
     setError(null);
     setFieldErrors({});
     setSignupStep(1);
+    setHasAttemptedSubmit(false);
     setFormData({
       name: '',
       lastname: '',
@@ -95,6 +129,8 @@ export default function useLoginForm() {
     e.preventDefault();
     setError(null);
     setFieldErrors({});
+    
+    setHasAttemptedSubmit(true);
 
     if (!isLoggingIn && signupStep === 1) {
       const errors = validateStepOneFields(formData);
@@ -137,6 +173,7 @@ export default function useLoginForm() {
     fieldErrors,
     isBtnLoading,
     handleInputChange,
+    handleBlur,
     handleToggleMode,
     handleSubmit,
     setSignupStep

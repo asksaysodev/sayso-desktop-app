@@ -1,7 +1,8 @@
 import CustomInput from '@/components/CustomInput';
 import LoginBtn from '@/components/LoginBtn';
+import PasswordInput from './PasswordInput';
 
-export default function SignUpStepTwoFormInputs({ formData, handleInputChange, fieldErrors, isBtnLoading, setSignupStep }) {
+export default function SignUpStepTwoFormInputs({ formData, handleInputChange, handleBlur, fieldErrors, isBtnLoading, setSignupStep }) {
     return (
         <>
             <CustomInput
@@ -11,24 +12,25 @@ export default function SignUpStepTwoFormInputs({ formData, handleInputChange, f
                 label="Email"
                 value={formData.email}
                 onChange={handleInputChange}
+                onBlur={handleBlur}
                 error={fieldErrors.email}
             />
-            <CustomInput
-                type="password"
+            <PasswordInput
                 id="password"
                 name="password"
                 label="Password"
                 value={formData.password}
                 onChange={handleInputChange}
+                onBlur={handleBlur}
                 error={fieldErrors.password}
             />
-            <CustomInput
-                type="password"
+            <PasswordInput
                 id="repeatPassword"
                 name="repeatPassword"
                 label="Repeat Password"
                 value={formData.repeatPassword}
                 onChange={handleInputChange}
+                onBlur={handleBlur}
                 error={fieldErrors.repeatPassword}
             />
             <div className="formActions">

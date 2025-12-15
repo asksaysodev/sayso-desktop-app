@@ -10,16 +10,17 @@ import useLoginForm from './hooks/useLoginForm';
 import './styles.css';
 
 const Login = () => {
-  const { 
-    isLoggingIn, 
-    signupStep, 
-    error, 
-    isLoading, 
-    formData, 
-    fieldErrors, 
-    isBtnLoading, 
-    handleInputChange, 
-    handleToggleMode, 
+  const {
+    isLoggingIn,
+    signupStep,
+    error,
+    isLoading,
+    formData,
+    fieldErrors,
+    isBtnLoading,
+    handleInputChange,
+    handleBlur,
+    handleToggleMode,
     handleSubmit,
     setSignupStep
   } = useLoginForm();
@@ -36,9 +37,10 @@ const Login = () => {
         {error && <div className="errorMessage">{error}</div>}
         <form onSubmit={handleSubmit}>
           {isLoggingIn ? (
-            <LoginInFormInputs 
+            <LoginInFormInputs
               formData={formData}
               handleInputChange={handleInputChange}
+              handleBlur={handleBlur}
               fieldErrors={fieldErrors}
               isBtnLoading={isBtnLoading}
             />
@@ -47,12 +49,14 @@ const Login = () => {
               <SignUpStepOneFormInputs
                 formData={formData}
                 handleInputChange={handleInputChange}
+                handleBlur={handleBlur}
                 fieldErrors={fieldErrors}
               />
             ) : (
                 <SignUpStepTwoFormInputs
                   formData={formData}
                   handleInputChange={handleInputChange}
+                  handleBlur={handleBlur}
                   fieldErrors={fieldErrors}
                   isBtnLoading={isBtnLoading}
                   setSignupStep={setSignupStep}
@@ -68,4 +72,4 @@ const Login = () => {
   );
 };
 
-export default Login; 
+export default Login;
