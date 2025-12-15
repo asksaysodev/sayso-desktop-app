@@ -10,12 +10,19 @@ import InsightWrapper from './InsightWrapper';
 import SelectProspectDropdown from './SelectProspectDropdown';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 
+const CONTENT_WIDTH_SIZES = {
+    BASE: 370,
+    CUE: 795,
+    READY_TO_LAUNCH: 400,
+    MAX_WIDTH: 900
+}
+
 // cue
 const defaultConfig = {
     /** Display duration of the toast */
     displayDuration: 6000,
     /** Time between toasts - allows exit animation (300ms) to complete with buffer */
-    transitionDelay: 500, 
+    transitionDelay: 500,
     /** Time until the toast expires */
     expirationTime: 30000,
     /** Animation duration of the toast */
@@ -32,7 +39,6 @@ export default function CoachWindowMain() {
     //STATE
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-	const [isInsightsWindowOpen, setIsInsightsWindowOpen] = useState(false);
 
     //CONTEXT / HOOKS
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
@@ -50,48 +56,36 @@ export default function CoachWindowMain() {
         closeCoachWindow()
     }
 
+    function getContentSizeByCurrentState() {
+      if (currentInsight !== null) return CONTENT_WIDTH_SIZES.CUE;
+      if (leadType !== null) return CONTENT_WIDTH_SIZES.READY_TO_LAUNCH;
+      return CONTENT_WIDTH_SIZES.BASE;
+    }
+
     useEffect(() => {
-        let isResizing = false; // Flag to prevent feedback loop
-        
+        let isResizing = false;
+
         const updateWindowSize = () => {
             if (containerRef.current && window.electronAPI && !isResizing) {
-                isResizing = true; // Set flag to prevent recursive calls
-                
+                isResizing = true;
+
                 const contentHeight = containerRef.current.scrollHeight;
-                const contentWidth = containerRef.current.scrollWidth;
-                
-                // Calculate responsive dimensions
+
                 const windowHeight = Math.max(45, (isDropdownOpen ? 220 : contentHeight ))
-                
-                // Width based on content with min/max constraints
-                const minWidth = 300;  // Minimum usable width
-                const maxWidth = 1200; // Maximum width before it gets too wide
-                
-                // Only track currentInsight - it's the source of truth for what's displayed
-                // When showNext() runs, it atomically updates currentInsight and clears the queue if empty
-                // So if currentInsight is null, there's nothing displayed (even if queue has items, they'll become currentInsight immediately)
-                // Note: CSS transforms don't affect scrollWidth, so we manually add the insight width when present
-                const hasInsight = currentInsight !== null;
-                const insightWidth = hasInsight ? 395 : 0;
-                
-                // contentWidth is the base width (doesn't include insight due to CSS transforms)
-                // Simply add insightWidth when an insight is present
-                const windowWidth = Math.max(minWidth, Math.min(maxWidth, contentWidth + insightWidth));
-                
+                const newWidth = getContentSizeByCurrentState();
+
+                const windowWidth = Math.max(CONTENT_WIDTH_SIZES.BASE, Math.min(CONTENT_WIDTH_SIZES.MAX_WIDTH, newWidth));
+
                 console.log('🔍 [updateWindowSize]', {
                     currentInsight: currentInsight !== null ? 'exists' : 'null',
                     insightsQueueLength: insightsQueue.length,
-                    hasInsight,
-                    contentWidth,
-                    insightWidth,
                     windowWidth,
                     windowHeight,
                     isDropdownOpen
                 });
-                
+
                 window.electronAPI.resizeWindow(windowWidth, windowHeight);
-                
-                // Reset flag after a short delay
+
                 setTimeout(() => {
                     isResizing = false;
                 }, 100);
@@ -101,7 +95,7 @@ export default function CoachWindowMain() {
         // When currentInsight becomes null, add a small delay to ensure DOM has updated
         // When it appears, update immediately
         const delay = currentInsight === null ? 50 : 0;
-        
+
         let rafId = null;
         const timeoutId = setTimeout(() => {
             // Use double requestAnimationFrame to ensure DOM has fully updated
@@ -111,7 +105,7 @@ export default function CoachWindowMain() {
                 });
             });
         }, delay);
-        
+
         // Use ResizeObserver for automatic size updates
         const resizeObserver = new ResizeObserver(updateWindowSize);
         if (containerRef.current) {
@@ -123,74 +117,41 @@ export default function CoachWindowMain() {
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight]); // Only track currentInsight for width - it's the source of truth
+    }, [isDropdownOpen, currentInsight, leadType]);
+
+
+
 
     const onCompleteInsight = useCallback(() => {
         showNext();
     }, [showNext]);
 
 	useEffect(() => {
-		console.log('📊 [Insight State Change]', {
-			currentInsight: currentInsight !== null ? 'exists' : 'null',
-			insightsQueueLength: insightsQueue.length,
-			isInsightsWindowOpen
-		});
-
-		// When currentInsight appears, set to true immediately
-		if (currentInsight !== null) {
-			console.log('✅ [Insight] Setting isInsightsWindowOpen to true (insight appeared)');
-			setIsInsightsWindowOpen(true);
-			return;
-		}
-
-		// When currentInsight disappears
-		if (currentInsight === null) {
-			// If there are queued insights, keep it open (they'll show next)
-			if (insightsQueue.length > 0) {
-				console.log('⏳ [Insight] Keeping isInsightsWindowOpen true (queue has items)');
-				setIsInsightsWindowOpen(true);
-				return;
-			}
-
-			// Otherwise, delay closing to allow exit animation to complete
-			// Keep window expanded for displayDuration + transitionDelay to ensure smooth transition
-			const closeDelay = defaultConfig.displayDuration + defaultConfig.transitionDelay;
-			console.log(`⏰ [Insight] Scheduling close in ${closeDelay}ms (no insights)`);
-			const timeoutId = setTimeout(() => {
-				console.log('❌ [Insight] Setting isInsightsWindowOpen to false (delayed close)');
-				setIsInsightsWindowOpen(false);
-			}, closeDelay);
-
-			return () => clearTimeout(timeoutId);
-		}
-	}, [currentInsight, insightsQueue.length]);
-
-	useEffect(() => {
 		// Only set up listener when Cue is active
 		if (!isCoachActive || coachFeature !== 'cue') return;
-		
+
 		if (!window.electron?.cue?.onInsight) {
 			console.warn('⚠️ [CoachWindowMain] Electron cue.onInsight not available');
 			return;
 		}
-		
+
 		const unsubscribe = window.electron.cue.onInsight((insightData) => {
 			console.log('🎯 [New Insight Received]', {
 				message: insightData.message?.substring(0, 50) + '...',
 				priority: insightData.priority,
 				appointmentBooked: insightData.appointmentBooked
 			});
-			
+
 			// Call store action to add insight
 			const addInsight = useCoachWindowStore.getState().cue_addInsight;
-			
+
 			addInsight({
 				message: insightData.message,
 				priority: insightData.priority,
 				appointmentBooked: insightData.appointmentBooked || false,
 			});
 		});
-		
+
 		return () => {
 			unsubscribe();
 		};
@@ -223,7 +184,7 @@ export default function CoachWindowMain() {
                         </div>
                     </div> */}
                     <div className="coach-window-divider"></div>
-                    { 
+                    {
                         DropdownComponent[coachFeature] && (
                             DropdownComponent[coachFeature]
                         )
@@ -249,9 +210,9 @@ export default function CoachWindowMain() {
                     )
                 } */}
             </div>
-            
+
             {currentInsight && isCoachActive && (
-                <InsightWrapper 
+                <InsightWrapper
                     onComplete={onCompleteInsight}
                     priority={currentInsight?.priority}
                     insightText={currentInsight?.message}
