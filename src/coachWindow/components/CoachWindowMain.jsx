@@ -26,14 +26,13 @@ const defaultConfig = {
 
 export default function CoachWindowMain() {
 
-	console.log('CoachWindowMain UPDATED');
-
     //REFS
     const containerRef = useRef(null);
 
     //STATE
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+	const [isInsightsWindowOpen, setIsInsightsWindowOpen] = useState(false);
 
     //CONTEXT / HOOKS
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
@@ -48,7 +47,6 @@ export default function CoachWindowMain() {
     const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
 
     const handleCloseCoachWindow = () => {
-        console.log('🎯 [CoachWindowMain] Close button clicked, closing window directly');
         closeCoachWindow()
     }
 
@@ -63,17 +61,33 @@ export default function CoachWindowMain() {
                 const contentWidth = containerRef.current.scrollWidth;
                 
                 // Calculate responsive dimensions
-                const windowHeight = Math.max(48, (isDropdownOpen ? 298 : contentHeight + 8 ))
+                const windowHeight = Math.max(45, (isDropdownOpen ? 220 : contentHeight ))
                 
                 // Width based on content with min/max constraints
                 const minWidth = 300;  // Minimum usable width
                 const maxWidth = 1200; // Maximum width before it gets too wide
-                const padding = 20;    // Padding around content
                 
-                // Add 700px to width when displayInsight is true
-                // const insightWidth = currentInsight ? 700 : 0;
-                const insightWidth = 0;
-                const windowWidth = Math.max(minWidth, Math.min(maxWidth, contentWidth + padding + insightWidth));
+                // Only track currentInsight - it's the source of truth for what's displayed
+                // When showNext() runs, it atomically updates currentInsight and clears the queue if empty
+                // So if currentInsight is null, there's nothing displayed (even if queue has items, they'll become currentInsight immediately)
+                // Note: CSS transforms don't affect scrollWidth, so we manually add the insight width when present
+                const hasInsight = currentInsight !== null;
+                const insightWidth = hasInsight ? 395 : 0;
+                
+                // contentWidth is the base width (doesn't include insight due to CSS transforms)
+                // Simply add insightWidth when an insight is present
+                const windowWidth = Math.max(minWidth, Math.min(maxWidth, contentWidth + insightWidth));
+                
+                console.log('🔍 [updateWindowSize]', {
+                    currentInsight: currentInsight !== null ? 'exists' : 'null',
+                    insightsQueueLength: insightsQueue.length,
+                    hasInsight,
+                    contentWidth,
+                    insightWidth,
+                    windowWidth,
+                    windowHeight,
+                    isDropdownOpen
+                });
                 
                 window.electronAPI.resizeWindow(windowWidth, windowHeight);
                 
@@ -84,8 +98,19 @@ export default function CoachWindowMain() {
             }
         };
 
-        // Update size when content changes
-        updateWindowSize();
+        // When currentInsight becomes null, add a small delay to ensure DOM has updated
+        // When it appears, update immediately
+        const delay = currentInsight === null ? 50 : 0;
+        
+        let rafId = null;
+        const timeoutId = setTimeout(() => {
+            // Use double requestAnimationFrame to ensure DOM has fully updated
+            rafId = requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    updateWindowSize();
+                });
+            });
+        }, delay);
         
         // Use ResizeObserver for automatic size updates
         const resizeObserver = new ResizeObserver(updateWindowSize);
@@ -93,12 +118,52 @@ export default function CoachWindowMain() {
             resizeObserver.observe(containerRef.current);
         }
 
-        return () => resizeObserver.disconnect();
-    }, [isDropdownOpen]);
+        return () => {
+            clearTimeout(timeoutId);
+            if (rafId) cancelAnimationFrame(rafId);
+            resizeObserver.disconnect();
+        };
+    }, [isDropdownOpen, currentInsight]); // Only track currentInsight for width - it's the source of truth
 
     const onCompleteInsight = useCallback(() => {
         showNext();
     }, [showNext]);
+
+	useEffect(() => {
+		console.log('📊 [Insight State Change]', {
+			currentInsight: currentInsight !== null ? 'exists' : 'null',
+			insightsQueueLength: insightsQueue.length,
+			isInsightsWindowOpen
+		});
+
+		// When currentInsight appears, set to true immediately
+		if (currentInsight !== null) {
+			console.log('✅ [Insight] Setting isInsightsWindowOpen to true (insight appeared)');
+			setIsInsightsWindowOpen(true);
+			return;
+		}
+
+		// When currentInsight disappears
+		if (currentInsight === null) {
+			// If there are queued insights, keep it open (they'll show next)
+			if (insightsQueue.length > 0) {
+				console.log('⏳ [Insight] Keeping isInsightsWindowOpen true (queue has items)');
+				setIsInsightsWindowOpen(true);
+				return;
+			}
+
+			// Otherwise, delay closing to allow exit animation to complete
+			// Keep window expanded for displayDuration + transitionDelay to ensure smooth transition
+			const closeDelay = defaultConfig.displayDuration + defaultConfig.transitionDelay;
+			console.log(`⏰ [Insight] Scheduling close in ${closeDelay}ms (no insights)`);
+			const timeoutId = setTimeout(() => {
+				console.log('❌ [Insight] Setting isInsightsWindowOpen to false (delayed close)');
+				setIsInsightsWindowOpen(false);
+			}, closeDelay);
+
+			return () => clearTimeout(timeoutId);
+		}
+	}, [currentInsight, insightsQueue.length]);
 
 	useEffect(() => {
 		// Only set up listener when Cue is active
@@ -109,10 +174,12 @@ export default function CoachWindowMain() {
 			return;
 		}
 		
-		console.log('[CoachWindowMain] Setting up insight listener');
-		
 		const unsubscribe = window.electron.cue.onInsight((insightData) => {
-			console.log('[CoachWindowMain] Insight:', insightData);
+			console.log('🎯 [New Insight Received]', {
+				message: insightData.message?.substring(0, 50) + '...',
+				priority: insightData.priority,
+				appointmentBooked: insightData.appointmentBooked
+			});
 			
 			// Call store action to add insight
 			const addInsight = useCoachWindowStore.getState().cue_addInsight;

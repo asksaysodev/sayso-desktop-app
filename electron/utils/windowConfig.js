@@ -1,26 +1,23 @@
 // Window configuration constants
 const WINDOW_CONFIG = {
   COACH: {
-    DEFAULT_WIDTH: 700,
-    DEFAULT_HEIGHT: 48,
-    MIN_WIDTH: 300,
+    DEFAULT_WIDTH: 285,
+    DEFAULT_HEIGHT: 45,
+    MIN_WIDTH: 285,
     MAX_WIDTH: 1200,
-    MIN_HEIGHT: 48,
+    MIN_HEIGHT: 45,
     MAX_HEIGHT: 600,
-    OFFSET_Y: 80, // Distance from top of screen
-    OFFSET_X: 100, // Distance from left of screen
+    OFFSET_Y: 80, 
+    OFFSET_X: 100, 
     FRAME: false,
-    TRANSPARENT: true,
+    TRANSPARENT: false,
     ALWAYS_ON_TOP: true,
     DEV_TOOLS: false,
     VISIBLE_ON_ALL_WORKSPACES: true,
-    // Prevent user from maximizing or resizing the coach window
-    // RESIZABLE: false,
-    // MAXIMIZABLE: false,
-    RESIZABLE: true,
-    MAXIMIZABLE: true,
-    FULLSCREENABLE: false,
-    MINIMIZABLE: true // Allow minimizing but not maximizing
+    RESIZABLE: false,
+    MAXIMIZABLE: false,
+    MINIMIZABLE: false,
+    FULLSCREENABLE: false
   },
   DASHBOARD: {
     DEFAULT_WIDTH: 1024,
