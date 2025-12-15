@@ -213,6 +213,7 @@ export default function CoachWindowMain() {
 
             {currentInsight && isCoachActive && (
                 <InsightWrapper
+                    key={currentInsight?.message}
                     onComplete={onCompleteInsight}
                     priority={currentInsight?.priority}
                     insightText={currentInsight?.message}
