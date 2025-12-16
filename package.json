@@ -86,6 +86,11 @@
     },
     "afterPack": "scripts/sign-native-module.js",
     "asar": false,
+    "files": [
+      "**/*",
+      "!electron/full_recordings/**/*",
+      "!electron/chunks/**/*"
+    ],
     "extraResources": [
       {
         "from": "assets",

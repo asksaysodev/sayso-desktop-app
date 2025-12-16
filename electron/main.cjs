@@ -307,6 +307,127 @@ let audioStreamer = null;
 // Store Cue instances (separate from regular streaming)
 let cueAudioStreamer = null;
 
+/**
+ * Cleanup all audio capture resources (screen capture, microphone, streams)
+ * Called when coach window closes or app quits to ensure permissions are released
+ */
+async function cleanupAllAudioCapture() {
+  if (isDev) {
+    console.log('[Cleanup] Starting audio capture cleanup...');
+  }
+  
+  try {
+    // 1. Stop user streaming (handles global.userStreamingProcess)
+    await stopUserStreaming();
+    
+    // 2. Stop system audio capture (screen recording) via native module
+    if (nativeAudio) {
+      await nativeAudio.stopSystemAudioCapture();
+      nativeAudio.setStreamingCallback(null);
+    }
+    
+    // 3. Stop user full recording FFmpeg process
+    if (global.userFullRecordingProcess) {
+      try {
+        global.userFullRecordingProcess.kill('SIGINT');
+        await new Promise(resolve => setTimeout(resolve, 200));
+        global.userFullRecordingProcess = null;
+      } catch (error) {
+        console.error('[Cleanup] Error stopping user recording process:', error);
+        global.userFullRecordingProcess = null;
+      }
+    }
+    
+    // 4. Stop user MediaRecorder
+    if (global.userMediaRecorder) {
+      try {
+        global.userMediaRecorder.stop();
+        global.userMediaRecorder = null;
+      } catch (error) {
+        console.error('[Cleanup] Error stopping user MediaRecorder:', error);
+        global.userMediaRecorder = null;
+      }
+    }
+    
+    // 5. Stop user audio stream tracks
+    if (global.userAudioStream) {
+      try {
+        global.userAudioStream.getTracks().forEach(track => track.stop());
+        global.userAudioStream = null;
+      } catch (error) {
+        console.error('[Cleanup] Error stopping user audio stream:', error);
+        global.userAudioStream = null;
+      }
+    }
+    
+    // 6. Stop prospect MediaRecorder
+    if (global.mediaRecorder) {
+      try {
+        global.mediaRecorder.stop();
+        global.mediaRecorder = null;
+      } catch (error) {
+        console.error('[Cleanup] Error stopping prospect MediaRecorder:', error);
+        global.mediaRecorder = null;
+      }
+    }
+    
+    // 7. Stop prospect audio stream tracks
+    if (global.prospectAudioStream) {
+      try {
+        global.prospectAudioStream.getTracks().forEach(track => track.stop());
+        global.prospectAudioStream = null;
+      } catch (error) {
+        console.error('[Cleanup] Error stopping prospect audio stream:', error);
+        global.prospectAudioStream = null;
+      }
+    }
+    
+    // 8. Stop legacy ScreenCaptureKit instance
+    if (global.screenCapture) {
+      try {
+        await global.screenCapture.stopSystemAudioCapture();
+        global.screenCapture = null;
+      } catch (error) {
+        console.error('[Cleanup] Error stopping ScreenCaptureKit:', error);
+        global.screenCapture = null;
+      }
+    }
+    
+    // 9. Stop Cue audio streamer
+    if (cueAudioStreamer) {
+      try {
+        await cueAudioStreamer.stop(false);
+        cueAudioStreamer = null;
+      } catch (error) {
+        console.error('[Cleanup] Error stopping cue audio streamer:', error);
+        cueAudioStreamer = null;
+      }
+    }
+    
+    // 10. Stop regular audio streamer
+    if (audioStreamer) {
+      try {
+        await audioStreamer.stop(false);
+        audioStreamer = null;
+      } catch (error) {
+        console.error('[Cleanup] Error stopping audio streamer:', error);
+        audioStreamer = null;
+      }
+    }
+    
+    // Clear file path globals
+    global.userRecordingFile = null;
+    global.prospectRecordingFile = null;
+    global.userActualStartMs = null;
+    
+    if (isDev) {
+      console.log('[Cleanup] ✅ All audio capture cleaned up');
+    }
+  } catch (error) {
+    console.error('[Cleanup] ❌ Error during audio cleanup:', error);
+  }
+}
+
 // Start audio streaming
 ipcMain.handle('start-audio-streaming', async (event, { token }) => {
   try {
@@ -1654,6 +1775,16 @@ app.whenReady().then(() => {
   });
 });
 
+// Cleanup audio capture before app quits
+app.on('before-quit', async (event) => {
+  if (isDev) {
+    console.log('App quitting - cleaning up audio capture...');
+  }
+  
+  // Force cleanup of all audio capture before quitting
+  await cleanupAllAudioCapture();
+});
+
 // Modify window-all-closed to NOT quit if dashboard is meant to be main interface
 app.on('window-all-closed', () => {
   // Standard macOS behavior: quit only if platform is not darwin
@@ -1887,10 +2018,14 @@ const createCoachWindow = () => {
     // coachWindow.webContents.openDevTools();
   }
 
-  coachWindow.on('closed', () => {
+  coachWindow.on('closed', async () => {
     if (isDev) {
       console.log('Coach window closed event fired, cleaning up reference');
     }
+    
+    // Force cleanup of all audio capture when coach window closes
+    await cleanupAllAudioCapture();
+    
     global.coachWindow = null;
     
     // Notify the main window that the coach window has closed

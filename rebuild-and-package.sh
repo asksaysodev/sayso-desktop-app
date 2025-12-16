@@ -94,6 +94,24 @@ notarize_app() {
   echo "✅ ${arch_name} app notarized and stapled successfully!"
 }
 
+# Clean up test/development files from app bundles before notarization
+echo "🧹 Cleaning test files from app bundles..."
+for app_path in "${APP_PATHS[@]}"; do
+  # Remove full_recordings folder (test/development audio files)
+  recordings_path="${app_path}/Contents/Resources/app/electron/full_recordings"
+  if [ -d "${recordings_path}" ]; then
+    echo "  Removing full_recordings from $(basename "$(dirname "$app_path")")..."
+    rm -rf "${recordings_path}"
+  fi
+  
+  # Remove chunks folder if it exists
+  chunks_path="${app_path}/Contents/Resources/app/electron/chunks"
+  if [ -d "${chunks_path}" ]; then
+    echo "  Removing chunks from $(basename "$(dirname "$app_path")")..."
+    rm -rf "${chunks_path}"
+  fi
+done
+
 # Notarize each app bundle
 for app_path in "${APP_PATHS[@]}"; do
   # Determine architecture based on path
@@ -108,8 +126,89 @@ for app_path in "${APP_PATHS[@]}"; do
   notarize_app "$app_path" "$arch_name"
 done
 
-# Create DMGs for each notarized app
-echo " Creating DMGs for each architecture..."
+# Function to create DMG with proper installer UI (like electron-builder does)
+create_dmg_with_ui() {
+  local app_path="$1"
+  local dmg_path="$2"
+  local arch_name="$3"
+  
+  echo " Creating ${arch_name} DMG with installer UI: $(basename "${dmg_path}")"
+  
+  # Create temporary DMG
+  temp_dmg="${RELEASE_DIR}/temp-$(basename "${dmg_path}")"
+  rm -f "${temp_dmg}" "${dmg_path}"
+  
+  # Calculate app size and add 20% buffer for DMG overhead
+  app_size=$(du -sm "${app_path}" | awk '{print $1}')
+  dmg_size=$((app_size + app_size / 5 + 100))
+  
+  echo "  App size: ${app_size}MB, Allocating DMG size: ${dmg_size}MB"
+  
+  # Create read-write DMG with dynamic size
+  hdiutil create -srcfolder "${app_path}" -volname "${APP_NAME}" -fs HFS+ -fsargs "-c c=64,a=16,e=16" -format UDRW -size ${dmg_size}m "${temp_dmg}"
+  
+  # Mount the DMG
+  device=$(hdiutil attach -readwrite -noverify -noautoopen "${temp_dmg}" | egrep '^/dev/' | sed 1q | awk '{print $1}')
+  mount_point=$(hdiutil info | grep "$device" | awk '{print $3}')
+  
+  # Create Applications symlink
+  ln -s /Applications "${mount_point}/Applications"
+  
+  # Set window layout using AppleScript (replicates electron-builder's default layout)
+  osascript <<EOF
+    tell application "Finder"
+      tell disk "${APP_NAME}"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set the bounds of container window to {400, 100, 920, 420}
+        set viewOptions to the icon view options of container window
+        set arrangement of viewOptions to not arranged
+        set icon size of viewOptions to 72
+        set position of item "${APP_NAME}.app" of container window to {130, 220}
+        set position of item "Applications" of container window to {410, 220}
+        close
+        open
+        update without registering applications
+        delay 2
+      end tell
+    end tell
+EOF
+  
+  # Unmount the DMG
+  hdiutil detach "$device"
+  
+  # Convert to compressed read-only DMG
+  hdiutil convert "${temp_dmg}" -format UDZO -imagekey zlib-level=9 -o "${dmg_path}"
+  rm -f "${temp_dmg}"
+  
+  echo "✅ ${arch_name} DMG created with installer UI"
+}
+
+# Function to notarize a DMG
+notarize_dmg() {
+  local dmg_path="$1"
+  local arch_name="$2"
+  
+  echo "🚀 Notarizing ${arch_name} DMG: ${dmg_path}"
+  
+  # Submit DMG to Apple Notary Service and WAIT for result
+  echo "🚀 Submitting ${arch_name} DMG to Apple Notary Service (blocking until done)..."
+  xcrun notarytool submit "${dmg_path}" \
+    --keychain-profile "${NOTARY_PROFILE}" \
+    --wait --progress
+  
+  # Staple the ticket to the DMG
+  echo "📎 Stapling ticket to ${arch_name} DMG..."
+  xcrun stapler staple "${dmg_path}"
+  xcrun stapler validate "${dmg_path}"
+  
+  echo "✅ ${arch_name} DMG notarized and stapled successfully!"
+}
+
+# Create DMGs from notarized app bundles with proper installer UI
+echo " Creating DMGs with installer UI for each architecture..."
 for app_path in "${APP_PATHS[@]}"; do
   # Determine architecture and DMG name
   if [[ "$app_path" == *"mac-arm64"* ]]; then
@@ -123,20 +222,19 @@ for app_path in "${APP_PATHS[@]}"; do
     dmg_name="${APP_NAME}.dmg"
   fi
   
-  echo " Creating ${arch_name} DMG: ${dmg_name}"
   dmg_path="${RELEASE_DIR}/${dmg_name}"
-  rm -f "${dmg_path}"
-  hdiutil create -volname "${APP_NAME}" -srcfolder "${app_path}" -ov -format UDZO "${dmg_path}"
-
-  # Sign the DMG
-  echo " Signing ${arch_name} DMG..."
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${dmg_path}"
-
-  # Optional: staple the DMG too (nice for offline checks)
-  echo "📎 Stapling ticket to ${arch_name} DMG (optional)..."
-  xcrun stapler staple "${dmg_path}" || true
   
-  echo "✅ ${arch_name} DMG created: ${dmg_path}"
+  # Create DMG with proper installer UI
+  create_dmg_with_ui "${app_path}" "${dmg_path}" "${arch_name}"
+  
+  # Sign the DMG
+  echo "🔐 Signing ${arch_name} DMG..."
+  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${dmg_path}"
+  
+  # Notarize the DMG
+  notarize_dmg "${dmg_path}" "${arch_name}"
+  
+  echo "✅ ${arch_name} DMG created, signed, and notarized: ${dmg_path}"
 done
 
 echo "✅ Done! All artifacts in ${RELEASE_DIR}/"
