@@ -63,7 +63,7 @@ export default function CreateSignalDialog({ signalsLength, handleSubmitAddSigna
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <div style={{ width: '100%',display: 'flex', justifyContent: 'flex-end' }}>
                 <DialogTrigger asChild>
-                    <Button variant="outline" className="sayso-outlined-button">Add Signal</Button>
+                    <Button variant="default" className="sayso-primary-button">Add Signal</Button>
                 </DialogTrigger>
             </div>
             <DialogContent className="sm:max-w-[425px]">
