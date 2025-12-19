@@ -74,7 +74,8 @@ class WindowManager {
       resizable: WINDOW_CONFIG.COACH.RESIZABLE,
       maximizable: WINDOW_CONFIG.COACH.MAXIMIZABLE,
       fullscreenable: WINDOW_CONFIG.COACH.FULLSCREENABLE,
-      minimizable: WINDOW_CONFIG.COACH.MINIMIZABLE
+      minimizable: WINDOW_CONFIG.COACH.MINIMIZABLE,
+      hasShadow: WINDOW_CONFIG.COACH.HAS_SHADOW
     };
   }
 }

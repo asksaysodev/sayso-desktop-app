@@ -10,11 +10,16 @@ import InsightWrapper from './InsightWrapper';
 import SelectProspectDropdown from './SelectProspectDropdown';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 
-const CONTENT_WIDTH_SIZES = {
+const WINDOW_WIDTH_SIZES = {
     BASE: 370,
     CUE: 795,
     READY_TO_LAUNCH: 400,
     MAX_WIDTH: 900
+}
+
+const WINDOW_HEIGHT_SIZES = {
+    BASE: 54,
+    DROPDOWN_OPEN: 220,
 }
 
 // cue
@@ -57,9 +62,9 @@ export default function CoachWindowMain() {
     }
 
     function getContentSizeByCurrentState() {
-      if (currentInsight !== null) return CONTENT_WIDTH_SIZES.CUE;
-      if (leadType !== null) return CONTENT_WIDTH_SIZES.READY_TO_LAUNCH;
-      return CONTENT_WIDTH_SIZES.BASE;
+      if (currentInsight !== null) return WINDOW_WIDTH_SIZES.CUE;
+      if (leadType !== null) return WINDOW_WIDTH_SIZES.READY_TO_LAUNCH;
+      return WINDOW_WIDTH_SIZES.BASE;
     }
 
     useEffect(() => {
@@ -69,12 +74,17 @@ export default function CoachWindowMain() {
             if (containerRef.current && window.electronAPI && !isResizing) {
                 isResizing = true;
 
-                const contentHeight = containerRef.current.scrollHeight;
-
-                const windowHeight = Math.max(45, (isDropdownOpen ? 220 : contentHeight ))
+                let windowHeight;
+                if (isDropdownOpen) {
+                    windowHeight = WINDOW_HEIGHT_SIZES.DROPDOWN_OPEN;
+                } else {
+                    const baseHeight = WINDOW_HEIGHT_SIZES.BASE;
+                    const insightHeight = currentInsight ? containerRef.current.scrollHeight - baseHeight : 0;
+                    windowHeight = baseHeight + insightHeight;
+                }
+                
                 const newWidth = getContentSizeByCurrentState();
-
-                const windowWidth = Math.max(CONTENT_WIDTH_SIZES.BASE, Math.min(CONTENT_WIDTH_SIZES.MAX_WIDTH, newWidth));
+                const windowWidth = Math.max(WINDOW_WIDTH_SIZES.BASE, Math.min(WINDOW_WIDTH_SIZES.MAX_WIDTH, newWidth));
 
                 console.log('🔍 [updateWindowSize]', {
                     currentInsight: currentInsight !== null ? 'exists' : 'null',
@@ -175,15 +185,9 @@ export default function CoachWindowMain() {
                 <div className='main-toolbar'>
                     <div className="coach-window-drag-container">
                         <MdDragIndicator/>
+                        <div className="coach-window-divider"></div>
                     </div>
-                    {/* <div className="coach-window-divider"></div>
-                    <div className='coach-smart-capture-toggle-container' onClick={handleSmartCapture}>
-                        <p>Show Smart Capture</p>
-                        <div className='coach-smart-capture-toggle' data-active={isSmartCaptureActive} >
-                            <span></span>
-                        </div>
-                    </div> */}
-                    <div className="coach-window-divider"></div>
+                    
                     {
                         DropdownComponent[coachFeature] && (
                             DropdownComponent[coachFeature]
@@ -204,11 +208,6 @@ export default function CoachWindowMain() {
                         )
                     }
                 </div>
-                {/* {
-                    isSmartCaptureActive && (
-                        <SmartCaptureBox signals={signals} />
-                    )
-                } */}
             </div>
 
             {currentInsight && isCoachActive && (

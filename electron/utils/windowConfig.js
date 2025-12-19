@@ -10,14 +10,16 @@ const WINDOW_CONFIG = {
     OFFSET_Y: 80, 
     OFFSET_X: 100, 
     FRAME: false,
-    TRANSPARENT: true,
+    TRANSPARENT: false,
     ALWAYS_ON_TOP: true,
     DEV_TOOLS: false,
     VISIBLE_ON_ALL_WORKSPACES: true,
     RESIZABLE: false,
     MAXIMIZABLE: false,
     MINIMIZABLE: false,
-    FULLSCREENABLE: false
+    FULLSCREENABLE: false,
+    BORDERLESS: true,
+    HAS_SHADOW: false
   },
   DASHBOARD: {
     DEFAULT_WIDTH: 1024,
