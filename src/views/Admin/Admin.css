@@ -9,3 +9,258 @@
     overflow: hidden;
     position: relative;
 }
+.admin-panel-header {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 16px
+}
+.tool-selector-container {
+    display: flex;
+    flex-direction: column;
+    align-items: start;
+}
+
+.tool-selector-container label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--sayso-indigo);
+}
+
+.select-lead-type-container {
+    display: flex;
+    flex-direction: column;
+    align-items: start;
+    justify-content: start;
+}
+
+.select-lead-type-container label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--sayso-indigo);
+}
+
+.signals-draggable-list {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    border: 1px solid var(--sayso-border);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0px 1px 2px 0px #0000000D;
+    background-color: #FFFFFF;
+    align-items: start;
+}
+
+.signal-draggable {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 16px;
+    border: 1px solid var(--sayso-border);
+    border-radius: 8px;
+    background-color: #FFFFFF;
+    box-shadow: 0px 1px 2px 0px #0000000D;
+    touch-action: none;
+    user-select: none;
+    width: 100%;
+    cursor: grab;
+}
+
+.signal-draggable:hover {
+    box-shadow: 0px 2px 4px 0px #0000001A;
+}
+
+.signal-draggable:active {
+    cursor: grabbing;
+}
+
+.signal-draggable-left-fields {
+    display: flex;
+    flex-direction: column;
+    margin-right: 16px;
+    justify-content: space-between;
+    height: 100%;
+}
+
+.signal-dragging {
+    opacity: 0.4;
+}
+.signal-draggable-right-fields {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 8px;
+    height: 100%;
+}
+
+.signal-draggable-right-fields button {
+    display: flex;
+    align-self: flex-end;
+}
+
+.signal-draggable-right-fields-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.signal-draggable-priority {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background-color: #FFFFFF;
+    color: var(--sayso-dark);
+    border: 1px solid var(--sayso-border);
+    font-size: 14px;
+    font-weight: 500;
+}
+.signal-draggable-threshold {
+    width: 70px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background-color: #FFFFFF;
+    color: var(--sayso-dark);
+    border: 1px solid var(--sayso-border);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 4px 8px;
+}
+
+/* Hide spinner arrows for number inputs */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type=number] {
+    -moz-appearance: textfield;
+}
+
+.signal-draggable-description {
+    flex: 1;
+    font-size: 14px;
+    color: var(--sayso-text);
+}
+
+.signal-actions {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    justify-content: flex-end;
+}
+
+.signal-action-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid var(--sayso-border);
+}
+
+.signal-reset-btn {
+    background-color: #FFFFFF;
+    color: var(--sayso-text);
+}
+
+.signal-reset-btn:hover {
+    background-color: #F9FAFB;
+}
+
+.signal-submit-btn {
+    background-color: var(--sayso-indigo);
+    color: white;
+    border-color: var(--sayso-indigo);
+}
+
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.signals-loading-state {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.signals-loading-text {
+    color: #666;
+    font-size: 14px;
+}
+
+.signals-error-state {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.signals-error-title {
+    color: #c33;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.signals-error-message {
+    color: #666;
+    font-size: 14px;
+    text-align: center;
+}
+
+.signal-card-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: start;
+    width: 100%;
+}
+.signal-card-field label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--sayso-indigo);
+}
+.signal-draggable-center-fields {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: start;
+}
+.signal-draggable-center-fields textarea {
+    border: 1px solid var(--sayso-border);
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    color: var(--sayso-dark);
+    background-color: #FFFFFF;
+    outline: none;
+    resize: none;
+    height: 100%;
+}
+.signal-draggable-center-fields h3 {
+    font-weight: 600;
+    color: var(--sayso-indigo);
+}

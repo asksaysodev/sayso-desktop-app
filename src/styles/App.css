@@ -100,7 +100,19 @@ button {
   display: flex;
   flex-direction: column;
 }
-
+.sayso-primary-button {
+  display: flex;
+  gap: 8px;
+  border: 1px solid var(--sayso-border);
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  background-color: var(--sayso-indigo) !important;
+  color: #FFF;
+}
 .sayso-outlined-button {
   display: flex;
   gap: 8px;
@@ -111,11 +123,15 @@ button {
   border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
-  background-color: #FFF;
+  background-color: #FFF !important;
 }
 
 .sayso-outlined-button:hover {
   background-color: var(--sayso-white);
+}
+.sayso-outlined-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .sayso-submit-button {
   display: flex;
