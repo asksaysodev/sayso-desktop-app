@@ -113,13 +113,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     border-radius: 6px;
-    background-color: #FFFFFF;
-    color: var(--sayso-dark);
-    border: 1px solid var(--sayso-border);
-    font-size: 14px;
+    background-color: var(--sayso-white);
+	color: black;
+    font-size: 18px;
     font-weight: 500;
 }
 .signal-draggable-threshold {

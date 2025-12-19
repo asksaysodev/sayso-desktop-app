@@ -22,7 +22,7 @@ export default function Admin() {
     const showSelectLeadType = useMemo(() => ['cue-signals', 'cue-main-instructions'].includes(selectedTool), [selectedTool]);
 
     return (
-       <ViewLayout title='Admin panel'>
+       <ViewLayout title='Admin Panel'>
             <div className='admin-panel-header'>
                 <ToolSelector selectedTool={selectedTool} setSelectedTool={setSelectedTool} />
                 {showSelectLeadType && <SelectLeadType />}
