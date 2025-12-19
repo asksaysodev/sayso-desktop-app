@@ -48,10 +48,8 @@ class AudioDeviceManager {
     
     try {
       // Initialize the native module
-      console.log('INITIALIZINIIININGING')
       await nativeAudio.initialize();
       this.isInitialized = true;
-      console.log('🎤 [AUDIO MANAGER] Native audio module initialized');
     } catch (error) {
       console.error('🎤 [AUDIO MANAGER] Failed to initialize native audio module:', error);
       throw error;
@@ -121,9 +119,6 @@ class AudioDeviceManager {
 
   /**
    * Start prospect audio streaming (streaming only, no file saving)
-   * Note: Currently the native module still creates a file, but this function
-   * is intended for streaming-only use cases like Cue.
-   * TODO: Optimize native module to skip file creation when streamingOnly flag is set
    * @param {Function} streamingCallback - Required callback for audio chunks
    * @returns {Promise<Object>} - Result object with success
    */
@@ -137,9 +132,8 @@ class AudioDeviceManager {
     // Set streaming callback
     this.setStreamingCallback(streamingCallback);
     
-    // Start capture (native module will still create a file, but we're using it for streaming)
-    // TODO: Add streamingOnly parameter to native module to skip file creation
-    const result = await nativeAudio.startSystemAudioCapture({});
+    // Start capture with streamingOnly flag to skip file creation
+    const result = await nativeAudio.startSystemAudioCapture({ streamingOnly: true });
     
     return { success: true };
   }
@@ -156,6 +150,52 @@ class AudioDeviceManager {
   async isSystemAudioCaptureActive() {
     await this.initialize();
     return nativeAudio.isSystemAudioCaptureActive();
+  }
+
+  /**
+   * Start microphone capture for streaming
+   * @param {Object} options - Capture options
+   * @param {Function} options.streamingCallback - Optional callback for audio chunks
+   * @returns {Promise<boolean>} - Success status
+   */
+  async startMicrophoneCapture(options = {}) {
+    await this.initialize();
+    
+    const { streamingCallback, ...captureOptions } = options;
+    
+    // Use microphone-specific callback method
+    if (streamingCallback) {
+      if (nativeAudio.setMicrophoneStreamingCallback) {
+        nativeAudio.setMicrophoneStreamingCallback(streamingCallback);
+      } else {
+        // Fallback to regular callback if method doesn't exist
+        this.setStreamingCallback(streamingCallback);
+      }
+    }
+    
+    return nativeAudio.startMicrophoneCapture(captureOptions);
+  }
+
+  /**
+   * Stop microphone capture
+   * @returns {Promise<boolean>} - Success status
+   */
+  async stopMicrophoneCapture() {
+    await this.initialize();
+    
+    // Clear streaming callback when stopping
+    this.setStreamingCallback(null);
+    
+    return nativeAudio.stopMicrophoneCapture();
+  }
+
+  /**
+   * Check if microphone capture is active
+   * @returns {Promise<boolean>} - Active status
+   */
+  async isMicrophoneCaptureActive() {
+    await this.initialize();
+    return nativeAudio.isMicrophoneCaptureActive();
   }
 }
 

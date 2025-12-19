@@ -10,6 +10,8 @@ DMG_NAME="${APP_NAME}.dmg"
 RELEASE_DIR="release"
 # -----------------------------
 
+# No validation needed - we're using electron-builder's DMGs directly
+
 # Clean previous builds (optional: remove node_modules only when needed)
 echo "🧹 Cleaning previous builds..."
 rm -rf "${RELEASE_DIR}/" dist/
@@ -126,65 +128,8 @@ for app_path in "${APP_PATHS[@]}"; do
   notarize_app "$app_path" "$arch_name"
 done
 
-# Function to create DMG with proper installer UI (like electron-builder does)
-create_dmg_with_ui() {
-  local app_path="$1"
-  local dmg_path="$2"
-  local arch_name="$3"
-  
-  echo " Creating ${arch_name} DMG with installer UI: $(basename "${dmg_path}")"
-  
-  # Create temporary DMG
-  temp_dmg="${RELEASE_DIR}/temp-$(basename "${dmg_path}")"
-  rm -f "${temp_dmg}" "${dmg_path}"
-  
-  # Calculate app size and add 20% buffer for DMG overhead
-  app_size=$(du -sm "${app_path}" | awk '{print $1}')
-  dmg_size=$((app_size + app_size / 5 + 100))
-  
-  echo "  App size: ${app_size}MB, Allocating DMG size: ${dmg_size}MB"
-  
-  # Create read-write DMG with dynamic size
-  hdiutil create -srcfolder "${app_path}" -volname "${APP_NAME}" -fs HFS+ -fsargs "-c c=64,a=16,e=16" -format UDRW -size ${dmg_size}m "${temp_dmg}"
-  
-  # Mount the DMG
-  device=$(hdiutil attach -readwrite -noverify -noautoopen "${temp_dmg}" | egrep '^/dev/' | sed 1q | awk '{print $1}')
-  mount_point=$(hdiutil info | grep "$device" | awk '{print $3}')
-  
-  # Create Applications symlink
-  ln -s /Applications "${mount_point}/Applications"
-  
-  # Set window layout using AppleScript (replicates electron-builder's default layout)
-  osascript <<EOF
-    tell application "Finder"
-      tell disk "${APP_NAME}"
-        open
-        set current view of container window to icon view
-        set toolbar visible of container window to false
-        set statusbar visible of container window to false
-        set the bounds of container window to {400, 100, 920, 420}
-        set viewOptions to the icon view options of container window
-        set arrangement of viewOptions to not arranged
-        set icon size of viewOptions to 72
-        set position of item "${APP_NAME}.app" of container window to {130, 220}
-        set position of item "Applications" of container window to {410, 220}
-        close
-        open
-        update without registering applications
-        delay 2
-      end tell
-    end tell
-EOF
-  
-  # Unmount the DMG
-  hdiutil detach "$device"
-  
-  # Convert to compressed read-only DMG
-  hdiutil convert "${temp_dmg}" -format UDZO -imagekey zlib-level=9 -o "${dmg_path}"
-  rm -f "${temp_dmg}"
-  
-  echo "✅ ${arch_name} DMG created with installer UI"
-}
+# Note: We're using electron-builder's DMGs directly - they already have the installer UI
+# We just need to notarize them after the apps inside are notarized
 
 # Function to notarize a DMG
 notarize_dmg() {
@@ -207,35 +152,26 @@ notarize_dmg() {
   echo "✅ ${arch_name} DMG notarized and stapled successfully!"
 }
 
-# Create DMGs from notarized app bundles with proper installer UI
-echo " Creating DMGs with installer UI for each architecture..."
-for app_path in "${APP_PATHS[@]}"; do
-  # Determine architecture and DMG name
-  if [[ "$app_path" == *"mac-arm64"* ]]; then
-    arch_name="ARM64"
-    dmg_name="${APP_NAME}-arm64.dmg"
-  elif [[ "$app_path" == *"mac"* ]]; then
-    arch_name="Intel"
-    dmg_name="${APP_NAME}-intel.dmg"
-  else
-    arch_name="Unknown"
-    dmg_name="${APP_NAME}.dmg"
-  fi
-  
-  dmg_path="${RELEASE_DIR}/${dmg_name}"
-  
-  # Create DMG with proper installer UI
-  create_dmg_with_ui "${app_path}" "${dmg_path}" "${arch_name}"
-  
-  # Sign the DMG
-  echo "🔐 Signing ${arch_name} DMG..."
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${dmg_path}"
-  
-  # Notarize the DMG
-  notarize_dmg "${dmg_path}" "${arch_name}"
-  
-  echo "✅ ${arch_name} DMG created, signed, and notarized: ${dmg_path}"
-done
+# Use electron-builder's DMGs directly - they already have the installer UI
+# We just need to rename and notarize them
+echo "📦 Using electron-builder DMGs (they already have installer UI)..."
+
+# Rename and notarize electron-builder DMGs
+if [ -f "${RELEASE_DIR}/Sayso-1.0.0-arm64.dmg" ]; then
+  dmg_path="${RELEASE_DIR}/Sayso-arm64.dmg"
+  mv "${RELEASE_DIR}/Sayso-1.0.0-arm64.dmg" "${dmg_path}"
+  echo "🔐 Notarizing ARM64 DMG..."
+  notarize_dmg "${dmg_path}" "ARM64"
+  echo "✅ ARM64 DMG notarized: ${dmg_path}"
+fi
+
+if [ -f "${RELEASE_DIR}/Sayso-1.0.0.dmg" ]; then
+  dmg_path="${RELEASE_DIR}/Sayso-intel.dmg"
+  mv "${RELEASE_DIR}/Sayso-1.0.0.dmg" "${dmg_path}"
+  echo "🔐 Notarizing Intel DMG..."
+  notarize_dmg "${dmg_path}" "Intel"
+  echo "✅ Intel DMG notarized: ${dmg_path}"
+fi
 
 echo "✅ Done! All artifacts in ${RELEASE_DIR}/"
 echo "📦 Created DMGs:"

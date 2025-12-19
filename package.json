@@ -10,7 +10,9 @@
     "clean": "rm -rf dist/ release/ node_modules/.cache electron/native-audio/build .vite",
     "clean-all": "npm run clean && rm -rf node_modules/ package-lock.json",
     "rebuild-native": "cd electron/native-audio && npx node-gyp rebuild --target=36.9.1 --arch=arm64 --dist-url=https://electronjs.org/headers && cd ../..",
-    "package": "npm run rebuild-native && npm run build && electron-builder",
+    "rebuild-native-x64": "cd electron/native-audio && npx node-gyp rebuild --target=36.9.1 --arch=x64 --dist-url=https://electronjs.org/headers && cd ../..",
+    "rebuild-native-both": "node scripts/rebuild-native-both-archs.js",
+    "package": "npm run rebuild-native-both && npm run build && electron-builder",
     "export": "chmod +x rebuild-and-package.sh && ./rebuild-and-package.sh",
     "fresh-export": "npm run clean && npm run export",
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -84,7 +86,8 @@
       "owner": "your-github-username",
       "repo": "your-repo-name"
     },
-    "afterPack": "scripts/sign-native-module.js",
+    "beforePack": "scripts/rebuild-native-for-arch.js",
+    "afterPack": "scripts/verify-and-fix-native-module.js",
     "asar": false,
     "files": [
       "**/*",
@@ -99,14 +102,6 @@
       {
         "from": "public/assets",
         "to": "assets"
-      },
-      {
-        "from": "electron/bin/SwitchAudioSource",
-        "to": "bin/SwitchAudioSource"
-      },
-      {
-        "from": "electron/bin/ffmpeg",
-        "to": "bin/ffmpeg"
       }
     ],
     "directories": {

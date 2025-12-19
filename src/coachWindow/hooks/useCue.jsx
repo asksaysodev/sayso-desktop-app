@@ -124,7 +124,7 @@ export default function useCue() {
                 throw new Error('No session found');
             }
 
-            const result = await window.electron.cue.start({ 
+            const result = await window.electron.cue.start({  
                 sessionId, 
                 token: session.access_token 
             });
