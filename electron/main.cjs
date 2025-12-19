@@ -299,7 +299,6 @@ if (!process.env.NODE_ENV) {
 }
 
 // Store active recording session metadata
-let activeRecordingSession = null;
 
 // Store AudioStreamer instance
 let audioStreamer = null;
@@ -449,11 +448,7 @@ ipcMain.handle('start-audio-streaming', async (event, { token }) => {
 
     // Set up streaming callbacks
     let userCallbackInvocationCount = 0;
-    await startUserFullRecording({
-      metadata: { 
-        sessionId: audioStreamer.sessionId,
-        userStartMs: Date.now() 
-      },
+    await startUserStreaming({
       streamingCallback: (buffer, format) => {
         userCallbackInvocationCount++;
         if (userCallbackInvocationCount === 1) {
@@ -663,69 +658,6 @@ ipcMain.handle('stop-cue', async (event) => {
   }
 });
 
-ipcMain.handle('start-audio-capture', async (event, params = {}) => {
-  if (isDev) {
-    console.log('[Main Process] Starting dual channel recording...');
-    console.log('[Main Process] Parameters:', JSON.stringify(params, null, 2));
-  }
-  
-  try {
-    const sessionId = params.sessionId || `session-${Date.now()}`;
-    
-    // Store session metadata for later reference
-    activeRecordingSession = {
-      sessionId,
-      prospectId: params.prospectId || null,
-    timestamp: Date.now(),
-    userStartMs: null,
-    systemStartMs: null
-    };
-    
-    // Pre-initialize user microphone to avoid start delay
-    try {
-      await prepareUserMicrophone();
-    } catch (e) {
-      console.warn('[Main Process] ⚠️ Mic prep failed, continuing with defaults:', e.message);
-    }
-
-  // Record start times just before invoking each start
-  const systemStartMs = Date.now();
-  activeRecordingSession.systemStartMs = systemStartMs;
-  const userStartMs = Date.now();
-  activeRecordingSession.userStartMs = userStartMs;
-
-  // Start both recordings in parallel
-  const [prospectResult, userResult] = await Promise.all([
-      // Prospect audio (system audio via native module)
-      nativeAudio.startSystemAudioCapture(params),
-      
-      // User audio (microphone via recorder)
-    startUserFullRecording({ ...params, metadata: { ...(params.metadata||{}), sessionId, prospectId: params.prospectId || null, userStartMs } })
-    ]);
-    
-    if (isDev) {
-      console.log('[Main Process] ✅ Dual channel recording started successfully');
-      console.log('[Main Process] Session ID:', sessionId);
-      console.log('[Main Process] Prospect file:', prospectResult?.filePath || 'Will be available on stop');
-      console.log('[Main Process] User file:', userResult || 'No file path returned');
-    }
-    
-    return {
-      success: true,
-      sessionId,
-      prospectFile: prospectResult?.filePath || null, // May be null until recording stops
-      userFile: userResult || null
-    };
-  } catch (error) {
-    console.error('[Main Process] ❌ Error starting dual recording:', error);
-    return {
-      success: false,
-      error: error.message,
-      prospectFile: null,
-      userFile: null
-    };
-  }
-});
 
 // Function to load environment variables
 function loadEnvironmentVariables() {
@@ -774,16 +706,8 @@ const wav = require('wav');
 const FormData = require('form-data');
 const axios = require('axios');
 const { 
-  startUserRecording, 
-  startProspectRecording, 
-  stopRecording,
-  startUserFullRecording,
-  startProspectFullRecording,
-  stopFullRecording,
   stopUserStreaming,
-  startUserStreaming,
-  prepareUserMicrophone,
-  compressAudioFile
+  startUserStreaming
 } = require('./recorder');
 const audioQueue = require('./audioQueue');
 const { AudioStreamer } = require('./streaming/audioStreamer');
@@ -1225,103 +1149,6 @@ ipcMain.on('send-audio-chunk', (_event, float32AudioChunk) => {
 });
 
 
-ipcMain.handle('stop-audio-capture', async () => {
-  if (isDev) {
-    console.log('[Main Process] Stopping dual channel recording...');
-  }
-  
-  try {
-    // Stop both recordings in parallel
-    const [prospectResult, userResult] = await Promise.all([
-      nativeAudio.stopSystemAudioCapture(),
-      stopFullRecording()
-    ]);
-    
-    // Extract file paths and actual start times
-    let prospectFile = prospectResult?.filePath || null;
-    let userFile = userResult?.userFile || null;
-    // Pull start times from native/recorder, with session fallbacks
-    const prospectActualStartMs = prospectResult?.actualStartMs || activeRecordingSession?.systemStartMs || null;
-    const userActualStartMs = userResult?.actualStartMs || activeRecordingSession?.userStartMs || null;
-    
-    // Get session metadata (stored during start)
-    const sessionId = activeRecordingSession?.sessionId || null;
-    const prospectId = activeRecordingSession?.prospectId || null;
-    const userStartMs = activeRecordingSession?.userStartMs || null;
-    const systemStartMs = activeRecordingSession?.systemStartMs || null;
-
-    // Rename files to include millisecond start timestamps (for precise alignment)
-    try {
-      if (prospectFile && systemStartMs) {
-        const dir = path.dirname(prospectFile);
-        const newProspect = path.join(dir, `system-${sessionId}-${systemStartMs}.caf`);
-        try { fs.renameSync(prospectFile, newProspect); prospectFile = newProspect; } catch (e) { console.warn('[Main Process] ⚠️ Could not rename system file:', e.message); }
-      }
-      if (userFile && userStartMs) {
-        const dirU = path.dirname(userFile);
-        const newUser = path.join(dirU, `user-${sessionId}-${userStartMs}.caf`);
-        if (path.basename(userFile) !== path.basename(newUser)) {
-          try { fs.renameSync(userFile, newUser); userFile = newUser; } catch (e) { console.warn('[Main Process] ⚠️ Could not rename user file:', e.message); }
-        }
-      }
-    } catch (e) {
-      console.warn('[Main Process] ⚠️ Rename step failed:', e.message);
-    }
-    
-    if (isDev) {
-      console.log('[Main Process] ✅ Dual channel recording stopped successfully');
-      console.log('[Main Process] Session ID:', sessionId);
-      console.log('[Main Process] Prospect file:', prospectFile || 'No file path returned');
-      console.log('[Main Process] User file:', userFile || 'No file path returned');
-    }
-    
-    // Clear session metadata
-    const savedSession = activeRecordingSession;
-    activeRecordingSession = null;
-    
-    // Return clean combined result for easy reference in compression/upload
-    return { 
-      success: prospectResult?.success !== false && !!userFile,
-      sessionId,
-      prospectId,
-      prospectFile,
-      userFile,
-      prospectActualStartMs,
-      userActualStartMs,
-      // Ready for file processing:
-      // await processAndUploadFiles({ prospectFile, userFile, sessionId, prospectId })
-    };
-  } catch (error) {
-    console.error('[Main Process] ❌ Error stopping dual recording:', error);
-    // Clear session on error
-    activeRecordingSession = null;
-    return {
-      success: false,
-      error: error.message,
-      sessionId: null,
-      prospectId: null,
-      prospectFile: null,
-      userFile: null
-    };
-  }
-});
-
-// Compress audio file handler
-ipcMain.handle('compress-audio', async (event, options) => {
-  if (isDev) {
-    console.log('[Main Process] Compressing audio file:', options);
-  }
-  try {
-    const result = await compressAudioFile(options);
-    if (isDev) {
-      console.log('[Main Process] ✅ Audio compression successful:', result);
-    }
-    return result;
-  } catch (error) {
-    console.error('[Main Process] ❌ Error compressing audio:', error);
-    throw error;
-  }
-});
 
 // Upload file handler - reads file from disk and uploads to server
 ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessToken, fileName, data }) => {

@@ -16,9 +16,9 @@ const AUDIO_SOURCE_FORMATS = {
     bitDepth: 32         // 32-bit
   },
   userMic: {
-    sampleRate: 48000,    // 48kHz from FFmpeg
-    channels: 2,          // Stereo
-    bitDepth: 16          // 16-bit
+    sampleRate: 48000,    // Typical rate from AVAudioEngine (may vary by microphone)
+    channels: 2,          // Typical stereo from AVAudioEngine (format auto-detected)
+    bitDepth: 16          // Typical 16-bit (may be 32-bit float, format auto-detected)
   }
 };
 

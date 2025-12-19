@@ -36,9 +36,21 @@ static AudioStreamBasicDescription g_fileFormat = {0};
 // Track the precise moment when the first audio buffer is received (ms since epoch)
 static double g_actualStartMs = 0.0;
 
+// Global flag to skip file creation when streaming-only
+static bool g_streamingOnly = false;
+
 // Global streaming callback for real-time audio chunks
 static Nan::Persistent<v8::Function> g_streamingCallback;
 static uv_async_t* g_streamingAsyncHandle = nullptr;
+
+// Separate callback for microphone audio
+static Nan::Persistent<v8::Function> g_micStreamingCallback;
+static uv_async_t* g_micStreamingAsyncHandle = nullptr;
+
+// Global variables for microphone capture
+static AVAudioEngine* g_micEngine = nullptr;
+static AVAudioInputNode* g_micInputNode = nullptr;
+static bool g_isMicCapturing = false;
 
 // Structure to pass audio data to async callback
 struct StreamingData {
@@ -71,6 +83,37 @@ static void StreamingAsyncCallback(uv_async_t* handle) {
     
     // Invoke callback
     Local<Function> callback = Nan::New(g_streamingCallback);
+    Local<Value> argv[2] = {buffer, format};
+    Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
+    
+    // Clean up
+    delete data;
+    handle->data = nullptr;
+}
+
+// Separate callback for microphone audio
+static void MicStreamingAsyncCallback(uv_async_t* handle) {
+    Nan::HandleScope scope;
+    
+    // Get the data from the handle
+    StreamingData* data = static_cast<StreamingData*>(handle->data);
+    if (!data || g_micStreamingCallback.IsEmpty()) {
+        if (data) delete data;
+        return;
+    }
+    
+    // Create Buffer from audio data
+    Local<Object> buffer = Nan::CopyBuffer(data->audioData.data(), data->audioData.size()).ToLocalChecked();
+    
+    // Create format object
+    Local<Object> format = Nan::New<Object>();
+    Nan::Set(format, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(data->sampleRate));
+    Nan::Set(format, Nan::New("channels").ToLocalChecked(), Nan::New<Integer>(data->channels));
+    Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(data->bitDepth));
+    Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(data->isFloat));
+    
+    // Invoke callback
+    Local<Function> callback = Nan::New(g_micStreamingCallback);
     Local<Value> argv[2] = {buffer, format};
     Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
     
@@ -432,16 +475,12 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
     static int callbackCount = 0;
     callbackCount++;
     
-    // Only log every 100th callback to reduce noise
-    if (callbackCount % 100 == 1) {
-        NSLog(@"🎤 [NATIVE] Audio callback #%d received", callbackCount);
-    }
     
     // Initialize audio file only once on first callback, but after format detection
+    // Skip file initialization if streaming-only mode
     if (!g_audioFileInitialized) {
-        NSLog(@"🎤 [NATIVE] First callback - detecting audio format...");
         
-        // First, detect the format from this sample
+        // First, detect the format from this sample (needed for both file recording and streaming)
         CMFormatDescriptionRef formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer);
         if (formatDesc) {
             const AudioStreamBasicDescription* sourceFormat = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc);
@@ -511,11 +550,19 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
             NSLog(@"❌ [NATIVE] Failed to get format description from sample buffer");
         }
         
-        if (!initializeAudioFile()) {
-            NSLog(@"❌ [NATIVE] Failed to initialize audio file");
-            return;
+        // Only initialize audio file if NOT in streaming-only mode
+        if (!g_streamingOnly) {
+            if (!initializeAudioFile()) {
+                NSLog(@"❌ [NATIVE] Failed to initialize audio file");
+                return;
+            }
+            NSLog(@"🎤 [NATIVE] Audio file initialized, starting continuous recording");
+        } else {
+            NSLog(@"🎤 [NATIVE] Format detected, streaming-only mode - skipping file initialization");
         }
-        NSLog(@"🎤 [NATIVE] Audio file initialized, starting continuous recording");
+        
+        // Mark as initialized to skip this block next time (for both modes)
+        g_audioFileInitialized = true;
     }
     
     // Get audio buffer list from sample buffer
@@ -596,50 +643,41 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
         }
     }
     
-    if (callbackCount <= 5) {
-        NSLog(@"📝 [WRITE] Writing %u bytes to file", bytesToWrite);
-    }
-    
-    // Write audio data to file
-    if (g_audioFile) {
-        // Get current file position for proper sequential writing
-        SInt64 filePosition = 0;
-        UInt32 size = sizeof(filePosition);
-        OSStatus status = AudioFileGetProperty(g_audioFile, kAudioFilePropertyAudioDataByteCount, &size, &filePosition);
-        if (status != noErr) {
-            NSLog(@"❌ [NATIVE] Failed to get audio file position: %d", (int)status);
-            return;
-        }
-        
-        // Write the audio data (converted if necessary)
-        status = AudioFileWriteBytes(g_audioFile, false, filePosition, &bytesToWrite, audioDataToWrite);
-        
-        if (status != noErr) {
-            // Get file format for debugging
-            AudioStreamBasicDescription fileFormat;
-            UInt32 formatSize = sizeof(fileFormat);
-            AudioFileGetProperty(g_audioFile, kAudioFilePropertyDataFormat, &formatSize, &fileFormat);
-            NSLog(@"❌ [NATIVE] Failed to write audio bytes: %d (bytes: %u, format: %.0fHz, %dch, %d bits)", (int)status, bytesToWrite, fileFormat.mSampleRate, fileFormat.mChannelsPerFrame, fileFormat.mBitsPerChannel);
-            return;
-        }
-        
-        // Log writing progress for first few samples only
+    // Write audio data to file (skip if streaming-only mode)
+    if (!g_streamingOnly) {
         if (callbackCount <= 5) {
-            // Get current file format for logging
-            AudioStreamBasicDescription fileFormat;
-            UInt32 formatSize = sizeof(fileFormat);
-            AudioFileGetProperty(g_audioFile, kAudioFilePropertyDataFormat, &formatSize, &fileFormat);
-            NSLog(@"🎵 [NATIVE] Wrote %u bytes to file - Format: %.0fHz, %dch, %d bits", bytesToWrite, fileFormat.mSampleRate, fileFormat.mChannelsPerFrame, fileFormat.mBitsPerChannel);
+            NSLog(@"📝 [WRITE] Writing %u bytes to file", bytesToWrite);
         }
+        
+        if (g_audioFile) {
+            // Get current file position for proper sequential writing
+            SInt64 filePosition = 0;
+            UInt32 size = sizeof(filePosition);
+            OSStatus status = AudioFileGetProperty(g_audioFile, kAudioFilePropertyAudioDataByteCount, &size, &filePosition);
+            if (status != noErr) {
+                NSLog(@"❌ [NATIVE] Failed to get audio file position: %d", (int)status);
+                return;
+            }
+            
+            // Write the audio data (converted if necessary)
+            status = AudioFileWriteBytes(g_audioFile, false, filePosition, &bytesToWrite, audioDataToWrite);
+            
+            if (status != noErr) {
+                // Get file format for debugging
+                AudioStreamBasicDescription fileFormat;
+                UInt32 formatSize = sizeof(fileFormat);
+                AudioFileGetProperty(g_audioFile, kAudioFilePropertyDataFormat, &formatSize, &fileFormat);
+                NSLog(@"❌ [NATIVE] Failed to write audio bytes: %d (bytes: %u, format: %.0fHz, %dch, %d bits)", (int)status, bytesToWrite, fileFormat.mSampleRate, fileFormat.mChannelsPerFrame, fileFormat.mBitsPerChannel);
+                return;
+            }
+            
+        } else {
+            NSLog(@"❌ [NATIVE] Audio file not initialized");
+            return;
+        }
+        
     } else {
-        NSLog(@"❌ [NATIVE] Audio file not initialized");
-        return;
-    }
-    
-    // Log progress every 1000 samples (less verbose)
-    static int sampleCount = 0;
-    if (++sampleCount % 1000 == 0) {
-        NSLog(@"🎤 [NATIVE] Recording... (%d samples written)", sampleCount);
+        // Streaming-only mode: skip file writing but continue to streaming callback
     }
     
     // Invoke streaming callback if set (for real-time streaming)
@@ -655,13 +693,6 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
         // Set data and trigger async callback (will run on main thread)
         g_streamingAsyncHandle->data = data;
         uv_async_send(g_streamingAsyncHandle);
-        
-        // Log first few invocations for debugging
-        if (callbackCount <= 5) {
-            NSLog(@"📡 [NATIVE] Streaming callback queued: %u bytes, %.0fHz, %dch, %dbit, float=%d", 
-                  bytesToWrite, g_audioFormat.mSampleRate, g_audioFormat.mChannelsPerFrame, 
-                  g_audioFormat.mBitsPerChannel, data->isFloat ? 1 : 0);
-        }
     }
 }
 
@@ -675,23 +706,11 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
 - (void)stream:(SCStream *)stream 
     didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer 
     ofType:(SCStreamOutputType)type {
-    static int delegateCallCount = 0;
-    delegateCallCount++;
-    
-    // Only log every 100th call to reduce noise
-    if (delegateCallCount % 100 == 1) {
-        NSLog(@"🎤 [NATIVE] Delegate received sample buffer #%d of type: %ld", delegateCallCount, (long)type);
-    }
-    
     if (type == SCStreamOutputTypeAudio) {
         // Record actual start time at the first audio buffer
         if (g_actualStartMs == 0.0) {
             NSTimeInterval nowMs = [[NSDate date] timeIntervalSince1970] * 1000.0;
             g_actualStartMs = nowMs;
-            NSLog(@"🎤 [NATIVE] ✅ actualStartMs set: %.0f", g_actualStartMs);
-        }
-        if (delegateCallCount % 100 == 1) {
-            NSLog(@"🎤 [NATIVE] Processing audio sample buffer #%d", delegateCallCount);
         }
         if (self.audioCallback) {
             self.audioCallback(sampleBuffer);
@@ -717,7 +736,6 @@ static AudioCaptureDelegate* g_delegate = nil;
 
 // Initialize the native module
 NAN_METHOD(Initialize) {
-    NSLog(@"🎤 [NATIVE] Initializing native audio module");
     
     // Create audio processing queue
     g_audioQueue = dispatch_queue_create("com.sayso.audio", DISPATCH_QUEUE_SERIAL);
@@ -756,6 +774,21 @@ NAN_METHOD(StartSystemAudioCapture) {
         NSLog(@"⚠️ [NATIVE] System audio capture already active");
         info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
         return;
+    }
+    
+    // Reset streaming-only flag
+    g_streamingOnly = false;
+    
+    // Check if streamingOnly option is provided
+    if (info.Length() > 0 && info[0]->IsObject()) {
+        Local<Object> options = Nan::To<Object>(info[0]).ToLocalChecked();
+        Local<Value> streamingOnlyValue = Nan::Get(options, Nan::New("streamingOnly").ToLocalChecked()).ToLocalChecked();
+        if (!streamingOnlyValue->IsUndefined() && streamingOnlyValue->IsBoolean()) {
+            g_streamingOnly = Nan::To<bool>(streamingOnlyValue).FromJust();
+            if (g_streamingOnly) {
+                NSLog(@"🎤 [NATIVE] Streaming-only mode: file creation disabled");
+            }
+        }
     }
     
     // Reset actual start timestamp
@@ -890,6 +923,9 @@ NAN_METHOD(StopSystemAudioCapture) {
         }
         g_isCapturing = false;
         
+    // Reset streaming-only flag when stopping capture
+    g_streamingOnly = false;
+    
     // Close audio file when stopping capture
     closeAudioFile();
     
@@ -928,6 +964,148 @@ NAN_METHOD(StopSystemAudioCapture) {
     info.GetReturnValue().Set(result);
 }
 
+// Start microphone capture for streaming
+NAN_METHOD(StartMicrophoneCapture) {
+    NSLog(@"🎤 [NATIVE] Starting microphone capture");
+    
+    if (g_isMicCapturing) {
+        NSLog(@"⚠️ [NATIVE] Microphone capture already active");
+        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        return;
+    }
+    
+    // Check if microphone streaming callback is set up
+    // Note: Microphone uses its own separate callback (g_micStreamingCallback)
+    // This is set via SetMicrophoneStreamingCallback, not SetStreamingCallback
+    if (g_micStreamingCallback.IsEmpty()) {
+        NSLog(@"⚠️ [NATIVE] Microphone streaming callback is empty - cannot capture microphone");
+        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        return;
+    }
+    
+    // Create microphone-specific async handle if it doesn't exist
+    if (!g_micStreamingAsyncHandle) {
+        g_micStreamingAsyncHandle = new uv_async_t;
+        uv_async_init(uv_default_loop(), g_micStreamingAsyncHandle, MicStreamingAsyncCallback);
+    }
+    
+    // Note: On macOS, microphone permissions are handled automatically by the system
+    // when AVAudioEngine tries to access the input. No AVAudioSession needed.
+    
+    // Create audio engine
+    g_micEngine = [[AVAudioEngine alloc] init];
+    g_micInputNode = [g_micEngine inputNode];
+    
+    if (!g_micInputNode) {
+        NSLog(@"❌ [NATIVE] Failed to get input node from audio engine");
+        g_micEngine = nullptr;
+        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        return;
+    }
+    
+    // Get the input format (use mic's native format)
+    AVAudioFormat* inputFormat = [g_micInputNode inputFormatForBus:0];
+    
+    // Install tap - capture at mic's native format, let JS converter handle resampling
+    // Use larger buffer for smoother streaming (4096 frames ≈ 85ms at 48kHz)
+    [g_micInputNode installTapOnBus:0 bufferSize:4096 format:inputFormat block:^(AVAudioPCMBuffer* buffer, AVAudioTime* when) {
+        // Check prerequisites
+        if (!buffer) {
+            return;
+        }
+        
+        if (!g_micStreamingAsyncHandle) {
+            NSLog(@"⚠️ [NATIVE] Mic callback skipped - microphone streaming async handle is null");
+            return;
+        }
+        
+        if (g_micStreamingCallback.IsEmpty()) {
+            NSLog(@"⚠️ [NATIVE] Mic callback skipped - microphone streaming callback is empty");
+            return;
+        }
+        
+        AVAudioFormat* bufferFormat = buffer.format;
+        int channels = (int)bufferFormat.channelCount;
+        int frameLength = (int)buffer.frameLength;
+        
+        // Determine bit depth and get audio data
+        StreamingData* streamData = new StreamingData();
+        size_t dataSize = 0;
+        
+        if (bufferFormat.commonFormat == AVAudioPCMFormatFloat32) {
+            // 32-bit float
+            float* floatData = buffer.floatChannelData[0];
+            dataSize = frameLength * channels * sizeof(float);
+            streamData->audioData.resize(dataSize);
+            memcpy(streamData->audioData.data(), floatData, dataSize);
+            streamData->bitDepth = 32;
+            streamData->isFloat = true;
+        } else if (bufferFormat.commonFormat == AVAudioPCMFormatInt16) {
+            // 16-bit int
+            int16_t* intData = buffer.int16ChannelData[0];
+            dataSize = frameLength * channels * sizeof(int16_t);
+            streamData->audioData.resize(dataSize);
+            memcpy(streamData->audioData.data(), intData, dataSize);
+            streamData->bitDepth = 16;
+            streamData->isFloat = false;
+        } else {
+            // Unsupported format, skip
+            NSLog(@"⚠️ [NATIVE] Unsupported audio format: %lu", (unsigned long)bufferFormat.commonFormat);
+            delete streamData;
+            return;
+        }
+        
+        streamData->sampleRate = bufferFormat.sampleRate;
+        streamData->channels = channels;
+        
+        // Send to microphone-specific callback
+        g_micStreamingAsyncHandle->data = streamData;
+        uv_async_send(g_micStreamingAsyncHandle);
+    }];
+    
+    // Start engine
+    NSError* error = nil;
+    BOOL success = [g_micEngine startAndReturnError:&error];
+    
+    if (success) {
+        g_isMicCapturing = true;
+        NSLog(@"✅ [NATIVE] Microphone capture started successfully");
+        info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
+    } else {
+        NSLog(@"❌ [NATIVE] Failed to start microphone capture: %@", error.localizedDescription);
+        [g_micInputNode removeTapOnBus:0];
+        g_micEngine = nullptr;
+        g_micInputNode = nullptr;
+        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+    }
+}
+
+// Stop microphone capture
+NAN_METHOD(StopMicrophoneCapture) {
+    NSLog(@"🎤 [NATIVE] Stopping microphone capture");
+    
+    if (g_micInputNode) {
+        [g_micInputNode removeTapOnBus:0];
+        g_micInputNode = nullptr;
+    }
+    
+    if (g_micEngine) {
+        [g_micEngine stop];
+        g_micEngine = nullptr;
+    }
+    
+    // Note: On macOS, no audio session to deactivate
+    
+    g_isMicCapturing = false;
+    NSLog(@"✅ [NATIVE] Microphone capture stopped");
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
+}
+
+// Check if mic capture is active
+NAN_METHOD(IsMicrophoneCaptureActive) {
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(g_isMicCapturing));
+}
+
 // Set streaming callback for real-time audio chunks
 NAN_METHOD(SetStreamingCallback) {
     if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
@@ -943,7 +1121,6 @@ NAN_METHOD(SetStreamingCallback) {
             });
         }
         
-        NSLog(@"🎤 [NATIVE] Streaming callback cleared");
         info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
         return;
     }
@@ -963,6 +1140,42 @@ NAN_METHOD(SetStreamingCallback) {
     }
     
     NSLog(@"🎤 [NATIVE] Streaming callback set");
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
+}
+
+// Set microphone-specific streaming callback
+NAN_METHOD(SetMicrophoneStreamingCallback) {
+    if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
+        // Clear callback
+        g_micStreamingCallback.Reset();
+        
+        // Clean up async handle
+        if (g_micStreamingAsyncHandle) {
+            uv_async_t* handleToDelete = g_micStreamingAsyncHandle;
+            g_micStreamingAsyncHandle = nullptr;
+            uv_close((uv_handle_t*)handleToDelete, [](uv_handle_t* handle) {
+                delete reinterpret_cast<uv_async_t*>(handle);
+            });
+        }
+        
+        info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
+        return;
+    }
+    
+    if (!info[0]->IsFunction()) {
+        Nan::ThrowTypeError("Callback must be a function");
+        return;
+    }
+    
+    // Store persistent reference to callback
+    g_micStreamingCallback.Reset(Nan::To<Function>(info[0]).ToLocalChecked());
+    
+    // Create async handle if it doesn't exist
+    if (!g_micStreamingAsyncHandle) {
+        g_micStreamingAsyncHandle = new uv_async_t();
+        uv_async_init(uv_default_loop(), g_micStreamingAsyncHandle, MicStreamingAsyncCallback);
+    }
+    
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
@@ -1155,6 +1368,9 @@ NAN_MODULE_INIT(Init) {
     Nan::Set(target, Nan::New("setStreamingCallback").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(SetStreamingCallback)).ToLocalChecked());
     
+    Nan::Set(target, Nan::New("setMicrophoneStreamingCallback").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(SetMicrophoneStreamingCallback)).ToLocalChecked());
+    
     Nan::Set(target, Nan::New("isSystemAudioCaptureActive").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(IsSystemAudioCaptureActive)).ToLocalChecked());
     
@@ -1166,6 +1382,15 @@ NAN_MODULE_INIT(Init) {
     
     Nan::Set(target, Nan::New("deleteMultiOutputDevice").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(DeleteMultiOutputDevice)).ToLocalChecked());
+    
+    Nan::Set(target, Nan::New("startMicrophoneCapture").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(StartMicrophoneCapture)).ToLocalChecked());
+    
+    Nan::Set(target, Nan::New("stopMicrophoneCapture").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(StopMicrophoneCapture)).ToLocalChecked());
+    
+    Nan::Set(target, Nan::New("isMicrophoneCaptureActive").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(IsMicrophoneCaptureActive)).ToLocalChecked());
 }
 
 NODE_MODULE(native_audio, Init)

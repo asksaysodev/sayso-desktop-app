@@ -221,10 +221,6 @@ class AudioStreamer {
     try {
       const readyChunks = this.userBuffer.getReadyChunks();
       
-      if (readyChunks.length > 0) {
-        console.log(`🎤 [AudioStreamer] Processing ${readyChunks.length} ready user audio chunks`);
-      }
-      
       for (const chunk of readyChunks) {
         try {
           // Convert to AssemblyAI format
