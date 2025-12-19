@@ -23,7 +23,6 @@ import { useToast } from "@/context/ToastContext";
 import ButtonSpinner from "@/components/ButtonSpinner";
 
 function updatePriorities(signals: Signal[]): Signal[] {
-    console.log('signals on updatePriorities', signals);
     return signals.map((signal, index) => ({
         ...signal,
         priority: index + 1
