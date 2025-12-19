@@ -2,10 +2,9 @@ import { Routes, Route } from 'react-router-dom';
 
 //VIEWS
 import Login from './views/Login';
-// import Account from './views/Account';
-import Admin  from './views/Admin/Admin';
 import Dashboard from './views/Dashboard';
 import Subscription from './views/Subscription/index';
+import Admin from './views/Admin';
 
 //COMPONENTS
 import AuthGuard from './components/AuthGuard';

@@ -10,8 +10,8 @@ export default function SaysoModal({ title, text, isDelete, onDeny, onConfirm, i
                     {
                         isDelete ? (
                             <>  
-                                <button onClick={onConfirm} className="sayso-modal-action-primary">{primaryText}</button>
                                 <button onClick={onDeny} className="sayso-modal-action-secondary">{secondaryText}</button>
+                                <button onClick={onConfirm} className="sayso-modal-action-primary">{primaryText}</button>
                             </>
                         ) : (
                             <>
