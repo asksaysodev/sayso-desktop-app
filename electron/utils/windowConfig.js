@@ -10,7 +10,7 @@ const WINDOW_CONFIG = {
     OFFSET_Y: 80, 
     OFFSET_X: 100, 
     FRAME: false,
-    TRANSPARENT: false,
+    TRANSPARENT: true,
     ALWAYS_ON_TOP: true,
     DEV_TOOLS: false,
     VISIBLE_ON_ALL_WORKSPACES: true,

@@ -32,14 +32,11 @@ export default function InsightsVerticalLayout() {
         const currentQueueLength = insightsQueue.length;
         const previousQueueLength = previousQueueLengthRef.current;
 
-        // New item(s) added to the queue
         if (currentQueueLength > previousQueueLength) {
             const newItems = new Set();
             
-            // Mark new items at the end of the queue
             for (let i = previousQueueLength; i < currentQueueLength; i++) {
                 if (insightsQueue[i]) {
-                    // Use message + timestamp as unique identifier
                     const itemId = `${insightsQueue[i].message}_${i}`;
                     newItems.add(itemId);
                 }
@@ -47,7 +44,6 @@ export default function InsightsVerticalLayout() {
             
             setNewQueueItems(newItems);
             
-            // Remove the "new" status after animation completes
             const cleanupTimer = setTimeout(() => {
                 setNewQueueItems(new Set());
             }, TIMING_CONFIG.animationDuration + 100);
@@ -60,10 +56,6 @@ export default function InsightsVerticalLayout() {
         }
     }, [insightsQueue]);
 
-    /** 
-     * Handle timing for the current (first) insight following InsightWrapper rules
-     * Each insight gets its own animation state to prevent race conditions
-     */
     useEffect(() => {
         if (!currentInsight) {
             return;
@@ -71,7 +63,6 @@ export default function InsightsVerticalLayout() {
 
         const insightId = currentInsight.message;
 
-        // Initialize state for this insight if it doesn't exist
         if (!insightStates[insightId]) {
             setInsightStates(prev => ({
                 ...prev,
@@ -79,11 +70,9 @@ export default function InsightsVerticalLayout() {
             }));
         }
 
-        // Calculate display duration based on text length
         const calculatedDisplayDuration = calculateInsightDisplayDuration(currentInsight.message);
         const finalDisplayDuration = calculatedDisplayDuration || TIMING_CONFIG.displayDuration;
 
-        // Enter animation: show the insight after a small delay
         const enterTimer = setTimeout(() => {
             setInsightStates(prev => ({
                 ...prev,
@@ -91,7 +80,6 @@ export default function InsightsVerticalLayout() {
             }));
         }, TIMING_CONFIG.enterDelay);
 
-        // Exit animation: start exit animation before the insight completes
         const exitTimer = setTimeout(() => {
             setInsightStates(prev => ({
                 ...prev,
@@ -99,10 +87,8 @@ export default function InsightsVerticalLayout() {
             }));
         }, finalDisplayDuration - TIMING_CONFIG.animationDuration);
 
-        // Complete: call showNext() to move to the next insight in the queue
         const completeTimer = setTimeout(() => {
             showNext();
-            // Clean up this insight's state after transition completes
             setTimeout(() => {
                 setInsightStates(prev => {
                     const newStates = { ...prev };
