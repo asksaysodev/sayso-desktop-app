@@ -9,10 +9,10 @@ import CoachButtons from './CoachButtons';
 import InsightWrapper from './InsightWrapper';
 import SelectProspectDropdown from './SelectProspectDropdown';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
+import InsightsVerticalLayout from './InsightsVerticalLayout';
 
 const WINDOW_WIDTH_SIZES = {
     BASE: 370,
-    CUE: 795,
     READY_TO_LAUNCH: 400,
     MAX_WIDTH: 900
 }
@@ -62,7 +62,6 @@ export default function CoachWindowMain() {
     }
 
     function getContentSizeByCurrentState() {
-      if (currentInsight !== null) return WINDOW_WIDTH_SIZES.CUE;
       if (leadType !== null) return WINDOW_WIDTH_SIZES.READY_TO_LAUNCH;
       return WINDOW_WIDTH_SIZES.BASE;
     }
@@ -79,8 +78,8 @@ export default function CoachWindowMain() {
                     windowHeight = WINDOW_HEIGHT_SIZES.DROPDOWN_OPEN;
                 } else {
                     const baseHeight = WINDOW_HEIGHT_SIZES.BASE;
-                    const insightHeight = currentInsight ? containerRef.current.scrollHeight - baseHeight : 0;
-                    windowHeight = baseHeight + insightHeight;
+                    const contentHeight = containerRef.current.scrollHeight - baseHeight;
+                    windowHeight = baseHeight + contentHeight;
                 }
                 
                 const newWidth = getContentSizeByCurrentState();
@@ -127,14 +126,14 @@ export default function CoachWindowMain() {
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue]);
 
 
 
 
-    const onCompleteInsight = useCallback(() => {
-        showNext();
-    }, [showNext]);
+    // const onCompleteInsight = useCallback(() => {
+    //     showNext();
+    // }, [showNext]);
 
 	useEffect(() => {
 		// Only set up listener when Cue is active
@@ -167,7 +166,6 @@ export default function CoachWindowMain() {
 		};
 	}, [isCoachActive, coachFeature]);
 
-    // Auto-trigger showNext when queue has items and nothing is currently displaying
 	useEffect(() => {
 		if (insightsQueue.length > 0 && !isCueDisplaying && !currentInsight) {
 			showNext();
@@ -210,7 +208,11 @@ export default function CoachWindowMain() {
                 </div>
             </div>
 
-            {currentInsight && isCoachActive && (
+            {leadType && (currentInsight || insightsQueue.length > 0) && (
+                <InsightsVerticalLayout />
+            )}
+
+            {/* {currentInsight && isCoachActive && (
                 <InsightWrapper
                     key={currentInsight?.message}
                     onComplete={onCompleteInsight}
@@ -220,7 +222,7 @@ export default function CoachWindowMain() {
                     transitionDelay={defaultConfig.transitionDelay}
                     animationDuration={defaultConfig.animationDuration}
                 />
-            )}
+            )} */}
         </div>
     );
 }

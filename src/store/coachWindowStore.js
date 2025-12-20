@@ -366,28 +366,27 @@ export const useCoachWindowStore = create((set, get) => ({
         set({ isCoachLoading: true });
 
         try {
-            // const currentLeadType = get().cue.leadType;
+            const currentLeadType = get().cue.leadType;
 
-            // if (get().isCoachActive) {
-            //     throw new Error('Cue is already active');
-            // }
-            // if (!currentLeadType) {
-            //     throw new Error('Scenario is required');
-            // }
-            // if (currentLeadType !== 'buyer' && currentLeadType !== 'seller') {
-            //     throw new Error('Scenario must be either "buyer" or "seller"');
-            // }
+            if (get().isCoachActive) {
+                throw new Error('Cue is already active');
+            }
+            if (!currentLeadType) {
+                throw new Error('Scenario is required');
+            }
+            if (currentLeadType !== 'buyer' && currentLeadType !== 'seller') {
+                throw new Error('Scenario must be either "buyer" or "seller"');
+            }
 
-            // const sessionData = await get().cue_createNewSession(currentLeadType);
+            const sessionData = await get().cue_createNewSession(currentLeadType);
 
-            // if (!sessionData || !sessionData.sessionId) {
-            //     throw new Error('Failed to create new cue session');
-            // }
+            if (!sessionData || !sessionData.sessionId) {
+                throw new Error('Failed to create new cue session');
+            }
 
-            // await cue_startStreaming(sessionData.sessionId);
+            await cue_startStreaming(sessionData.sessionId);
 
-            // set({ sessionData, isCoachActive: true });
-            set({ isCoachActive: true });
+            set({ sessionData, isCoachActive: true });
 
         } catch (error) {
             console.error('Error starting cue:', error);
@@ -401,20 +400,19 @@ export const useCoachWindowStore = create((set, get) => ({
         set({ isCoachLoading: true });
 
         try {
-            // const sessionId = get().sessionData?.sessionId;
-            // if(!sessionId) {
-            //     throw new Error('Session ID is required');
-            // }
+            const sessionId = get().sessionData?.sessionId;
+            if(!sessionId) {
+                throw new Error('Session ID is required');
+            }
 
-			// await cue_stopStreaming();
-			// const sessionData = await get().cue_stopSession(sessionId);
-			// if(!sessionData || !sessionData.session) {
-			// 	throw new Error('Failed to stop cue session');
-			// }
-			// set({ sessionData, isCoachActive: false });
+			await cue_stopStreaming();
+			const sessionData = await get().cue_stopSession(sessionId);
+			if(!sessionData || !sessionData.session) {
+				throw new Error('Failed to stop cue session');
+			}
+			set({ sessionData, isCoachActive: false });
 
-            // get().cue_resetStates();
-            set({ isCoachActive: false });
+            get().cue_resetStates();
 
         } catch (error) {
             console.error('Error stopping cue:', error);

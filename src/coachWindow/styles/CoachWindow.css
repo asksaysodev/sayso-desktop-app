@@ -5,15 +5,17 @@ body {
   }
 
 .coach-window {
+    gap: 6px;
     /* width: 100%; */
     height: 100%;
-    background: red;
+    background: transparent;
     -webkit-app-region: drag;
     backdrop-filter: none;
     border: none;
     overflow: visible;
     cursor: move;
     display: flex;
+    flex-direction: column;
     justify-content: flex-start;
     align-items: start;
 }
@@ -39,12 +41,13 @@ body {
     display: flex;
     flex-direction: row;
     align-items: center;
+    height: 90px !important;
 }
 
 .coach-window .main-container{
     position: relative;
     height: 48px;
-    width: 100%;
+    width: -webkit-fill-available;
     /* width: fit-content;  Changed from calc(100% - 40px) */
     /*min-width: 200px;  Add a minimum width so it doesn't get too small */
     /*max-width: calc(100% - 40px);  Keep the max width constraint */
@@ -194,8 +197,7 @@ body {
     border-radius: 16px;
     background-color: white;
 	border: 1px solid var(--sayso-border);
-	border: none;
-    /* box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1); */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1);
 	display: flex;
     flex-direction: column;
     align-items: start;
