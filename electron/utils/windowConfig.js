@@ -17,7 +17,9 @@ const WINDOW_CONFIG = {
     RESIZABLE: false,
     MAXIMIZABLE: false,
     MINIMIZABLE: false,
-    FULLSCREENABLE: false
+    FULLSCREENABLE: false,
+    BORDERLESS: true,
+    HAS_SHADOW: false
   },
   DASHBOARD: {
     DEFAULT_WIDTH: 1024,

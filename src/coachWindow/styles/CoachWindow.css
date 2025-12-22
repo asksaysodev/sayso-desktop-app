@@ -5,8 +5,9 @@ body {
   }
 
 .coach-window {
+    gap: 6px;
     /* width: 100%; */
-    height: auto;
+    height: 100%;
     background: transparent;
     -webkit-app-region: drag;
     backdrop-filter: none;
@@ -14,6 +15,7 @@ body {
     overflow: visible;
     cursor: move;
     display: flex;
+    flex-direction: column;
     justify-content: flex-start;
     align-items: start;
 }
@@ -39,15 +41,16 @@ body {
     display: flex;
     flex-direction: row;
     align-items: center;
-    justify-content: start;
+    height: 90px !important;
 }
 
 .coach-window .main-container{
     position: relative;
     height: 48px;
-    width: fit-content; /* Changed from calc(100% - 40px) */
-    min-width: 200px; /* Add a minimum width so it doesn't get too small */
-    max-width: calc(100% - 40px); /* Keep the max width constraint */
+    width: -webkit-fill-available;
+    /* width: fit-content;  Changed from calc(100% - 40px) */
+    /*min-width: 200px;  Add a minimum width so it doesn't get too small */
+    /*max-width: calc(100% - 40px);  Keep the max width constraint */
     padding:  2px 12px;
     border-radius: 24px;
     display: flex;
@@ -151,13 +154,14 @@ body {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 4px 12px;
+    padding: 4px 16px;
     cursor: pointer;
     -webkit-app-region: no-drag;
     background-color:var(--sayso-blue);
     border-radius: 100px;
     color: white;
     border: 1px solid var(--sayso-blue);
+    margin-left: 16px;
 }
 
 .coach-window-select-prospect-button:hover{
@@ -175,7 +179,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 16px;
     padding: 4px 0;
     cursor: pointer;
     -webkit-app-region: no-drag;
@@ -185,7 +189,6 @@ body {
     width: 300px;
     max-height: 200px;
     top: 48px;
-    left: 0px;
     z-index: 1000;
     margin-top: 12px;
     position: absolute;
@@ -194,8 +197,7 @@ body {
     border-radius: 16px;
     background-color: white;
 	border: 1px solid var(--sayso-border);
-	border: none;
-    /* box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1); */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1);
 	display: flex;
     flex-direction: column;
     align-items: start;
@@ -531,7 +533,8 @@ body {
     cursor: pointer;
     -webkit-app-region: no-drag;
     opacity: 0.8;
-    border: none
+    border: none;
+    margin-left: auto;
 
 }
 

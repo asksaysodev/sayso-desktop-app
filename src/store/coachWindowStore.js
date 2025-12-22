@@ -385,6 +385,7 @@ export const useCoachWindowStore = create((set, get) => ({
             }
 
             await cue_startStreaming(sessionData.sessionId);
+
             set({ sessionData, isCoachActive: true });
 
         } catch (error) {
