@@ -45,7 +45,6 @@ export default function CoachWindowMain() {
     //STATE
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    const [isInsightsLayoutOpen, setIsInsightsLayoutOpen] = useState(false);
 
     //CONTEXT / HOOKS
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
@@ -58,15 +57,34 @@ export default function CoachWindowMain() {
     const isCueDisplaying = useCoachWindowStore(state => state.cue.isInsightDisplaying);
     const showNext = useCoachWindowStore(state => state.cue_showNext);
     const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
+    const isInsightsLayoutOpen = useCoachWindowStore(state => state.cue.isInsightsLayoutOpen);
+    const setIsInsightsLayoutOpen = useCoachWindowStore(state => state.cue_setIsInsightsLayoutOpen);
 
     const handleCloseCoachWindow = () => {
         closeCoachWindow()
     }
 
-    function getContentSizeByCurrentState() {
+    function getWidthByCurrentState() {
         if (isCoachActive && coachFeature === 'cue') return WINDOW_WIDTH_SIZES.ACTIVE_SESSION;
         if (leadType !== null) return WINDOW_WIDTH_SIZES.READY_TO_LAUNCH;
         return WINDOW_WIDTH_SIZES.BASE;
+    }
+
+    function getHeightByCurrentState() {
+        if (isDropdownOpen) {
+            return WINDOW_HEIGHT_SIZES.DROPDOWN_OPEN;
+        } else if (isInsightsLayoutOpen && (currentInsight || insightsQueue.length > 0)) {
+            return containerRef.current.offsetHeight;
+        } else if (isInsightsLayoutOpen) {
+            console.log(containerRef.current.offsetHeight, '1')
+            console.log(containerRef.current, '2')
+            if (containerRef.current.offsetHeight > 54) {
+                console.log('closing')
+                return containerRef.current.offsetHeight;
+            }
+            return 280
+        }
+        return WINDOW_HEIGHT_SIZES.BASE;
     }
 
     useEffect(() => {
@@ -76,24 +94,21 @@ export default function CoachWindowMain() {
             if (containerRef.current && window.electronAPI && !isResizing) {
                 isResizing = true;
 
-                let windowHeight;
-                if (isDropdownOpen) {
-                    windowHeight = WINDOW_HEIGHT_SIZES.DROPDOWN_OPEN;
-                } else {
-                    const baseHeight = WINDOW_HEIGHT_SIZES.BASE;
-                    const contentHeight = containerRef.current.scrollHeight - baseHeight;
-                    windowHeight = baseHeight + contentHeight;
-                }
+                const windowWidth = Math.max(
+                    WINDOW_WIDTH_SIZES.BASE, 
+                    Math.min(WINDOW_WIDTH_SIZES.MAX_WIDTH, getWidthByCurrentState())
+                );
                 
-                const newWidth = getContentSizeByCurrentState();
-                const windowWidth = Math.max(WINDOW_WIDTH_SIZES.BASE, Math.min(WINDOW_WIDTH_SIZES.MAX_WIDTH, newWidth));
+                let windowHeight = getHeightByCurrentState();
 
                 console.log('🔍 [updateWindowSize]', {
                     currentInsight: currentInsight !== null ? 'exists' : 'null',
                     insightsQueueLength: insightsQueue.length,
                     windowWidth,
                     windowHeight,
-                    isDropdownOpen
+                    isDropdownOpen,
+                    isInsightsLayoutOpen,
+                    containerOffsetHeight: containerRef.current.offsetHeight
                 });
 
                 window.electronAPI.resizeWindow(windowWidth, windowHeight);
@@ -129,7 +144,7 @@ export default function CoachWindowMain() {
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen]);
 
 	useEffect(() => {
 		// Only set up listener when Cue is active

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import calculateInsightDisplayDuration from '../helpers/calculateInsightDisplayDuration';
+import { LuX } from 'react-icons/lu';
 import '../styles/InsightVerticalLayout.css';
 
 const TIMING_CONFIG = {
@@ -9,7 +10,20 @@ const TIMING_CONFIG = {
     animationDuration: 300,
     enterDelay: 10,
 };
-
+const MOCKED = [
+        {
+            "message": "It's completely okay to take a pause. What feelings or goals are driving this uncertainty for you? I'm here to help clarify your thoughts.",
+            "priority": 6,
+            "appointmentBooked": false,
+            "createdAt": 1766430529133
+        },
+        {
+            "message": "I hear you on wanting to wait and see. Are there specific time frames you have in mind for when you'd feel more ready to explore options? I'm here to help you navigate this whenever you're ready.",
+            "priority": 4,
+            "appointmentBooked": false,
+            "createdAt": 1766430534612
+        }
+]
 export default function InsightsVerticalLayout({ isInsightsLayoutOpen, setIsInsightsLayoutOpen }) {
     const currentInsight = useCoachWindowStore(state => state.cue.currentInsight);
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
@@ -105,14 +119,14 @@ export default function InsightsVerticalLayout({ isInsightsLayoutOpen, setIsInsi
         };
     }, [currentInsight, showNext]);
 
+    console.log(isInsightsLayoutOpen, 'isInsightsLayoutOpen', allInsightsToDisplay)
     if (!isInsightsLayoutOpen) return null;
-
     return (
         <div className="insights-vertical-layout-container">
-            {allInsightsToDisplay.length > 0 
+            {MOCKED.length > 0 
             ? (
                 <ul className="insights-vertical-list">
-                {allInsightsToDisplay.map((insight, index) => {
+                {MOCKED.map((insight, index) => {
                     const isFirstInsight = index === 0;
                     const insightId = insight.message;
                     
@@ -125,17 +139,22 @@ export default function InsightsVerticalLayout({ isInsightsLayoutOpen, setIsInsi
                     return (
                         <li
                             key={insight.message + index}
+                            // className={`
+                            //     insights-vertical-layout-item
+                            //     ${isFirstInsight ? 'insights-vertical-layout-item--active' : 'insights-vertical-layout-item--queue'}
+                            //     ${isNewQueueItem ? 'insights-vertical-layout-item--new' : ''}
+                            // `}
                             className={`
                                 insights-vertical-layout-item
                                 ${isFirstInsight ? 'insights-vertical-layout-item--active' : 'insights-vertical-layout-item--queue'}
-                                ${isFirstInsight && insightState.isVisible ? 'insights-vertical-layout-item--visible' : ''}
-                                ${isFirstInsight && insightState.isExiting ? 'insights-vertical-layout-item--exiting' : ''}
-                                ${isNewQueueItem ? 'insights-vertical-layout-item--new' : ''}
                             `}
-                            style={{
-                                '--animation-duration': `${TIMING_CONFIG.animationDuration}ms`,
-                            }}
+                            // style={{
+                            //     '--animation-duration': `${TIMING_CONFIG.animationDuration}ms`,
+                            // }}
                         >
+                            <button className="insights-vertical-layout-item__close-button">
+                                <LuX size={12}/>
+                            </button>
                             <div className="insights-vertical-layout-item__text">
                                 {insight.message}
                             </div>

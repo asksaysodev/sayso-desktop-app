@@ -31,6 +31,7 @@ const CUE_INITIAL_STATE = {
     currentInsight: null,
     isInsightDisplaying: false,
     leadType: null, // 'buyer' or 'seller'
+    isInsightsLayoutOpen: false,
 };
 
 const RECALL_INITIAL_STATE = {
@@ -413,7 +414,7 @@ export const useCoachWindowStore = create((set, get) => ({
 			// set({ sessionData, isCoachActive: false });
 
             // get().cue_resetStates();
-            set({callDurationInSeconds: 0, isCoachActive: false });
+            set({ isCoachActive: false });
 
         } catch (error) {
             console.error('Error stopping cue:', error);
@@ -505,33 +506,39 @@ export const useCoachWindowStore = create((set, get) => ({
             createdAt: insight.createdAt || Date.now(),
             // SAme with this maybe. This I also believe is not even necessary. Because
             // we already have the createdAt property. Think more about this.
-            expiresAt: insight.expiresAt || Date.now() + CUE_CONFIG.expirationTime,
+            // expiresAt: insight.expiresAt || Date.now() + CUE_CONFIG.expirationTime,
         };
         const prevQueue = get().cue.insightsQueue;
-        const validQueue = cue_removeExpired(prevQueue);
-        const notTooOldQueue = cue_removeTooOld(validQueue);
-        const newQueue = [...notTooOldQueue, newInsight];
-        const finalQueue = cue_sortByPriority(newQueue);
+        // const validQueue = cue_removeExpired(prevQueue);
+        // const notTooOldQueue = cue_removeTooOld(validQueue);
+        const newQueue = [newInsight, ...prevQueue];
+        // const finalQueue = cue_sortByPriority(newQueue);
 
         set((state) => ({
-            cue: { ...state.cue, insightsQueue: finalQueue }
+            cue: { ...state.cue, insightsQueue: newQueue }
         }));
     },
 
     cue_showNext: () => {
         const prevQueue = get().cue.insightsQueue;
-        const validQueue = cue_removeExpired(prevQueue);
-        const notTooOldQueue = cue_removeTooOld(validQueue);
-        const sortedQueue = cue_sortByPriority(notTooOldQueue);
-        const nextInsight = sortedQueue.length > 0 ? sortedQueue[0] : null;
+        // const validQueue = cue_removeExpired(prevQueue);
+        // const notTooOldQueue = cue_removeTooOld(validQueue);
+        // const sortedQueue = cue_sortByPriority(notTooOldQueue);
+        const nextInsight = prevQueue.length > 0 ? prevQueue[0] : null;
 
         set((state) => ({
             cue: {
                 ...state.cue,
                 currentInsight: nextInsight,
                 isInsightDisplaying: nextInsight !== null,
-                insightsQueue: nextInsight ? sortedQueue.slice(1) : []
+                insightsQueue: nextInsight ? prevQueue.slice(1) : []
             }
+        }));
+    },
+
+    cue_setIsInsightsLayoutOpen: (isInsightsLayoutOpen) => {
+        set((state) => ({
+            cue: { ...state.cue, isInsightsLayoutOpen }
         }));
     },
 }));
