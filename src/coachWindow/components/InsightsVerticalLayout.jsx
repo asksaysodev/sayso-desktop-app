@@ -10,7 +10,7 @@ const TIMING_CONFIG = {
     enterDelay: 10,
 };
 
-export default function InsightsVerticalLayout() {
+export default function InsightsVerticalLayout({ isInsightsLayoutOpen, setIsInsightsLayoutOpen }) {
     const currentInsight = useCoachWindowStore(state => state.cue.currentInsight);
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
     const showNext = useCoachWindowStore(state => state.cue_showNext);
@@ -105,13 +105,13 @@ export default function InsightsVerticalLayout() {
         };
     }, [currentInsight, showNext]);
 
-    if (allInsightsToDisplay.length === 0) {
-        return null;
-    }
+    if (!isInsightsLayoutOpen) return null;
 
     return (
         <div className="insights-vertical-layout-container">
-            <ul className="insights-vertical-list">
+            {allInsightsToDisplay.length > 0 
+            ? (
+                <ul className="insights-vertical-list">
                 {allInsightsToDisplay.map((insight, index) => {
                     const isFirstInsight = index === 0;
                     const insightId = insight.message;
@@ -143,6 +143,11 @@ export default function InsightsVerticalLayout() {
                     );
                 })}
             </ul>
+            ) : (
+                <div className="no-insights-to-display-container">
+                    <p>No insights to display</p>
+                </div>
+            )}
         </div>
     );
 }

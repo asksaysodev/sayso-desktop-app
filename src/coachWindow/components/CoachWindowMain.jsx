@@ -14,6 +14,7 @@ import InsightsVerticalLayout from './InsightsVerticalLayout';
 const WINDOW_WIDTH_SIZES = {
     BASE: 370,
     READY_TO_LAUNCH: 400,
+    ACTIVE_SESSION: 460,
     MAX_WIDTH: 900
 }
 
@@ -44,6 +45,7 @@ export default function CoachWindowMain() {
     //STATE
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [isInsightsLayoutOpen, setIsInsightsLayoutOpen] = useState(false);
 
     //CONTEXT / HOOKS
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
@@ -62,8 +64,9 @@ export default function CoachWindowMain() {
     }
 
     function getContentSizeByCurrentState() {
-      if (leadType !== null) return WINDOW_WIDTH_SIZES.READY_TO_LAUNCH;
-      return WINDOW_WIDTH_SIZES.BASE;
+        if (isCoachActive && coachFeature === 'cue') return WINDOW_WIDTH_SIZES.ACTIVE_SESSION;
+        if (leadType !== null) return WINDOW_WIDTH_SIZES.READY_TO_LAUNCH;
+        return WINDOW_WIDTH_SIZES.BASE;
     }
 
     useEffect(() => {
@@ -126,14 +129,7 @@ export default function CoachWindowMain() {
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue]);
-
-
-
-
-    // const onCompleteInsight = useCallback(() => {
-    //     showNext();
-    // }, [showNext]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature]);
 
 	useEffect(() => {
 		// Only set up listener when Cue is active
@@ -194,7 +190,10 @@ export default function CoachWindowMain() {
 
                     {
                         (selectedProspect || leadType) && (
-                            <CoachButtons />
+                            <CoachButtons 
+                                isInsightsLayoutOpen={isInsightsLayoutOpen}
+                                setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
+                            />
                         )
                     }
 
@@ -208,21 +207,12 @@ export default function CoachWindowMain() {
                 </div>
             </div>
 
-            {leadType && (currentInsight || insightsQueue.length > 0) && (
-                <InsightsVerticalLayout />
-            )}
-
-            {/* {currentInsight && isCoachActive && (
-                <InsightWrapper
-                    key={currentInsight?.message}
-                    onComplete={onCompleteInsight}
-                    priority={currentInsight?.priority}
-                    insightText={currentInsight?.message}
-                    displayDuration={defaultConfig.displayDuration}
-                    transitionDelay={defaultConfig.transitionDelay}
-                    animationDuration={defaultConfig.animationDuration}
+            {coachFeature ==='cue' && leadType && (
+                <InsightsVerticalLayout 
+                    isInsightsLayoutOpen={isInsightsLayoutOpen}
+                    setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
                 />
-            )} */}
+            )}
         </div>
     );
 }

@@ -353,8 +353,9 @@ body {
     border: none;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: end;
     gap: 8px;
+    width: 100%;
 }
 
 .coach-window-selected-prospect-button .coach-window-selected-prospect-initials-container{
@@ -392,9 +393,10 @@ body {
 }
 
 .coach-window .coach-buttons-container{
+    width: 100%;
     display: flex;
     align-items: center;
-    justify-content: start;
+    justify-content: flex-end;
     gap: 12px;
     padding: 0 14px;
     padding-right: 0;
@@ -414,6 +416,19 @@ body {
     justify-content: center;
     font-size: 16px;
     position: relative;
+}
+
+.open-insights-vertical-layout-button{
+    height: 32px;
+    width: 32px;
+    aspect-ratio: 1/1;
+    border-radius: 100px;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background-color: var(--sayso-indigo);
 }
 
 .coach-window .coach-buttons-container .coach-button:hover{

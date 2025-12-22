@@ -1,10 +1,12 @@
 import { FaPause, FaStop } from "react-icons/fa6";
 import { GrPowerReset } from "react-icons/gr";
-import { LuLoader } from "react-icons/lu";
+import { LuEye, LuEyeClosed, LuLoader } from "react-icons/lu";
 import CallTimer from "./CallTimer";
 import { useCoachWindowStore } from "../../store/coachWindowStore";
 
-export default function CoachActiveButtons({ coachFeature, handleCoach }) {
+const ICON_SIZE = 15;
+
+export default function CoachActiveButtons({ coachFeature, handleCoach, isInsightsLayoutOpen, setIsInsightsLayoutOpen }) {
     const addInsight = useCoachWindowStore(state => state.cue_addInsight);
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isResettingCueSession = useCoachWindowStore(state => state.cue.isResettingCueSession);
@@ -19,32 +21,38 @@ export default function CoachActiveButtons({ coachFeature, handleCoach }) {
         <>
             {coachFeature === 'cue' && 
                 <button 
-                    className={`coach-button reset ${isResettingCueSession ? 'loading' : ''}`}
-                    onClick={cue_onPressResetSession} 
-                    disabled={disableButtons}
+                className={`coach-button reset ${isResettingCueSession ? 'loading' : ''}`}
+                onClick={cue_onPressResetSession} 
+                disabled={disableButtons}
                 >
                     {isResettingCueSession && (
-                        <LuLoader className="loading-spinner" />
+                        <LuLoader size={ICON_SIZE} className="loading-spinner" />
                     )}
-                    <GrPowerReset className={`${isResettingCueSession ? 'hidden' : ''}`} />
+                    <GrPowerReset size={ICON_SIZE} className={`${isResettingCueSession ? 'hidden' : ''}`} />
                 </button>
             } 
-            {/* <button className="coach-button pause" onClick={handleCoach}>
-                <FaPause/>
-            </button> */}
             <button
                 className={`coach-button stop ${isCoachLoading ? 'loading' : ''}`}
                 onClick={handleCoach} 
                 disabled={disableButtons}
-            >
+                >
                 {isCoachLoading && (
-                    <LuLoader className="loading-spinner" />
+                    <LuLoader size={ICON_SIZE} className="loading-spinner" />
                 )}
-                <FaStop className={`${isCoachLoading ? 'hidden' : ''}`} />
+                <FaStop size={ICON_SIZE} className={`${isCoachLoading ? 'hidden' : ''}`} />
             </button>
 
             {showTimer && 
                 <CallTimer shouldStopTimer={disableButtons}/>
+            }
+            {coachFeature === 'cue' && 
+                <button 
+                    className='open-insights-vertical-layout-button'
+                    onClick={() => setIsInsightsLayoutOpen(!isInsightsLayoutOpen)}
+                    disabled={disableButtons}
+                >
+                    {isInsightsLayoutOpen ? <LuEyeClosed size={ICON_SIZE}/> : <LuEye size={ICON_SIZE}/>}
+                </button>
             }
         </>
     )

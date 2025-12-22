@@ -2,7 +2,7 @@ import { LuLoader } from "react-icons/lu";
 import CoachActiveButtons from "./CoachActiveButtons";
 import { useCoachWindowStore } from "../../store/coachWindowStore";
 
-export default function CoachButtons() {
+export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayoutOpen }) {
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
@@ -61,7 +61,12 @@ export default function CoachButtons() {
         <div className="coach-buttons-container">
             {
                 isCoachActive ? (
-                    <CoachActiveButtons coachFeature={coachFeature} handleCoach={handleCoach}/>
+                    <CoachActiveButtons 
+                        coachFeature={coachFeature} 
+                        handleCoach={handleCoach}
+                        isInsightsLayoutOpen={isInsightsLayoutOpen}
+                        setIsInsightsLayoutOpen={setIsInsightsLayoutOpen}
+                    />
                 ) : (
                     <>
                         <button className={`start-coach-button ${isCoachLoading ? 'loading' : ''}`} onClick={handleCoach}>
