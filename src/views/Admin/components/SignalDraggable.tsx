@@ -1,19 +1,8 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Signal } from "../types";
-import { LuGripVertical, LuTrash, LuTrash2 } from 'react-icons/lu';
+import { LuGripVertical, LuTrash2 } from 'react-icons/lu';
 import SignalCardField from './SignalCardField';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-  } from "@/components/ui/alert-dialog"
 import SaysoModal from '@/components/SaysoModal';
 import { useState } from 'react';
 import CharacterCounter from './CharacterCounter';
@@ -66,13 +55,13 @@ export default function SignalDraggable({ signal, handleOnChangeSignalField, han
                 <SignalCardField fieldName='Description'>
                     <div style={{ width: '100%' }}>
                         <textarea rows={3} value={signal.description} onChange={(e) => handleOnChangeSignalField(signal.id, 'description', e.target.value)} />
-                        <CharacterCounter text={signal.description} />
+                        <CharacterCounter text={signal.description} type='signal_description' />
                     </div>
                 </SignalCardField>
                 <SignalCardField fieldName='Instruction'>
                     <div style={{ width: '100%' }}>
                         <textarea rows={3} value={signal.instructions} onChange={(e) => handleOnChangeSignalField(signal.id, 'instructions', e.target.value)} />
-                        <CharacterCounter text={signal.instructions} />
+                        <CharacterCounter text={signal.instructions} type='signal_instructions' />
                     </div>
                 </SignalCardField>
             </div>

@@ -12,8 +12,9 @@ import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
 
 const WINDOW_WIDTH_SIZES = {
-    BASE: 370,
+    BASE: 320,
     READY_TO_LAUNCH: 400,
+    ACTIVE_SESSION: 440,
     MAX_WIDTH: 900
 }
 
@@ -40,6 +41,7 @@ export default function CoachWindowMain() {
 
     //REFS
     const containerRef = useRef(null);
+    const insightsLayoutRef = useRef(null);
 
     //STATE
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
@@ -56,14 +58,39 @@ export default function CoachWindowMain() {
     const isCueDisplaying = useCoachWindowStore(state => state.cue.isInsightDisplaying);
     const showNext = useCoachWindowStore(state => state.cue_showNext);
     const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
+    const isInsightsLayoutOpen = useCoachWindowStore(state => state.cue.isInsightsLayoutOpen);
+    const setIsInsightsLayoutOpen = useCoachWindowStore(state => state.cue_setIsInsightsLayoutOpen);
 
     const handleCloseCoachWindow = () => {
         closeCoachWindow()
     }
 
-    function getContentSizeByCurrentState() {
-      if (leadType !== null) return WINDOW_WIDTH_SIZES.READY_TO_LAUNCH;
-      return WINDOW_WIDTH_SIZES.BASE;
+    function getWidthByCurrentState() {
+        if (isCoachActive && coachFeature === 'cue') return WINDOW_WIDTH_SIZES.ACTIVE_SESSION;
+        if (leadType !== null) return WINDOW_WIDTH_SIZES.READY_TO_LAUNCH;
+        return WINDOW_WIDTH_SIZES.BASE;
+    }
+
+    function getHeightByCurrentState() {
+        if (isDropdownOpen) {
+            return WINDOW_HEIGHT_SIZES.DROPDOWN_OPEN;
+        } else if (isInsightsLayoutOpen) {
+            if (insightsLayoutRef.current) {
+                const actualHeight = insightsLayoutRef.current.offsetHeight;
+                const totalHeight = WINDOW_HEIGHT_SIZES.BASE + actualHeight + 6;
+                return totalHeight;
+            }
+            
+            const queueLength = insightsQueue.length;
+            if (queueLength === 0) return 280;
+            if (queueLength === 1) return 140;
+            if (queueLength === 2) return 210;
+            if (queueLength === 3) return 280;
+            if (queueLength >= 4) return 350;
+            
+            return 280;
+        }
+        return WINDOW_HEIGHT_SIZES.BASE;
     }
 
     useEffect(() => {
@@ -73,24 +100,21 @@ export default function CoachWindowMain() {
             if (containerRef.current && window.electronAPI && !isResizing) {
                 isResizing = true;
 
-                let windowHeight;
-                if (isDropdownOpen) {
-                    windowHeight = WINDOW_HEIGHT_SIZES.DROPDOWN_OPEN;
-                } else {
-                    const baseHeight = WINDOW_HEIGHT_SIZES.BASE;
-                    const contentHeight = containerRef.current.scrollHeight - baseHeight;
-                    windowHeight = baseHeight + contentHeight;
-                }
+                const windowWidth = Math.max(
+                    WINDOW_WIDTH_SIZES.BASE, 
+                    Math.min(WINDOW_WIDTH_SIZES.MAX_WIDTH, getWidthByCurrentState())
+                );
                 
-                const newWidth = getContentSizeByCurrentState();
-                const windowWidth = Math.max(WINDOW_WIDTH_SIZES.BASE, Math.min(WINDOW_WIDTH_SIZES.MAX_WIDTH, newWidth));
+                const windowHeight = getHeightByCurrentState();
 
                 console.log('🔍 [updateWindowSize]', {
                     currentInsight: currentInsight !== null ? 'exists' : 'null',
                     insightsQueueLength: insightsQueue.length,
                     windowWidth,
                     windowHeight,
-                    isDropdownOpen
+                    isDropdownOpen,
+                    isInsightsLayoutOpen,
+                    containerOffsetHeight: containerRef.current.offsetHeight
                 });
 
                 window.electronAPI.resizeWindow(windowWidth, windowHeight);
@@ -126,14 +150,7 @@ export default function CoachWindowMain() {
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue]);
-
-
-
-
-    // const onCompleteInsight = useCallback(() => {
-    //     showNext();
-    // }, [showNext]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen]);
 
 	useEffect(() => {
 		// Only set up listener when Cue is active
@@ -151,13 +168,13 @@ export default function CoachWindowMain() {
 				appointmentBooked: insightData.appointmentBooked
 			});
 
-			// Call store action to add insight
 			const addInsight = useCoachWindowStore.getState().cue_addInsight;
 
 			addInsight({
 				message: insightData.message,
 				priority: insightData.priority,
 				appointmentBooked: insightData.appointmentBooked || false,
+                id: insightData.id,
 			});
 		});
 
@@ -165,12 +182,6 @@ export default function CoachWindowMain() {
 			unsubscribe();
 		};
 	}, [isCoachActive, coachFeature]);
-
-	useEffect(() => {
-		if (insightsQueue.length > 0 && !isCueDisplaying && !currentInsight) {
-			showNext();
-		}
-    }, [insightsQueue, isCueDisplaying, currentInsight, showNext]);
 
     const DropdownComponent = {
         recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
@@ -194,7 +205,10 @@ export default function CoachWindowMain() {
 
                     {
                         (selectedProspect || leadType) && (
-                            <CoachButtons />
+                            <CoachButtons 
+                                isInsightsLayoutOpen={isInsightsLayoutOpen}
+                                setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
+                            />
                         )
                     }
 
@@ -208,21 +222,12 @@ export default function CoachWindowMain() {
                 </div>
             </div>
 
-            {leadType && (currentInsight || insightsQueue.length > 0) && (
-                <InsightsVerticalLayout />
-            )}
-
-            {/* {currentInsight && isCoachActive && (
-                <InsightWrapper
-                    key={currentInsight?.message}
-                    onComplete={onCompleteInsight}
-                    priority={currentInsight?.priority}
-                    insightText={currentInsight?.message}
-                    displayDuration={defaultConfig.displayDuration}
-                    transitionDelay={defaultConfig.transitionDelay}
-                    animationDuration={defaultConfig.animationDuration}
+            {isInsightsLayoutOpen && coachFeature ==='cue' && leadType && isCoachActive && (
+                <InsightsVerticalLayout 
+                    ref={insightsLayoutRef}
+                    setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
                 />
-            )} */}
+            )}
         </div>
     );
 }

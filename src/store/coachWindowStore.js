@@ -31,6 +31,7 @@ const CUE_INITIAL_STATE = {
     currentInsight: null,
     isInsightDisplaying: false,
     leadType: null, // 'buyer' or 'seller'
+    isInsightsLayoutOpen: false,
 };
 
 const RECALL_INITIAL_STATE = {
@@ -387,7 +388,6 @@ export const useCoachWindowStore = create((set, get) => ({
             await cue_startStreaming(sessionData.sessionId);
 
             set({ sessionData, isCoachActive: true });
-
         } catch (error) {
             console.error('Error starting cue:', error);
             throw error;
@@ -495,42 +495,44 @@ export const useCoachWindowStore = create((set, get) => ({
         }
     },
 
+    cue_removeInsight: (insightId) => {
+        const prevQueue = get().cue.insightsQueue;
+        const newQueue = prevQueue.filter(insight => insight.id !== insightId);
+        set((state) => ({
+            cue: { ...state.cue, insightsQueue: newQueue }
+        }));
+    },
+
     cue_addInsight: (insight) => {
         const newInsight = {
             ...insight,
-            // This we should rethink it. Because, do we want to set the timestamp here at the frontend?
-            // because imagine that we receive the Cue/Insight from the backend but for some reason it's an old one.
-            // we well treat it as a new one and it will be displayed. The timestamp i believe should be set at the backend.
             createdAt: insight.createdAt || Date.now(),
-            // SAme with this maybe. This I also believe is not even necessary. Because
-            // we already have the createdAt property. Think more about this.
-            expiresAt: insight.expiresAt || Date.now() + CUE_CONFIG.expirationTime,
         };
         const prevQueue = get().cue.insightsQueue;
-        const validQueue = cue_removeExpired(prevQueue);
-        const notTooOldQueue = cue_removeTooOld(validQueue);
-        const newQueue = [...notTooOldQueue, newInsight];
-        const finalQueue = cue_sortByPriority(newQueue);
+        const newQueue = [newInsight, ...prevQueue];
 
         set((state) => ({
-            cue: { ...state.cue, insightsQueue: finalQueue }
+            cue: { ...state.cue, insightsQueue: newQueue }
         }));
     },
 
     cue_showNext: () => {
         const prevQueue = get().cue.insightsQueue;
-        const validQueue = cue_removeExpired(prevQueue);
-        const notTooOldQueue = cue_removeTooOld(validQueue);
-        const sortedQueue = cue_sortByPriority(notTooOldQueue);
-        const nextInsight = sortedQueue.length > 0 ? sortedQueue[0] : null;
+        const nextInsight = prevQueue.length > 0 ? prevQueue[0] : null;
 
         set((state) => ({
             cue: {
                 ...state.cue,
                 currentInsight: nextInsight,
                 isInsightDisplaying: nextInsight !== null,
-                insightsQueue: nextInsight ? sortedQueue.slice(1) : []
+                insightsQueue: nextInsight ? prevQueue.slice(1) : []
             }
+        }));
+    },
+
+    cue_setIsInsightsLayoutOpen: (isInsightsLayoutOpen) => {
+        set((state) => ({
+            cue: { ...state.cue, isInsightsLayoutOpen }
         }));
     },
 }));
