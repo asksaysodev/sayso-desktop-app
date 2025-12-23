@@ -496,9 +496,8 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     cue_removeInsight: (insightId) => {
-        // TODO: cuando me llegue el id de la insight, cambiarlo.
         const prevQueue = get().cue.insightsQueue;
-        const newQueue = prevQueue.filter(insight => insight.createdAt !== insightId);
+        const newQueue = prevQueue.filter(insight => insight.id !== insightId);
         set((state) => ({
             cue: { ...state.cue, insightsQueue: newQueue }
         }));

@@ -1,19 +1,8 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Signal } from "../types";
-import { LuGripVertical, LuTrash, LuTrash2 } from 'react-icons/lu';
+import { LuGripVertical, LuTrash2 } from 'react-icons/lu';
 import SignalCardField from './SignalCardField';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-  } from "@/components/ui/alert-dialog"
 import SaysoModal from '@/components/SaysoModal';
 import { useState } from 'react';
 import CharacterCounter from './CharacterCounter';

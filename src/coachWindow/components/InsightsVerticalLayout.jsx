@@ -19,7 +19,7 @@ const InsightsVerticalLayout = forwardRef(({ isInsightsLayoutOpen, setIsInsights
     const allInsightsToDisplay = useMemo(() => insightsQueue.slice(0, 5), [insightsQueue]);
 
     useEffect(() => {
-        const currentInsights = new Map(allInsightsToDisplay.map(insight => [insight.createdAt, insight]));
+        const currentInsights = new Map(allInsightsToDisplay.map(insight => [insight.id, insight]));
         const previousInsights = previousInsightsRef.current;
 
         const newInsightIds = new Set();
@@ -63,7 +63,7 @@ const InsightsVerticalLayout = forwardRef(({ isInsightsLayoutOpen, setIsInsights
                 <ul className="insights-vertical-list">
                 {allInsightsToDisplay.map((insight, index) => {
                     const isFirstInsight = index === 0;
-                    const insightId = insight.createdAt;
+                    const insightId = insight.id;
                     
                     const isEntering = enteringItems.has(insightId);
                     const isExiting = exitingItems.has(insightId);
