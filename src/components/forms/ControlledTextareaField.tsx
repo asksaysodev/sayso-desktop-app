@@ -1,7 +1,7 @@
 import { RegisterOptions, UseFormReturn } from "react-hook-form";
 import { Textarea } from "../ui/textarea";
 import ControlledCustomFormField from "./ControlledCustomFormField";
-import CharacterCounter from "@/views/Admin/components/CharacterCounter";
+import CharacterCounter, { CharacterCounterType } from "@/views/Admin/components/CharacterCounter";
 
 interface Props {
     name: string;
@@ -12,6 +12,7 @@ interface Props {
     rows?: number;
     resize?: 'none' | 'vertical' | 'horizontal';
     characterCounter?: boolean;
+    characterCounterType?: CharacterCounterType;
 }
 
 export default function ControlledTextareaField({ 
@@ -22,7 +23,8 @@ export default function ControlledTextareaField({
     placeholder, 
     rows = 2, 
     resize = 'vertical', 
-    characterCounter = false 
+    characterCounter = false,
+    characterCounterType
 }: Props) {
 
     return (
@@ -39,7 +41,7 @@ export default function ControlledTextareaField({
                             outline: 'none'
                         }}
                     />
-                    {characterCounter && <CharacterCounter text={field.value || ''} />}
+                    {characterCounter && <CharacterCounter text={field.value || ''} type={characterCounterType} />}
                 </div>
             )}
         </ControlledCustomFormField>

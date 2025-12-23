@@ -1,6 +1,22 @@
 type ValidationStatus = 'short' | 'good' | 'long' | 'too-long';
+export type CharacterCounterType = 'signal_description' | 'signal_instructions';
 
-function getValidationStatus(length: number): ValidationStatus {
+function getValidationStatus(length: number, type?: CharacterCounterType): ValidationStatus {
+    if (type === 'signal_description') {
+        if (length < 250) return 'short';
+        if (length < 700) return 'good';
+        if (length < 1050) return 'long';
+        return 'too-long';
+    }
+
+    if (type === 'signal_instructions') {
+        if (length < 250) return 'short';
+        if (length < 650) return 'good';
+        if (length < 900) return 'long';
+        return 'too-long';
+    }
+
+
     if (length < 150) return 'short';
     if (length < 320) return 'good';
     if (length < 380) return 'long';
@@ -9,11 +25,12 @@ function getValidationStatus(length: number): ValidationStatus {
 
 interface CharacterCounterProps {
     text: string;
+    type?: CharacterCounterType;
 }
 
-export default function CharacterCounter({ text }: CharacterCounterProps) {
+export default function CharacterCounter({ text, type }: CharacterCounterProps) {
     const length = text.length;
-    const status = getValidationStatus(length);
+    const status = getValidationStatus(length, type);
     
     const statusConfig = {
         'short': { label: 'Short', color: '#f59e0b' },

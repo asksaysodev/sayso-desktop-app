@@ -66,13 +66,13 @@ export default function SignalDraggable({ signal, handleOnChangeSignalField, han
                 <SignalCardField fieldName='Description'>
                     <div style={{ width: '100%' }}>
                         <textarea rows={3} value={signal.description} onChange={(e) => handleOnChangeSignalField(signal.id, 'description', e.target.value)} />
-                        <CharacterCounter text={signal.description} />
+                        <CharacterCounter text={signal.description} type='signal_description' />
                     </div>
                 </SignalCardField>
                 <SignalCardField fieldName='Instruction'>
                     <div style={{ width: '100%' }}>
                         <textarea rows={3} value={signal.instructions} onChange={(e) => handleOnChangeSignalField(signal.id, 'instructions', e.target.value)} />
-                        <CharacterCounter text={signal.instructions} />
+                        <CharacterCounter text={signal.instructions} type='signal_instructions' />
                     </div>
                 </SignalCardField>
             </div>

@@ -92,6 +92,7 @@ export default function CreateSignalDialog({ signalsLength, handleSubmitAddSigna
                             rows={2}
                             resize="none"
                             characterCounter
+                            characterCounterType='signal_description'
                         />
                         <ControlledTextareaField 
                             control={control}
@@ -102,6 +103,7 @@ export default function CreateSignalDialog({ signalsLength, handleSubmitAddSigna
                             rows={2}
                             resize="none"
                             characterCounter
+                            characterCounterType='signal_instructions'
                         />
 
                         <ControlledSelectField
