@@ -168,13 +168,13 @@ export default function CoachWindowMain() {
 				appointmentBooked: insightData.appointmentBooked
 			});
 
-			// Call store action to add insight
 			const addInsight = useCoachWindowStore.getState().cue_addInsight;
 
 			addInsight({
 				message: insightData.message,
 				priority: insightData.priority,
 				appointmentBooked: insightData.appointmentBooked || false,
+                id: insightData.id,
 			});
 		});
 
@@ -222,10 +222,9 @@ export default function CoachWindowMain() {
                 </div>
             </div>
 
-            {coachFeature ==='cue' && leadType && isCoachActive && (
+            {isInsightsLayoutOpen && coachFeature ==='cue' && leadType && isCoachActive && (
                 <InsightsVerticalLayout 
                     ref={insightsLayoutRef}
-                    isInsightsLayoutOpen={isInsightsLayoutOpen}
                     setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
                 />
             )}
