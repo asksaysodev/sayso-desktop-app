@@ -12,9 +12,9 @@ import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
 
 const WINDOW_WIDTH_SIZES = {
-    BASE: 370,
+    BASE: 320,
     READY_TO_LAUNCH: 400,
-    ACTIVE_SESSION: 460,
+    ACTIVE_SESSION: 440,
     MAX_WIDTH: 900
 }
 
@@ -41,6 +41,7 @@ export default function CoachWindowMain() {
 
     //REFS
     const containerRef = useRef(null);
+    const insightsLayoutRef = useRef(null);
 
     //STATE
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
@@ -73,16 +74,21 @@ export default function CoachWindowMain() {
     function getHeightByCurrentState() {
         if (isDropdownOpen) {
             return WINDOW_HEIGHT_SIZES.DROPDOWN_OPEN;
-        } else if (isInsightsLayoutOpen && (currentInsight || insightsQueue.length > 0)) {
-            return containerRef.current.offsetHeight;
         } else if (isInsightsLayoutOpen) {
-            console.log(containerRef.current.offsetHeight, '1')
-            console.log(containerRef.current, '2')
-            if (containerRef.current.offsetHeight > 54) {
-                console.log('closing')
-                return containerRef.current.offsetHeight;
+            if (insightsLayoutRef.current) {
+                const actualHeight = insightsLayoutRef.current.offsetHeight;
+                const totalHeight = WINDOW_HEIGHT_SIZES.BASE + actualHeight + 6;
+                return totalHeight;
             }
-            return 280
+            
+            const queueLength = insightsQueue.length;
+            if (queueLength === 0) return 280;
+            if (queueLength === 1) return 140;
+            if (queueLength === 2) return 210;
+            if (queueLength === 3) return 280;
+            if (queueLength >= 4) return 350;
+            
+            return 280;
         }
         return WINDOW_HEIGHT_SIZES.BASE;
     }
@@ -99,7 +105,7 @@ export default function CoachWindowMain() {
                     Math.min(WINDOW_WIDTH_SIZES.MAX_WIDTH, getWidthByCurrentState())
                 );
                 
-                let windowHeight = getHeightByCurrentState();
+                const windowHeight = getHeightByCurrentState();
 
                 console.log('🔍 [updateWindowSize]', {
                     currentInsight: currentInsight !== null ? 'exists' : 'null',
@@ -177,12 +183,6 @@ export default function CoachWindowMain() {
 		};
 	}, [isCoachActive, coachFeature]);
 
-	useEffect(() => {
-		if (insightsQueue.length > 0 && !isCueDisplaying && !currentInsight) {
-			showNext();
-		}
-    }, [insightsQueue, isCueDisplaying, currentInsight, showNext]);
-
     const DropdownComponent = {
         recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
         cue: <SelectLeadTypeDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
@@ -222,8 +222,9 @@ export default function CoachWindowMain() {
                 </div>
             </div>
 
-            {coachFeature ==='cue' && leadType && (
+            {coachFeature ==='cue' && leadType && isCoachActive && (
                 <InsightsVerticalLayout 
+                    ref={insightsLayoutRef}
                     isInsightsLayoutOpen={isInsightsLayoutOpen}
                     setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
                 />

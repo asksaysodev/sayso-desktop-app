@@ -367,28 +367,27 @@ export const useCoachWindowStore = create((set, get) => ({
         set({ isCoachLoading: true });
 
         try {
-            // const currentLeadType = get().cue.leadType;
+            const currentLeadType = get().cue.leadType;
 
-            // if (get().isCoachActive) {
-            //     throw new Error('Cue is already active');
-            // }
-            // if (!currentLeadType) {
-            //     throw new Error('Scenario is required');
-            // }
-            // if (currentLeadType !== 'buyer' && currentLeadType !== 'seller') {
-            //     throw new Error('Scenario must be either "buyer" or "seller"');
-            // }
+            if (get().isCoachActive) {
+                throw new Error('Cue is already active');
+            }
+            if (!currentLeadType) {
+                throw new Error('Scenario is required');
+            }
+            if (currentLeadType !== 'buyer' && currentLeadType !== 'seller') {
+                throw new Error('Scenario must be either "buyer" or "seller"');
+            }
 
-            // const sessionData = await get().cue_createNewSession(currentLeadType);
+            const sessionData = await get().cue_createNewSession(currentLeadType);
 
-            // if (!sessionData || !sessionData.sessionId) {
-            //     throw new Error('Failed to create new cue session');
-            // }
+            if (!sessionData || !sessionData.sessionId) {
+                throw new Error('Failed to create new cue session');
+            }
 
-            // await cue_startStreaming(sessionData.sessionId);
+            await cue_startStreaming(sessionData.sessionId);
 
-            // set({ sessionData, isCoachActive: true });
-            set({ isCoachActive: true });
+            set({ sessionData, isCoachActive: true });
         } catch (error) {
             console.error('Error starting cue:', error);
             throw error;
@@ -401,20 +400,19 @@ export const useCoachWindowStore = create((set, get) => ({
         set({ isCoachLoading: true });
 
         try {
-            // const sessionId = get().sessionData?.sessionId;
-            // if(!sessionId) {
-            //     throw new Error('Session ID is required');
-            // }
+            const sessionId = get().sessionData?.sessionId;
+            if(!sessionId) {
+                throw new Error('Session ID is required');
+            }
 
-			// await cue_stopStreaming();
-			// const sessionData = await get().cue_stopSession(sessionId);
-			// if(!sessionData || !sessionData.session) {
-			// 	throw new Error('Failed to stop cue session');
-			// }
-			// set({ sessionData, isCoachActive: false });
+			await cue_stopStreaming();
+			const sessionData = await get().cue_stopSession(sessionId);
+			if(!sessionData || !sessionData.session) {
+				throw new Error('Failed to stop cue session');
+			}
+			set({ sessionData, isCoachActive: false });
 
-            // get().cue_resetStates();
-            set({ isCoachActive: false });
+            get().cue_resetStates();
 
         } catch (error) {
             console.error('Error stopping cue:', error);
@@ -497,22 +495,22 @@ export const useCoachWindowStore = create((set, get) => ({
         }
     },
 
+    cue_removeInsight: (insightId) => {
+        // TODO: cuando me llegue el id de la insight, cambiarlo.
+        const prevQueue = get().cue.insightsQueue;
+        const newQueue = prevQueue.filter(insight => insight.createdAt !== insightId);
+        set((state) => ({
+            cue: { ...state.cue, insightsQueue: newQueue }
+        }));
+    },
+
     cue_addInsight: (insight) => {
         const newInsight = {
             ...insight,
-            // This we should rethink it. Because, do we want to set the timestamp here at the frontend?
-            // because imagine that we receive the Cue/Insight from the backend but for some reason it's an old one.
-            // we well treat it as a new one and it will be displayed. The timestamp i believe should be set at the backend.
             createdAt: insight.createdAt || Date.now(),
-            // SAme with this maybe. This I also believe is not even necessary. Because
-            // we already have the createdAt property. Think more about this.
-            // expiresAt: insight.expiresAt || Date.now() + CUE_CONFIG.expirationTime,
         };
         const prevQueue = get().cue.insightsQueue;
-        // const validQueue = cue_removeExpired(prevQueue);
-        // const notTooOldQueue = cue_removeTooOld(validQueue);
         const newQueue = [newInsight, ...prevQueue];
-        // const finalQueue = cue_sortByPriority(newQueue);
 
         set((state) => ({
             cue: { ...state.cue, insightsQueue: newQueue }
@@ -521,9 +519,6 @@ export const useCoachWindowStore = create((set, get) => ({
 
     cue_showNext: () => {
         const prevQueue = get().cue.insightsQueue;
-        // const validQueue = cue_removeExpired(prevQueue);
-        // const notTooOldQueue = cue_removeTooOld(validQueue);
-        // const sortedQueue = cue_sortByPriority(notTooOldQueue);
         const nextInsight = prevQueue.length > 0 ? prevQueue[0] : null;
 
         set((state) => ({

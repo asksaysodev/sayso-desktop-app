@@ -7,16 +7,13 @@ import { useCoachWindowStore } from "../../store/coachWindowStore";
 const ICON_SIZE = 15;
 
 export default function CoachActiveButtons({ coachFeature, handleCoach, isInsightsLayoutOpen, setIsInsightsLayoutOpen }) {
-    const addInsight = useCoachWindowStore(state => state.cue_addInsight);
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isResettingCueSession = useCoachWindowStore(state => state.cue.isResettingCueSession);
-    const cue_handleStopCue = useCoachWindowStore(state => state.cue_handleStopCue);
-    const cue_handleStartCue = useCoachWindowStore(state => state.cue_handleStartCue);
-    const resetCallDuration = useCoachWindowStore(state => state.resetCallDuration);
     const cue_onPressResetSession = useCoachWindowStore(state => state.cue_onPressResetSession);
 
     const showTimer = coachFeature === 'recall' || coachFeature === 'cue';
     const disableButtons = isCoachLoading || isResettingCueSession;
+
     return (
         <>
             {coachFeature === 'cue' && 

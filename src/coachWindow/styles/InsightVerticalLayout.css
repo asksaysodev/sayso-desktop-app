@@ -1,45 +1,27 @@
-/* Animations for the active insight */
-@keyframes insightSlideIn {
+@keyframes macosSlideInFromRight {
   from {
-    transform: translateX(-150px) scale(0.5);
+    transform: translateX(400px);
     opacity: 0;
   }
   to {
-    transform: translateX(0px) scale(1);
+    transform: translateX(0);
     opacity: 1;
   }
 }
 
-@keyframes insightSlideOut {
+@keyframes macosSlideOutUp {
   from {
-    transform: translateX(0px) scale(1);
-    opacity: 1;
-  }
-  to {
-    transform: translateX(-150px) scale(0.85);
-    opacity: 0;
-  }
-}
-
-/* Animation for queue items moving up when first insight completes */
-@keyframes queueMoveUp {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(-54px); /* Approximate height of one item + gap */
-  }
-}
-
-/* Animation for new queue items appearing */
-@keyframes queueItemFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px) scale(0.95);
-  }
-  to {
-    opacity: 1;
     transform: translateY(0) scale(1);
+    opacity: 1;
+    max-height: 200px;
+    margin-bottom: 10px;
+  }
+  to {
+    transform: translateY(-15px) scale(0.96);
+    opacity: 0;
+    max-height: 0;
+    margin-bottom: 0;
+    padding: 0;
   }
 }
 
@@ -77,7 +59,6 @@
     min-height: 40px;  
     padding: 10px 14px;
     transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
-    will-change: transform, opacity;
     border: 0.5px solid rgba(255, 255, 255, 0.15);
     background: rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(20px);
@@ -86,6 +67,16 @@
         0 2px 8px rgba(0, 0, 0, 0.12),
         inset 0 1px 0 rgba(255, 255, 255, 0.06);
     position: relative;
+}
+
+/* Entrance animation - items sliding in from right */
+.insights-vertical-layout-item--entering {
+    animation: macosSlideInFromRight 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Exit animation - items sliding up and fading out */
+.insights-vertical-layout-item--exiting {
+    animation: macosSlideOutUp 250ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 .insights-vertical-layout-item__close-button {
@@ -132,6 +123,11 @@
         0 3px 12px rgba(0, 0, 0, 0.35),
         inset 0 0.5px 1px rgba(255, 255, 255, 0.15);
 }
+
+.insights-vertical-layout-item__close-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
 .insights-vertical-layout-item__text {
     color: rgba(255, 255, 255, 0.92);
     font-size: 13.5px;
@@ -147,37 +143,12 @@
     box-shadow: 
         0 4px 16px rgba(0, 0, 0, 0.18),
         inset 0 1px 1px rgba(255, 255, 255, 0.08);
-    /* background: rgba(2, 25, 47, 0.95);
-    border: 1px solid rgba(114, 126, 137, 0.8);
-    box-shadow: 
-        0 4px 12px rgba(0, 0, 0, 0.3),
-        inset 0 1px 0 rgba(114, 126, 137, 0.6);
-    opacity: 0;
-    transform: translateX(-150px) scale(0.5);
-    position: relative; */
 }
 
 .insights-vertical-layout-item--active:hover {
     background: rgba(255, 255, 255, 0.14);
     border-color: rgba(255, 255, 255, 0.25);
     transform: translateY(-1px);
-}
-
-/* Active insight visible state */
-.insights-vertical-layout-item--active.insights-vertical-layout-item--visible {
-    /* animation: insightSlideIn var(--animation-duration, 300ms) cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-    border-radius: 8px;
-    opacity: 1;
-    transform: translateX(0px) scale(1);
-    will-change: auto; */
-}
-
-/* Active insight exiting state */
-.insights-vertical-layout-item--active.insights-vertical-layout-item--exiting {
-    /* animation: insightSlideOut var(--animation-duration, 300ms) cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-    border-radius: 14px;
-    opacity: 0;
-    transform: translateX(-150px) scale(0.85); */
 }
 
 /* Queue items styles (upcoming insights) */
@@ -207,14 +178,13 @@
     opacity: 0.38;
 }
 
-/* New queue item entrance animation */
-.insights-vertical-layout-item--queue.insights-vertical-layout-item--new {
-    animation: queueItemFadeIn var(--animation-duration, 300ms) cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+.insights-vertical-layout-item--queue:nth-child(6) {
+    opacity: 0.28;
 }
 
 /* Hover effect for queue items */
 .insights-vertical-layout-item--queue:hover {
-    opacity: 0.9;
+    opacity: 0.9 !important;
     background: rgba(255, 255, 255, 0.1);
     border-color: rgba(255, 255, 255, 0.18);
     transform: translateY(-1px);
@@ -241,7 +211,7 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    width: 100%;
+    width: -webkit-fill-available;
     padding: 24px;
     color: rgba(255, 255, 255, 0.6);
     font-size: 13.5px;
