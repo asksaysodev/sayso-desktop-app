@@ -1,7 +1,7 @@
 import { LuClock } from "react-icons/lu";
 import InformativeCard from "./InformativeCard";
 
-export default function MinutesUsedCard({ accountUsage }) {
+export default function MinutesUsedCard({ accountUsage, isRefetching }) {
     const { usedMinutes = 0, planMinutes = 0 } = accountUsage || {};
 
     const usedPercentage = ((usedMinutes / planMinutes) * 100).toFixed(2);
@@ -11,6 +11,7 @@ export default function MinutesUsedCard({ accountUsage }) {
             icon={<LuClock />}
             title={'Minutes Used'}
             description={'Total AI Coach time this billing period'}
+            isLoading={isRefetching}
         >
             <div className='card-content-container'>
                 <div>

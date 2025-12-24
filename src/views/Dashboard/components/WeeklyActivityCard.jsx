@@ -12,24 +12,13 @@ export default function WeeklyActivityCard() {
     const [shouldAnimate, setShouldAnimate] = useState(true);
     const [weekOffset, setWeekOffset] = useState(0);
 
-    const { data: weeklyActivity, isLoading: isLoadingWeeklyActivity, error: errorWeeklyActivity } = useQuery({
-        queryKey: ['weeklyActivity', weekOffset],
+    const { data: weeklyActivity, isLoading: isLoadingWeeklyActivity, error: errorWeeklyActivity, isRefetching: isRefetchingWeeklyActivity } = useQuery({
+        queryKey: ['dashboard-weekly-activity', weekOffset],
         queryFn: () => getWeeklyActivity(weekOffset),
     });
     
     const { totalMinutes = 0, hasNextWeek, hasPreviousWeek, dailyActivity = [] } = weeklyActivity || {};
-        /**
-         * dailyActivity es un array de objetos con las siguientes propiedades:
-         * {
-         *  date: {date: '2025-12-08', dayLong: 'Monday', dayShort: 'M'},
-         *  activity: {minutes: 0, sessions: 0, features: Array(0), bookedAppointments: 0}
-         * }
-         */
 
-    /**
-     * Handles week navigation by updating the offset
-     * @param {'prev' | 'next'} direction - Direction to navigate
-     */
     const handleWeekChange = (direction) => {
         setShouldAnimate(false);
         
@@ -56,7 +45,7 @@ export default function WeeklyActivityCard() {
     };
 
     const renderContent = () => {
-        if (isLoadingWeeklyActivity) {
+        if (isLoadingWeeklyActivity || isRefetchingWeeklyActivity) {
             return <WeeklyActivityLoaderSkeleton />
         }
 
@@ -93,6 +82,7 @@ export default function WeeklyActivityCard() {
                 title={'Activity'}
                 description={`${totalMinutes} total minutes this week`}
                 rightContent={<WeekSelector onWeekChange={handleWeekChange} hasNextWeek={hasNextWeek} hasPreviousWeek={hasPreviousWeek} weekOffset={weekOffset}/>}
+                isLoading={isRefetchingWeeklyActivity}
             >
                 {renderContent()}
             </InformativeCard>

@@ -44,8 +44,8 @@ export default function InsightsContainer() {
     const [page, setPage] = useState(0);
     const [allInsights, setAllInsights] = useState<Array<{ date: string, insights: Insight[] }>>([]);
 
-    const { data: insightsData, isLoading: isLoadingInsights, error: errorInsights, isFetching } = useQuery({
-        queryKey: ['insights', page],
+    const { data: insightsData, isLoading: isLoadingInsights, error: errorInsights, isFetching, isRefetching: isRefetchingInsights } = useQuery({
+        queryKey: ['dashboard-insights', page],
         queryFn: () => getInsights(page)
     });
     
@@ -188,7 +188,7 @@ export default function InsightsContainer() {
                             Unable to load insights. Please try again later.
                         </p>
                     </div>
-                ) : isLoadingInsights && filteredInsights.length === 0 ? (
+                ) : (isLoadingInsights && filteredInsights.length === 0) || isRefetchingInsights ? (
                     <InsightsListSkeleton />
                 ) : filteredInsights.length > 0 ? (
                     <>
