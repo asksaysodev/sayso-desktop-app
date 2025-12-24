@@ -1,6 +1,6 @@
 import './layouts.css';
 
-export default function ViewLayout({ title, children, scrollable = false }) {
+export default function ViewLayout({ title, children, scrollable = false, rightContent = null }) {
     return (
         <div className={`view-layout-container ${scrollable ? 'scrollable' : ''}`}>
             <div className='view-container-header'>
