@@ -1438,6 +1438,29 @@ app.on('open-url', (event, url) => {
   // Parse the URL to extract parameters
   const urlObj = new URL(url);
   const params = new URLSearchParams(urlObj.search);
+
+  // Handle checkout callback
+  if (urlObj.pathname === '/checkout') {
+    const success = params.get('success');
+    if (isDev) {
+      console.log('Checkout callback received, success:', success);
+    }
+    
+    // Navigate to checkout route with query params
+    if (dashboardWindowInstance) {
+      const checkoutUrl = isDev 
+        ? `http://localhost:5173/#/checkout?success=${success}`
+        : `file://${path.join(__dirname, '../dist/index.html')}#/checkout?success=${success}`;
+      
+      dashboardWindowInstance.loadURL(checkoutUrl);
+      
+      // Focus the window
+      if (dashboardWindowInstance.isMinimized()) {
+        dashboardWindowInstance.restore();
+      }
+      dashboardWindowInstance.focus();
+    }
+  }
   
   // Handle zoom callback
   if (urlObj.pathname === '/zoom-callback') {
