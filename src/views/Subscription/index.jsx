@@ -1,6 +1,38 @@
-import SubscriptionPanel from "./components/SubscriptionPanel";
+import { useState } from "react";
+import ViewLayout from "@/components/layouts/ViewLayout";
 import "./styles.css";
+import BillingTabSelector from "./components/BillingTabSelector";
+import PricingComponent from "./components/PricingComponent";
+import { useQuery } from "@tanstack/react-query";
+import getSubscriptionPlans from "./services/getSubscriptionPlans";
 
 export default function Subscription() {
-  return <SubscriptionPanel />;
+	const [selectedBillingTab, setSelectedBillingTab] = useState('month');
+
+	const { data: subscriptionPlans } = useQuery({
+		queryKey: ['subscription-plans'],
+		queryFn: getSubscriptionPlans
+	})
+
+	return (
+		<ViewLayout title="Subscription" scrollable>
+			<BillingTabSelector
+				selectedBillingTab={selectedBillingTab}
+				setSelectedBillingTab={setSelectedBillingTab}
+			/>
+			<div className="pricing-components-grid">
+				{subscriptionPlans?.map((plan) => (
+					plan?.id
+					? (
+						<PricingComponent 
+							key={plan.id} 
+							plan={plan} 
+							selectedBillingTab={selectedBillingTab} 
+						/>
+					)
+					: null
+				))}
+			</div>
+		</ViewLayout>
+  );
 }
