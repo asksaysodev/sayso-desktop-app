@@ -5,6 +5,7 @@ import Login from './views/Login';
 import Dashboard from './views/Dashboard';
 import Subscription from './views/Subscription/index';
 import Admin from './views/Admin';
+import Checkout from './views/Checkout';
 
 //COMPONENTS
 import AuthGuard from './components/AuthGuard';
@@ -66,6 +67,16 @@ function App() {
               </AuthGuard>
             }
           />
+		  <Route
+            path="/checkout"
+            element={
+              <AuthGuard>
+                <Layout>
+                  <Checkout />
+                </Layout>
+              </AuthGuard>
+            }
+          />
           <Route
             path="/admin"
             element={
@@ -82,6 +93,16 @@ function App() {
               <AuthGuard>
                 <Layout>
                   <Subscription />
+                </Layout>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/checkout/success"
+            element={
+              <AuthGuard>
+                <Layout>
+                  <Checkout />
                 </Layout>
               </AuthGuard>
             }

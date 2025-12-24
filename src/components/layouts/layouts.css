@@ -18,7 +18,9 @@
 
 .view-container-header {
     width: 100%;
-    justify-content: start;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
 }
 
 .view-container-header h1 {
