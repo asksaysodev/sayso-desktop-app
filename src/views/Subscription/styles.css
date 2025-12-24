@@ -1,12 +1,205 @@
-.subscription-panel-main {
-    width: calc(100% - 260px);
-    height: 100vh;
-    padding: 32px 48px;
+.billing-tab-selector-container {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+}
+
+.billing-tab-option {
+    background-color: transparent;
+    border: 1px solid transparent;
+    padding: 8px 16px;
+    border-radius: 6px;
+}
+.billing-tab-option.active {
+    background-color: #FFF;
+    border: 1px solid var(--sayso-border) !important;
+    box-shadow: 0px 4px 8px 0px rgba(0, 0, 0, 0.1) !important;
+    transition: all 0.3s ease;
+}
+.billing-tab-option p {
+    color: var(--sayso-lightgray);
+    font-size: 14px;
+    font-weight: 500;
+    transition: color 0.3s ease;
+}
+.billing-tab-option.active p {
+    color: var(--sayso-dark);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* Pricing Components Grid */
+.pricing-components-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-top: 32px;
+    width: 100%;
+}
+
+/* Responsive breakpoints */
+@media (max-width: 1200px) {
+    .pricing-components-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .pricing-components-grid {
+        grid-template-columns: 1fr;
+        max-width: 600px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+}
+
+/* Pricing Card Styles */
+.pricing-card {
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 16px;
+    width: 100%;
+    height: fit-content;
+    position: relative;
+}
+
+.pricing-card-popular-tag {
+    position: absolute;
+    top: -12px;
+    right: 24px;
+    background-color: #000000;
+    color: #FFFFFF;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.pricing-card-header {
+    /* padding-bottom: 24px; */
+    border-bottom: 1px solid #E5E7EB;
+    padding: 24px;
+}
+
+.pricing-plan-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1F2937;
+    margin: 0 0 16px 0;
+    text-transform: capitalize;
+    text-align: start !important;
+}
+
+.pricing-amount-container {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    margin-bottom: 24px;
+}
+
+.pricing-currency {
+    font-size: 48px;
+    font-weight: 700;
+    color: #000000;
+    line-height: 1;
+}
+
+.pricing-amount {
+    font-size: 48px;
+    font-weight: 600;
+    color: #000000;
+    line-height: 1;
+}
+
+.pricing-period {
+    font-size: 16px;
+    font-weight: 400;
+    color: #6B7280;
+    margin-left: 8px;
+}
+
+.pricing-cta-button {
+    width: 100%;
+    background: #F3F4F6;
+    border: none;
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1F2937;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.pricing-cta-button:hover {
+    background: #E5E7EB;
+}
+
+.pricing-cta-button-popular {
+    background: #000;
+    color: #FFFFFF;
+}
+.pricing-cta-button-popular:hover {
+    background: #1F2937;
+}
+
+.pricing-features-section {
+    /* padding-top: 24px; */
+    padding: 24px;
+    text-align: start !important;
+}
+
+.pricing-features-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1F2937;
+    letter-spacing: 0.5px;
+    margin: 0 0 12px 0;
+}
+
+.pricing-features-subtitle {
+    font-size: 14px;
+    font-weight: 400;
+    color: #6B7280;
+    margin: 0 0 24px 0;
+}
+
+.pricing-features-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
     display: flex;
     flex-direction: column;
+    gap: 16px;
+}
+
+.pricing-feature-item {
+    display: flex;
     align-items: center;
-    justify-content: start;
-    overflow: hidden;
-    position: relative;
-    color: #000;
+    gap: 12px;
+}
+
+.pricing-feature-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.pricing-feature-icon.included {
+    background-color: #000000;
+}
+
+.pricing-feature-icon.not-included {
+    background-color: #D1D5DB;
+}
+
+.pricing-feature-text {
+    font-size: 15px;
+    font-weight: 400;
+    color: #374151;
 }

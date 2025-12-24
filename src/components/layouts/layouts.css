@@ -12,6 +12,10 @@
     gap: 24px
 }
 
+.view-layout-container.scrollable {
+    overflow-y: auto;
+}
+
 .view-container-header {
     width: 100%;
     justify-content: start;
