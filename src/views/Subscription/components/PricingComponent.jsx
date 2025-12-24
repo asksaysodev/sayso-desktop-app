@@ -35,8 +35,8 @@ export default function PricingComponent({ plan = null, selectedBillingTab = 'mo
     }
 
     const alreadySubscribed = useMemo(() =>
-        globalUser?.subscription_plan_id === pricingOptionSelected?.stripePriceId,
-    [globalUser, pricingOptionSelected]);
+        globalUser?.subscription_plan_id === plan?.id,
+    [globalUser, plan]);
 
     return (
         <div className="pricing-card">
