@@ -31,26 +31,31 @@
 
 /* Pricing Components Grid */
 .pricing-components-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 24px;
     margin-top: 32px;
     width: 100%;
 }
 
+.pricing-components-grid > * {
+    flex: 0 1 calc(33.333% - 16px);
+    min-width: 280px;
+    max-width: 400px;
+}
+
 /* Responsive breakpoints */
 @media (max-width: 1200px) {
-    .pricing-components-grid {
-        grid-template-columns: repeat(2, 1fr);
+    .pricing-components-grid > * {
+        flex: 0 1 calc(50% - 12px);
     }
 }
 
 @media (max-width: 768px) {
-    .pricing-components-grid {
-        grid-template-columns: 1fr;
+    .pricing-components-grid > * {
+        flex: 0 1 100%;
         max-width: 600px;
-        margin-left: auto;
-        margin-right: auto;
     }
 }
 
@@ -95,9 +100,20 @@
     display: flex;
     align-items: baseline;
     gap: 4px;
-    margin-bottom: 24px;
+    /* margin-bottom: 24px; */
 }
-
+.pricing-price-and-included-hours-container {
+    margin-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.pricing-included-hours {
+    font-size: 16px;
+    font-weight: 400;
+    color: #6B7280;
+    text-align: start !important;
+}
 .pricing-currency {
     font-size: 48px;
     font-weight: 700;
@@ -130,6 +146,10 @@
     color: #1F2937;
     cursor: pointer;
     transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
 }
 
 .pricing-cta-button:hover {
@@ -142,6 +162,17 @@
 }
 .pricing-cta-button-popular:hover {
     background: #1F2937;
+}
+
+.pricing-cta-button-current-plan {
+    background: var(--sayso-success);
+    color: #FFFFFF;
+    opacity: 0.7 !important;
+}
+.pricing-cta-button-current-plan:hover {
+    background: var(--sayso-success);
+    color: #FFFFFF;
+    opacity: 0.7 !important;
 }
 
 .pricing-features-section {
@@ -163,6 +194,7 @@
     font-weight: 400;
     color: #6B7280;
     margin: 0 0 24px 0;
+    text-transform: capitalize;
 }
 
 .pricing-features-list {

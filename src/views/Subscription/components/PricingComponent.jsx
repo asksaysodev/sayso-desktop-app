@@ -1,95 +1,82 @@
+import { useMutation } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { FaMinus, FaCheck } from "react-icons/fa";
+import getStripeCheckoutPageUrl from "../services/getStripeCheckoutPageUrl";
+import { useToast } from "@/context/ToastContext";
+import useStripeCheckout from "../hooks/useStripeCheckout";
+import ButtonSpinner from "@/components/ButtonSpinner";
+import { useAuth } from "@/context/AuthContext";
 
-export const MOCK_PRICING = {
-    "id": "53c0219e-7e3d-4ac0-a2ea-441fceb704a7",
-    "name": "growth",
-    "description": "real-time coaching for better sales",
-    "features": {
-        "features": [
-            {
-                "id": "6b7a9a6d-8f6a-4f0f-9c9b-6d4a2b6e3e01",
-                "name": "Dashboard analytics",
-                "included": true
-            },
-            {
-                "id": "2e3d7a91-0f5e-4f7e-b8c4-1c6a4e9b8d12",
-                "name": "Email support",
-                "included": true
-            },
-            {
-                "id": "9a4c2f83-5b6d-4c1e-9d7e-3e2f6a1b8c45",
-                "name": "Priority support",
-                "included": false
-            },
-            {
-                "id": "4f8e6c12-3a5d-4b9f-8c1e-7a2d9b6e5f78",
-                "name": "Live AI coaching",
-                "included": true
-            },
-            {
-                "id": "c7e3a4f2-6b9d-4a1e-8f5c-2d6b9e7a1c34",
-                "name": "API access",
-                "included": false
-            },
-            {
-                "id": "8b5d3a9e-2f6c-4e1b-9a7d-6c4f8e2b1d90",
-                "name": "Custom training",
-                "included": false
-            },
-            {
-                "id": "1e9b6f4a-7d5c-4a8e-b2f9-3c6d8a5e7b21",
-                "name": "Onboarding assistance",
-                "included": false
-            }
-        ]
-    },
-    "includedMinutes": 1800,
-    "type": "subscription",
-    "purchasable": true,
-    "contactLink": null,
-    "pricingOptions": [
-        {
-            "stripePriceId": "price_1ShrpcED8sIomulPWixPydZH",
-            "priceInCents": 7900,
-            "currency": "usd",
-            "interval": "year",
-            "includedMinutesPerMonth": 1800
-        },
-        {
-            "stripePriceId": "price_1Shro6ED8sIomulP6DVc6UER",
-            "priceInCents": 85320,
-            "currency": "usd",
-            "interval": "month",
-            "includedMinutesPerMonth": 1800
+export default function PricingComponent({ plan = null, selectedBillingTab = 'month' }) {
+    const { name: planName, description, features, pricingOptions, purchasable, popular = false, contactLink } = plan || {};
+
+    const { globalUser } = useAuth();
+    const { showToast } = useToast();
+    const {isErrorGetStripeCheckoutPageUrl, isPendingGetStripeCheckoutPageUrl, mutateGetStripeCheckoutPageUrl} = useStripeCheckout();
+
+    const pricingOptionSelected = useMemo(() => pricingOptions.find(opt => opt.interval === selectedBillingTab) ?? null, [pricingOptions, selectedBillingTab]);
+    const priceInDollars = pricingOptionSelected ? (pricingOptionSelected.priceInCents / 100).toFixed(0) : '0';
+    const includedHoursPerMonth = pricingOptionSelected ? pricingOptionSelected.includedMinutesPerMonth / 60 : 0;
+
+    // Backend sends total price for the billing period (monthly: $79, annual: $853.20)
+    // For annual plans, we display the effective monthly cost to show savings ($71.10 per month vs $79 per month)
+    const pricePerMonth = useMemo(() => {
+        return selectedBillingTab === 'month' 
+            ? priceInDollars 
+            : (priceInDollars / 12).toFixed(2);
+    }, [priceInDollars, selectedBillingTab]);
+
+    const handlePurchase = () => {
+        if (purchasable) {
+            mutateGetStripeCheckoutPageUrl(pricingOptionSelected.stripePriceId);
+        } else {
+            window.electron?.openExternal(contactLink);
         }
-    ]
-}
+    }
 
-export default function PricingComponent({ popular = false }) {
-    // Using monthly pricing for now
-    const monthlyPrice = MOCK_PRICING.pricingOptions.find(opt => opt.interval === 'month');
-    const priceInDollars = monthlyPrice ? (monthlyPrice.priceInCents / 100).toFixed(0) : '0';
-    
+    const alreadySubscribed = useMemo(() =>
+        globalUser?.subscription_plan_id === pricingOptionSelected?.stripePriceId,
+    [globalUser, pricingOptionSelected]);
+
     return (
         <div className="pricing-card">
             {popular && <div className="pricing-card-popular-tag">Most popular</div>}
 
             <div className="pricing-card-header">
-                <h2 className="pricing-plan-name">{MOCK_PRICING.name}</h2>
-                <div className="pricing-amount-container">
-                    <span className="pricing-currency">$</span>
-                    <span className="pricing-amount">{priceInDollars}</span>
-                    <span className="pricing-period">per month</span>
-                </div>
-                <button className={`pricing-cta-button ${popular ? 'pricing-cta-button-popular' : ''}`}>Get started</button>
+                <h2 className="pricing-plan-name">{planName}</h2>
+                {purchasable &&
+                    <div className="pricing-price-and-included-hours-container">
+                        <div className="pricing-amount-container">
+                            <span className="pricing-currency">$</span>
+                            <span className="pricing-amount">{pricePerMonth}</span>
+                            <span className="pricing-period">per month</span>
+                        </div>
+                        <span className="pricing-included-hours">{includedHoursPerMonth} hours included</span>
+                    </div>
+                }
+
+                <button 
+                    disabled={isPendingGetStripeCheckoutPageUrl || alreadySubscribed} 
+                    className={`pricing-cta-button ${popular ? 'pricing-cta-button-popular' : ''} ${alreadySubscribed ? 'pricing-cta-button-current-plan' : ''}`} 
+                    onClick={handlePurchase}
+                    style={{ opacity: isPendingGetStripeCheckoutPageUrl ? 0.7 : 1 }}
+                >
+                    {isPendingGetStripeCheckoutPageUrl && (
+                        <ButtonSpinner 
+                            color={popular ? 'white' : '#1F2937'} 
+                            size={14} 
+                        />
+                    )}
+                    {purchasable ? alreadySubscribed ? 'Current plan' : 'Get started' : 'Contact sales'}
+                </button>
             </div>
 
             <div className="pricing-features-section">
                 <h3 className="pricing-features-title">FEATURES</h3>
-                <p className="pricing-features-subtitle">Everything in our free plan plus....</p>
+                <p className="pricing-features-subtitle">{description}</p>
                 
                 <ul className="pricing-features-list">
-                    {MOCK_PRICING.features.features.map((feature) => (
+                    {features && features?.features && features.features.map((feature) => (
                         <li key={feature.id} className="pricing-feature-item">
                             <div className={`pricing-feature-icon ${feature.included ? 'included' : 'not-included'}`}>
                                 {feature.included

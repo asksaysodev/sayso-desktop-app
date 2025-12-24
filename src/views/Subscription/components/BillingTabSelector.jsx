@@ -1,6 +1,6 @@
 const BillingTabOptions = [
-	{ value: 'monthly', label: 'Monthly billing' },
-	{ value: 'annual', label: 'Annual billing' },
+	{ value: 'month', label: 'Monthly billing' },
+	{ value: 'year', label: 'Annual billing' },
 ]
 
 export default function BillingTabSelector({ selectedBillingTab, setSelectedBillingTab }) {
