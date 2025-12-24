@@ -6,7 +6,7 @@ export default function RefreshWidgetsDataButton() {
 
     return (
         <button onClick={refreshDashboardData}>
-            <LuRefreshCcw color="var(--sayso-indigo)" size={20}/>
+            <LuRefreshCcw color="var(--sayso-lightgray)" size={20} style={{marginLeft: '12px'}}/>
         </button>
     )
 }
