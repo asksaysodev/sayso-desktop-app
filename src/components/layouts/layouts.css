@@ -14,7 +14,10 @@
 
 .view-container-header {
     width: 100%;
-    justify-content: start;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
 }
 
 .view-container-header h1 {
