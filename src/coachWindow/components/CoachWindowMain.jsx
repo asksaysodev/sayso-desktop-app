@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 
 import { MdDragIndicator } from 'react-icons/md';
 import { IoClose } from 'react-icons/io5';
+import { MdErrorOutline } from 'react-icons/md';
+import { LuX } from 'react-icons/lu';
 
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 
@@ -21,6 +23,7 @@ const WINDOW_WIDTH_SIZES = {
 const WINDOW_HEIGHT_SIZES = {
     BASE: 54,
     DROPDOWN_OPEN: 220,
+    ERROR: 110,
 }
 
 // cue
@@ -42,6 +45,7 @@ export default function CoachWindowMain() {
     //REFS
     const containerRef = useRef(null);
     const insightsLayoutRef = useRef(null);
+    const errorContainerRef = useRef(null);
 
     //STATE
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
@@ -60,9 +64,17 @@ export default function CoachWindowMain() {
     const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
     const isInsightsLayoutOpen = useCoachWindowStore(state => state.cue.isInsightsLayoutOpen);
     const setIsInsightsLayoutOpen = useCoachWindowStore(state => state.cue_setIsInsightsLayoutOpen);
+    const coachWindowError = useCoachWindowStore(state => state.error);
+    const clearError = useCoachWindowStore(state => state.clearError);
 
     const handleCloseCoachWindow = () => {
         closeCoachWindow()
+    }
+
+    function getTotalHeightWithRef(ref) {
+        const actualHeight = ref ? ref.current.offsetHeight : 0;
+        const totalHeight = WINDOW_HEIGHT_SIZES.BASE + actualHeight + 6;
+        return totalHeight; 
     }
 
     function getWidthByCurrentState() {
@@ -72,13 +84,16 @@ export default function CoachWindowMain() {
     }
 
     function getHeightByCurrentState() {
+        const showError = coachWindowError && coachFeature === 'cue' && leadType;
+        if (showError) {
+            return getTotalHeightWithRef(errorContainerRef);
+        }
+
         if (isDropdownOpen) {
             return WINDOW_HEIGHT_SIZES.DROPDOWN_OPEN;
         } else if (isInsightsLayoutOpen) {
             if (insightsLayoutRef.current) {
-                const actualHeight = insightsLayoutRef.current.offsetHeight;
-                const totalHeight = WINDOW_HEIGHT_SIZES.BASE + actualHeight + 6;
-                return totalHeight;
+                return getTotalHeightWithRef(insightsLayoutRef);
             }
             
             const queueLength = insightsQueue.length;
@@ -150,7 +165,7 @@ export default function CoachWindowMain() {
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError]);
 
 	useEffect(() => {
 		// Only set up listener when Cue is active
@@ -221,6 +236,20 @@ export default function CoachWindowMain() {
                     }
                 </div>
             </div>
+
+            {coachWindowError && coachFeature === 'cue' && leadType && (
+                <div className='cue-error-container coach-box-bubble' ref={errorContainerRef}>
+                    <MdErrorOutline className='cue-error-icon' />
+                    <span className='cue-error-text'>{coachWindowError}</span>
+                    <button 
+                        className='cue-error-close-button' 
+                        onClick={() => clearError()}
+                        aria-label="Close error message"
+                    >
+                        <LuX />
+                    </button>
+                </div>
+            )}
 
             {isInsightsLayoutOpen && coachFeature ==='cue' && leadType && isCoachActive && (
                 <InsightsVerticalLayout 
