@@ -191,12 +191,16 @@ export default function CoachWindowMain() {
 				appointmentBooked: insightData.appointmentBooked || false,
                 id: insightData.id,
 			});
+
+            if (!isInsightsLayoutOpen) {
+                setIsInsightsLayoutOpen(true);
+            }
 		});
 
 		return () => {
 			unsubscribe();
 		};
-	}, [isCoachActive, coachFeature]);
+	}, [isCoachActive, coachFeature, isInsightsLayoutOpen]);
 
     const DropdownComponent = {
         recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,

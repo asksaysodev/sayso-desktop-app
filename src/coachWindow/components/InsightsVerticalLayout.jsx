@@ -56,6 +56,12 @@ const InsightsVerticalLayout = forwardRef(({ setIsInsightsLayoutOpen }, ref) => 
         }, TIMING_CONFIG.exitAnimationDuration);
     };
 
+    useEffect(() => {
+        if (allInsightsToDisplay.length === 0) {
+            setIsInsightsLayoutOpen(false);
+        }
+    }, [allInsightsToDisplay.length]);
+
     return (
         <div ref={ref} className="insights-vertical-layout-container">
             {allInsightsToDisplay.length > 0 

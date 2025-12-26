@@ -506,7 +506,11 @@ export const useCoachWindowStore = create((set, get) => ({
         const prevQueue = get().cue.insightsQueue;
         const newQueue = prevQueue.filter(insight => insight.id !== insightId);
         set((state) => ({
-            cue: { ...state.cue, insightsQueue: newQueue }
+            cue: { 
+                ...state.cue, 
+                insightsQueue: newQueue,
+                // ...(newQueue.length === 0 ? { isInsightsLayoutOpen: false } : {})
+            }
         }));
     },
 
