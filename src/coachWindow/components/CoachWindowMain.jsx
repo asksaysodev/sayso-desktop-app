@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 
 import { MdDragIndicator } from 'react-icons/md';
 import { IoClose } from 'react-icons/io5';
@@ -67,12 +67,16 @@ export default function CoachWindowMain() {
     const coachWindowError = useCoachWindowStore(state => state.error);
     const clearError = useCoachWindowStore(state => state.clearError);
 
+    const insightsLayoutOpen = useMemo(() => isInsightsLayoutOpen && insightsQueue.length > 0 && coachFeature ==='cue' && leadType && isCoachActive, [isInsightsLayoutOpen, insightsQueue, coachFeature, leadType, isCoachActive]);
+
     const handleCloseCoachWindow = () => {
         closeCoachWindow()
     }
 
     function getTotalHeightWithRef(ref) {
-        const actualHeight = ref ? ref.current.offsetHeight : 0;
+        if (!ref || !ref?.current) return 0;
+
+        const actualHeight = ref.current?.offsetHeight ?? 0;
         const totalHeight = WINDOW_HEIGHT_SIZES.BASE + actualHeight + 6;
         return totalHeight; 
     }
@@ -255,7 +259,7 @@ export default function CoachWindowMain() {
                 </div>
             )}
 
-            {isInsightsLayoutOpen && coachFeature ==='cue' && leadType && isCoachActive && (
+            {insightsLayoutOpen && (
                 <InsightsVerticalLayout 
                     ref={insightsLayoutRef}
                     setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
