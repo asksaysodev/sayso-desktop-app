@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { NavLink } from 'react-router-dom'
 import {
@@ -29,6 +29,30 @@ export default function Sidebar() {
 
     //HOOKS
     const { globalUser, handleSignOut } = useAuth();
+    const hasSubscription = useMemo(() => !!globalUser?.subscription_plan_id, [globalUser]);
+    
+    // const navigationItems = [
+    //     {
+    //         label: 'Dashboard',
+    //         icon: <LuUsers />,
+    //         path: '/',
+    //     },
+    //     {
+    //         label: 'Admin',
+    //         icon: <LuSettings />,
+    //         path: '/admin',
+    //     },
+    //     {
+    //         label: 'Account',
+    //         icon: <LuCircleUser />,
+    //         path: '/account',
+    //     },
+    //     {
+    //         label: 'Subscription',
+    //         icon: <LuCreditCard />,
+    //         path: '/subscription',
+    //     },
+    // ]
 
     return (
         <div className="sidebar-container">
@@ -47,13 +71,15 @@ export default function Sidebar() {
                     <img src={logoHorizontal} alt="Sayso Logo" />
                 </div>
                 <div className='sidebar-nav-container'>
-                    <NavLink to="/" >
-                        <div className="outline"></div>
-                        <div className='sidebar-nav-item'>
-                            <LuUsers />
-                            <p>Dashboard</p>
-                        </div>
-                    </NavLink>
+                    {hasSubscription && 
+                        <NavLink to="/" >
+                            <div className="outline"></div>
+                            <div className='sidebar-nav-item'>
+                                <LuUsers />
+                                <p>Dashboard</p>
+                            </div>
+                        </NavLink>
+                    }
                     {globalUser?.isAdmin && (
                     <NavLink to="/admin" >
                         <div className="outline"></div>
@@ -80,21 +106,26 @@ export default function Sidebar() {
                 </div>
             </div>
             <div className="sidebar-footer">
-                <CoachCTA sidebar={true} active={false} />
-                <Divider />
-                    <div className='account-widget'>
-                        <div className='account-widget-active-container'>
-                            <div className='account-widget-icon'>
-                                <p>{globalUser?.name?.charAt(0)}{globalUser?.lastname?.charAt(0)}</p>
-                            </div>
-                        </div>
-                        <div className='account-widget-info'>
-                            <div className='account-widget-info-header'>
-                                <h3>{globalUser?.name} {globalUser?.lastname}</h3>
-                            </div>
-                            <p>{globalUser?.email}</p>
+                {hasSubscription && (
+                    <>
+                        <CoachCTA sidebar={true} active={false} />
+                        <Divider />
+                    </>
+                )}
+                
+                <div className='account-widget'>
+                    <div className='account-widget-active-container'>
+                        <div className='account-widget-icon'>
+                            <p>{globalUser?.name?.charAt(0)}{globalUser?.lastname?.charAt(0)}</p>
                         </div>
                     </div>
+                    <div className='account-widget-info'>
+                        <div className='account-widget-info-header'>
+                            <h3>{globalUser?.name} {globalUser?.lastname}</h3>
+                        </div>
+                        <p>{globalUser?.email}</p>
+                    </div>
+                </div>
                 <Divider />
                 <div className='sidebar-footer-button' onClick={() => window.electron?.openExternal('mailto:dev@asksayso.com')}>
                     <LuCircleHelp />

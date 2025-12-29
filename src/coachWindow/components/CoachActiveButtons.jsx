@@ -10,6 +10,7 @@ export default function CoachActiveButtons({ coachFeature, handleCoach, isInsigh
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isResettingCueSession = useCoachWindowStore(state => state.cue.isResettingCueSession);
     const cue_onPressResetSession = useCoachWindowStore(state => state.cue_onPressResetSession);
+    const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
 
     const showTimer = coachFeature === 'recall' || coachFeature === 'cue';
     const disableButtons = isCoachLoading || isResettingCueSession;
@@ -46,7 +47,7 @@ export default function CoachActiveButtons({ coachFeature, handleCoach, isInsigh
                 <button 
                     className='open-insights-vertical-layout-button'
                     onClick={() => setIsInsightsLayoutOpen(!isInsightsLayoutOpen)}
-                    disabled={disableButtons}
+                    disabled={disableButtons || insightsQueue.length === 0}
                 >
                     {isInsightsLayoutOpen ? <LuEyeClosed size={ICON_SIZE}/> : <LuEye size={ICON_SIZE}/>}
                 </button>

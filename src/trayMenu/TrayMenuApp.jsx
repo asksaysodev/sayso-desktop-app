@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import trayToggleOn from '/assets/tray-toggle-on.png';
 import trayToggleOff from '/assets/tray-toggle-off.png';
 import { useAuth } from '@/context/AuthContext';
@@ -10,6 +10,10 @@ import { useAuth } from '@/context/AuthContext';
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
   const [userAuthenticated, setUserAuthenticated] = useState(null);
+
+  const disableToggleCoach = useMemo(() => {
+    return !userAuthenticated || userAuthenticated?.subscription_plan_id === null;
+  }, [userAuthenticated]);
 
   useEffect(() => {
     const ipcRenderer = window.electron?.ipcRenderer;
@@ -66,7 +70,7 @@ const TrayMenuApp = () => {
         <button 
           className="tray-menu-item"
           onClick={handleToggleCoach}
-          disabled={!userAuthenticated}
+          disabled={disableToggleCoach}
         >
           <div className="tray-menu-item-icon">
             <img 
