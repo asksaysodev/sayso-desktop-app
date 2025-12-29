@@ -47,7 +47,6 @@ const getInitialSharedState = () => ({
     isCoachLoading: false,
     callDurationInSeconds: 0,
     sessionData: null,
-    error: null,
     audio: { ...AUDIO_INITIAL_STATE },
 })
 
@@ -61,7 +60,6 @@ export const useCoachWindowStore = create((set, get) => ({
     callDurationInSeconds: 0,
     sessionData: null,
     coachFeature: 'cue', // 'cue' or 'recall'
-    error: null, // string | null
 
     audio: {...AUDIO_INITIAL_STATE},
 
@@ -77,7 +75,6 @@ export const useCoachWindowStore = create((set, get) => ({
     setIsCoachActive: (isCoachActive) => set({ isCoachActive }),
     setIsCoachLoading: (isCoachLoading) => set({ isCoachLoading }),
     setCoachFeature: (coachFeature) => set({ coachFeature }),
-    clearError: () => set({ error: null }),
 
     // ========== PERMISSIONS ACTIONS ========== //
     requestPermissions: async () => {
@@ -176,8 +173,6 @@ export const useCoachWindowStore = create((set, get) => ({
     closeCoachWindow: () => {
         clearInterval(openWindowCheckInterval);
         clearTimeout(openWindowTimeoutId);
-
-        get().shared_resetCoach();
 
         if (window.electron && window.electron.ipcRenderer) {
             window.electron.ipcRenderer.send('close-coach-window');
@@ -364,8 +359,6 @@ export const useCoachWindowStore = create((set, get) => ({
             return response.data;
         } catch (error) {
             console.error('Error creating new cue session:', error);
-            console.log('123123', error.response?.data.error);
-            set({ error: error.response?.data?.error });
             throw error;
         }
     },
@@ -506,11 +499,7 @@ export const useCoachWindowStore = create((set, get) => ({
         const prevQueue = get().cue.insightsQueue;
         const newQueue = prevQueue.filter(insight => insight.id !== insightId);
         set((state) => ({
-            cue: { 
-                ...state.cue, 
-                insightsQueue: newQueue,
-                ...(newQueue.length === 0 ? { isInsightsLayoutOpen: false } : {})
-            }
+            cue: { ...state.cue, insightsQueue: newQueue }
         }));
     },
 

@@ -19,17 +19,9 @@ export const AuthProvider = ({ children }) => {
 
   // Wrapper function to handle localStorage updates
   const updateGlobalUserState = (newGlobalUser) => {
-    const ipcRenderer = window.electron?.ipcRenderer;
     if (newGlobalUser === null) {
-      if (ipcRenderer) {
-        window.electron.ipcRenderer.send('update-user-auth', { userAuthenticated: null });
-      }
       localStorage.removeItem('sayso-global-user')
     } else {
-      if (ipcRenderer) {
-        ipcRenderer.send('update-user-auth', { userAuthenticated: newGlobalUser });
-      }
-
       localStorage.setItem('sayso-global-user', JSON.stringify(newGlobalUser))
     }
     setGlobalUser(newGlobalUser)
@@ -52,7 +44,7 @@ export const AuthProvider = ({ children }) => {
     setAuthToken(null);
     
     if (window.electron?.ipcRenderer) {
-      window.electron.ipcRenderer.send('update-user-auth', { userAuthenticated: null });
+      window.electron.ipcRenderer.send('update-user-auth', { isAuthenticated: false });
     }
   }
 
@@ -117,11 +109,19 @@ export const AuthProvider = ({ children }) => {
         getAccount(user.email).then((account) => {
           updateGlobalUserState(account)
           setUserLoading(false)
+          
+          if (window.electron?.ipcRenderer) {
+            window.electron.ipcRenderer.send('update-user-auth', { isAuthenticated: true });
+          }
         })
       }, 300) // 300ms delay
     } else {
       updateGlobalUserState(null)
       setUserLoading(false)
+      
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.send('update-user-auth', { isAuthenticated: false });
+      }
     }
 
     return () => {
