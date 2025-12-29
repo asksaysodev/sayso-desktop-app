@@ -269,6 +269,8 @@ const shortcuts = [
   {
     // Open coach window widget
     fn: () => {
+      if (!global.authUser || global.authUser?.subscription_plan_id === null) return;
+      
       if (isCoachWindowOpen()) {
         global.coachWindow.close();
       } else {
@@ -1771,8 +1773,8 @@ ipcMain.on('get-user-auth', (event) => {
 /**
  * Handler for updating user auth state
  */
-ipcMain.on('update-user-auth', (event, { isAuthenticated }) => {
-  global.authUser = isAuthenticated;
+ipcMain.on('update-user-auth', (event, { userAuthenticated }) => {
+  global.authUser = userAuthenticated;
   
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
     trayMenuWindow.webContents.send('user-auth', {
