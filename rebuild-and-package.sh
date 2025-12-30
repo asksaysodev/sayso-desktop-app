@@ -3,11 +3,21 @@ set -Eeuo pipefail
 
 echo "🔧 Rebuilding and packaging Sayso with notarization..."
 
+# Load environment variables from .env if it exists
+if [ -f .env ]; then
+  export $(cat .env | grep -v '^#' | xargs)
+  echo "✅ Loaded environment variables from .env"
+fi
+
 # ---------- Config ----------
 APP_NAME="Sayso"                   # The .app bundle name without .app
 NOTARY_PROFILE="NotaryProfile"     # Keychain profile created via: xcrun notarytool store-credentials ...
 DMG_NAME="${APP_NAME}.dmg"
 RELEASE_DIR="release"
+
+# Read version from package.json
+APP_VERSION=$(node -p "require('./package.json').version")
+echo "📦 Building version: ${APP_VERSION}"
 # -----------------------------
 
 # No validation needed - we're using electron-builder's DMGs directly
@@ -28,12 +38,12 @@ npm run package
 
 # Sign the electron-builder created DMGs
 echo "🔐 Signing electron-builder DMGs..."
-if [ -f "${RELEASE_DIR}/Sayso-1.0.0.dmg" ]; then
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/Sayso-1.0.0.dmg"
+if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}.dmg" ]; then
+  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/Sayso-${APP_VERSION}.dmg"
   echo "✅ Signed Intel DMG"
 fi
-if [ -f "${RELEASE_DIR}/Sayso-1.0.0-arm64.dmg" ]; then
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/Sayso-1.0.0-arm64.dmg"
+if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64.dmg" ]; then
+  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64.dmg"
   echo "✅ Signed Apple Silicon DMG"
 fi
 
@@ -153,21 +163,19 @@ notarize_dmg() {
 }
 
 # Use electron-builder's DMGs directly - they already have the installer UI
-# We just need to rename and notarize them
+# We just need to notarize them (keeping version numbers for auto-updater compatibility)
 echo "📦 Using electron-builder DMGs (they already have installer UI)..."
 
-# Rename and notarize electron-builder DMGs
-if [ -f "${RELEASE_DIR}/Sayso-1.0.0-arm64.dmg" ]; then
-  dmg_path="${RELEASE_DIR}/Sayso-arm64.dmg"
-  mv "${RELEASE_DIR}/Sayso-1.0.0-arm64.dmg" "${dmg_path}"
+# Notarize electron-builder DMGs (keep original names with version numbers)
+if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64.dmg" ]; then
+  dmg_path="${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64.dmg"
   echo "🔐 Notarizing ARM64 DMG..."
   notarize_dmg "${dmg_path}" "ARM64"
   echo "✅ ARM64 DMG notarized: ${dmg_path}"
 fi
 
-if [ -f "${RELEASE_DIR}/Sayso-1.0.0.dmg" ]; then
-  dmg_path="${RELEASE_DIR}/Sayso-intel.dmg"
-  mv "${RELEASE_DIR}/Sayso-1.0.0.dmg" "${dmg_path}"
+if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}.dmg" ]; then
+  dmg_path="${RELEASE_DIR}/Sayso-${APP_VERSION}.dmg"
   echo "🔐 Notarizing Intel DMG..."
   notarize_dmg "${dmg_path}" "Intel"
   echo "✅ Intel DMG notarized: ${dmg_path}"
