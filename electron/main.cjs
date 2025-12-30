@@ -3,6 +3,13 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { WindowManager } = require('./utils/windowManager');
 const { nativeImage } = require('electron/common');
+const { updateElectronApp } = require('update-electron-app');
+
+updateElectronApp({
+  updateInterval: '1 hour',
+  logger: require('electron-log'),
+  notifyUser: true
+});
 
 // Native audio module - will be loaded after logging is set up
 let nativeAudio = null;

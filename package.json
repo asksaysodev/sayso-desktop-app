@@ -12,7 +12,7 @@
     "rebuild-native": "cd electron/native-audio && npx node-gyp rebuild --target=36.9.1 --arch=arm64 --dist-url=https://electronjs.org/headers && cd ../..",
     "rebuild-native-x64": "cd electron/native-audio && npx node-gyp rebuild --target=36.9.1 --arch=x64 --dist-url=https://electronjs.org/headers && cd ../..",
     "rebuild-native-both": "node scripts/rebuild-native-both-archs.js",
-    "package": "npm run rebuild-native-both && npm run build && electron-builder",
+    "package": "npm run rebuild-native-both && npm run build && electron-builder --publish always",
     "export": "chmod +x rebuild-and-package.sh && ./rebuild-and-package.sh",
     "fresh-export": "npm run clean && npm run export",
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -63,6 +63,7 @@
     "react-router-dom": "^7.5.3",
     "styled-components": "^6.1.18",
     "tailwind-merge": "^3.4.0",
+    "update-electron-app": "^3.1.2",
     "uuid": "^11.1.0",
     "wav": "^1.0.2",
     "ws": "^8.18.2",
@@ -91,8 +92,8 @@
     "productName": "Sayso",
     "publish": {
       "provider": "github",
-      "owner": "your-github-username",
-      "repo": "your-repo-name"
+      "owner": "asksaysodev",
+      "repo": "sayso-frontend"
     },
     "beforePack": "scripts/rebuild-native-for-arch.js",
     "afterPack": "scripts/verify-and-fix-native-module.js",
