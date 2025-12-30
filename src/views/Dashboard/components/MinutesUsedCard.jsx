@@ -5,8 +5,11 @@ import { useMemo } from "react";
 export default function MinutesUsedCard({ accountUsage, isRefetching }) {
     const { usedMinutes = 0, planMinutes = 0 } = accountUsage || {};
 
-    const usedPercentage = useMemo(() => Number(((usedMinutes / planMinutes) * 100).toFixed(2)), [usedMinutes, planMinutes]);
-    const safeUsedPercentage = useMemo(() => (typeof usedPercentage === 'number' && !isNaN(usedPercentage)) ? usedPercentage : 0, [usedPercentage]);
+    const usedPercentage = useMemo(() => {
+        if (planMinutes === 0) return 0;
+        const percentage = (usedMinutes / planMinutes) * 100;
+        return Math.min(Number(percentage.toFixed(2)), 100);
+    }, [usedMinutes, planMinutes]);
 
     return (
         <InformativeCard
@@ -18,11 +21,11 @@ export default function MinutesUsedCard({ accountUsage, isRefetching }) {
             <div className='card-content-container'>
                 <div>
                     <p className='card-content-lighter-text'>
-                        <span className='card-content-bold-text'>{usedMinutes}</span> / {planMinutes}min ({safeUsedPercentage}%)
+                        <span className='card-content-bold-text'>{usedMinutes}</span> / {planMinutes}min ({usedPercentage}%)
                     </p>
                 </div>
                 <div className='progress-bar-container'>
-                    <div className='progress-bar-fill' style={{ width: `${safeUsedPercentage}%` }}/>
+                    <div className='progress-bar-fill' style={{ width: `${usedPercentage}%` }}/>
                 </div>
             </div>
         </InformativeCard>
