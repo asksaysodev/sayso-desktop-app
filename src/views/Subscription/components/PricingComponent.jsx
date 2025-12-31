@@ -7,8 +7,25 @@ import useStripeCheckout from "../hooks/useStripeCheckout";
 import ButtonSpinner from "@/components/ButtonSpinner";
 import { useAuth } from "@/context/AuthContext";
 
+function formatMinutesToHours(minutes) {
+    if (!minutes || typeof minutes !== 'number') return 0;
+
+    return minutes / 60;
+}
+
 export default function PricingComponent({ plan = null, selectedBillingTab = 'month' }) {
-    const { name: planName, description, features, pricingOptions, purchasable, popular = false, contactLink } = plan || {};
+    const { 
+        name: planName,
+        description, 
+        features, 
+        pricingOptions, 
+        purchasable, 
+        popular = false, 
+        contactLink, 
+        hasTrial = false, 
+        trialDays = null, 
+        trialIncludedMinutes = null 
+    } = plan || {};
 
     const { globalUser } = useAuth();
     const { showToast } = useToast();
@@ -16,8 +33,8 @@ export default function PricingComponent({ plan = null, selectedBillingTab = 'mo
 
     const pricingOptionSelected = useMemo(() => pricingOptions.find(opt => opt.interval === selectedBillingTab) ?? null, [pricingOptions, selectedBillingTab]);
     const priceInDollars = pricingOptionSelected ? (pricingOptionSelected.priceInCents / 100).toFixed(0) : '0';
-    const includedHoursPerMonth = pricingOptionSelected ? pricingOptionSelected.includedMinutesPerMonth / 60 : 0;
-
+    const includedHoursPerMonth = formatMinutesToHours(pricingOptionSelected?.includedMinutesPerMonth);
+    const freeTrialHours = formatMinutesToHours(trialIncludedMinutes);
     // Backend sends total price for the billing period (monthly: $79, annual: $853.20)
     // For annual plans, we display the effective monthly cost to show savings ($71.10 per month vs $79 per month)
     const pricePerMonth = useMemo(() => {
@@ -69,6 +86,15 @@ export default function PricingComponent({ plan = null, selectedBillingTab = 'mo
                     )}
                     {purchasable ? alreadySubscribed ? 'Current plan' : 'Get started' : 'Contact sales'}
                 </button>
+
+                {hasTrial && (
+                    <div>
+                        <button className="pricing-trial-button" onClick={handlePurchase}>
+                            <p className="pricing-trial-text bold-text">Get {freeTrialHours} free hours of Live AI Coaching</p>
+                        </button>
+                        <p className="pricing-trial-text">Valid for {trialDays} days</p>
+                    </div>
+                )}
             </div>
 
             <div className="pricing-features-section">
