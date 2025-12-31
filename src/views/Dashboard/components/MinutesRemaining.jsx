@@ -1,10 +1,15 @@
 import { LuHourglass } from "react-icons/lu";
 import InformativeCard from "./InformativeCard";
+import { useAuth } from "../../../context/AuthContext";
+
+const TRIAL_MINUTES = 180;
 
 export default function MinutesRemaining({ accountUsage, isRefetching }) {
+    const { globalUser } = useAuth();
     const { remainingMinutes = 0, rolloverMinutes = 0 } = accountUsage || {};
 
-    const cardDescription = `${remainingMinutes} plan min + ${rolloverMinutes} rollover min`;
+    const isTrialing = globalUser?.subscription_status === "trialing";
+    const cardDescription = isTrialing ? `${TRIAL_MINUTES} trial minutes` : `${remainingMinutes} plan minutes`;
     const totalMinutesLeft = remainingMinutes + rolloverMinutes;
 
     return (
