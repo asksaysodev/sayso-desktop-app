@@ -175,6 +175,26 @@
     opacity: 0.7 !important;
 }
 
+/* Pricing Trial Container */
+.pricing-trial-button {
+    padding: 0;
+    margin-top: 16px;
+}
+
+.pricing-trial-text {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--sayso-lightgray);
+    margin: 0;
+    transition: color 0.3s ease;
+}
+.pricing-trial-button:hover {
+    opacity: 0.7;
+}
+.pricing-trial-text.bold-text {
+    font-weight: 600;
+    color: var(--sayso-dark);
+}
 .pricing-features-section {
     /* padding-top: 24px; */
     padding: 24px;
