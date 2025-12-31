@@ -6,12 +6,7 @@ import { useToast } from "@/context/ToastContext";
 import useStripeCheckout from "../hooks/useStripeCheckout";
 import ButtonSpinner from "@/components/ButtonSpinner";
 import { useAuth } from "@/context/AuthContext";
-
-function formatMinutesToHours(minutes) {
-    if (!minutes || typeof minutes !== 'number') return 0;
-
-    return minutes / 60;
-}
+import formatMinutesToHours from "@/utils/formatters/formatMinutesToHours";
 
 export default function PricingComponent({ plan = null, selectedBillingTab = 'month' }) {
     const { 
