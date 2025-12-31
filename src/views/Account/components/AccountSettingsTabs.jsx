@@ -1,16 +1,16 @@
 import { LuUser, LuFileScan, LuBuilding, LuUnplug } from 'react-icons/lu';
+import TabSelector from '../../../components/TabSelector';
+import '../../../components/TabSelector.css';
 
 const ICON_SIZE = 18;
 
 export default function AccountSettingsTabs({ onSelectPanel, selectedPanel }) {
-
     const tabs = [
         {
             icon: <LuUser size={ICON_SIZE} />,
             label: 'My Information',
             value: 'personal'
         },
-        
         {
             icon: <LuBuilding size={ICON_SIZE} />,
             label: 'My Company',
@@ -31,17 +31,12 @@ export default function AccountSettingsTabs({ onSelectPanel, selectedPanel }) {
     ];
     
     return (
-        <div className='account-settings-selector-container' data-view={selectedPanel}>
-            {tabs.map(({ icon, label, value, hidden = false }) => {
-                if (hidden) return null;
-
-                return (
-                    <div key={value} className={`account-settings-view-toggle-button ${selectedPanel === value ? 'active' : ''}`} onClick={() => onSelectPanel(value)}>
-                        {icon}
-                        <p>{label}</p>
-                    </div>
-                )
-            })}
+        <div className='account-settings-selector-container'>
+            <TabSelector 
+                tabs={tabs}
+                selectedValue={selectedPanel}
+                onChange={onSelectPanel}
+            />
         </div>
     )
 }
