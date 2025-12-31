@@ -6,11 +6,11 @@ const TRIAL_MINUTES = 180;
 
 export default function MinutesRemaining({ accountUsage, isRefetching }) {
     const { globalUser } = useAuth();
-    const { remainingMinutes = 0, rolloverMinutes = 0 } = accountUsage || {};
+    const { remainingMinutes = 0 } = accountUsage || {};
 
     const isTrialing = globalUser?.subscription_status === "trialing";
     const cardDescription = isTrialing ? `${TRIAL_MINUTES} trial minutes` : `${remainingMinutes} plan minutes`;
-    const totalMinutesLeft = remainingMinutes + rolloverMinutes;
+    const totalMinutesLeft = remainingMinutes;
 
     return (
         <InformativeCard 
