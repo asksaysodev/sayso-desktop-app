@@ -129,7 +129,7 @@ export default function AccountSettingsCompanyForm({ globalUser, setUnsavedChang
                                 setUnsavedChanges={setUnsavedChanges}
                             />
                         </form>
-                        <div className="account-settings-company-team-container">
+                        {/* <div className="account-settings-company-team-container">
                             <h3>Team</h3>
                             <div className="account-settings-company-team-list">
                                 <div className="invite-team-member-container">
@@ -158,7 +158,7 @@ export default function AccountSettingsCompanyForm({ globalUser, setUnsavedChang
                                     }
                                 </ul>
                             </div>
-                        </div>
+                        </div> */}
                         </>
                     )
                 }
