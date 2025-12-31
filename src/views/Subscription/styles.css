@@ -144,7 +144,6 @@
     font-size: 14px;
     font-weight: 600;
     color: #1F2937;
-    cursor: pointer;
     transition: all 0.2s ease;
     display: flex;
     align-items: center;
@@ -254,4 +253,200 @@
     font-size: 15px;
     font-weight: 400;
     color: #374151;
+}
+
+/* Active Plan Information Container */
+.active-plan-information-container {
+    width: 100%;
+    max-width: 1200px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+.subscription-section {
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 32px;
+    color: var(--sayso-dark);
+    text-align: start !important;
+}
+
+.section-title {
+    font-size: 20px;
+    font-weight: 500;
+    margin: 0 0 24px 0;
+    color: var(--sayso-dark);
+}
+
+.subscription-section-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Plan Header Section */
+.plan-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+}
+
+.plan-icon {
+    width: 60px;
+    height: 60px;
+    background-color: var(--sayso-indigo);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.plan-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.plan-name {
+    font-size: 24px;
+    font-weight: 500;
+    margin: 0;
+    color: var(--sayso-dark);
+}
+
+.plan-billing-period {
+    font-size: 16px;
+    font-weight: 400;
+    margin: 0;
+    color: #6b7280;
+}
+
+.plan-renewal-text {
+    font-size: 14px;
+    font-weight: 400;
+    margin: 0;
+    color: #6b7280;
+}
+
+.adjust-plan-button {
+    background-color: transparent;
+    border: 1px solid var(--sayso-border);
+    color: var(--sayso-dark);
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.adjust-plan-button:hover {
+    background-color: #f3f4f6;
+    border-color: var(--sayso-border);
+}
+
+/* Payment Section */
+.payment-method {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.payment-method-text {
+    font-size: 16px;
+    font-weight: 400;
+    color: var(--sayso-dark);
+}
+
+.update-button {
+    background-color: transparent;
+    border: 1px solid var(--sayso-border);
+    color: var(--sayso-dark);
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.update-button:hover {
+    background-color: #f3f4f6;
+    border-color: var(--sayso-border);
+}
+
+/* Invoices Table */
+.invoices-table {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.invoices-table-header {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 16px;
+}
+
+.invoice-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 16px;
+    padding: 12px 0;
+    align-items: center;
+}
+
+.invoice-col-date,
+.invoice-col-total,
+.invoice-col-status,
+.invoice-col-actions {
+    font-size: 15px;
+    color: var(--sayso-dark);
+}
+
+.invoices-table-header .invoice-col-date,
+.invoices-table-header .invoice-col-total,
+.invoices-table-header .invoice-col-status,
+.invoices-table-header .invoice-col-actions {
+    font-weight: 600;
+}
+
+.view-invoice-button {
+    background-color: transparent;
+    border: none;
+    color: var(--sayso-dark);
+    padding: 0;
+    font-size: 15px;
+    font-weight: 400;
+    text-decoration: underline;
+    text-align: left;
+    transition: opacity 0.2s ease;
+}
+
+.view-invoice-button:hover {
+    opacity: 0.7;
+}
+
+/* Cancellation Section */
+.cancel-plan-text {
+    font-size: 16px;
+    font-weight: 400;
+    color: var(--sayso-dark);
+}
+
+.cancel-button {
+    background-color: #dc2626;
+    border: none;
+    color: white;
+    padding: 10px 32px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.cancel-button:hover {
+    background-color: #b91c1c;
 }

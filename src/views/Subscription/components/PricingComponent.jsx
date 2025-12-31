@@ -82,7 +82,7 @@ export default function PricingComponent({ plan = null, selectedBillingTab = 'mo
                     {purchasable ? alreadySubscribed ? 'Current plan' : 'Get started' : 'Contact sales'}
                 </button>
 
-                {hasTrial && (
+                {hasTrial && !alreadySubscribed && (
                     <div>
                         <button className="pricing-trial-button" onClick={handlePurchase}>
                             <p className="pricing-trial-text bold-text">Get {freeTrialHours} free hours of Live AI Coaching</p>
