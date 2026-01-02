@@ -21,7 +21,7 @@ export default function MinutesUsedCard({ accountUsage, isRefetching }) {
             <div className='card-content-container'>
                 <div>
                     <p className='card-content-lighter-text'>
-                        <span className='card-content-bold-text'>{usedMinutes}</span> / {planMinutes}min ({usedPercentage}%)
+                        <span className='card-content-bold-text'>{usedMinutes}</span> / {planMinutes} min ({usedPercentage}%)
                     </p>
                 </div>
                 <div className='progress-bar-container'>
