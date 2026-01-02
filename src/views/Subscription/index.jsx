@@ -1,13 +1,20 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import ViewLayout from "@/components/layouts/ViewLayout";
 import "./styles.css";
 import BillingTabSelector from "./components/BillingTabSelector";
 import PricingComponent from "./components/PricingComponent";
 import { useQuery } from "@tanstack/react-query";
 import getSubscriptionPlans from "./services/getSubscriptionPlans";
+import { useAuth } from "@/context/AuthContext";
+import ActiveSubscriptionInformation from "./components/ActiveSubscriptionInformation";
 
 export default function Subscription() {
 	const [selectedBillingTab, setSelectedBillingTab] = useState('month');
+	const { globalUser } = useAuth();
+
+	const alreadySubscribed = useMemo(() =>
+		!!globalUser?.subscription_plan_id,
+	[globalUser]);
 
 	const { data: subscriptionPlans } = useQuery({
 		queryKey: ['subscription-plans'],
@@ -16,23 +23,28 @@ export default function Subscription() {
 
 	return (
 		<ViewLayout title="Subscription" scrollable>
-			<BillingTabSelector
-				selectedBillingTab={selectedBillingTab}
-				setSelectedBillingTab={setSelectedBillingTab}
-			/>
-			<div className="pricing-components-grid">
-				{subscriptionPlans?.map((plan) => (
-					plan?.id
-					? (
-						<PricingComponent 
-							key={plan.id} 
-							plan={plan} 
-							selectedBillingTab={selectedBillingTab} 
-						/>
-					)
-					: null
-				))}
-			</div>
+			{alreadySubscribed 
+				? <ActiveSubscriptionInformation />
+				: <>
+					<BillingTabSelector
+					selectedBillingTab={selectedBillingTab}
+					setSelectedBillingTab={setSelectedBillingTab}
+					/>
+					<div className="pricing-components-grid">
+						{subscriptionPlans?.map((plan) => (
+							plan?.id
+							? (
+								<PricingComponent 
+									key={plan.id} 
+									plan={plan} 
+									selectedBillingTab={selectedBillingTab} 
+								/>
+							)
+							: null
+						))}
+					</div>
+				</>
+			}
 		</ViewLayout>
-  );
+  	);
 }
