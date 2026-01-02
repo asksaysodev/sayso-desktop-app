@@ -6,7 +6,7 @@ import PricingComponent from "./components/PricingComponent";
 import { useQuery } from "@tanstack/react-query";
 import getSubscriptionPlans from "./services/getSubscriptionPlans";
 import { useAuth } from "@/context/AuthContext";
-import ActivePlanInformation from "./components/ActivePlanInformation";
+import ActiveSubscriptionInformation from "./components/ActiveSubscriptionInformation";
 
 export default function Subscription() {
 	const [selectedBillingTab, setSelectedBillingTab] = useState('month');
@@ -24,7 +24,7 @@ export default function Subscription() {
 	return (
 		<ViewLayout title="Subscription" scrollable>
 			{alreadySubscribed 
-				? <ActivePlanInformation />
+				? <ActiveSubscriptionInformation />
 				: <>
 					<BillingTabSelector
 					selectedBillingTab={selectedBillingTab}

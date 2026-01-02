@@ -315,6 +315,7 @@
     font-weight: 500;
     margin: 0;
     color: var(--sayso-dark);
+    text-transform: capitalize;
 }
 
 .plan-billing-period {
@@ -449,4 +450,108 @@
 
 .cancel-button:hover {
     background-color: #b91c1c;
+}
+
+/* ===== Error State ===== */
+.subscription-error-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 40px 20px;
+}
+
+.subscription-error-message {
+    font-size: 16px;
+    font-weight: 500;
+    color: #6b7280;
+    text-align: center;
+}
+
+/* ===== Subscription Skeletons ===== */
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        #f5f5f5 0%,
+        #fafafa 50%,
+        #f5f5f5 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s ease-in-out infinite;
+    border-radius: 4px;
+}
+
+@keyframes skeleton-loading {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Plan Header Skeleton */
+.plan-icon-skeleton {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+}
+
+.plan-name-skeleton {
+    width: 120px;
+    height: 24px;
+    margin-bottom: 8px;
+}
+
+.plan-billing-period-skeleton {
+    width: 80px;
+    height: 16px;
+    margin-bottom: 8px;
+}
+
+.plan-renewal-text-skeleton {
+    width: 280px;
+    height: 16px;
+}
+
+/* Invoices Table Skeleton */
+.invoice-row-skeleton {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--sayso-border);
+}
+
+.invoice-col-skeleton {
+    height: 20px;
+}
+
+.invoice-col-date-skeleton {
+    width: 100px;
+}
+
+.invoice-col-total-skeleton {
+    width: 60px;
+}
+
+.invoice-col-status-skeleton {
+    width: 70px;
+}
+
+.invoice-col-actions-skeleton {
+    width: 60px;
+}
+
+/* Cancellation Section Skeleton */
+.cancel-plan-text-skeleton {
+    width: 100px;
+    height: 20px;
+}
+
+.cancel-button-skeleton {
+    width: 100px;
+    height: 44px;
+    border-radius: 8px;
 }
