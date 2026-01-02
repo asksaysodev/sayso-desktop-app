@@ -50,8 +50,10 @@ export default function Account() {
 
 			<div className='account-settings-body'>
 				<div className='account-settings-panel-container-main'>
-					<AccountSettingsTabs onSelectPanel={handleSelectPanel} selectedPanel={selectedPanel} />
-					<AccountActivePanelContainer selectedPanel={selectedPanel} setUnsavedChanges={setUnsavedChanges} />
+					<div className='account-settings-panel-container-main-content'>
+						<AccountSettingsTabs onSelectPanel={handleSelectPanel} selectedPanel={selectedPanel} />
+						<AccountActivePanelContainer selectedPanel={selectedPanel} setUnsavedChanges={setUnsavedChanges} />
+					</div>
 				</div>
 			</div>  
 		</ViewLayout>

@@ -7,7 +7,7 @@ import { useToast } from '../context/ToastContext';
 import { useAccounts } from '../hooks/useAccounts';
 import { useAuth } from '../context/AuthContext';
 
-import '../styles/AccountSettings.css';
+import '../views/Account/styles.css';
 
 export default function FormLineAccount({ label, name, placeholder, value, editable, setUnsavedChanges }) {
 
