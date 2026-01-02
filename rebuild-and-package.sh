@@ -3,10 +3,13 @@ set -Eeuo pipefail
 
 echo "🔧 Rebuilding and packaging Sayso with notarization..."
 
-# Load environment variables from .env if it exists
-if [ -f .env ]; then
+# Load environment variables from .env.production for production build
+if [ -f .env.production ]; then
+  export $(cat .env.production | grep -v '^#' | xargs)
+  echo "✅ Loaded environment variables from .env.production"
+elif [ -f .env ]; then
   export $(cat .env | grep -v '^#' | xargs)
-  echo "✅ Loaded environment variables from .env"
+  echo "⚠️  Using .env (fallback - .env.production not found)"
 fi
 
 # ---------- Config ----------
