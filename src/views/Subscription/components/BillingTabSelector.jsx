@@ -1,3 +1,6 @@
+import TabSelector from '../../../components/TabSelector';
+import '../../../components/TabSelector.css';
+
 const BillingTabOptions = [
 	{ value: 'month', label: 'Monthly billing' },
 	{ value: 'year', label: 'Annual billing' },
@@ -6,18 +9,11 @@ const BillingTabOptions = [
 export default function BillingTabSelector({ selectedBillingTab, setSelectedBillingTab }) {
 	return (
 		<div className="billing-tab-selector-container">
-			{BillingTabOptions.map(({ value, label }) => {
-				const isActive = selectedBillingTab === value;
-				return (
-					<button 
-						key={value} 
-						onClick={() => setSelectedBillingTab(value)} 
-						className={`billing-tab-option ${isActive ? 'active' : ''}`}
-					>
-						<p>{label}</p>
-					</button>
-				)
-			})}
+			<TabSelector 
+				tabs={BillingTabOptions}
+				selectedValue={selectedBillingTab}
+				onChange={setSelectedBillingTab}
+			/>
 		</div>
 	)
 }
