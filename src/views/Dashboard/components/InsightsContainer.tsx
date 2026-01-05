@@ -20,6 +20,7 @@ import isBetween from 'dayjs/plugin/isBetween';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import getInsights from '../services/getInsights';
 import { useQuery } from '@tanstack/react-query';
+import SaysoInputGroup from '@/components/forms/SaysoInputGroup';
 
 dayjs.extend(isBetween);
 dayjs.extend(isSameOrAfter);
@@ -149,16 +150,14 @@ export default function InsightsContainer() {
 
                 <div className='insights-header-right-content'>
                    <div>
-                        <InputGroup className='h-[40px]'>
-                            <InputGroupInput 
-                                placeholder='Search Insight...'
-                                value={searchInsightInputValue}
-                                onChange={(e) => setSearchInsightInputValue(e.target.value)}
-                            />
-                            <InputGroupAddon>
-                                <LuSearch />
-                            </InputGroupAddon>
-                        </InputGroup>
+                        <SaysoInputGroup
+                            className='h-[40px]'
+                            placeholder='Search Insight...'
+                            value={searchInsightInputValue}
+                            onChange={(e) => setSearchInsightInputValue(e.target.value)}
+                            icon={<LuSearch />}
+                            size={20}
+                        />
                    </div>
 
 

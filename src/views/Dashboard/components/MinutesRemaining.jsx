@@ -4,7 +4,6 @@ import { useAuth } from "../../../context/AuthContext";
 
 export default function MinutesRemaining({ accountUsage, isRefetching }) {
     const { globalUser } = useAuth();
-	console.log('accountUsage', accountUsage);
 
     const { remainingMinutes = 0, planMinutes = 0 } = accountUsage || {};
 
