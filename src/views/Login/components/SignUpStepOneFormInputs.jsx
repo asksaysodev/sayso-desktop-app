@@ -8,7 +8,7 @@ export default function SignUpStepOneFormInputs({ formData, handleInputChange, h
                 type="text"
                 id="name"
                 name="name"
-                label="Name"
+                label="First Name"
                 value={formData.name}
                 onChange={handleInputChange}
                 onBlur={handleBlur}
@@ -28,7 +28,7 @@ export default function SignUpStepOneFormInputs({ formData, handleInputChange, h
                 type="text"
                 id="company"
                 name="company"
-                label="Company"
+                label="Company / Brokerage"
                 value={formData.company}
                 onChange={handleInputChange}
                 onBlur={handleBlur}
