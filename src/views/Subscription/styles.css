@@ -274,8 +274,8 @@
 }
 
 .section-title {
-    font-size: 20px;
-    font-weight: 500;
+    font-size: 18px;
+    font-weight: 600;
     margin: 0 0 24px 0;
     color: var(--sayso-dark);
 }
@@ -311,8 +311,8 @@
 }
 
 .plan-name {
-    font-size: 24px;
-    font-weight: 500;
+    font-size: 18px;
+    font-weight: 600;
     margin: 0;
     color: var(--sayso-dark);
     text-transform: capitalize;
@@ -322,7 +322,7 @@
     font-size: 16px;
     font-weight: 400;
     margin: 0;
-    color: #6b7280;
+    color: var(--sayso-dark);
 }
 
 .plan-renewal-text {
@@ -378,6 +378,13 @@
 }
 
 /* Invoices Table */
+.invoices-table-empty {
+    display: flex;
+    /* justify-content: center; */
+    color: var(--sayso-lightgray);
+    font-size: 14px;
+    font-weight: 500;
+}
 .invoices-table {
     width: 100%;
     display: flex;
