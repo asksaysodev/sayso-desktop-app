@@ -1,123 +1,96 @@
 import { useAuth } from '@/context/AuthContext';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  validateStepOneFields, 
-  validateLoginFields, 
-  validateSignupFields 
+import { useForm } from 'react-hook-form';
+import {
+  validateStepOneFields,
+  validateLoginFields,
+  validateSignupFields
 } from '../helpers/formValidation';
+
+const INITIAL_VALUES = {
+  name: '',
+  lastname: '',
+  company: '',
+  email: '',
+  password: '',
+  repeatPassword: ''
+};
 
 export default function useLoginForm() {
   const [isLoggingIn, setIsLoggingIn] = useState(true);
   const [signupStep, setSignupStep] = useState(1);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    lastname: '',
-    company: '',
-    email: '',
-    password: '',
-    repeatPassword: ''
-  });
-  const [fieldErrors, setFieldErrors] = useState({});
   const [isBtnLoading, setIsBtnLoading] = useState(false);
-  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const navigate = useNavigate();
   const { signIn, signUp } = useAuth();
 
-  const validateSingleField = (fieldName, value) => {
-    const testData = { ...formData, [fieldName]: value };
+  const customResolver = (values) => {
     let errors = {};
 
     if (!isLoggingIn && signupStep === 1) {
-      errors = validateStepOneFields(testData);
+      errors = validateStepOneFields(values);
     } else if (isLoggingIn) {
-      errors = validateLoginFields(testData);
+      errors = validateLoginFields(values);
     } else {
-      errors = validateSignupFields(testData);
+      errors = validateSignupFields(values);
     }
 
-    return errors[fieldName] || '';
+    return {
+      values: Object.keys(errors).length === 0 ? values : {},
+      errors: Object.keys(errors).reduce((acc, key) => {
+        acc[key] = { type: 'validation', message: errors[key] };
+        return acc;
+      }, {})
+    };
   };
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prevState => ({
-      ...prevState,
-      [name]: value
-    }));
-    
-    if (fieldErrors[name]) {
-      const fieldError = validateSingleField(name, value);
-      if (!fieldError) {
-        setFieldErrors(prev => ({
-          ...prev,
-          [name]: ''
-        }));
-      }
-    }
-  };
-
-  const handleBlur = (e) => {
-    const { name, value } = e.target;
-    
-    if (hasAttemptedSubmit) {
-      const fieldError = validateSingleField(name, value);
-      if (fieldError) {
-        setFieldErrors(prev => ({
-          ...prev,
-          [name]: fieldError
-        }));
-      }
-    }
-  };
+  const {
+    control,
+    reset,
+    handleSubmit: rhfHandleSubmit,
+    trigger
+  } = useForm({
+    resolver: customResolver,
+    mode: 'onSubmit',
+    reValidateMode: 'onBlur',
+    defaultValues: INITIAL_VALUES
+  });
 
   const handleToggleMode = () => {
     setIsLoggingIn(!isLoggingIn);
     setError(null);
-    setFieldErrors({});
     setSignupStep(1);
-    setHasAttemptedSubmit(false);
-    setFormData({
-      name: '',
-      lastname: '',
-      company: '',
-      email: '',
-      password: '',
-      repeatPassword: ''
-    });
+    reset(INITIAL_VALUES);
   };
 
-  const handleNextStep = (e) => {
+  const handleNextStep = async (e) => {
     e.preventDefault();
     setError(null);
-    setFieldErrors({});
-    
-    const errors = validateStepOneFields(formData);
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors);
-      return;
+
+    const isValid = await trigger();
+    if (isValid) {
+      setSignupStep(2);
     }
-    setSignupStep(2);
   };
 
-  const performAuthentication = async () => {
+  const performAuthentication = async (data) => {
     if (isLoggingIn) {
       const { error } = await signIn({
-        email: formData.email,
-        password: formData.password
+        email: data.email,
+        password: data.password
       });
       if (error) throw error;
     } else {
       const { error } = await signUp({
-        email: formData.email,
-        password: formData.password,
+        email: data.email,
+        password: data.password,
         options: {
           data: {
-            name: formData.name,
-            lastname: formData.lastname,
-            company: formData.company
+            name: data.name,
+            lastname: data.lastname,
+            company: data.company
           }
         }
       });
@@ -125,36 +98,18 @@ export default function useLoginForm() {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const onSubmit = async (data) => {
     setError(null);
-    setFieldErrors({});
-    
-    setHasAttemptedSubmit(true);
 
     if (!isLoggingIn && signupStep === 1) {
-      const errors = validateStepOneFields(formData);
-      if (Object.keys(errors).length > 0) {
-        setFieldErrors(errors);
-        return;
-      }
       setSignupStep(2);
-      return;
-    }
-
-    const errors = isLoggingIn 
-      ? validateLoginFields(formData)
-      : validateSignupFields(formData);
-    
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors);
       return;
     }
 
     setIsBtnLoading(true);
 
     try {
-      await performAuthentication();
+      await performAuthentication(data);
       navigate('/', { replace: true });
     } catch (err) {
       setError(err.message);
@@ -164,16 +119,15 @@ export default function useLoginForm() {
     }
   };
 
+  const handleSubmit = rhfHandleSubmit(onSubmit);
+
   return {
+    control,
     isLoggingIn,
     signupStep,
     error,
     isLoading,
-    formData,
-    fieldErrors,
     isBtnLoading,
-    handleInputChange,
-    handleBlur,
     handleToggleMode,
     handleSubmit,
     setSignupStep

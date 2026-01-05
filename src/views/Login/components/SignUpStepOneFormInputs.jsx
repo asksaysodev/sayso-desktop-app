@@ -1,38 +1,57 @@
 import CustomInput from '@/components/CustomInput';
 import LoginBtn from '@/components/LoginBtn';
+import { Controller } from 'react-hook-form';
 
-export default function SignUpStepOneFormInputs({ formData, handleInputChange, handleBlur, fieldErrors }) {
+export default function SignUpStepOneFormInputs({ control }) {
     return (
         <>
-            <CustomInput
-                type="text"
-                id="name"
+            <Controller
                 name="name"
-                label="Name"
-                value={formData.name}
-                onChange={handleInputChange}
-                onBlur={handleBlur}
-                error={fieldErrors.name}
+                control={control}
+                render={({ field, fieldState: { error } }) => (
+                    <CustomInput
+                        type="text"
+                        id="name"
+                        name="name"
+                        label="Name"
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        error={error?.message}
+                    />
+                )}
             />
-            <CustomInput
-                type="text"
-                id="lastname"
+            <Controller
                 name="lastname"
-                label="Last Name"
-                value={formData.lastname}
-                onChange={handleInputChange}
-                onBlur={handleBlur}
-                error={fieldErrors.lastname}
+                control={control}
+                render={({ field, fieldState: { error } }) => (
+                    <CustomInput
+                        type="text"
+                        id="lastname"
+                        name="lastname"
+                        label="Last Name"
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        error={error?.message}
+                    />
+                )}
             />
-            <CustomInput
-                type="text"
-                id="company"
+            <Controller
                 name="company"
-                label="Company"
-                value={formData.company}
-                onChange={handleInputChange}
-                onBlur={handleBlur}
-                error={fieldErrors.company}
+                control={control}
+                render={({ field, fieldState: { error } }) => (
+                    <CustomInput
+                        type="text"
+                        id="company"
+                        name="company"
+                        label="Company"
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        error={error?.message}
+                    />
+                )}
             />
             <div className="formActions">
                 <LoginBtn type="submit" text="Continue" />
