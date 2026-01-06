@@ -13,9 +13,10 @@ interface Props {
     rules?: RegisterOptions;
     children: (fieldOptions: FieldOptions) => React.ReactNode;
     label?: string;
+    labelCn?: string;
 }
 
-export default function ControlledCustomFormField({ name, control, rules, label, children }: Props) {
+export default function ControlledCustomFormField({ name, control, rules, label, children, labelCn = '' }: Props) {
     return (
         <Controller
             name={name}
@@ -24,11 +25,11 @@ export default function ControlledCustomFormField({ name, control, rules, label,
             render={(fieldOptions) => (
                 <div>
                     <div className="grid gap-3">
-                        {label && <Label htmlFor={name}>{label}</Label>}
+                        {label && <Label className={labelCn} htmlFor={name}>{label}</Label>}
                         {children(fieldOptions)}
                     </div>
                     {fieldOptions.fieldState.error && (
-                        <span className="text-sm text-red-500">
+                        <span className="text-sm" style={{ color: 'var(--sayso-error)' }}>
                         {fieldOptions.fieldState.error?.message}
                         </span>
                     )}

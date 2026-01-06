@@ -1,35 +1,55 @@
-import CustomInput from '@/components/CustomInput';
 import LoginBtn from '@/components/LoginBtn';
-import PasswordInput from './PasswordInput';
+import ControlledInputField from '@/components/forms/ControlledInputField';
+import EyeToggleShowPasswordButton from './EyeToggleShowPasswordButton';
+import { useState } from 'react';
 
 export default function SignUpStepTwoFormInputs({ control, isBtnLoading, setSignupStep }) {
+    const [showPassword, setShowPassword] = useState(false);
+    const [showRepeatPassword, setShowRepeatPassword] = useState(false);
+
+    const togglePasswordVisibility = () => {
+        setShowPassword(prev => !prev);
+    };
+
+    const toggleRepeatPasswordVisibility = () => {
+        setShowRepeatPassword(prev => !prev);
+    };
+
     return (
-        <>
-            <CustomInput
+        <div className='flex flex-col gap-5'>
+            <ControlledInputField
                 type="email"
-                id="email"
+                control={control}
                 name="email"
                 label="Email"
-                control={control}
+                labelCn='loginInFormInputLabel'
             />
-            <PasswordInput
-                id="password"
+            <ControlledInputField
+                type={showPassword ? 'text' : 'password'}
+                control={control}
                 name="password"
                 label="Password"
-                control={control}
+                labelCn='loginInFormInputLabel'
+                rightChildren={<EyeToggleShowPasswordButton
+                    showPassword={showPassword}
+                    togglePasswordVisibility={togglePasswordVisibility}
+                />}
             />
-            <PasswordInput
-                id="repeatPassword"
+            <ControlledInputField
+                type={showRepeatPassword ? 'text' : 'password'}
+                control={control}
                 name="repeatPassword"
                 label="Repeat Password"
-                control={control}
+                labelCn='loginInFormInputLabel'
+                rightChildren={<EyeToggleShowPasswordButton
+                    showPassword={showRepeatPassword}
+                    togglePasswordVisibility={toggleRepeatPasswordVisibility}
+                />}
             />
             <div className="formActions">
                 <LoginBtn type="submit" text="Sign Up" isLoading={isBtnLoading} isDisabled={isBtnLoading} />
-                <div className='mt-20'>
                 <LoginBtn type="button" text="Back" onClick={() => setSignupStep(1)} isSecondary={true} />
-                </div>
             </div>
-        </>
+        </div>
     )
 }

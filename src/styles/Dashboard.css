@@ -33,13 +33,13 @@
   color: #2a3f5f; /* Darker blue-gray */
   margin-top: 0;
   margin-bottom: 30px; /* More space */
-  text-align: left; 
+  text-align: left;
 }
 
 .prospectList {
   list-style: none;
   padding: 0 10px 0 0; /* Add padding to the right side */
-  margin: 0 0 10px 0; 
+  margin: 0 0 10px 0;
   flex-grow: 1;
   overflow-y: auto;
   max-height: calc(100vh - 330px);
@@ -69,7 +69,7 @@
 .prospectItem {
   padding: 12px 15px; /* More padding */
   cursor: pointer;
-  border-radius: 8px; 
+  border-radius: 8px;
   margin-bottom: 10px;
   background: #f8faff; /* Match overall background */
   transition: background-color 0.2s ease, color 0.2s ease;
@@ -91,12 +91,12 @@
     padding: 12px 15px;
     cursor: pointer;
     border: none;
-    border-radius: 8px; 
+    border-radius: 8px;
     font-weight: 500;
     text-align: center;
     transition: background-color 0.2s ease, color 0.2s ease;
     width: 100%;
-    margin-top: 10px; 
+    margin-top: 10px;
 } */
 
 .sidebar .btn-secondary {
@@ -126,14 +126,14 @@
   justify-content: center;
   align-items: start;
   flex-grow: 1;
-  padding: 30px 40px; 
+  padding: 30px 40px;
   overflow-y: auto;
   background-color: #f8faff; /* Match base background */
 }
 
 .mainContent h1, .mainContent h2, .mainContent h3 {
     color: #2a3f5f; /* Dark blue-gray headings */
-    margin-top: 0; 
+    margin-top: 0;
 }
 
 .mainContent h1 { font-size: 1.7em; margin-bottom: 25px; font-weight: 600; }
@@ -216,7 +216,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px; 
+  margin-bottom: 15px;
   padding-bottom: 15px;
   border-bottom: 1px solid #eaf0f6;
 }
@@ -331,7 +331,7 @@
     padding: 15px 20px; /* Increased padding */
     box-sizing: border-box;
     height: 100%;
-    overflow-y: auto; 
+    overflow-y: auto;
     display: flex; /* Use flexbox */
     flex-direction: column; /* Stack title and list vertically */
 }
@@ -356,8 +356,8 @@
 }
 
 .checklistItem {
-    display: flex; 
-    align-items: center; 
+    display: flex;
+    align-items: center;
     margin-bottom: 15px; /* Added back for consistent spacing */
     font-size: 0.95em; /* Slightly larger */
 }
@@ -372,7 +372,7 @@
 .checklistItem label {
     cursor: pointer;
     /* Ensure text doesn't wrap too aggressively */
-    white-space: normal; 
+    white-space: normal;
 }
 
 /* Modal Styles */
@@ -489,7 +489,7 @@
   font-size: 0.9rem;
   transition: background 0.2s;
   margin:0;
-} 
+}
 
 .customFileInput {
   margin:0;
@@ -503,8 +503,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 200px;
-} 
+}
 
 body, * {
   box-sizing: border-box;
-} 
+}

@@ -29,3 +29,9 @@
     font-weight: 600;
     text-align: center;
   }
+.formActions {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 40px;
+}

@@ -1,39 +1,90 @@
 import { RegisterOptions, UseFormReturn } from "react-hook-form";
-import { Input } from "../ui/input";
 import ControlledCustomFormField from "./ControlledCustomFormField";
-import { HTMLInputTypeAttribute } from "react";
+import { DetailedHTMLProps, HTMLInputTypeAttribute, InputHTMLAttributes } from "react";
 
-interface Props {
+import './styles/controlledInputField.css'
+
+interface Props extends DetailedHTMLProps<InputHTMLAttributes<HTMLInputElement>, HTMLInputElement> {
     name: string;
     control: UseFormReturn<any>['control'];
     rules?: RegisterOptions;
     label?: string;
+    labelCn?: string;
+    labelColor?: string;
     placeholder?: string;
     type?: HTMLInputTypeAttribute;
     step?: string | number;
+    className?: HTMLInputElement['className'];
+    rightChildren?: React.ReactNode;
 }
 
-export default function ControlledInputField({ name, control, rules, label, placeholder, type = 'text', step }: Props) {
+export default function ControlledInputField({
+    name,
+    control,
+    rules,
+    label,
+    labelCn,
+    labelColor,
+    placeholder,
+    type = 'text',
+    step,
+    className = '',
+    rightChildren,
+    ...rest
+}: Props) {
     const isNumberInput = type === 'number';
-    
+
     return (
-        <ControlledCustomFormField name={name} control={control} rules={rules} label={label}>
-            {({ field, fieldState: {error} }) => (
-                <Input
-                    type={type}
-                    step={step ? step : undefined}
-                    {...field}
-                    onChange={(e) => {
-                        const value = e.target.value;
-                        if (isNumberInput && rules?.valueAsNumber) {
-                            field.onChange(value === '' ? '' : Number(value));
-                        } else {
-                            field.onChange(value);
-                        }
-                    }}
-                    placeholder={placeholder} 
-                    style={{ borderColor: error ? 'red' : 'var(--sayso-border)' }}
-                />
+        <ControlledCustomFormField name={name} control={control} rules={rules} label={label} labelCn={labelCn}>
+            {({ field, fieldState: {error: fieldError} }) => (
+                <div className="controlledInputFieldGroup">
+                    {rightChildren ? (
+                        <div className="inputWrapper">
+                            <input
+                                step={step ? step : undefined}
+                                type={type}
+                                name={name}
+                                placeholder={placeholder}
+                                className={`formInput ${fieldError ? 'error' : ''} ${className}`}
+                                value={field.value}
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (isNumberInput && rules?.valueAsNumber) {
+                                        field.onChange(value === '' ? '' : Number(value));
+                                    } else {
+                                        field.onChange(value);
+                                    }
+                                }}
+                                onBlur={field.onBlur}
+                                {...field}
+                                {...rest}
+                            />
+                            <div className="inputRightChildren">
+                                {rightChildren}
+                            </div>
+                        </div>
+                    ) : (
+                        <input
+                            step={step ? step : undefined}
+                            type={type}
+                            name={name}
+                            placeholder={placeholder}
+                            className={`formInput ${fieldError ? 'error' : ''} ${className}`}
+                            value={field.value}
+                            onChange={(e) => {
+                                const value = e.target.value;
+                                if (isNumberInput && rules?.valueAsNumber) {
+                                    field.onChange(value === '' ? '' : Number(value));
+                                } else {
+                                    field.onChange(value);
+                                }
+                            }}
+                            onBlur={field.onBlur}
+                            {...field}
+                            {...rest}
+                        />
+                    )}
+                </div>
             )}
         </ControlledCustomFormField>
     )

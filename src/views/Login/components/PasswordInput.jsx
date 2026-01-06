@@ -20,7 +20,7 @@ export default function PasswordInput({
     const togglePasswordVisibility = () => {
         setShowPassword(prev => !prev);
     };
-
+console.log(showPassword)
     if (control) {
         return (
             <Controller

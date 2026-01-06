@@ -2,6 +2,7 @@ import { RegisterOptions, UseFormReturn } from "react-hook-form";
 import { Textarea } from "../ui/textarea";
 import ControlledCustomFormField from "./ControlledCustomFormField";
 import CharacterCounter, { CharacterCounterType } from "@/views/Admin/components/CharacterCounter";
+import './styles/controlledInputField.css';
 
 interface Props {
     name: string;
@@ -34,11 +35,10 @@ export default function ControlledTextareaField({
                     <Textarea
                         {...field}
                         rows={rows}
-                        placeholder={placeholder} 
-                        style={{ 
-                            borderColor: error ? 'red' : 'var(--sayso-border)',
-                            resize: resize,
-                            outline: 'none'
+                        placeholder={placeholder}
+                        className={`controlledTextarea ${error ? 'error' : ''}`}
+                        style={{
+                            resize: resize
                         }}
                     />
                     {characterCounter && <CharacterCounter text={field.value || ''} type={characterCounterType} />}
