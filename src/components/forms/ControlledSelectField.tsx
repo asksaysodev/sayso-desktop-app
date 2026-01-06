@@ -1,6 +1,7 @@
 import { RegisterOptions, UseFormReturn } from "react-hook-form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import ControlledCustomFormField from "./ControlledCustomFormField";
+import './styles/controlledInputField.css';
 
 interface SelectOption {
     value: string;
@@ -36,9 +37,8 @@ export default function ControlledSelectField({
                     value={field.value || ''}
                     disabled={disabled}
                 >
-                    <SelectTrigger 
-                        className={className}
-                        style={{ borderColor: error ? 'red' : 'var(--sayso-border)' }}
+                    <SelectTrigger
+                        className={`controlledSelect ${error ? 'error' : ''} ${className || ''}`}
                     >
                         <SelectValue placeholder={placeholder} />
                     </SelectTrigger>

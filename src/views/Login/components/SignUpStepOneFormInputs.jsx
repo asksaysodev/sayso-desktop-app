@@ -1,33 +1,30 @@
-import CustomInput from '@/components/CustomInput';
 import LoginBtn from '@/components/LoginBtn';
+import ControlledInputField from '@/components/forms/ControlledInputField';
 
 export default function SignUpStepOneFormInputs({ control }) {
     return (
-        <>
-            <CustomInput
-                type="text"
-                id="name"
+        <div className='flex flex-col gap-5'>
+            <ControlledInputField
+                control={control}
                 name="name"
                 label="Name"
-                control={control}
+                labelCn='loginInFormInputLabel'
             />
-            <CustomInput
-                type="text"
-                id="lastname"
+            <ControlledInputField
+                control={control}
                 name="lastname"
                 label="Last Name"
-                control={control}
+                labelCn='loginInFormInputLabel'
             />
-            <CustomInput
-                type="text"
-                id="company"
+            <ControlledInputField
+                control={control}
                 name="company"
                 label="Company"
-                control={control}
+                labelCn='loginInFormInputLabel'
             />
             <div className="formActions">
                 <LoginBtn type="submit" text="Continue" />
             </div>
-        </>
+        </div>
     )
 }
