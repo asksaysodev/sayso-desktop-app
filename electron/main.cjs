@@ -4,12 +4,47 @@ const fs = require('node:fs');
 const { WindowManager } = require('./utils/windowManager');
 const { nativeImage } = require('electron/common');
 
+// Auto-updater configuration
 if (app.isPackaged) {
-  const { updateElectronApp } = require('update-electron-app');
-  updateElectronApp({
-    updateInterval: '1 hour',
-    logger: require('electron-log'),
-    notifyUser: true
+  const { autoUpdater } = require('electron-updater');
+  const log = require('electron-log');
+  
+  autoUpdater.logger = log;
+  autoUpdater.logger.transports.file.level = 'info';
+  
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+  
+  app.whenReady().then(() => {
+    autoUpdater.checkForUpdatesAndNotify();
+  });
+  
+  setInterval(() => {
+    autoUpdater.checkForUpdatesAndNotify();
+  }, 60 * 60 * 1000);
+  
+  autoUpdater.on('checking-for-update', () => {
+    log.info('Checking for updates...');
+  });
+  
+  autoUpdater.on('update-available', (info) => {
+    log.info('Update available:', info.version);
+  });
+  
+  autoUpdater.on('update-not-available', (info) => {
+    log.info('Update not available. Current version:', info.version);
+  });
+  
+  autoUpdater.on('error', (err) => {
+    log.error('Error in auto-updater:', err);
+  });
+  
+  autoUpdater.on('download-progress', (progressObj) => {
+    log.info(`Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`);
+  });
+  
+  autoUpdater.on('update-downloaded', (info) => {
+    log.info('Update downloaded:', info.version);
   });
 }
 
