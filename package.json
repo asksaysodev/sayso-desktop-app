@@ -1,6 +1,6 @@
 {
   "name": "sayso-app",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "Electron React Boilerplate App",
   "main": "electron/main.cjs",
   "repository": {
