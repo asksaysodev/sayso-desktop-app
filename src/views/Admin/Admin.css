@@ -55,6 +55,13 @@
     background-color: #FFFFFF;
     align-items: start;
 }
+.signals-draggable-list-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
 
 .signal-draggable {
     display: flex;

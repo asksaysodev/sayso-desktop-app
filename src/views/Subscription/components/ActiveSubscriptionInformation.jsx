@@ -33,9 +33,15 @@ export default function ActiveSubscriptionInformation() {
         return dayjs(billingPeriod.end).format('MMM D, YYYY');
     },[subscription]);
 
+    const activePlanName = useMemo(() => {
+        const { name = '', status = '' } = subscription || {};
+        if (status === "trialing") return `${name} - Free Trial`;
+        return name;
+    }, [subscription]);
+
     const handleCancelSubscription = () => {
         mutateGetStripeCancellationPageUrl(subscription?.plan);
-    }
+    }   
 
     if (isLoadingActivePlan) {
         return <ActiveSubscriptionInformationSkeleton />;
@@ -54,11 +60,21 @@ export default function ActiveSubscriptionInformation() {
                            <LuReceiptText size={24} color="#FFF" />
                         </div>
                         <div className="plan-details">
-                            <h2 className="plan-name">{subscription?.name}</h2>
+                            <div>
+                            <h2 className="plan-name">{activePlanName}</h2>
                             <p className="plan-billing-period">{billingPeriod}</p>
-                            <p className="plan-renewal-text">
-                                Your subscription will auto renew on {renewalDate}.
-                            </p>
+                            </div>
+                            
+                            <div>
+                                {subscription?.status === "trialing" && (
+                                    <p className="plan-renewal-text">
+                                            180 free trial minutes, then 1800 minutes included.
+                                    </p>
+                                )}
+                                <p className="plan-renewal-text">
+                                    Your subscription will auto renew on {renewalDate}.
+                                </p>
+                            </div>
                         </div>
                     </div>
                     {/* <button className="adjust-plan-button">Buy tokens</button> */}
@@ -94,8 +110,32 @@ export default function ActiveSubscriptionInformation() {
                                 </button>
                             </div>
                         </div>
-                    ))}
+                        {invoices?.map((invoice) => (
+                            <div key={invoice.id} className="invoice-row">
+                                <div className="invoice-col-date">
+                                    {dayjs(invoice.created_at).format('MMM D, YYYY')}
+                                </div>
+                                <div className="invoice-col-total">
+                                    ${(invoice.amount_paid_in_cents / 100).toFixed(2)}
+                                </div>
+                                <div className="invoice-col-status">
+                                    {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                                </div>
+                                <div className="invoice-col-actions">
+                                    <button 
+                                        className="view-invoice-button"
+                                        onClick={() => window.electron?.openExternal(invoice.url)}
+                                    >
+                                        View
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                : <div className="invoices-table-empty">
+                    <p className="invoices-table-empty-text">No invoices to display</p>
                 </div>
+                }
             </div>
 
             <div className="subscription-section">
