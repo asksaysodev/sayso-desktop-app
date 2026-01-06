@@ -41,7 +41,7 @@ export default function ActiveSubscriptionInformation() {
 
     const handleCancelSubscription = () => {
         mutateGetStripeCancellationPageUrl(subscription?.plan);
-    }   
+    }
 
     if (isLoadingActivePlan) {
         return <ActiveSubscriptionInformationSkeleton />;
@@ -56,15 +56,12 @@ export default function ActiveSubscriptionInformation() {
             <div className="subscription-section">
                 <div className="subscription-section-content">
                     <div className="plan-header">
-                        <div className="plan-icon">
-                           <LuReceiptText size={24} color="#FFF" />
-                        </div>
                         <div className="plan-details">
                             <div>
                             <h2 className="plan-name">{activePlanName}</h2>
                             <p className="plan-billing-period">{billingPeriod}</p>
                             </div>
-                            
+
                             <div>
                                 {subscription?.status === "trialing" && (
                                     <p className="plan-renewal-text">
@@ -83,32 +80,13 @@ export default function ActiveSubscriptionInformation() {
 
             <div className="subscription-section">
                 <h3 className="section-title">Invoices</h3>
-                <div className="invoices-table">
-                    <div className="invoices-table-header">
-                        <div className="invoice-col-date">Date</div>
-                        <div className="invoice-col-total">Total</div>
-                        <div className="invoice-col-status">Status</div>
-                        <div className="invoice-col-actions">Actions</div>
-                    </div>
-                    {invoices?.map((invoice) => (
-                        <div key={invoice.id} className="invoice-row">
-                            <div className="invoice-col-date">
-                                {dayjs(invoice.created_at).format('MMM D, YYYY')}
-                            </div>
-                            <div className="invoice-col-total">
-                                ${(invoice.amount_paid_in_cents / 100).toFixed(2)}
-                            </div>
-                            <div className="invoice-col-status">
-                                {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
-                            </div>
-                            <div className="invoice-col-actions">
-                                <button
-                                    className="view-invoice-button"
-                                    onClick={() => window.electron?.openExternal(invoice.url)}
-                                >
-                                    View
-                                </button>
-                            </div>
+                {invoices.length > 0
+                ?   <div className="invoices-table">
+                        <div className="invoices-table-header">
+                            <div className="invoice-col-date">Date</div>
+                            <div className="invoice-col-total">Total</div>
+                            <div className="invoice-col-status">Status</div>
+                            <div className="invoice-col-actions">Actions</div>
                         </div>
                         {invoices?.map((invoice) => (
                             <div key={invoice.id} className="invoice-row">
@@ -122,7 +100,7 @@ export default function ActiveSubscriptionInformation() {
                                     {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
                                 </div>
                                 <div className="invoice-col-actions">
-                                    <button 
+                                    <button
                                         className="view-invoice-button"
                                         onClick={() => window.electron?.openExternal(invoice.url)}
                                     >
