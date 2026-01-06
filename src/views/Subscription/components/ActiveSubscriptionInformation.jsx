@@ -10,10 +10,10 @@ import ActiveSubscriptionInformationSkeleton from "./ActiveSubscriptionInformati
 import ActiveSubscriptionInformationError from "./ActiveSubscriptionInformationError";
 
 export default function ActiveSubscriptionInformation() {
-    const { 
+    const {
         mutateGetStripeCancellationPageUrl,
         isPendingGetStripeCancellationPageUrl,
-        isErrorGetStripeCancellationPageUrl 
+        isErrorGetStripeCancellationPageUrl
     } = useStripeCancellation();
 
     const { data: activePlan, isLoading: isLoadingActivePlan, isError: isErrorActivePlan, refetch } = useQuery({
@@ -83,13 +83,32 @@ export default function ActiveSubscriptionInformation() {
 
             <div className="subscription-section">
                 <h3 className="section-title">Invoices</h3>
-                {invoices.length > 0 
-                ?   <div className="invoices-table">
-                        <div className="invoices-table-header">
-                            <div className="invoice-col-date">Date</div>
-                            <div className="invoice-col-total">Total</div>
-                            <div className="invoice-col-status">Status</div>
-                            <div className="invoice-col-actions">Actions</div>
+                <div className="invoices-table">
+                    <div className="invoices-table-header">
+                        <div className="invoice-col-date">Date</div>
+                        <div className="invoice-col-total">Total</div>
+                        <div className="invoice-col-status">Status</div>
+                        <div className="invoice-col-actions">Actions</div>
+                    </div>
+                    {invoices?.map((invoice) => (
+                        <div key={invoice.id} className="invoice-row">
+                            <div className="invoice-col-date">
+                                {dayjs(invoice.created_at).format('MMM D, YYYY')}
+                            </div>
+                            <div className="invoice-col-total">
+                                ${(invoice.amount_paid_in_cents / 100).toFixed(2)}
+                            </div>
+                            <div className="invoice-col-status">
+                                {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                            </div>
+                            <div className="invoice-col-actions">
+                                <button
+                                    className="view-invoice-button"
+                                    onClick={() => window.electron?.openExternal(invoice.url)}
+                                >
+                                    View
+                                </button>
+                            </div>
                         </div>
                         {invoices?.map((invoice) => (
                             <div key={invoice.id} className="invoice-row">

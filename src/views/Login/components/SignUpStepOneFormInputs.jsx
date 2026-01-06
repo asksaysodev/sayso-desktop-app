@@ -1,38 +1,29 @@
 import CustomInput from '@/components/CustomInput';
 import LoginBtn from '@/components/LoginBtn';
 
-export default function SignUpStepOneFormInputs({ formData, handleInputChange, handleBlur, fieldErrors }) {
+export default function SignUpStepOneFormInputs({ control }) {
     return (
         <>
             <CustomInput
                 type="text"
                 id="name"
                 name="name"
-                label="First Name"
-                value={formData.name}
-                onChange={handleInputChange}
-                onBlur={handleBlur}
-                error={fieldErrors.name}
+                label="Name"
+                control={control}
             />
             <CustomInput
                 type="text"
                 id="lastname"
                 name="lastname"
                 label="Last Name"
-                value={formData.lastname}
-                onChange={handleInputChange}
-                onBlur={handleBlur}
-                error={fieldErrors.lastname}
+                control={control}
             />
             <CustomInput
                 type="text"
                 id="company"
                 name="company"
-                label="Company / Brokerage"
-                value={formData.company}
-                onChange={handleInputChange}
-                onBlur={handleBlur}
-                error={fieldErrors.company}
+                label="Company"
+                control={control}
             />
             <div className="formActions">
                 <LoginBtn type="submit" text="Continue" />

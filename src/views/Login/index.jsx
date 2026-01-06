@@ -11,15 +11,12 @@ import './styles.css';
 
 const Login = () => {
   const {
+    control,
     isLoggingIn,
     signupStep,
     error,
     isLoading,
-    formData,
-    fieldErrors,
     isBtnLoading,
-    handleInputChange,
-    handleBlur,
     handleToggleMode,
     handleSubmit,
     setSignupStep
@@ -38,26 +35,17 @@ const Login = () => {
         <form onSubmit={handleSubmit}>
           {isLoggingIn ? (
             <LoginInFormInputs
-              formData={formData}
-              handleInputChange={handleInputChange}
-              handleBlur={handleBlur}
-              fieldErrors={fieldErrors}
+              control={control}
               isBtnLoading={isBtnLoading}
             />
           ) : (
             signupStep === 1 ? (
               <SignUpStepOneFormInputs
-                formData={formData}
-                handleInputChange={handleInputChange}
-                handleBlur={handleBlur}
-                fieldErrors={fieldErrors}
+                control={control}
               />
             ) : (
                 <SignUpStepTwoFormInputs
-                  formData={formData}
-                  handleInputChange={handleInputChange}
-                  handleBlur={handleBlur}
-                  fieldErrors={fieldErrors}
+                  control={control}
                   isBtnLoading={isBtnLoading}
                   setSignupStep={setSignupStep}
                 />

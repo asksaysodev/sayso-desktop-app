@@ -7,6 +7,7 @@
     background-color: var(--sayso-white);
     /* padding: 20px; */
     box-sizing: border-box;
+    text-align: left;
   }
 
   .loginForm {
