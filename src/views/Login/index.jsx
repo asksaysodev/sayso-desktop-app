@@ -6,6 +6,7 @@ import LoginInFormInputs from './components/LoginInFormInputs';
 import SignUpStepOneFormInputs from './components/SignUpStepOneFormInputs';
 import SignUpStepTwoFormInputs from './components/SignUpStepTwoFormInputs';
 import useLoginForm from './hooks/useLoginForm';
+import TopDragBar from '@/components/TopDragBar';
 
 import './styles.css';
 
@@ -28,6 +29,7 @@ const Login = () => {
 
   return (
     <div className="loginContainer">
+      <TopDragBar />
       <div className="loginForm">
         <img src={logoVertical} alt="Sayso" style={{ display: 'block', margin: '20px auto', height: 100 }} />
         <h2>{isLoggingIn ? 'Welcome Back!' : `Create Account`}</h2>
