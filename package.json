@@ -1,7 +1,7 @@
 {
   "name": "sayso-app",
-  "version": "1.0.0",
-  "description": "Electron React Boilerplate App",
+  "version": "1.0.1",
+  "description": "Sayso Desktop App",
   "main": "electron/main.cjs",
   "repository": {
     "type": "git",
