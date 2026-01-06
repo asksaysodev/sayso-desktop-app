@@ -1,57 +1,29 @@
 import CustomInput from '@/components/CustomInput';
 import LoginBtn from '@/components/LoginBtn';
-import { Controller } from 'react-hook-form';
 
 export default function SignUpStepOneFormInputs({ control }) {
     return (
         <>
-            <Controller
+            <CustomInput
+                type="text"
+                id="name"
                 name="name"
+                label="Name"
                 control={control}
-                render={({ field, fieldState: { error } }) => (
-                    <CustomInput
-                        type="text"
-                        id="name"
-                        name="name"
-                        label="Name"
-                        value={field.value}
-                        onChange={field.onChange}
-                        onBlur={field.onBlur}
-                        error={error?.message}
-                    />
-                )}
             />
-            <Controller
+            <CustomInput
+                type="text"
+                id="lastname"
                 name="lastname"
+                label="Last Name"
                 control={control}
-                render={({ field, fieldState: { error } }) => (
-                    <CustomInput
-                        type="text"
-                        id="lastname"
-                        name="lastname"
-                        label="Last Name"
-                        value={field.value}
-                        onChange={field.onChange}
-                        onBlur={field.onBlur}
-                        error={error?.message}
-                    />
-                )}
             />
-            <Controller
+            <CustomInput
+                type="text"
+                id="company"
                 name="company"
+                label="Company"
                 control={control}
-                render={({ field, fieldState: { error } }) => (
-                    <CustomInput
-                        type="text"
-                        id="company"
-                        name="company"
-                        label="Company"
-                        value={field.value}
-                        onChange={field.onChange}
-                        onBlur={field.onBlur}
-                        error={error?.message}
-                    />
-                )}
             />
             <div className="formActions">
                 <LoginBtn type="submit" text="Continue" />

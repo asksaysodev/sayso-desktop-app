@@ -10,10 +10,10 @@ import ActiveSubscriptionInformationSkeleton from "./ActiveSubscriptionInformati
 import ActiveSubscriptionInformationError from "./ActiveSubscriptionInformationError";
 
 export default function ActiveSubscriptionInformation() {
-    const { 
+    const {
         mutateGetStripeCancellationPageUrl,
         isPendingGetStripeCancellationPageUrl,
-        isErrorGetStripeCancellationPageUrl 
+        isErrorGetStripeCancellationPageUrl
     } = useStripeCancellation();
 
     const { data: activePlan, isLoading: isLoadingActivePlan, isError: isErrorActivePlan, refetch } = useQuery({
@@ -86,7 +86,7 @@ export default function ActiveSubscriptionInformation() {
                                 {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
                             </div>
                             <div className="invoice-col-actions">
-                                <button 
+                                <button
                                     className="view-invoice-button"
                                     onClick={() => window.electron?.openExternal(invoice.url)}
                                 >
