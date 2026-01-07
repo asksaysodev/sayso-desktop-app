@@ -4,24 +4,21 @@ const fs = require('node:fs');
 const { WindowManager } = require('./utils/windowManager');
 const { nativeImage } = require('electron/common');
 
-// Auto-updater configuration
+let autoUpdater = null;
+
 if (app.isPackaged) {
-  const { autoUpdater } = require('electron-updater');
+  const { autoUpdater: updater } = require('electron-updater');
   const log = require('electron-log');
+  
+  autoUpdater = updater;
   
   autoUpdater.logger = log;
   autoUpdater.logger.transports.file.level = 'info';
+  log.info('Auto-updater initialized');
   
-  autoUpdater.autoDownload = false;
+  autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  
-  app.whenReady().then(() => {
-    autoUpdater.checkForUpdatesAndNotify();
-  });
-  
-  setInterval(() => {
-    autoUpdater.checkForUpdatesAndNotify();
-  }, 60 * 60 * 1000);
+  autoUpdater.allowDowngrade = false;
   
   autoUpdater.on('checking-for-update', () => {
     log.info('Checking for updates...');
@@ -29,6 +26,7 @@ if (app.isPackaged) {
   
   autoUpdater.on('update-available', (info) => {
     log.info('Update available:', info.version);
+    log.info('Downloading update...');
   });
   
   autoUpdater.on('update-not-available', (info) => {
@@ -40,11 +38,31 @@ if (app.isPackaged) {
   });
   
   autoUpdater.on('download-progress', (progressObj) => {
-    log.info(`Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`);
+    const percent = progressObj.percent ? progressObj.percent.toFixed(2) : 0;
+    const transferred = progressObj.transferred || 0;
+    const total = progressObj.total || 0;
+    const speed = progressObj.bytesPerSecond || 0;
+    log.info(`Download progress: ${percent}% (${transferred}/${total} bytes) - Speed: ${speed} bytes/sec`);
   });
   
   autoUpdater.on('update-downloaded', (info) => {
     log.info('Update downloaded:', info.version);
+    
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Update Ready',
+      message: `Version ${info.version} has been downloaded`,
+      detail: 'The update will be installed when you quit and restart the app.',
+      buttons: ['Restart Now', 'Later']
+    }).then((result) => {
+      if (result.response === 0) {
+        // User clicked "Restart Now"
+        setImmediate(() => {
+          app.removeAllListeners('window-all-closed');
+          autoUpdater.quitAndInstall(false, true);
+        });
+      }
+    });
   });
 }
 
@@ -1655,6 +1673,20 @@ app.whenReady().then(() => {
   createDashboardWindow(); 
   registerTrayIconMenu();
   setupGlobalShortcut();
+  
+  if (autoUpdater) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch(err => {
+        console.error('Failed to check for updates:', err);
+      });
+    }, 3000);
+    
+    setInterval(() => {
+      autoUpdater.checkForUpdates().catch(err => {
+        console.error('Failed to check for updates:', err);
+      });
+    }, 60 * 60 * 1000);
+  }
   
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the
