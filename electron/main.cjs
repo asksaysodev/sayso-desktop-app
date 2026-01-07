@@ -12,15 +12,17 @@ if (app.isPackaged) {
   autoUpdater.logger = log;
   autoUpdater.logger.transports.file.level = 'info';
   
-  autoUpdater.autoDownload = false;
+  autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   
   app.whenReady().then(() => {
-    autoUpdater.checkForUpdatesAndNotify();
+    setTimeout(() => {
+      autoUpdater.checkForUpdates();
+    }, 3000);
   });
   
   setInterval(() => {
-    autoUpdater.checkForUpdatesAndNotify();
+    autoUpdater.checkForUpdates();
   }, 60 * 60 * 1000);
   
   autoUpdater.on('checking-for-update', () => {
@@ -29,6 +31,7 @@ if (app.isPackaged) {
   
   autoUpdater.on('update-available', (info) => {
     log.info('Update available:', info.version);
+    log.info('Downloading update...');
   });
   
   autoUpdater.on('update-not-available', (info) => {
@@ -40,11 +43,25 @@ if (app.isPackaged) {
   });
   
   autoUpdater.on('download-progress', (progressObj) => {
-    log.info(`Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`);
+    const percent = progressObj.percent.toFixed(2);
+    log.info(`Download progress: ${percent}% (${progressObj.bytesPerSecond} bytes/sec)`);
   });
   
   autoUpdater.on('update-downloaded', (info) => {
     log.info('Update downloaded:', info.version);
+    log.info('Update will be installed on app quit');
+    
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'New Version downloaded',
+      message: `Version ${info.version} has been downloaded`,
+      detail: 'The update will be installed when you quit and restart the app.',
+      buttons: ['Restart Now', 'Later']
+    }).then((result) => {
+      if (result.response === 0) {
+        autoUpdater.quitAndInstall();
+      }
+    });
   });
 }
 
