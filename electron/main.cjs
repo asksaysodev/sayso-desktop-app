@@ -4,26 +4,21 @@ const fs = require('node:fs');
 const { WindowManager } = require('./utils/windowManager');
 const { nativeImage } = require('electron/common');
 
-// Auto-updater configuration
+let autoUpdater = null;
+
 if (app.isPackaged) {
-  const { autoUpdater } = require('electron-updater');
+  const { autoUpdater: updater } = require('electron-updater');
   const log = require('electron-log');
+  
+  autoUpdater = updater;
   
   autoUpdater.logger = log;
   autoUpdater.logger.transports.file.level = 'info';
+  log.info('Auto-updater initialized');
   
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  
-  app.whenReady().then(() => {
-    setTimeout(() => {
-      autoUpdater.checkForUpdates();
-    }, 3000);
-  });
-  
-  setInterval(() => {
-    autoUpdater.checkForUpdates();
-  }, 60 * 60 * 1000);
+  autoUpdater.allowDowngrade = false;
   
   autoUpdater.on('checking-for-update', () => {
     log.info('Checking for updates...');
@@ -43,23 +38,29 @@ if (app.isPackaged) {
   });
   
   autoUpdater.on('download-progress', (progressObj) => {
-    const percent = progressObj.percent.toFixed(2);
-    log.info(`Download progress: ${percent}% (${progressObj.bytesPerSecond} bytes/sec)`);
+    const percent = progressObj.percent ? progressObj.percent.toFixed(2) : 0;
+    const transferred = progressObj.transferred || 0;
+    const total = progressObj.total || 0;
+    const speed = progressObj.bytesPerSecond || 0;
+    log.info(`Download progress: ${percent}% (${transferred}/${total} bytes) - Speed: ${speed} bytes/sec`);
   });
   
   autoUpdater.on('update-downloaded', (info) => {
     log.info('Update downloaded:', info.version);
-    log.info('Update will be installed on app quit');
     
     dialog.showMessageBox({
       type: 'info',
-      title: 'New Version downloaded',
+      title: 'Update Ready',
       message: `Version ${info.version} has been downloaded`,
       detail: 'The update will be installed when you quit and restart the app.',
       buttons: ['Restart Now', 'Later']
     }).then((result) => {
       if (result.response === 0) {
-        autoUpdater.quitAndInstall();
+        // User clicked "Restart Now"
+        setImmediate(() => {
+          app.removeAllListeners('window-all-closed');
+          autoUpdater.quitAndInstall(false, true);
+        });
       }
     });
   });
@@ -1672,6 +1673,20 @@ app.whenReady().then(() => {
   createDashboardWindow(); 
   registerTrayIconMenu();
   setupGlobalShortcut();
+  
+  if (autoUpdater) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch(err => {
+        console.error('Failed to check for updates:', err);
+      });
+    }, 3000);
+    
+    setInterval(() => {
+      autoUpdater.checkForUpdates().catch(err => {
+        console.error('Failed to check for updates:', err);
+      });
+    }, 60 * 60 * 1000);
+  }
   
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the
