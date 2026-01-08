@@ -1475,6 +1475,7 @@ ipcMain.handle('test-simple', () => {
 
 // Handle protocol activation (when app is opened via sayso:// URL)
 app.on('open-url', (event, url) => {
+  console.log('AAAAAAAAAAAAA:', url);
   if (isDev) {
     console.log('[Electron] open-url event:', url);
     console.log('Protocol URL received:', url);

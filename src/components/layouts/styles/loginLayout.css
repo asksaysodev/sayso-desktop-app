@@ -1,4 +1,4 @@
-.loginContainer {
+.loginLayoutContainer {
     display: flex;
     justify-content: center;
     align-items: center;
@@ -10,7 +10,7 @@
     text-align: left;
   }
 
-  .loginForm {
+  .loginLayoutForm {
     background: #ffffff;
     padding: 32px 50px;
     border-radius: 16px;
@@ -21,7 +21,7 @@
     box-sizing: border-box;
   }
 
-  .loginForm h2 {
+  .loginLayoutForm h2 {
     color: #2a3f5f;
     margin-top: 36px;
     margin-bottom: 25px;
@@ -29,35 +29,3 @@
     font-weight: 600;
     text-align: center;
   }
-.formActions {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    margin-top: 40px;
-}
-
-.toggleText {
-  margin-top: 20px;
-  text-align: center;
-  color: #52617a;
-  cursor: pointer;
-  transition: color 0.2s ease;
-}
-
-.toggleText:hover {
-  color: #4a85e5;
-}
-
-.forgotPasswordText {
-  margin-top: 10px;
-}
-
-.errorMessage {
-  color: #dc3545;
-  background-color: #f8d7da;
-  border: 1px solid #f5c6cb;
-  border-radius: 6px;
-  padding: 10px;
-  margin-bottom: 15px;
-  text-align: center;
-}
