@@ -185,7 +185,7 @@ const ResetPassword = () => {
           </div>
         </form>
         <p className='toggleText' onClick={handleBackToLogin}>
-          Back to Sign In
+          Back to Log In
         </p>
       </LoginLayout>
   );
