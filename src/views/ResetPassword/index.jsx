@@ -118,6 +118,11 @@ const ResetPassword = () => {
     }
   };
 
+  const handleBackToLogin = async () => {
+    await supabase.auth.signOut();
+    navigate('/login');
+  };
+
   if (isLoading) {
     return (
       <LoginLayout>
@@ -179,7 +184,7 @@ const ResetPassword = () => {
             />
           </div>
         </form>
-        <p className='toggleText' onClick={() => navigate('/login')}>
+        <p className='toggleText' onClick={handleBackToLogin}>
           Back to Sign In
         </p>
       </LoginLayout>
