@@ -89,15 +89,15 @@ notarize_app() {
   
   echo "🚀 Notarizing ${arch_name} app: ${app_path}"
   
-  # Zip the .app correctly (preserves attrs)
-  local zip_path="${RELEASE_DIR}/${APP_NAME}-${arch_name}.zip"
-  echo "🗜️  Creating notarization zip: ${zip_path}"
-  rm -f "${zip_path}"
-  ditto -c -k --sequesterRsrc --keepParent "${app_path}" "${zip_path}"
+  # Create temp ZIP for notarization submission (before stapling)
+  local temp_zip_path="${RELEASE_DIR}/${APP_NAME}-${arch_name}-temp.zip"
+  echo "🗜️  Creating temporary zip for notarization: ${temp_zip_path}"
+  rm -f "${temp_zip_path}"
+  ditto -c -k --sequesterRsrc --keepParent "${app_path}" "${temp_zip_path}"
 
   # Submit to Apple Notary Service and WAIT for result
   echo "🚀 Submitting ${arch_name} to Apple Notary Service (blocking until done)..."
-  xcrun notarytool submit "${zip_path}" \
+  xcrun notarytool submit "${temp_zip_path}" \
     --keychain-profile "${NOTARY_PROFILE}" \
     --wait --progress
 
@@ -105,6 +105,15 @@ notarize_app() {
   echo "📎 Stapling ticket to ${arch_name} app..."
   xcrun stapler staple "${app_path}"
   xcrun stapler validate "${app_path}"
+  
+  # NOW create the final ZIP with the stapled .app (for electron-updater)
+  local zip_path="${RELEASE_DIR}/${APP_NAME}-${arch_name}.zip"
+  echo "🗜️  Creating final ZIP with stapled app: ${zip_path}"
+  rm -f "${zip_path}"
+  ditto -c -k --sequesterRsrc --keepParent "${app_path}" "${zip_path}"
+  
+  # Clean up temp zip
+  rm -f "${temp_zip_path}"
   
   echo "✅ ${arch_name} app notarized and stapled successfully!"
 }

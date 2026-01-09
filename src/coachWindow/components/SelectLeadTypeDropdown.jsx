@@ -15,6 +15,7 @@ export default function SelectLeadTypeDropdown({ isDropdownOpen, setIsDropdownOp
 
     const handleSelect = (type) => {
         setLeadType(type.id);
+		setIsDropdownOpen(false);
     };
 
     return (
