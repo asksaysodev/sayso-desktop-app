@@ -31,36 +31,35 @@ const Login = () => {
   }
 
   return (
-    <LoginLayout title={isLoggingIn ? 'Welcome Back!' : `Create Account`}>
-         {error && <div className="errorMessage">{error}</div>}
-         <form onSubmit={handleSubmit}>
-           {isLoggingIn ? (
-             <LoginInFormInputs
-               control={control}
-               isBtnLoading={isBtnLoading}
-             />
-           ) : (
-             signupStep === 1 ? (
-               <SignUpStepOneFormInputs
-                 control={control}
-               />
-             ) : (
-                 <SignUpStepTwoFormInputs
-                   control={control}
-                   isBtnLoading={isBtnLoading}
-                   setSignupStep={setSignupStep}
-                 />
-             )
-           )}
-         </form>
-         <p className="toggleText" onClick={handleToggleMode}>
-           {isLoggingIn ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
-         </p>
-         {isLoggingIn && (
-           <p className="toggleText forgotPasswordText" onClick={() => navigate('/forgot-password')}>
-             Forgot password? Click here
-           </p>
-         )}
+    <LoginLayout title={isLoggingIn ? 'Welcome Back!' : `Create Account`} error={error}>
+      <form onSubmit={handleSubmit}>
+        {isLoggingIn ? (
+          <LoginInFormInputs
+            control={control}
+            isBtnLoading={isBtnLoading}
+          />
+        ) : (
+          signupStep === 1 ? (
+            <SignUpStepOneFormInputs
+              control={control}
+            />
+          ) : (
+              <SignUpStepTwoFormInputs
+                control={control}
+                isBtnLoading={isBtnLoading}
+                setSignupStep={setSignupStep}
+              />
+          )
+        )}
+      </form>
+      <p className="toggleText" onClick={handleToggleMode}>
+        {isLoggingIn ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
+      </p>
+      {isLoggingIn && (
+        <p className="toggleText forgotPasswordText" onClick={() => navigate('/forgot-password')}>
+          Forgot password? Click here
+        </p>
+      )}
     </LoginLayout>
   )
 };

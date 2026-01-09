@@ -40,3 +40,24 @@ export const validateSignupFields = (formData) => {
   return errors;
 };
 
+/**
+ * Validates password reset fields (password + confirmation only)
+ */
+export const validateResetPasswordFields = (formData) => {
+  const errors = {};
+  
+  if (!formData.newPassword) {
+    errors.newPassword = 'Password is required';
+  } else if (formData.newPassword.length < 6) {
+    errors.newPassword = 'Password must be at least 6 characters';
+  }
+  
+  if (!formData.confirmPassword) {
+    errors.confirmPassword = 'Please confirm your password';
+  } else if (formData.newPassword !== formData.confirmPassword) {
+    errors.confirmPassword = 'Passwords do not match';
+  }
+  
+  return errors;
+};
+

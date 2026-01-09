@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import './styles.css';
@@ -13,6 +13,8 @@ import { useToast } from '@/context/ToastContext';
 const PasswordRecovery = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const [countdown, setCountdown] = useState(0);
+  
   const { control, handleSubmit, setError, reset } = useForm({
     defaultValues: {
       email: ''
@@ -21,13 +23,18 @@ const PasswordRecovery = () => {
   
   const {mutate: resetPasswordMutation, isPending: isResetPasswordPending} = useMutation({
     mutationFn: async (email) => {
-      const { data, error } = await supabase.auth.resetPasswordForEmail(email);
+      const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: process.env.NODE_ENV === 'development' 
+          ? 'http://localhost:5173' 
+          : 'sayso://'
+      });
       if (error) throw error;
       return data;
     },
     onSuccess: () => {
       showToast('success', 'Reset link sent! Check your email');
       reset();
+      setCountdown(60);
     },
     onError: (error) => {
       setError('email', { 
@@ -35,6 +42,21 @@ const PasswordRecovery = () => {
       });
     }
   });
+
+  useEffect(() => {
+    if (countdown <= 0) return;
+
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [countdown]);
 
   const onSubmit = async (data) => {
     if (!data.email) {
@@ -63,8 +85,14 @@ const PasswordRecovery = () => {
             type="submit" 
             onClick={handleSubmit(onSubmit)} 
             loading={isResetPasswordPending}
+            disabled={countdown > 0 || isResetPasswordPending}
             fullWidth
           />
+          {countdown > 0 && (
+            <p className="password-recovery-countdown">
+              You can request again in {countdown} second{countdown !== 1 ? 's' : ''}
+            </p>
+          )}
         </form>
         <p 
           className="toggleText"

@@ -35,7 +35,7 @@ export default function ControlledInputField({
     const isNumberInput = type === 'number';
 
     return (
-        <ControlledCustomFormField name={name} control={control} rules={rules} label={label} labelCn={labelCn}>
+        <ControlledCustomFormField name={name} control={control} rules={rules} label={label} labelCn={labelCn} labelColor={labelColor}>
             {({ field, fieldState: {error: fieldError} }) => (
                 <div className="controlledInputFieldGroup">
                     {rightChildren ? (

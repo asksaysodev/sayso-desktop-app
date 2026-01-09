@@ -9,12 +9,8 @@ import EyeToggleShowPasswordButton from './EyeToggleShowPasswordButton';
 export default function LoginInFormInputs({ control, isBtnLoading }) {
     const [showPassword, setShowPassword] = useState(false);
 
-    const togglePasswordVisibility = () => {
-        setShowPassword(prev => !prev);
-    };
-
     return (
-        <div className='flex flex-col gap-5'>
+        <div className='login-layout-form-inputs-wrapper'>
             <ControlledInputField
                 control={control}
                 name='email'
@@ -29,7 +25,7 @@ export default function LoginInFormInputs({ control, isBtnLoading }) {
                 labelCn='loginInFormInputLabel'
                 rightChildren={<EyeToggleShowPasswordButton
                     showPassword={showPassword}
-                    togglePasswordVisibility={togglePasswordVisibility}
+                    setShowPassword={setShowPassword}
                     />
                 }
             />

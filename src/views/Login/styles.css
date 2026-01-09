@@ -35,29 +35,3 @@
     gap: 14px;
     margin-top: 40px;
 }
-
-.toggleText {
-  margin-top: 20px;
-  text-align: center;
-  color: #52617a;
-  cursor: pointer;
-  transition: color 0.2s ease;
-}
-
-.toggleText:hover {
-  color: #4a85e5;
-}
-
-.forgotPasswordText {
-  margin-top: 10px;
-}
-
-.errorMessage {
-  color: #dc3545;
-  background-color: #f8d7da;
-  border: 1px solid #f5c6cb;
-  border-radius: 6px;
-  padding: 10px;
-  margin-bottom: 15px;
-  text-align: center;
-}

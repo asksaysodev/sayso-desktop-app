@@ -1475,16 +1475,41 @@ ipcMain.handle('test-simple', () => {
 
 // Handle protocol activation (when app is opened via sayso:// URL)
 app.on('open-url', (event, url) => {
-  console.log('AAAAAAAAAAAAA:', url);
   if (isDev) {
     console.log('[Electron] open-url event:', url);
     console.log('Protocol URL received:', url);
   }
   event.preventDefault();
   
-  // Parse the URL to extract parameters
   const urlObj = new URL(url);
   const params = new URLSearchParams(urlObj.search);
+  
+  if (urlObj.hash) {
+    const hashParams = new URLSearchParams(urlObj.hash.substring(1));
+    const accessToken = hashParams.get('access_token');
+    const refreshToken = hashParams.get('refresh_token');
+    const type = hashParams.get('type');
+    
+    if (accessToken || type === 'recovery') {
+      if (dashboardWindowInstance) {
+        const queryString = Array.from(hashParams.entries())
+          .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+          .join('&');
+        
+        const resetPasswordUrl = isDev 
+          ? `http://localhost:5173/#/reset-password?${queryString}`
+          : `file://${path.join(__dirname, '../dist/index.html')}#/reset-password?${queryString}`;
+        
+        dashboardWindowInstance.loadURL(resetPasswordUrl);
+        
+        if (dashboardWindowInstance.isMinimized()) {
+          dashboardWindowInstance.restore();
+        }
+        dashboardWindowInstance.focus();
+      }
+      return;
+    }
+  }
 
   // Handle checkout callback
   if (urlObj.pathname === '/checkout') {

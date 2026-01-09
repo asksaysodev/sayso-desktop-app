@@ -3,7 +3,7 @@ import ControlledInputField from '@/components/forms/ControlledInputField';
 
 export default function SignUpStepOneFormInputs({ control }) {
     return (
-        <div className='flex flex-col gap-5'>
+        <div className='login-layout-form-inputs-wrapper'>
             <ControlledInputField
                 control={control}
                 name="name"

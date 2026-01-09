@@ -24,3 +24,10 @@
   cursor: pointer;
   margin-top: 10px;
 }
+
+.password-recovery-countdown {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #64748b;
+  text-align: center;
+}
