@@ -1505,10 +1505,9 @@ app.on('open-url', (event, url) => {
   if (urlObj.hash) {
     const hashParams = new URLSearchParams(urlObj.hash.substring(1));
     const accessToken = hashParams.get('access_token');
-    const refreshToken = hashParams.get('refresh_token');
     const type = hashParams.get('type');
     
-    if (accessToken || type === 'recovery') {
+    if (accessToken && type === 'recovery') {
       if (dashboardWindowInstance) {
         const queryString = Array.from(hashParams.entries())
           .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
