@@ -46,12 +46,17 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-
+  const resetUser = () => {
     setUser(null);
     updateGlobalUserState(null);
     setAuthToken(null);
+    Sentry.setUser(null);
+  }
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+
+    resetUser();
     
     if (window.electron?.ipcRenderer) {
       window.electron.ipcRenderer.send('update-user-auth', { userAuthenticated: null });
@@ -62,9 +67,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const handleSessionExpired = () => {
       console.log('🔐 AuthContext: Session expired event received');
-      setUser(null);
-      updateGlobalUserState(null);
-      setAuthToken(null);
+      resetUser();
     };
 
     window.addEventListener('auth:session-expired', handleSessionExpired);
@@ -82,7 +85,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     // Check active sessions and sets the user
-      supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       prevUserRef.current = session?.user ?? null
       setLoading(false)
@@ -118,6 +121,16 @@ export const AuthProvider = ({ children }) => {
       timeoutId = setTimeout(() => {
         getAccount(user.email).then((account) => {
           updateGlobalUserState(account)
+          Sentry.setUser({ 
+            id: account?.id,
+            email: account?.email,
+            name: account?.name,
+            lastname: account?.lastname,
+            company_id: account?.company_id,
+            subscription_monthly_minutes: account?.subscription_monthly_minutes,
+            subscription_plan_id: account?.subscription_plan_id,
+            subscription_status: account?.subscription_status
+          });
           setUserLoading(false)
         })
       }, 300) // 300ms delay

@@ -9,10 +9,26 @@ import Providers from './Providers';
 import AppRoutes from './AppRoutes';
 import { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import * as Sentry from "@sentry/electron/renderer";
 
 function App() {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Track navigation changes in Sentry breadcrumbs
+  useEffect(() => {
+    Sentry.addBreadcrumb({
+      category: 'navigation',
+      message: `Navigated to ${location.pathname}`,
+      level: 'info',
+      data: {
+        pathname: location.pathname,
+        search: location.search,
+        hash: location.hash,
+        state: location.state
+      }
+    });
+  }, [location]);
 
   // Intercept password recovery tokens in URL hash to redirect to reset-password instead of login the user in automatically
   useEffect(() => {
