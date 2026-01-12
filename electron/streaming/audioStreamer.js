@@ -6,6 +6,7 @@ const { WebSocketClient } = require('./websocketClient');
 const { convertToAssemblyAIFormat } = require('./audioConverter');
 const { STREAMING_ENDPOINTS, AUDIO_SOURCE_FORMATS } = require('./streamingConfig');
 const axios = require('axios');
+const Sentry = require("@sentry/electron/main");
 
 /**
  * AudioStreamer - Manages audio streaming for both user and prospect streams
@@ -85,6 +86,7 @@ class AudioStreamer {
         },
         onError: (error) => {
           console.error('❌ [AudioStreamer] User stream error:', error);
+          Sentry.captureException(error);
           if (this.onError) this.onError('user', error);
         }
       });
@@ -97,6 +99,7 @@ class AudioStreamer {
         },
         onError: (error) => {
           console.error('❌ [AudioStreamer] Prospect stream error:', error);
+          Sentry.captureException(error);
           if (this.onError) this.onError('prospect', error);
         }
       });
@@ -123,6 +126,7 @@ class AudioStreamer {
 
     } catch (error) {
       console.error('❌ [AudioStreamer] Failed to start streaming:', error);
+      Sentry.captureException(error);
       this.isStreaming = false;
       throw error;
     }
@@ -158,6 +162,7 @@ class AudioStreamer {
       */
     } catch (error) {
       console.error('❌ [AudioStreamer] Failed to get sessionId:', error);
+      Sentry.captureException(error);
       // Fallback to temporary sessionId
       return `temp-session-${Date.now()}`;
     }
@@ -182,6 +187,7 @@ class AudioStreamer {
       this._processUserChunks();
     } catch (error) {
       console.error('❌ [AudioStreamer] Error adding user audio:', error);
+      Sentry.captureException(error);
       if (this.onError) this.onError('user', error);
     }
   }
@@ -204,6 +210,7 @@ class AudioStreamer {
       this._processProspectChunks();
     } catch (error) {
       console.error('❌ [AudioStreamer] Error adding prospect audio:', error);
+      Sentry.captureException(error);
       if (this.onError) this.onError('prospect', error);
     }
   }
@@ -236,6 +243,7 @@ class AudioStreamer {
             console.warn(`⚠️ [AudioStreamer] User audio send failed (${this.userSendFailures}/${this.maxSendFailures})`);
             if (this.userSendFailures >= this.maxSendFailures) {
               console.error(`❌ [AudioStreamer] User stream: Max send failures reached (${this.maxSendFailures})`);
+              Sentry.captureMessage(`User stream: Max send failures reached (${this.maxSendFailures})`, 'error');
               if (this.onError) {
                 this.onError('user', new Error('Max send failures reached'));
               }
@@ -244,11 +252,13 @@ class AudioStreamer {
         } catch (conversionError) {
           // Log and continue (don't stop streaming)
           console.error('❌ [AudioStreamer] User audio conversion failed:', conversionError.message);
+          Sentry.captureException(conversionError);
           // Continue processing other chunks
         }
       }
     } catch (error) {
       console.error('❌ [AudioStreamer] Error processing user chunks:', error);
+      Sentry.captureException(error);
       if (this.onError) this.onError('user', error);
     }
   }
@@ -279,6 +289,7 @@ class AudioStreamer {
             this.prospectSendFailures++;
             if (this.prospectSendFailures >= this.maxSendFailures) {
               console.error(`❌ [AudioStreamer] Prospect stream: Max send failures reached (${this.maxSendFailures})`);
+              Sentry.captureMessage(`Prospect stream: Max send failures reached (${this.maxSendFailures})`, 'error');
               if (this.onError) {
                 this.onError('prospect', new Error('Max send failures reached'));
               }
@@ -287,11 +298,13 @@ class AudioStreamer {
         } catch (conversionError) {
           // Log and continue (don't stop streaming)
           console.error('❌ [AudioStreamer] Prospect audio conversion failed:', conversionError.message);
+          Sentry.captureException(conversionError);
           // Continue processing other chunks
         }
       }
     } catch (error) {
       console.error('❌ [AudioStreamer] Error processing prospect chunks:', error);
+      Sentry.captureException(error);
       if (this.onError) this.onError('prospect', error);
     }
   }
@@ -333,6 +346,7 @@ class AudioStreamer {
 
     } catch (error) {
       console.error('❌ [AudioStreamer] Error stopping streaming:', error);
+      Sentry.captureException(error);
       // Force reset state even on error
       this.isStreaming = false;
       throw error;

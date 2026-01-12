@@ -4,6 +4,7 @@
 const WebSocket = require('ws');
 const EventEmitter = require('events');
 const { getWebSocketUrl, CONNECTION_CONFIG, STREAMING_ENDPOINTS } = require('./streamingConfig');
+const Sentry = require("@sentry/electron/main");
 
 /**
  * WebSocketClient - Manages WebSocket connection for audio streaming
@@ -152,6 +153,7 @@ class WebSocketClient extends EventEmitter {
         this.ws.on('error', (error) => {
           clearTimeout(timeout);
           console.error(`❌ [WebSocketClient:${this.speaker}] WebSocket error:`, error.message);
+          Sentry.captureException(error);
           this.state = 'error';
           this.emit('error', error);
           reject(error);
@@ -166,6 +168,7 @@ class WebSocketClient extends EventEmitter {
       } catch (error) {
         clearTimeout(timeout);
         console.error(`❌ [WebSocketClient:${this.speaker}] Failed to create WebSocket:`, error);
+        Sentry.captureException(error);
         this.state = 'error';
         this.emit('error', error);
         reject(error);
@@ -196,6 +199,7 @@ class WebSocketClient extends EventEmitter {
       this.reconnectTimer = setTimeout(() => {
         this._connect().catch((error) => {
           console.error(`❌ [WebSocketClient:${this.speaker}] Reconnection failed:`, error.message);
+          Sentry.captureException(error);
         });
       }, delay);
     } else if (this.reconnectAttempts >= CONNECTION_CONFIG.reconnectAttempts) {
@@ -225,6 +229,7 @@ class WebSocketClient extends EventEmitter {
       return true;
     } catch (error) {
       console.error(`❌ [WebSocketClient:${this.speaker}] Failed to send data:`, error.message);
+      Sentry.captureException(error);
       this.emit('error', error);
       return false;
     }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../../config/supabase';
+import * as Sentry from "@sentry/electron/renderer";
 
 export const useAudioUpload = () => {
   const [isCompressing, setIsCompressing] = useState(false);
@@ -125,6 +126,7 @@ export const useAudioUpload = () => {
     } catch (error) {
       setIsCompressing(false);
       setIsUploading(false);
+      Sentry.captureException(error);
       throw error;
     }
   };

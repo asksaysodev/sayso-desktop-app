@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { supabase } from '../config/supabase'
 import { useAccounts } from '../hooks/useAccounts'
 import { useLocation } from 'react-router-dom'
+import * as Sentry from "@sentry/electron/renderer"
 
 // Define the shape of our auth context
 const AuthContext = createContext({})
@@ -40,7 +41,8 @@ export const AuthProvider = ({ children }) => {
       const account = await getAccount(accountEmail);
       updateGlobalUserState(account);
     } catch (error) {
-      console.error('Error updating global user:', error); 
+      console.error('Error updating global user:', error);
+      Sentry.captureException(error);
     }
   }
 
@@ -144,6 +146,7 @@ export const AuthProvider = ({ children }) => {
           await createAccount({ email, name, lastname, company })
         } catch (err) {
           console.error('Error creating account in DB:', err)
+          Sentry.captureException(err)
         }
       }
       return result
