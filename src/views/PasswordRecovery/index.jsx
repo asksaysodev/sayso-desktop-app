@@ -72,10 +72,7 @@ const PasswordRecovery = () => {
   };
 
   return (
-    <LoginLayout title="Reset Your Password">
-        <p className='password-recovery-description'>
-          Enter your email address and we'll send you a link to reset your password.
-        </p>
+    <LoginLayout title="Reset Your Password" description={"Enter your email address and we'll send you a link to reset your password."}>
         <form onSubmit={handleSubmit(onSubmit)}>
           <div style={{ marginBottom: '20px' }}>
               <ControlledInputField type="email" name="email" label="Email Address" control={control} labelCn='password-recovery-input-label'/>
