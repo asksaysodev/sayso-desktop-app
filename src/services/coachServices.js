@@ -1,5 +1,6 @@
 // import axios from 'axios';
 import apiClient from '../config/axios';
+import * as Sentry from "@sentry/electron/renderer";
 
 
 export const getDynamicContext = async (data) => {
@@ -8,6 +9,7 @@ export const getDynamicContext = async (data) => {
     return response.data;
   } catch (error) {
     console.error('Error getting dynamic context:', error);
+    Sentry.captureException(error);
     throw error;
   }
 };
@@ -37,6 +39,7 @@ export const runCoach = async ( conversationContext, insights, signals, callProg
     return response.data;
   } catch (error) {
     console.error('Error running coach:', error);
+    Sentry.captureException(error);
     throw error;
   }
 }
@@ -189,6 +192,7 @@ export const trackSignals = async (currentConversation) => {
         response: chatCompletionResponse,
         error: parseError.message
       });
+      Sentry.captureException(parseError);
       // Return a safe default response instead of throwing
       return [
         { signal: "pain_points", detected: false, quote: null },
@@ -201,6 +205,7 @@ export const trackSignals = async (currentConversation) => {
     // Validate the response structure - now expecting an object, not an array
     if (!parsedResponse || typeof parsedResponse !== 'object' || Array.isArray(parsedResponse)) {
       console.error('❌ trackSignals response is not a valid object:', parsedResponse);
+      Sentry.captureMessage('trackSignals response is not a valid object', 'error');
       return [
         { signal: "pain_points", detected: false, quote: null },
         { signal: "economic_impact", detected: false, quote: null },
@@ -240,6 +245,7 @@ export const trackSignals = async (currentConversation) => {
 
   } catch (error) {
     console.error('❌ Error in trackSignals:', error);
+    Sentry.captureException(error);
     // Return a safe default response instead of throwing
     return [
       { signal: "pain_points", detected: false, quote: null },
@@ -391,6 +397,7 @@ export const runChatCompletion = async (currentConversation, dynamicContext, pre
         response: chatCompletionResponse,
         error: parseError.message
       });
+      Sentry.captureException(parseError);
       // Return a safe default response instead of throwing
       return {
         Insight: "no",
@@ -402,6 +409,7 @@ export const runChatCompletion = async (currentConversation, dynamicContext, pre
 
   } catch (error) {
     console.error('❌ Error in runChatCompletion:', error);
+    Sentry.captureException(error);
     // Return a safe default response instead of throwing
     return {
       Insight: "no",

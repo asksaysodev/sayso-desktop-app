@@ -3,6 +3,8 @@
  * Handles Electron IPC communication for dual-channel audio recording
  */
 
+import * as Sentry from "@sentry/electron/renderer";
+
 /**
  * Stops the dual-channel recording via Electron API
  * @returns {Promise<Object>} Recording result with file paths
@@ -18,6 +20,7 @@ export const stopDualChannelRecording = async () => {
             return result;
         } catch (error) {
             console.error('🎤 [audioRecordingService] ❌ Error stopping recording:', error);
+            Sentry.captureException(error);
             throw error;
         }
     } else {
@@ -42,11 +45,13 @@ export const startDualChannelRecording = async (recordingParams) => {
             return result;
         } catch (error) {
             console.error('🎤 [audioRecordingService] ❌ Error starting recording:', error);
+            Sentry.captureException(error);
             throw error;
         }
     } else {
         console.error('[audioRecordingService] Electron recording API is not available!');
         console.error('[audioRecordingService] window.electron:', window.electron);
+        Sentry.captureMessage('Electron recording API not available', 'error');
         throw new Error('Electron recording API not available');
     }
 };

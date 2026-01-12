@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { supabase } from '../config/supabase'
 import { useAccounts } from '../hooks/useAccounts'
 import { useLocation } from 'react-router-dom'
+import * as Sentry from "@sentry/electron/renderer"
 
 // Define the shape of our auth context
 const AuthContext = createContext({})
@@ -40,16 +41,22 @@ export const AuthProvider = ({ children }) => {
       const account = await getAccount(accountEmail);
       updateGlobalUserState(account);
     } catch (error) {
-      console.error('Error updating global user:', error); 
+      console.error('Error updating global user:', error);
+      Sentry.captureException(error);
     }
+  }
+
+  const resetUser = () => {
+    setUser(null);
+    updateGlobalUserState(null);
+    setAuthToken(null);
+    Sentry.setUser(null);
   }
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
 
-    setUser(null);
-    updateGlobalUserState(null);
-    setAuthToken(null);
+    resetUser();
     
     if (window.electron?.ipcRenderer) {
       window.electron.ipcRenderer.send('update-user-auth', { userAuthenticated: null });
@@ -60,9 +67,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const handleSessionExpired = () => {
       console.log('🔐 AuthContext: Session expired event received');
-      setUser(null);
-      updateGlobalUserState(null);
-      setAuthToken(null);
+      resetUser();
     };
 
     window.addEventListener('auth:session-expired', handleSessionExpired);
@@ -80,7 +85,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     // Check active sessions and sets the user
-      supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       prevUserRef.current = session?.user ?? null
       setLoading(false)
@@ -116,6 +121,16 @@ export const AuthProvider = ({ children }) => {
       timeoutId = setTimeout(() => {
         getAccount(user.email).then((account) => {
           updateGlobalUserState(account)
+          Sentry.setUser({ 
+            id: account?.id,
+            email: account?.email,
+            name: account?.name,
+            lastname: account?.lastname,
+            company_id: account?.company_id,
+            subscription_monthly_minutes: account?.subscription_monthly_minutes,
+            subscription_plan_id: account?.subscription_plan_id,
+            subscription_status: account?.subscription_status
+          });
           setUserLoading(false)
         })
       }, 300) // 300ms delay
@@ -144,6 +159,7 @@ export const AuthProvider = ({ children }) => {
           await createAccount({ email, name, lastname, company })
         } catch (err) {
           console.error('Error creating account in DB:', err)
+          Sentry.captureException(err)
         }
       }
       return result

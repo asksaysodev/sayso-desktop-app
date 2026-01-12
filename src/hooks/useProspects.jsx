@@ -1,4 +1,5 @@
 import apiClient from '../config/axios';
+import * as Sentry from "@sentry/electron/renderer";
 
 import { useFiles } from './useFiles';
 
@@ -29,6 +30,7 @@ export const useProspects = () => {
       return response.data.data;
     } catch (error) {
       console.error('Error creating prospect:', error);
+      Sentry.captureException(error);
       throw error;
     }
 
@@ -40,6 +42,7 @@ export const useProspects = () => {
       return response.data.data;
     } catch (error) {
       console.error('Error getting account prospects:', error);
+      Sentry.captureException(error);
       throw error;
     }
   };
@@ -50,6 +53,7 @@ export const useProspects = () => {
       return response.data.data;
     } catch (error) {
       console.error('Error getting prospect:', error);
+      Sentry.captureException(error);
       throw error;
     }
   };
@@ -71,6 +75,7 @@ export const useProspects = () => {
       return response.data;
     } catch (error) {
       console.error('Error saving prospect meeting:', error);
+      Sentry.captureException(error);
       throw error;
     }
 
@@ -80,8 +85,9 @@ export const useProspects = () => {
     try {
       const response = await apiClient.delete(`/prospects/remove-zoom-meeting/${prospectId}`);
       return response.data;
-    } catch (error) {   
+    } catch (error) {
       console.error('Error removing zoom meeting:', error);
+      Sentry.captureException(error);
       throw error;
     }
 
@@ -94,8 +100,9 @@ export const useProspects = () => {
       }
       await apiClient.put(`/prospects/update-prospect/${prospectId}`, { updateData });
       return
-    } catch (error) {   
+    } catch (error) {
       console.error('Error in updateProspect:', error);
+      Sentry.captureException(error);
       throw error;
     }
 
@@ -107,6 +114,7 @@ export const useProspects = () => {
       return response.data;
     } catch (error) {
       console.error('Error deleting prospect:', error);
+      Sentry.captureException(error);
       throw error;
     }
   }

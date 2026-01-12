@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { cryptoStorage, fallbackStorage } from '../utils/tokenEncryption'
+import * as Sentry from "@sentry/electron/renderer"
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -15,6 +16,7 @@ const robustStorage = {
       await cryptoStorage.setItem(key, value);
     } catch (error) {
       console.warn('Crypto storage failed, using fallback:', error.message);
+      Sentry.captureException(error);
       fallbackStorage.setItem(key, value);
     }
   },
@@ -24,6 +26,7 @@ const robustStorage = {
       return await cryptoStorage.getItem(key);
     } catch (error) {
       console.warn('Crypto storage failed, using fallback:', error.message);
+      Sentry.captureException(error);
       return fallbackStorage.getItem(key);
     }
   },
@@ -33,6 +36,7 @@ const robustStorage = {
       cryptoStorage.removeItem(key);
     } catch (error) {
       console.warn('Crypto storage failed, using fallback:', error.message);
+      Sentry.captureException(error);
       fallbackStorage.removeItem(key);
     }
   }

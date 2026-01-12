@@ -3,6 +3,10 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { WindowManager } = require('./utils/windowManager');
 const { nativeImage } = require('electron/common');
+const Sentry = require("@sentry/electron/main");
+const sentryConfig = require('./sentry.config');
+
+Sentry.init(sentryConfig);
 
 let autoUpdater = null;
 
@@ -35,6 +39,7 @@ if (app.isPackaged) {
   
   autoUpdater.on('error', (err) => {
     log.error('Error in auto-updater:', err);
+    Sentry.captureException(err);
   });
   
   autoUpdater.on('download-progress', (progressObj) => {
@@ -82,10 +87,11 @@ function setupLogging() {
       userDataPath: app.getPath('userData'),
       processType: process.type
     };
-    
+
     fs.writeFileSync(debugPath, JSON.stringify(debugInfo, null, 2));
   } catch (error) {
     console.error('🔍 [DEBUG] Error creating debug file:', error);
+    Sentry.captureException(error);
   }
   
   // Then proceed with normal logging setup
@@ -289,6 +295,7 @@ function registerTrayIconMenu() {
   
   if (icon.isEmpty()) {
     console.error('❌ Tray icon failed to load! Icon is empty.');
+    Sentry.captureMessage('Tray icon failed to load - icon is empty', 'error');
     return;
   }
   
@@ -397,6 +404,7 @@ async function cleanupAllAudioCapture() {
         global.userFullRecordingProcess = null;
       } catch (error) {
         console.error('[Cleanup] Error stopping user recording process:', error);
+        Sentry.captureException(error);
         global.userFullRecordingProcess = null;
       }
     }
@@ -408,6 +416,7 @@ async function cleanupAllAudioCapture() {
         global.userMediaRecorder = null;
       } catch (error) {
         console.error('[Cleanup] Error stopping user MediaRecorder:', error);
+        Sentry.captureException(error);
         global.userMediaRecorder = null;
       }
     }
@@ -419,6 +428,7 @@ async function cleanupAllAudioCapture() {
         global.userAudioStream = null;
       } catch (error) {
         console.error('[Cleanup] Error stopping user audio stream:', error);
+        Sentry.captureException(error);
         global.userAudioStream = null;
       }
     }
@@ -430,6 +440,7 @@ async function cleanupAllAudioCapture() {
         global.mediaRecorder = null;
       } catch (error) {
         console.error('[Cleanup] Error stopping prospect MediaRecorder:', error);
+        Sentry.captureException(error);
         global.mediaRecorder = null;
       }
     }
@@ -441,6 +452,7 @@ async function cleanupAllAudioCapture() {
         global.prospectAudioStream = null;
       } catch (error) {
         console.error('[Cleanup] Error stopping prospect audio stream:', error);
+        Sentry.captureException(error);
         global.prospectAudioStream = null;
       }
     }
@@ -452,6 +464,7 @@ async function cleanupAllAudioCapture() {
         global.screenCapture = null;
       } catch (error) {
         console.error('[Cleanup] Error stopping ScreenCaptureKit:', error);
+        Sentry.captureException(error);
         global.screenCapture = null;
       }
     }
@@ -463,6 +476,7 @@ async function cleanupAllAudioCapture() {
         cueAudioStreamer = null;
       } catch (error) {
         console.error('[Cleanup] Error stopping cue audio streamer:', error);
+        Sentry.captureException(error);
         cueAudioStreamer = null;
       }
     }
@@ -474,6 +488,7 @@ async function cleanupAllAudioCapture() {
         audioStreamer = null;
       } catch (error) {
         console.error('[Cleanup] Error stopping audio streamer:', error);
+        Sentry.captureException(error);
         audioStreamer = null;
       }
     }
@@ -488,6 +503,7 @@ async function cleanupAllAudioCapture() {
     }
   } catch (error) {
     console.error('[Cleanup] ❌ Error during audio cleanup:', error);
+    Sentry.captureException(error);
   }
 }
 
@@ -550,6 +566,7 @@ ipcMain.handle('start-audio-streaming', async (event, { token }) => {
     };
   } catch (error) {
     console.error('[Main Process] ❌ Error starting audio streaming:', error);
+    Sentry.captureException(error);
     return { success: false, error: error.message };
   }
 });
@@ -572,6 +589,7 @@ ipcMain.handle('stop-audio-streaming', async (event, { sendTermination = true } 
     return { success: true };
   } catch (error) {
     console.error('[Main Process] ❌ Error stopping audio streaming:', error);
+    Sentry.captureException(error);
     return { success: false, error: error.message };
   }
 });
@@ -685,6 +703,7 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
     };
   } catch (error) {
     console.error('[Main Process] ❌ Error starting Cue:', error);
+    Sentry.captureException(error);
     // Clean up on error
     cueAudioStreamer = null;
     return { success: false, error: error.message };
@@ -716,6 +735,7 @@ ipcMain.handle('stop-cue', async (event) => {
     return { success: true };
   } catch (error) {
     console.error('[Main Process] ❌ Error stopping Cue:', error);
+    Sentry.captureException(error);
     // Force cleanup on error
     cueAudioStreamer = null;
     return { success: false, error: error.message };
@@ -1070,6 +1090,7 @@ ipcMain.on('open-external', (event, url) => {
     }
   } catch (error) {
     console.error('❌ [Electron][open-external] Error opening URL externally:', error);
+    Sentry.captureException(error);
   }
 });
 
@@ -1088,6 +1109,7 @@ ipcMain.handle('permissions-check', async () => {
     return { mic, screen };
   } catch (e) {
     console.error('[Permissions] ❌ Error checking permissions:', e);
+    Sentry.captureException(e);
     return { mic: false, screen: false, error: e.message };
   }
 });
@@ -1148,6 +1170,7 @@ ipcMain.handle('permissions-request-all', async () => {
     return { mic, screen, micAction, screenRequested };
   } catch (e) {
     console.error('[Permissions] ❌ Error requesting permissions:', e);
+    Sentry.captureException(e);
     return { mic: false, screen: false, error: e.message };
   }
 });
@@ -1209,6 +1232,7 @@ ipcMain.on('send-audio-chunk', (_event, float32AudioChunk) => {
         }
     } catch (error) {
         console.error("MAIN: Error processing audio chunk:", error);
+        Sentry.captureException(error);
     }
 });
 
@@ -1278,7 +1302,8 @@ ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessTo
     
   } catch (error) {
     console.error('[Main Process] ❌ Error uploading file:', error);
-    
+    Sentry.captureException(error);
+
     // Create descriptive error message
     let errorMessage = `Failed to upload file: ${error.message}`;
     if (error.response?.data?.error) {
@@ -1290,7 +1315,7 @@ ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessTo
     if (error.code === 'ETIMEDOUT') {
       errorMessage = 'Upload timed out. Please try again.';
     }
-    
+
     const uploadError = new Error(errorMessage);
     uploadError.originalError = error;
     uploadError.filePath = filePath;
@@ -1396,7 +1421,8 @@ ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, a
     
   } catch (error) {
     console.error('[Main Process] ❌ Error uploading both files:', error);
-    
+    Sentry.captureException(error);
+
     // Create descriptive error message
     let errorMessage = `Failed to upload both files: ${error.message}`;
     if (error.response?.data?.error) {
@@ -1408,7 +1434,7 @@ ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, a
     if (error.code === 'ETIMEDOUT') {
       errorMessage = 'Upload timed out. Please try again.';
     }
-    
+
     const uploadError = new Error(errorMessage);
     uploadError.originalError = error;
     throw uploadError;
@@ -1445,6 +1471,7 @@ audioQueue.on('completed', (item) => {
 
 audioQueue.on('failed', (item) => {
   console.error(`[Audio Queue] Failed to process audio chunk after ${item.retries} retries: ${item.filePath} (${item.speaker})`);
+  Sentry.captureMessage(`Audio queue failed: ${item.filePath} (${item.speaker}) after ${item.retries} retries`, 'error');
   if (dashboardWindowInstance) {
     dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
   }
@@ -1605,6 +1632,7 @@ app.whenReady().then(() => {
         return { success: true };
       } catch (error) {
         console.error('🎤 [MAIN] Failed to initialize native audio:', error);
+        Sentry.captureException(error);
         return { success: false, error: error.message };
       }
     });
@@ -1616,6 +1644,7 @@ app.whenReady().then(() => {
         return { success: true, devices };
       } catch (error) {
         console.error('🎤 [MAIN] Failed to list devices:', error);
+        Sentry.captureException(error);
         return { success: false, error: error.message };
       }
     });
@@ -1627,6 +1656,7 @@ app.whenReady().then(() => {
         return { success: true, deviceId };
       } catch (error) {
         console.error('🎤 [MAIN] Failed to create device:', error);
+        Sentry.captureException(error);
         return { success: false, error: error.message };
       }
     });
@@ -1638,6 +1668,7 @@ app.whenReady().then(() => {
         return { success: result };
       } catch (error) {
         console.error('🎤 [MAIN] Failed to delete device:', error);
+        Sentry.captureException(error);
         return { success: false, error: error.message };
       }
     });
@@ -1649,6 +1680,7 @@ app.whenReady().then(() => {
         return { success: result };
       } catch (error) {
         console.error('🎤 [MAIN] Failed to request permission:', error);
+        Sentry.captureException(error);
         return { success: false, error: error.message };
       }
     });
@@ -1660,6 +1692,7 @@ app.whenReady().then(() => {
         return { success: result };
       } catch (error) {
         console.error('🎤 [MAIN] Failed to start capture:', error);
+        Sentry.captureException(error);
         return { success: false, error: error.message };
       }
     });
@@ -1672,6 +1705,7 @@ app.whenReady().then(() => {
         return result;
       } catch (error) {
         console.error('🎤 [MAIN] Failed to stop capture:', error);
+        Sentry.captureException(error);
         return { success: false, error: error.message, filePath: null };
       }
     });
@@ -1683,6 +1717,7 @@ app.whenReady().then(() => {
         return { success: true, isCapturing: result };
       } catch (error) {
         console.error('🎤 [MAIN] Failed to check capture status:', error);
+        Sentry.captureException(error);
         return { success: false, error: error.message };
       }
     });
@@ -1692,6 +1727,7 @@ app.whenReady().then(() => {
     console.error('🎤 [MAIN] Error code:', error.code);
     console.error('🎤 [MAIN] Error stack:', error.stack);
     console.error('🎤 [MAIN] Full error:', error);
+    Sentry.captureException(error);
   }
   
   // ONLY create the dashboard window initially
@@ -1703,12 +1739,14 @@ app.whenReady().then(() => {
     setTimeout(() => {
       autoUpdater.checkForUpdates().catch(err => {
         console.error('Failed to check for updates:', err);
+        Sentry.captureException(err);
       });
     }, 3000);
     
     setInterval(() => {
       autoUpdater.checkForUpdates().catch(err => {
         console.error('Failed to check for updates:', err);
+        Sentry.captureException(err);
       });
     }, 60 * 60 * 1000);
   }

@@ -1,4 +1,5 @@
 const nativeAudio = require('./native-audio');
+const Sentry = require("@sentry/electron/main");
 
 // Store streaming callback for user audio
 let userStreamingCallback = null;
@@ -43,6 +44,7 @@ async function startUserStreaming({ streamingCallback } = {}) {
     
   } catch (error) {
     console.error('🎤 [RECORDER] ❌ Error starting user streaming:', error);
+    Sentry.captureException(error);
     // Clear callback on error
     setUserStreamingCallback(null);
     throw error;
@@ -63,6 +65,7 @@ async function stopUserStreaming() {
     console.log('[Recording Control] ✅ User microphone capture stopped');
     } catch (error) {
     console.error('[Recording Control] ❌ Error stopping microphone capture:', error);
+    Sentry.captureException(error);
   }
   
   // Clear streaming callback

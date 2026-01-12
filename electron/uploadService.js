@@ -2,6 +2,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
+const Sentry = require("@sentry/electron/main");
 
 class UploadService {
   constructor() {
@@ -77,6 +78,7 @@ class UploadService {
         url: `${this.baseUrl}/audio/transcript`,
         headers: error.config?.headers
       });
+      Sentry.captureException(error);
 
       // Create a more descriptive error message
       let errorMessage = `Failed to upload audio chunk: ${error.message}`;

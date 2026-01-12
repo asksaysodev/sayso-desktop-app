@@ -7,6 +7,7 @@ import {
   validateLoginFields,
   validateSignupFields
 } from '../helpers/formValidation';
+import * as Sentry from "@sentry/electron/renderer";
 
 const INITIAL_VALUES = {
   name: '',
@@ -114,6 +115,7 @@ export default function useLoginForm() {
     } catch (err) {
       setError(err.message);
       console.error('Authentication error:', err);
+      Sentry.captureException(err);
     } finally {
       setIsBtnLoading(false);
     }

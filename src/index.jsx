@@ -5,8 +5,10 @@ import App from './App';
 import './index.css';
 import './styles/App.css';
 import './styles/Colors.css';
+import * as Sentry from "@sentry/electron/renderer";
+import { sentryConfig } from '@/config/sentry';
 
-//SAYSO APP
+Sentry.init(sentryConfig);
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

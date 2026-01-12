@@ -1,3 +1,4 @@
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
@@ -30,10 +31,11 @@ const copyEnvFiles = () => {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [
-    react(),
-    copyEnvFiles() // Add our custom plugin
-  ],
+  plugins: [react(), // Add our custom plugin
+  copyEnvFiles(), sentryVitePlugin({
+    org: "sayso-zj",
+    project: "sayso-app"
+  })],
   optimizeDeps: {
     include: ['ws'],
   },
@@ -44,8 +46,12 @@ export default defineConfig({
   },
   base: './', // Use relative paths for Electron
   build: {
-    outDir: 'dist', // Output directory for the build
-    assetsDir: 'assets', // Assets directory
+    // Output directory for the build
+    outDir: 'dist',
+
+    // Assets directory
+    assetsDir: 'assets',
+
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
@@ -56,6 +62,8 @@ export default defineConfig({
         manualChunks: undefined, // Disable manual chunks for better Electron compatibility
       },
     },
+
+    sourcemap: true
   },
   server: {
     port: 5173,
