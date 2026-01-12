@@ -7,16 +7,8 @@ export default function SignUpStepTwoFormInputs({ control, isBtnLoading, setSign
     const [showPassword, setShowPassword] = useState(false);
     const [showRepeatPassword, setShowRepeatPassword] = useState(false);
 
-    const togglePasswordVisibility = () => {
-        setShowPassword(prev => !prev);
-    };
-
-    const toggleRepeatPasswordVisibility = () => {
-        setShowRepeatPassword(prev => !prev);
-    };
-
     return (
-        <div className='flex flex-col gap-5'>
+        <div className='login-layout-form-inputs-wrapper'>
             <ControlledInputField
                 type="email"
                 control={control}
@@ -32,7 +24,7 @@ export default function SignUpStepTwoFormInputs({ control, isBtnLoading, setSign
                 labelCn='loginInFormInputLabel'
                 rightChildren={<EyeToggleShowPasswordButton
                     showPassword={showPassword}
-                    togglePasswordVisibility={togglePasswordVisibility}
+                    setShowPassword={setShowPassword}
                 />}
             />
             <ControlledInputField
@@ -43,7 +35,7 @@ export default function SignUpStepTwoFormInputs({ control, isBtnLoading, setSign
                 labelCn='loginInFormInputLabel'
                 rightChildren={<EyeToggleShowPasswordButton
                     showPassword={showRepeatPassword}
-                    togglePasswordVisibility={toggleRepeatPasswordVisibility}
+                    setShowPassword={setShowRepeatPassword}
                 />}
             />
             <div className="formActions">

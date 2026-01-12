@@ -5,6 +5,8 @@ import GuestGuard from './components/GuestGuard';
 import Layout from './components/Layout';
 
 import Login from './views/Login';
+import PasswordRecovery from './views/PasswordRecovery';
+import ResetPassword from './views/ResetPassword';
 import Dashboard from './views/Dashboard';
 import Account from './views/Account';
 import StreamingTest from './components/StreamingTest';
@@ -28,6 +30,18 @@ export default function AppRoutes() {
                     <Login />
                     </GuestGuard>
                 }
+            />
+            <Route
+                path="/forgot-password"
+                element={
+                    <GuestGuard>
+                    <PasswordRecovery />
+                    </GuestGuard>
+                }
+            />
+            <Route
+                path="/reset-password"
+                element={<ResetPassword />}
             />
             <Route
                 path="/"

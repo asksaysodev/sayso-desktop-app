@@ -1,4 +1,4 @@
-import './layouts.css';
+import './styles/viewLayouts.css';
 
 export default function ViewLayout({ title, children, scrollable = false, rightContent = null }) {
     return (

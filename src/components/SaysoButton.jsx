@@ -18,12 +18,14 @@ export default function SaysoButton({
     loading,
     icon,
     variant = 'sayso-indigo',
-    fullWidth = false
+    fullWidth = false,
+    type = 'button'
 }) {
     const spinnerColor = variant === 'outlined' ? '#000' : 'white';
     
     return (
-        <button 
+        <button
+            type={type}
             disabled={disabled || loading} 
             className={`sayso-button variant-${variant} ${loading ? 'loading' : ''} ${fullWidth ? 'full-width' : ''}`} 
             onClick={onClick}
