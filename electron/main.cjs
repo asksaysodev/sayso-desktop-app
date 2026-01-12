@@ -3,6 +3,10 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { WindowManager } = require('./utils/windowManager');
 const { nativeImage } = require('electron/common');
+const Sentry = require("@sentry/electron/main");
+const sentryConfig = require('./sentry.config');
+
+Sentry.init(sentryConfig);
 
 let autoUpdater = null;
 
