@@ -51,6 +51,10 @@ export default function ActiveSubscriptionInformation() {
         return <ActiveSubscriptionInformationError onRetry={refetch} />;
     }
 
+    const subscriptionText = subscription?.cancelledAt 
+        ? `Your subscription ends on ${renewalDate}.`
+        : `Your subscription will auto renew on ${renewalDate}.`;
+
     return (
         <div className="active-plan-information-container">
             <div className="subscription-section">
@@ -69,7 +73,7 @@ export default function ActiveSubscriptionInformation() {
                                     </p>
                                 )}
                                 <p className="plan-renewal-text">
-                                    Your subscription will auto renew on {renewalDate}.
+                                    {subscriptionText}
                                 </p>
                             </div>
                         </div>
