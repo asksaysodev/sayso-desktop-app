@@ -231,6 +231,8 @@ export default function CoachWindowMain() {
                             <CoachButtons 
                                 isInsightsLayoutOpen={isInsightsLayoutOpen}
                                 setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
+                                setIsDropdownOpen={setIsDropdownOpen}
+                                isDropdownOpen={isDropdownOpen}
                             />
                         )
                     }
