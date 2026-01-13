@@ -88,6 +88,20 @@ body {
     color: white;
 }
 
+.coach-window .coach-window-drag-indicator {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    font-size: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+}
+
 .coach-window .coach-window-divider{
     width: 1px;
     height: 28px;
@@ -431,6 +445,8 @@ body {
     justify-content: center;
     border: none;
     background-color: var(--sayso-indigo);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
 }
 
 .coach-window .coach-buttons-container .coach-button:hover{
@@ -530,8 +546,8 @@ body {
     background-color: var(--sayso-darkgray);
     color: white;
     font-size: 14px;
-    cursor: pointer;
     -webkit-app-region: no-drag;
+    cursor: default;
     border-radius: 100px;
     font-weight: 200;
 }
