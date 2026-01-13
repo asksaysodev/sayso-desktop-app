@@ -231,7 +231,9 @@ export default function CoachWindowMain() {
             <div className={`main-container coach-box-bubble`}>
                 <div className='main-toolbar'>
                     <div className="coach-window-drag-container">
-                        <MdDragIndicator/>
+                        <button className='coach-window-drag-indicator'>
+                            <MdDragIndicator/>
+                        </button>
                         <div className="coach-window-divider"></div>
                     </div>
                     
