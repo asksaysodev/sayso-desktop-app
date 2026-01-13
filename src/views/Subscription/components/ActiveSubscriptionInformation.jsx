@@ -51,6 +51,10 @@ export default function ActiveSubscriptionInformation() {
         return <ActiveSubscriptionInformationError onRetry={refetch} />;
     }
 
+    const subscriptionText = subscription?.cancelledAt 
+        ? `Your subscription ends on ${renewalDate}.`
+        : `Your subscription will auto renew on ${renewalDate}.`;
+
     return (
         <div className="active-plan-information-container">
             <div className="subscription-section">
@@ -69,7 +73,7 @@ export default function ActiveSubscriptionInformation() {
                                     </p>
                                 )}
                                 <p className="plan-renewal-text">
-                                    Your subscription will auto renew on {renewalDate}.
+                                    {subscriptionText}
                                 </p>
                             </div>
                         </div>
@@ -117,11 +121,11 @@ export default function ActiveSubscriptionInformation() {
             </div>
 
             <div className="subscription-section">
-                <h3 className="section-title">Cancellation</h3>
+                <h3 className="section-title">Stripe</h3>
                 <div className="subscription-section-content">
-                    <span className="cancel-plan-text">Cancel plan</span>
+                    <span className="cancel-plan-text">Manage your subscription</span>
                     <SaysoButton
-                        label={'Cancel'}
+                        label={'Open Stripe'}
                         onClick={handleCancelSubscription}
                         disabled={isPendingGetStripeCancellationPageUrl}
                         loading={isPendingGetStripeCancellationPageUrl}
