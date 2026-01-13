@@ -121,11 +121,11 @@ export default function ActiveSubscriptionInformation() {
             </div>
 
             <div className="subscription-section">
-                <h3 className="section-title">Cancellation</h3>
+                <h3 className="section-title">Stripe</h3>
                 <div className="subscription-section-content">
-                    <span className="cancel-plan-text">Cancel plan</span>
+                    <span className="cancel-plan-text">Manage your subscription</span>
                     <SaysoButton
-                        label={'Cancel'}
+                        label={'Open Stripe'}
                         onClick={handleCancelSubscription}
                         disabled={isPendingGetStripeCancellationPageUrl}
                         loading={isPendingGetStripeCancellationPageUrl}
