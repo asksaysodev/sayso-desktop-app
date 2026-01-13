@@ -2,7 +2,7 @@ import { LuLoader } from "react-icons/lu";
 import CoachActiveButtons from "./CoachActiveButtons";
 import { useCoachWindowStore } from "../../store/coachWindowStore";
 
-export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayoutOpen }) {
+export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayoutOpen, setIsDropdownOpen, isDropdownOpen }) {
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
@@ -47,13 +47,15 @@ export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayout
             if (isCoachActive) {
                 await actions.stop();
             } else {
+                if (isDropdownOpen) {
+                    setIsDropdownOpen(false);
+                }
                 if (!actions.validate(recall_selectedProspect)) return;
                 await actions.start(recall_selectedProspect);
             }
 
         } catch (error) {
             console.error('Error in handleCoach:', error);
-            // We could maybe show a toast
         }
     }
 

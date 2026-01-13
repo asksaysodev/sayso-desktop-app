@@ -66,8 +66,9 @@ export default function CoachWindowMain() {
     const setIsInsightsLayoutOpen = useCoachWindowStore(state => state.cue_setIsInsightsLayoutOpen);
     const coachWindowError = useCoachWindowStore(state => state.error);
     const clearError = useCoachWindowStore(state => state.clearError);
-
-    const insightsLayoutOpen = useMemo(() => isInsightsLayoutOpen && insightsQueue.length > 0 && coachFeature ==='cue' && leadType && isCoachActive, [isInsightsLayoutOpen, insightsQueue, coachFeature, leadType, isCoachActive]);
+    const hasReceivedFirstInsight = useCoachWindowStore(state => state.cue.hasReceivedFirstInsight);
+    const setHasReceivedFirstInsight = useCoachWindowStore(state => state.cue_setHasReceivedFirstInsight);
+    const incrementUnseenInsightsCount = useCoachWindowStore(state => state.cue_incrementUnseenInsightsCount);
 
     const handleCloseCoachWindow = () => {
         closeCoachWindow()
@@ -171,6 +172,22 @@ export default function CoachWindowMain() {
         };
     }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError]);
 
+    /**
+     * Handling auto opening of insights layout and unseen insights count for the notification dot
+     */
+    const handleLayoutVisibility = () => {
+        if (!hasReceivedFirstInsight) {
+            setHasReceivedFirstInsight(true);
+            if (!isInsightsLayoutOpen) {
+                setIsInsightsLayoutOpen(true);
+            }
+        } else {
+            if (!isInsightsLayoutOpen) {
+                incrementUnseenInsightsCount();
+            }
+        }
+    }
+
 	useEffect(() => {
 		// Only set up listener when Cue is active
 		if (!isCoachActive || coachFeature !== 'cue') return;
@@ -196,15 +213,13 @@ export default function CoachWindowMain() {
                 id: insightData.id,
 			});
 
-            if (!isInsightsLayoutOpen) {
-                setIsInsightsLayoutOpen(true);
-            }
+            handleLayoutVisibility();
 		});
 
 		return () => {
 			unsubscribe();
 		};
-	}, [isCoachActive, coachFeature, isInsightsLayoutOpen]);
+	}, [isCoachActive, coachFeature, isInsightsLayoutOpen, hasReceivedFirstInsight]);
 
     const DropdownComponent = {
         recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
@@ -231,6 +246,8 @@ export default function CoachWindowMain() {
                             <CoachButtons 
                                 isInsightsLayoutOpen={isInsightsLayoutOpen}
                                 setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
+                                setIsDropdownOpen={setIsDropdownOpen}
+                                isDropdownOpen={isDropdownOpen}
                             />
                         )
                     }
@@ -259,7 +276,7 @@ export default function CoachWindowMain() {
                 </div>
             )}
 
-            {insightsLayoutOpen && (
+            {isInsightsLayoutOpen && (
                 <InsightsVerticalLayout 
                     ref={insightsLayoutRef}
                     setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 

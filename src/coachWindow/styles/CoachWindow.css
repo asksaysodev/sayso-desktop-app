@@ -48,9 +48,6 @@ body {
     position: relative;
     height: 48px;
     width: -webkit-fill-available;
-    /* width: fit-content;  Changed from calc(100% - 40px) */
-    /*min-width: 200px;  Add a minimum width so it doesn't get too small */
-    /*max-width: calc(100% - 40px);  Keep the max width constraint */
     padding:  2px 12px;
     border-radius: 24px;
     display: flex;
@@ -62,7 +59,6 @@ body {
 
 .coach-window .main-container button, select{
     -webkit-app-region: no-drag;
-    cursor: pointer;
 }
 
 .coach-window select:hover{
@@ -178,9 +174,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 16px;
+    gap: 10px;
     padding: 4px 0;
-    cursor: pointer;
     -webkit-app-region: no-drag;
 }
 
@@ -354,8 +349,11 @@ body {
     align-items: center;
     justify-content: end;
     gap: 8px;
+    cursor: pointer;
 }
-
+.coach-window-selected-prospect-button.disabled{
+    cursor: not-allowed !important;
+}
 .coach-window-selected-prospect-button .coach-window-selected-prospect-initials-container{
     width: 32px;
     height: 32px;
@@ -370,7 +368,9 @@ body {
     font-size: 14px;
     font-weight: 500;
 }
-
+.coach-window-selected-prospect-button .coach-window-selected-prospect-initials-container.disabled{
+    opacity: 0.8 !important;
+}
 .coach-window .coach-window-selected-prospect-button-text-container{
     height: 30px;
     display: flex;
@@ -383,13 +383,16 @@ body {
     border-top-right-radius: 100px;
     border-bottom-right-radius: 100px;
     z-index: 999;
-    cursor: pointer;
     -webkit-app-region: no-drag;
     background-color: rgba(255, 255, 255, 0.234);
     border: 1px solid var(--sayso-blue);
     color: white;
 }
 
+.coach-window .coach-window-selected-prospect-button-text-container.disabled{
+    border: 1px solid rgba(255, 255, 255, 0.234) !important;
+    opacity: 0.8 !important;
+}
 .coach-window .coach-buttons-container{
     width: 100%;
     display: flex;
@@ -417,6 +420,7 @@ body {
 }
 
 .open-insights-vertical-layout-button{
+    position: relative;
     height: 32px;
     width: 32px;
     aspect-ratio: 1/1;
