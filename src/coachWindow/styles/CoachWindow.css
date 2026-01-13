@@ -368,7 +368,9 @@ body {
     font-size: 14px;
     font-weight: 500;
 }
-
+.coach-window-selected-prospect-button .coach-window-selected-prospect-initials-container.disabled{
+    opacity: 0.8 !important;
+}
 .coach-window .coach-window-selected-prospect-button-text-container{
     height: 30px;
     display: flex;
@@ -389,7 +391,7 @@ body {
 
 .coach-window .coach-window-selected-prospect-button-text-container.disabled{
     border: 1px solid rgba(255, 255, 255, 0.234) !important;
-    opacity: 0.7 !important;
+    opacity: 0.8 !important;
 }
 .coach-window .coach-buttons-container{
     width: 100%;

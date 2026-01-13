@@ -89,7 +89,7 @@ export default function Dropdown({
                     disabled={disabled}
                 >
                     <div className={`coach-window-select-prospect-button-text`}>
-                        <div className='coach-window-selected-prospect-initials-container'>
+                        <div className={`coach-window-selected-prospect-initials-container ${disabled ? 'disabled' : ''}`}>
                             <p>{getInitials(value)}</p>
                         </div>
                         <div className={`coach-window-selected-prospect-button-text-container ${disabled ? 'disabled' : ''}`}>
