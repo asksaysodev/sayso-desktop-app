@@ -83,16 +83,16 @@ export default function Dropdown({
         <>
             {value ? (
                 <button
-                    className='coach-window-selected-prospect-button'
+                    className={`coach-window-selected-prospect-button ${disabled ? 'disabled' : ''}`}
                     onClick={handleToggle}
                     data-open={isOpen}
                     disabled={disabled}
                 >
-                    <div className='coach-window-select-prospect-button-text'>
+                    <div className={`coach-window-select-prospect-button-text`}>
                         <div className='coach-window-selected-prospect-initials-container'>
                             <p>{getInitials(value)}</p>
                         </div>
-                        <div className='coach-window-selected-prospect-button-text-container'>
+                        <div className={`coach-window-selected-prospect-button-text-container ${disabled ? 'disabled' : ''}`}>
                             <p>{getLabel(value)}</p>
                             {!disabled && (
                                 <>{isOpen ? <IoChevronUp /> : <IoChevronDown />}</>
