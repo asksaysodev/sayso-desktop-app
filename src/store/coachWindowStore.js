@@ -32,6 +32,8 @@ const CUE_INITIAL_STATE = {
     isInsightDisplaying: false,
     leadType: null, // 'buyer' or 'seller'
     isInsightsLayoutOpen: false,
+    hasReceivedFirstInsight: false,
+    unseenInsightsCount: 0,
 };
 
 const RECALL_INITIAL_STATE = {
@@ -544,6 +546,27 @@ export const useCoachWindowStore = create((set, get) => ({
     cue_setIsInsightsLayoutOpen: (isInsightsLayoutOpen) => {
         set((state) => ({
             cue: { ...state.cue, isInsightsLayoutOpen }
+        }));
+    },
+
+    cue_setHasReceivedFirstInsight: (hasReceivedFirstInsight) => {
+        set((state) => ({
+            cue: { ...state.cue, hasReceivedFirstInsight }
+        }));
+    },
+
+    cue_incrementUnseenInsightsCount: () => {
+        set((state) => ({
+            cue: { 
+                ...state.cue, 
+                unseenInsightsCount: state.cue.unseenInsightsCount + 1 
+            }
+        }));
+    },
+
+    cue_resetUnseenInsightsCount: () => {
+        set((state) => ({
+            cue: { ...state.cue, unseenInsightsCount: 0 }
         }));
     },
 }));

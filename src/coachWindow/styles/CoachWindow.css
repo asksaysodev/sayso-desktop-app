@@ -417,6 +417,7 @@ body {
 }
 
 .open-insights-vertical-layout-button{
+    position: relative;
     height: 32px;
     width: 32px;
     aspect-ratio: 1/1;

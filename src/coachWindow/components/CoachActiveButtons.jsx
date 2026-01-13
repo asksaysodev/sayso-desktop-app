@@ -11,9 +11,18 @@ export default function CoachActiveButtons({ coachFeature, handleCoach, isInsigh
     const isResettingCueSession = useCoachWindowStore(state => state.cue.isResettingCueSession);
     const cue_onPressResetSession = useCoachWindowStore(state => state.cue_onPressResetSession);
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
+    const unseenInsightsCount = useCoachWindowStore(state => state.cue.unseenInsightsCount);
+    const resetUnseenInsightsCount = useCoachWindowStore(state => state.cue_resetUnseenInsightsCount);
 
     const showTimer = coachFeature === 'recall' || coachFeature === 'cue';
     const disableButtons = isCoachLoading || isResettingCueSession;
+
+    const handleOpenInsightsLayout = () => {
+        if (!isInsightsLayoutOpen) {
+            resetUnseenInsightsCount();
+        }
+        setIsInsightsLayoutOpen(!isInsightsLayoutOpen);
+    }
 
     return (
         <>
@@ -46,9 +55,10 @@ export default function CoachActiveButtons({ coachFeature, handleCoach, isInsigh
             {coachFeature === 'cue' && 
                 <button 
                     className='open-insights-vertical-layout-button'
-                    onClick={() => setIsInsightsLayoutOpen(!isInsightsLayoutOpen)}
-                    disabled={disableButtons || insightsQueue.length === 0}
+                    onClick={handleOpenInsightsLayout}
+                    disabled={disableButtons}
                 >
+                    {unseenInsightsCount > 0 && <span className="cue-eye-toggle-notification-badge"></span>}
                     {isInsightsLayoutOpen ? <LuEyeClosed size={ICON_SIZE}/> : <LuEye size={ICON_SIZE}/>}
                 </button>
             }
