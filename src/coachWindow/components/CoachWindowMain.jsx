@@ -12,6 +12,7 @@ import InsightWrapper from './InsightWrapper';
 import SelectProspectDropdown from './SelectProspectDropdown';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
+import SessionStoppedDialog from './SessionStoppedDialog';
 
 const WINDOW_WIDTH_SIZES = {
     BASE: 320,
@@ -46,15 +47,18 @@ export default function CoachWindowMain() {
     const containerRef = useRef(null);
     const insightsLayoutRef = useRef(null);
     const errorContainerRef = useRef(null);
-
+    const sessionStoppedDialogRef = useRef(null);
+    const isDraggingRef = useRef(false);
+    const dragStartRef = useRef({ mouseX: 0, mouseY: 0, winX: 0, winY: 0 });
     //STATE
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
 
     //CONTEXT / HOOKS
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
-
     const selectedProspect = useCoachWindowStore(state => state.recall.selectedProspect);
     const leadType = useCoachWindowStore(state => state.cue.leadType);
     const currentInsight = useCoachWindowStore(state => state.cue.currentInsight);
@@ -69,10 +73,48 @@ export default function CoachWindowMain() {
     const hasReceivedFirstInsight = useCoachWindowStore(state => state.cue.hasReceivedFirstInsight);
     const setHasReceivedFirstInsight = useCoachWindowStore(state => state.cue_setHasReceivedFirstInsight);
     const incrementUnseenInsightsCount = useCoachWindowStore(state => state.cue_incrementUnseenInsightsCount);
+    const handleStopCue = useCoachWindowStore(state => state.cue_handleStopCue);
 
     const handleCloseCoachWindow = () => {
         closeCoachWindow()
     }
+
+    // Manual window drag handlers
+    const handleDragStart = async (e) => {
+        e.preventDefault();
+        isDraggingRef.current = true;
+        setIsDragging(true);
+
+        const [winX, winY] = await window.electronAPI.getWindowPosition();
+        dragStartRef.current = {
+            mouseX: e.screenX,
+            mouseY: e.screenY,
+            winX,
+            winY
+        };
+
+        document.addEventListener('mousemove', handleDragMove);
+        document.addEventListener('mouseup', handleDragEnd);
+    };
+
+    const handleDragMove = (e) => {
+        if (!isDraggingRef.current) return;
+
+        const deltaX = e.screenX - dragStartRef.current.mouseX;
+        const deltaY = e.screenY - dragStartRef.current.mouseY;
+
+        const newX = dragStartRef.current.winX + deltaX;
+        const newY = dragStartRef.current.winY + deltaY;
+
+        window.electronAPI.setWindowPosition(newX, newY);
+    };
+
+    const handleDragEnd = () => {
+        isDraggingRef.current = false;
+        setIsDragging(false);
+        document.removeEventListener('mousemove', handleDragMove);
+        document.removeEventListener('mouseup', handleDragEnd);
+    };
 
     function getTotalHeightWithRef(ref) {
         if (!ref || !ref?.current) return 0;
@@ -109,6 +151,8 @@ export default function CoachWindowMain() {
             if (queueLength >= 4) return 350;
             
             return 280;
+        } else if (showSessionAutoStopped) {
+            return getTotalHeightWithRef(sessionStoppedDialogRef) || WINDOW_HEIGHT_SIZES.BASE;
         }
         return WINDOW_HEIGHT_SIZES.BASE;
     }
@@ -170,7 +214,7 @@ export default function CoachWindowMain() {
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped]);
 
     /**
      * Handling auto opening of insights layout and unseen insights count for the notification dot
@@ -221,6 +265,30 @@ export default function CoachWindowMain() {
 		};
 	}, [isCoachActive, coachFeature, isInsightsLayoutOpen, hasReceivedFirstInsight]);
 
+    useEffect(() => {
+        if (!window.electron?.cue?.onAutoStop) {
+            console.warn('⚠️ [CoachWindowMain] Electron cue.onAutoStop not available');
+            return;
+        }
+
+        const unsubscribe = window.electron.cue.onAutoStop(() => {
+            console.log('🔴 [Auto Stop Received], stopping cue');
+            setIsInsightsLayoutOpen(false);
+            setShowSessionAutoStopped(true);
+            handleStopCue();
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [])
+
+    useEffect(() => {
+        if (leadType && (isDropdownOpen || isCoachActive)) {
+            setShowSessionAutoStopped(false);
+        }
+    }, [isDropdownOpen, isCoachActive, leadType]);
+
     const DropdownComponent = {
         recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
         cue: <SelectLeadTypeDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
@@ -231,7 +299,10 @@ export default function CoachWindowMain() {
             <div className={`main-container coach-box-bubble`}>
                 <div className='main-toolbar'>
                     <div className="coach-window-drag-container">
-                        <button className='coach-window-drag-indicator'>
+                        <button
+                            className='coach-window-drag-indicator'
+                            onMouseDown={handleDragStart}
+                        >
                             <MdDragIndicator/>
                         </button>
                         <div className="coach-window-divider"></div>
@@ -278,10 +349,17 @@ export default function CoachWindowMain() {
                 </div>
             )}
 
-            {isInsightsLayoutOpen && (
+            {isInsightsLayoutOpen && isCoachActive && (
                 <InsightsVerticalLayout 
                     ref={insightsLayoutRef}
                     setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
+                />
+            )}
+
+            {showSessionAutoStopped && leadType && (
+                <SessionStoppedDialog 
+                    setShowSessionAutoStopped={setShowSessionAutoStopped}
+                    ref={sessionStoppedDialogRef}
                 />
             )}
         </div>

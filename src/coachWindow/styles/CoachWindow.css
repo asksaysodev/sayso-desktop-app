@@ -79,7 +79,6 @@ body {
 }
 
 .coach-window .coach-window-drag-container{
-   
     display: flex;
     align-items: center;
     justify-content: center;
@@ -98,7 +97,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
+    cursor: grab;
     -webkit-app-region: no-drag;
 }
 
@@ -115,10 +114,12 @@ body {
     justify-content: center;
     gap: 8px;
     padding: 4px 0;
-    cursor: pointer;
-    -webkit-app-region: no-drag;
+    /* cursor: pointer;
+    -webkit-app-region: no-drag; */
 }
-
+.coach-window .coach-smart-capture-toggle-container{
+    pointer-events: none;
+}
 .coach-window .coach-smart-capture-toggle-container p{
     font-size: 14px;
     color: white;

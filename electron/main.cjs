@@ -648,6 +648,20 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
             }
           }
         }
+
+        if (message && message.type === 'auto_stop') {
+          if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+            global.coachWindow.webContents.send('cue-auto-stop');
+            if (isDev) {
+              console.log('💡 [Main Process] Auto stop forwarded to coach window');
+            }
+            
+            if (process.platform === 'darwin') {
+              app.setBadgeCount(app.getBadgeCount() + 1);
+              app.dock.bounce('critical');
+            }
+          } 
+        }
       }
     });
 
@@ -1619,6 +1633,12 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   setupLogging();
+
+  app.on('browser-window-focus', () => {
+    if (process.platform === 'darwin') {
+      app.setBadgeCount(0);
+    }
+  });
   
   // Load native audio module AFTER logging is set up
   try {
@@ -2065,6 +2085,20 @@ ipcMain.on('close-coach-window', () => {
     global.coachWindow = null; // Clean up stale reference
   }
   // Don't hide tray menu - let user continue interacting with it
+});
+
+// Handler for manual window dragging
+ipcMain.handle('get-window-position', () => {
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    return global.coachWindow.getPosition();
+  }
+  return [0, 0];
+});
+
+ipcMain.on('set-window-position', (event, x, y) => {
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    global.coachWindow.setPosition(Math.round(x), Math.round(y));
+  }
 });
 
 // Handler for demo insights from AdminPanel - forwards to coach window
