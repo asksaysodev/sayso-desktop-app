@@ -4,7 +4,7 @@ import { MdDragIndicator } from 'react-icons/md';
 import { IoClose } from 'react-icons/io5';
 import { MdErrorOutline } from 'react-icons/md';
 import { LuX } from 'react-icons/lu';
-
+import * as Sentry from "@sentry/electron/renderer";
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 
 import CoachButtons from './CoachButtons';
@@ -271,11 +271,16 @@ export default function CoachWindowMain() {
             return;
         }
 
-        const unsubscribe = window.electron.cue.onAutoStop(() => {
+        const unsubscribe = window.electron.cue.onAutoStop(async () => {
             console.log('🔴 [Auto Stop Received], stopping cue');
             setIsInsightsLayoutOpen(false);
-            setShowSessionAutoStopped(true);
-            handleStopCue();
+            try {
+                await handleStopCue();
+            } catch (error) {
+                Sentry.captureException(error);
+            } finally {
+                setShowSessionAutoStopped(true);
+            }
         });
 
         return () => {
