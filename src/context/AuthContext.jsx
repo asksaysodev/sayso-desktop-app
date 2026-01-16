@@ -95,10 +95,11 @@ export const AuthProvider = ({ children }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       
       // Only update state for actual auth events
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
         // Prevent unnecessary state updates if the user hasn't actually changed
         const newUser = session?.user ?? null
-        if (JSON.stringify(newUser) !== JSON.stringify(prevUserRef.current)) {
+        // For token refresh, we might just need to update the token even if user is same
+        if (event === 'TOKEN_REFRESHED' || JSON.stringify(newUser) !== JSON.stringify(prevUserRef.current)) {
           setUser(newUser)
           prevUserRef.current = newUser
           setAuthToken(session?.access_token ?? null)
