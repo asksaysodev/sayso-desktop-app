@@ -142,6 +142,7 @@ class WebSocketClient extends EventEmitter {
           // Backend might send JSON messages (transcripts, errors, etc.)
           try {
             const message = JSON.parse(data.toString());
+            console.log(`🔴 [WebSocketClient:${this.speaker}] Message received:`, message);
             this.emit('message', message);
           } catch (e) {
             // Binary message or non-JSON

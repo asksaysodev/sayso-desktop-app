@@ -425,6 +425,7 @@ export const useCoachWindowStore = create((set, get) => ({
 
         } catch (error) {
             console.error('Error stopping cue:', error);
+            get().cue_resetStates();
             throw error;
         } finally {
 			set({ isCoachLoading: false })

@@ -86,6 +86,10 @@ try {
       onError: (callback) => {
         ipcRenderer.on('cue-error', (event, data) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-error');
+      },
+      onAutoStop: (callback) => {
+        ipcRenderer.on('cue-auto-stop', (event, data) => callback(data));
+        return () => ipcRenderer.removeAllListeners('cue-auto-stop');
       }
     },
     
@@ -102,7 +106,9 @@ try {
 
   contextBridge.exposeInMainWorld('electronAPI', {
     resizeWindow: (width, height) => ipcRenderer.send('resize-coach-window', width, height),
-    closeCoachWindow: () => ipcRenderer.send('close-coach-window')
+    closeCoachWindow: () => ipcRenderer.send('close-coach-window'),
+    getWindowPosition: () => ipcRenderer.invoke('get-window-position'),
+    setWindowPosition: (x, y) => ipcRenderer.send('set-window-position', x, y)
   });
 
   // Extract --indexHtmlPath from process.argv

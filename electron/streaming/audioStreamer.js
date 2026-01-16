@@ -50,6 +50,8 @@ class AudioStreamer {
     this.userSendFailures = 0;
     this.prospectSendFailures = 0;
     this.maxSendFailures = 5; // Max failures before giving up
+
+    this.autoStopping = false;
   }
 
   /**
@@ -107,8 +109,11 @@ class AudioStreamer {
       // Listen for messages from prospect websocket (insights come through here)
       this.prospectWebSocket.on('message', (message) => {
         // Check if it's an insight message
-        if (message && typeof message === 'object' && message.type === 'insight') {
+        if (message && typeof message === 'object' && (message.type === 'insight' || message.type === 'auto_stop')) {
           if (this.onMessage) {
+            if (message.type === 'auto_stop') {
+              this.autoStopping = true;
+            }
             this.onMessage(message);
           }
         }
@@ -123,7 +128,8 @@ class AudioStreamer {
       this.isStreaming = true;
       this.userSendFailures = 0;
       this.prospectSendFailures = 0;
-
+      this.autoStopping = false;
+      
     } catch (error) {
       console.error('❌ [AudioStreamer] Failed to start streaming:', error);
       Sentry.captureException(error);
