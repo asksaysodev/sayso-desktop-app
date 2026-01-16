@@ -507,93 +507,6 @@ async function cleanupAllAudioCapture() {
   }
 }
 
-// Start audio streaming
-ipcMain.handle('start-audio-streaming', async (event, { token }) => {
-  try {
-    // Create AudioStreamer instance
-    audioStreamer = new AudioStreamer({
-      onUserConnected: () => {
-        event.sender.send('streaming-status', { user: 'connected' });
-      },
-      onProspectConnected: () => {
-        event.sender.send('streaming-status', { prospect: 'connected' });
-      },
-      onError: (stream, error) => {
-        event.sender.send('streaming-error', { stream, error: error.message });
-      }
-    });
-
-    // Start streaming (only needs token - gets sessionId internally)
-    await audioStreamer.start(token);
-
-    // Set up streaming callbacks
-    let userCallbackInvocationCount = 0;
-    await startUserStreaming({
-      streamingCallback: (buffer, format) => {
-        userCallbackInvocationCount++;
-        if (userCallbackInvocationCount === 1) {
-          console.log('🎤 [MAIN] ✅ User audio streaming callback invoked for first time!');
-          console.log('🎤 [MAIN] First chunk size:', buffer.length, 'bytes');
-          console.log('🎤 [MAIN] Format:', JSON.stringify(format));
-        }
-        if (userCallbackInvocationCount % 100 === 0) {
-          console.log(`🎤 [MAIN] User audio callback invoked ${userCallbackInvocationCount} times`);
-        }
-        
-        if (audioStreamer) {
-          audioStreamer.addUserAudio(buffer, format);
-        } else {
-          console.error('🎤 [MAIN] ❌ AudioStreamer not available when callback invoked!');
-        }
-      }
-    });
-
-    if (!nativeAudio) {
-      throw new Error('Native audio module not loaded. Please wait for app initialization.');
-    }
-
-    await nativeAudio.startSystemAudioCapture({
-      streamingCallback: (buffer, format) => {
-        if (audioStreamer) {
-          audioStreamer.addProspectAudio(buffer, format);
-        }
-      }
-    });
-
-    return { 
-      success: true, 
-      sessionId: audioStreamer.sessionId 
-    };
-  } catch (error) {
-    console.error('[Main Process] ❌ Error starting audio streaming:', error);
-    Sentry.captureException(error);
-    return { success: false, error: error.message };
-  }
-});
-
-// Stop audio streaming
-ipcMain.handle('stop-audio-streaming', async (event, { sendTermination = true } = {}) => {
-  try {
-    // Stop streaming callbacks
-    await stopUserStreaming();
-    if (nativeAudio) {
-      nativeAudio.setStreamingCallback(null);
-    }
-
-    // Stop AudioStreamer (disconnects WebSockets)
-    if (audioStreamer) {
-      await audioStreamer.stop(sendTermination);
-      audioStreamer = null;
-    }
-
-    return { success: true };
-  } catch (error) {
-    console.error('[Main Process] ❌ Error stopping audio streaming:', error);
-    Sentry.captureException(error);
-    return { success: false, error: error.message };
-  }
-});
-
 // Get streaming status
 ipcMain.handle('get-streaming-status', async () => {
   if (!audioStreamer) {
@@ -608,7 +521,6 @@ ipcMain.handle('get-streaming-status', async () => {
 });
 
 // Start Cue (handles 2 audio websockets: user + prospect)
-// TODO: Add insights websocket (3rd websocket) later
 ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
   try {
     
@@ -628,39 +540,61 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
     cueAudioStreamer = new AudioStreamer({
       sessionId: sessionId, // Use provided sessionId from backend
       onUserConnected: () => {
-        event.sender.send('cue-status', { user: 'connected' });
+        try {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('cue-status', { user: 'connected' });
+          }
+        } catch (error) {
+          console.error('[Cue] Error sending user connected status:', error);
+        }
       },
       onProspectConnected: () => {
-        event.sender.send('cue-status', { prospect: 'connected' });
+        try {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('cue-status', { prospect: 'connected' });
+          }
+        } catch (error) {
+          console.error('[Cue] Error sending prospect connected status:', error);
+        }
       },
       onError: (stream, error) => {
-        console.error(`❌ [Cue] ${stream} stream error:`, error);
-        event.sender.send('cue-error', { stream, error: error.message });
+        console.error(`[Cue] ${stream} stream error:`, error);
+        try {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('cue-error', { stream, error: error.message });
+          }
+        } catch (err) {
+          console.error('[Cue] Error sending error status:', err);
+        }
       },
       onMessage: (message) => {
-        // Forward insight messages to renderer process
-        if (message && message.type === 'insight' && message.data) {
-          // Forward to coach window if it exists
-          if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-            global.coachWindow.webContents.send('cue-insight', message.data);
-            if (isDev) {
-              console.log('💡 [Main Process] Insight forwarded to coach window:', message.data);
+        try {
+          // Forward insight messages to renderer process
+          if (message && message.type === 'insight' && message.data) {
+            // Forward to coach window if it exists
+            if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+              global.coachWindow.webContents.send('cue-insight', message.data);
+              if (isDev) {
+                console.log('💡 [Main Process] Insight forwarded to coach window:', message.data);
+              }
             }
           }
-        }
 
-        if (message && message.type === 'auto_stop') {
-          if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-            global.coachWindow.webContents.send('cue-auto-stop');
-            if (isDev) {
-              console.log('💡 [Main Process] Auto stop forwarded to coach window');
-            }
-            
-            if (process.platform === 'darwin') {
-              app.setBadgeCount(app.getBadgeCount() + 1);
-              app.dock.bounce('critical');
-            }
-          } 
+          if (message && message.type === 'auto_stop') {
+            if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+              global.coachWindow.webContents.send('cue-auto-stop');
+              if (isDev) {
+                console.log('💡 [Main Process] Auto stop forwarded to coach window');
+              }
+              
+              if (process.platform === 'darwin') {
+                app.setBadgeCount(app.getBadgeCount() + 1);
+                app.dock.bounce('critical');
+              }
+            } 
+          }
+        } catch (error) {
+          console.error('[Cue] Error handling message:', error);
         }
       }
     });
