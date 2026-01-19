@@ -4,11 +4,20 @@ const fs = require('node:fs');
 const { WindowManager } = require('./utils/windowManager');
 const { nativeImage } = require('electron/common');
 const Sentry = require("@sentry/electron/main");
-const sentryConfig = require('./sentry.config');
+const sentryConfig = require('./sentry.config'); 
 
 Sentry.init(sentryConfig);
 
 let autoUpdater = null;
+
+// Global error handler to prevent app crashes from unhandled exceptions
+// (e.g. native module failures on unsupported hardware)
+process.on('uncaughtException', (error) => {
+  console.error('[MAIN] Uncaught Exception:', error);
+  Sentry.captureException(error);
+  // Do NOT exit the process. This allows the app to stay alive
+  // so the auto-updater can still run or the user can see an error UI.
+});
 
 if (app.isPackaged) {
   const { autoUpdater: updater } = require('electron-updater');
@@ -90,7 +99,7 @@ function setupLogging() {
 
     fs.writeFileSync(debugPath, JSON.stringify(debugInfo, null, 2));
   } catch (error) {
-    console.error('🔍 [DEBUG] Error creating debug file:', error);
+    console.error('[DEBUG] Error creating debug file:', error);
     Sentry.captureException(error);
   }
   
@@ -139,7 +148,7 @@ function setupLogging() {
       writeToFile('WARN', ...args);
     };
     
-    console.log(`[Main Process] Logging to file: ${logFile}`);
+    console.log(`[MAIN] Logging to file: ${logFile}`);
   }
 }
 
@@ -294,7 +303,7 @@ function registerTrayIconMenu() {
   let icon = nativeImage.createFromPath(iconPath);
   
   if (icon.isEmpty()) {
-    console.error('❌ Tray icon failed to load! Icon is empty.');
+    console.error('Tray icon failed to load! Icon is empty.');
     Sentry.captureMessage('Tray icon failed to load - icon is empty', 'error');
     return;
   }
@@ -499,10 +508,10 @@ async function cleanupAllAudioCapture() {
     global.userActualStartMs = null;
     
     if (isDev) {
-      console.log('[Cleanup] ✅ All audio capture cleaned up');
+      console.log('[Cleanup] All audio capture cleaned up');
     }
   } catch (error) {
-    console.error('[Cleanup] ❌ Error during audio cleanup:', error);
+    console.error('[Cleanup] Error during audio cleanup:', error);
     Sentry.captureException(error);
   }
 }
@@ -575,7 +584,7 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
             if (global.coachWindow && !global.coachWindow.isDestroyed()) {
               global.coachWindow.webContents.send('cue-insight', message.data);
               if (isDev) {
-                console.log('💡 [Main Process] Insight forwarded to coach window:', message.data);
+                console.log('[MAIN] Insight forwarded to coach window:', message.data);
               }
             }
           }
@@ -584,7 +593,7 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
             if (global.coachWindow && !global.coachWindow.isDestroyed()) {
               global.coachWindow.webContents.send('cue-auto-stop');
               if (isDev) {
-                console.log('💡 [Main Process] Auto stop forwarded to coach window');
+                console.log('[MAIN] Auto stop forwarded to coach window');
               }
               
               if (process.platform === 'darwin') {
@@ -601,24 +610,6 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
 
     // Start audio streaming (2 websockets)
     await cueAudioStreamer.start(token);
-
-    // TODO: Create insights websocket (3rd websocket) here
-    // cueInsightsWebSocket = new WebSocketClient('insights', STREAMING_ENDPOINTS.insights, {
-    //   token: token,
-    //   sessionId: sessionId,
-    //   onConnected: () => {
-    //     console.log('✅ [Cue] Insights websocket connected');
-    //     event.sender.send('cue-status', { insights: 'connected' });
-    //   },
-    //   onError: (error) => {
-    //     console.error('❌ [Cue] Insights websocket error:', error);
-    //     event.sender.send('cue-error', { stream: 'insights', error: error.message });
-    //   }
-    // });
-    // cueInsightsWebSocket.on('message', (message) => {
-    //   event.sender.send('cue-insight', message);
-    // });
-    // await cueInsightsWebSocket.connect();
 
     // Set up audio capture callbacks (streaming only - no file saving)
     await startUserStreaming({
@@ -650,7 +641,7 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
       sessionId: sessionId 
     };
   } catch (error) {
-    console.error('[Main Process] ❌ Error starting Cue:', error);
+    console.error('[MAIN] Error starting Cue:', error);
     Sentry.captureException(error);
     // Clean up on error
     cueAudioStreamer = null;
@@ -682,7 +673,7 @@ ipcMain.handle('stop-cue', async (event) => {
 
     return { success: true };
   } catch (error) {
-    console.error('[Main Process] ❌ Error stopping Cue:', error);
+    console.error('[MAIN] Error stopping Cue:', error);
     Sentry.captureException(error);
     // Force cleanup on error
     cueAudioStreamer = null;
@@ -711,19 +702,19 @@ function loadEnvironmentVariables() {
       if (fs.existsSync(envPath)) {
         require('dotenv').config({ path: envPath });
         if (isDev) {
-          console.log(`[Main Process] ✅ Loaded environment from: ${envPath}`);
+          console.log(`[MAIN] Loaded environment from: ${envPath}`);
         }
         loaded = true;
         break;
       } else {
         if (isDev) {
-          console.log(`[Main Process] ❌ Not found: ${envPath}`);
+          console.log(`[MAIN] Not found: ${envPath}`);
         }
       }
     }
     
     if (!loaded) {
-      console.warn('[Main Process] ⚠️ No .env.production file found, using defaults');
+      console.warn('[MAIN] No .env.production file found, using defaults');
       // Set production defaults
       process.env.VITE_BACKEND_BASE_URL = 'https://your-production-server.com';
     }
@@ -766,30 +757,7 @@ if (require('electron-squirrel-startup')) {
 // Prefer Electron's packaging flag to detect development vs production
 const isDev = !app.isPackaged;
 
-// --- Transcription State (Main Process) ---
-let isTranscribingActive = false;
-let currentAudioBuffer = [];
-const SAMPLE_RATE = 44100;
-const TARGET_DURATION_MS = 5000;
-const BUFFER_THRESHOLD = TARGET_DURATION_MS / 1000 * SAMPLE_RATE * 2;
-let transcriptionWindow = null;
-let isCurrentlyTranscribing = false;
-
-// --- Helper Function: Convert Float32 to Int16 --- 
-function float32ToInt16Array(buffer) {
-  let l = buffer.length;
-  const buf = new Int16Array(l);
-  while (l--) {
-    const clamped = Math.max(-1, Math.min(1, buffer[l]));
-    buf[l] = clamped * 32767;
-  }
-  return buf;
-}
-
-
 // Keep track of window instances
-let mainTipWindowInstance = null;
-let sideInfoWindowInstance = null;
 let dashboardWindowInstance = null;
 
 // --- Dashboard Window (Standard Window) ---
@@ -800,13 +768,13 @@ const createDashboardWindow = () => {
   }
   const preloadScriptPath = path.join(__dirname, 'preload.js');
   if (isDev) {
-    console.log(`MAIN: Dashboard preload path calculated as: ${preloadScriptPath}`);
+    console.log(`[MAIN]: Dashboard preload path calculated as: ${preloadScriptPath}`);
     if (fs.existsSync(preloadScriptPath)) {
-      console.log(`MAIN: Preload script FOUND at: ${preloadScriptPath}`);
+      console.log(`[MAIN]: Preload script FOUND at: ${preloadScriptPath}`);
     }
   }
   if (!fs.existsSync(preloadScriptPath)) {
-    console.error(`🔴🔴🔴 MAIN: Preload script NOT FOUND at: ${preloadScriptPath}`);
+    console.error(`[MAIN]: Preload script NOT FOUND at: ${preloadScriptPath}`);
   }
   const indexHtmlPath = path.join(process.resourcesPath, 'dist', 'index.html');
   const dashboardWindow = new BrowserWindow({
@@ -846,32 +814,29 @@ const createDashboardWindow = () => {
     ? 'http://localhost:5173/#/' 
     : `file://${path.join(__dirname, '../dist/index.html')}#/`;
   dashboardWindow.loadURL(dashboardUrl);
-   if (isDev) {
+  if (isDev) {
     dashboardWindow.webContents.openDevTools();
   }
   dashboardWindow.on('closed', () => {
       dashboardWindowInstance = null;
-      isTranscribingActive = false;
-      currentAudioBuffer = [];
-      transcriptionWindow = null;
   });
 
   // Enhanced media permissions handler for packaged app
   dashboardWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
     const allowedPermissions = ['media', 'microphone', 'display-capture'];
     if (isDev) {
-      console.log(`🔐 Permission requested: ${permission}`);
+      console.log(`[MAIN] Permission requested: ${permission}`);
     }
     
     if (allowedPermissions.includes(permission)) {
       if (isDev) {
-        console.log(`✅ Granting permission for: ${permission}`);
+        console.log(`[MAIN] Granting permission for: ${permission}`);
       }
       // Grant permission immediately for media access
       callback(true);
     } else {
       if (isDev) {
-        console.log(`❌ Denying permission for: ${permission}`);
+        console.log(`[MAIN] Denying permission for: ${permission}`);
       }
       callback(false);
     }
@@ -880,7 +845,7 @@ const createDashboardWindow = () => {
   // Enhanced device permission handler
   dashboardWindow.webContents.session.setDevicePermissionHandler((webContents, permission, deviceId) => {
     if (isDev) {
-      console.log(`📱 Device permission requested for: ${permission} (${deviceId})`);
+      console.log(`[MAIN] Device permission requested for: ${permission} (${deviceId})`);
     }
     // Always allow device access for camera/microphone
     return true;
@@ -889,29 +854,29 @@ const createDashboardWindow = () => {
   // Initialize media devices with better error handling
   dashboardWindow.webContents.on('did-finish-load', () => {
     if (isDev) {
-      console.log('🚀 Window loaded, initializing media devices...');
+      console.log('[MAIN] Window loaded, initializing media devices...');
     }
     dashboardWindow.webContents.executeJavaScript(`
       (function() {
-        ${isDev ? "console.log('🔍 Initializing media devices in renderer...');" : ''}
+        ${isDev ? "console.log('[MAIN] Initializing media devices in renderer...');" : ''}
         
         // Check if mediaDevices is available
         if (!navigator.mediaDevices) {
-          console.error('❌ navigator.mediaDevices is not available');
+          console.error('[MAIN] navigator.mediaDevices is not available');
           return;
         }
         
         // Do NOT auto-request permissions here. We only show macOS dialogs
         // after the user confirms our custom modal (via permissions.requestAll).
-        ${isDev ? "console.log('ℹ️ Skipping automatic getUserMedia to avoid prompting macOS dialogs early.');" : ''}
+        ${isDev ? "console.log('[MAIN] Skipping automatic getUserMedia to avoid prompting macOS dialogs early.');" : ''}
         
         // Enumerate devices
         navigator.mediaDevices.enumerateDevices()
           .then(devices => {
-            ${isDev ? "console.log('📱 Available media devices:', devices.map(d => ({ kind: d.kind, deviceId: d.deviceId, label: d.label })));" : ''}
+            ${isDev ? "console.log('[MAIN] Available media devices:', devices.map(d => ({ kind: d.kind, deviceId: d.deviceId, label: d.label })));" : ''}
           })
           .catch(err => {
-            console.error('❌ Error enumerating devices:', err);
+            console.error('[MAIN] Error enumerating devices:', err);
           });
       })();
     `);
@@ -920,15 +885,15 @@ const createDashboardWindow = () => {
   // Handle device change events
   dashboardWindow.webContents.on('media-devices-changed', () => {
     if (isDev) {
-      console.log('🔄 Media devices changed, reinitializing...');
+      console.log('[MAIN] Media devices changed, reinitializing...');
     }
     dashboardWindow.webContents.executeJavaScript(`
       if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
         navigator.mediaDevices.enumerateDevices()
           .then(devices => {
-            ${isDev ? "console.log('📱 Updated media devices:', devices.map(d => ({ kind: d.kind, deviceId: d.deviceId, label: d.label })));" : ''}
+            ${isDev ? "console.log('[MAIN] Updated media devices:', devices.map(d => ({ kind: d.kind, deviceId: d.deviceId, label: d.label })));" : ''}
           })
-          .catch(err => console.error('❌ Error enumerating devices:', err));
+          .catch(err => console.error('[MAIN] Error enumerating devices:', err));
       }
     `);
   });
@@ -988,56 +953,34 @@ const createDashboardWindow = () => {
 
 };
 
-// --- IPC Handlers for Floating Windows ---
-ipcMain.on('launch-call-windows', () => {
-  if (isDev) {
-    console.log('IPC: Received launch-call-windows');
-  }
-  createMainTipWindow();
-  createSideInfoWindow();
-});
-
 // Handler for opening URLs externally
 ipcMain.on('open-external', (event, url) => {
   if (isDev) {
-    console.log('🎯 [Electron][open-external] IPC event received!');
-    console.log('🎯 [Electron][open-external] URL:', url);
-    console.log('🎯 [Electron][open-external] Event sender window ID:', event.sender.id);
+    console.log('[MAIN] [Electron][open-external] IPC event received!');
+    console.log('[MAIN] [Electron][open-external] URL:', url);
+    console.log('[MAIN] [Electron][open-external] Event sender window ID:', event.sender.id);
   }
   
   try {
     shell.openExternal(url);
     if (isDev) {
-      console.log('✅ [Electron][open-external] URL opened externally successfully');
-    }
-    
-    // If it's a Zoom OAuth URL, send reset-to-home
-    if (url.includes('zoom/auth')) {
-      if (isDev) {
-        console.log('🔄 [Electron][open-external] Zoom auth detected, sending reset-to-home [TRIGGER #1]');
-      }
-      BrowserWindow.getAllWindows().forEach(win => {
-        if (isDev) {
-          console.log('📤 [Electron][open-external] Sending reset-to-home to window:', win.id);
-        }
-        win.webContents.send('reset-to-home', { source: 'open-external-ipc', service: 'zoom' });
-      });
+      console.log('[MAIN] [Electron][open-external] URL opened externally successfully');
     }
     
     // If it's a Slack OAuth URL, send reset-to-home
     if (url.includes('slack/auth')) {
       if (isDev) {
-        console.log('🔄 [Electron][open-external] Slack auth detected, sending reset-to-home [TRIGGER #1]');
+        console.log('[MAIN] [Electron][open-external] Slack auth detected, sending reset-to-home [TRIGGER #1]');
       }
       BrowserWindow.getAllWindows().forEach(win => {
         if (isDev) {
-          console.log('📤 [Electron][open-external] Sending reset-to-home to window:', win.id);
+          console.log('[MAIN] [Electron][open-external] Sending reset-to-home to window:', win.id);
         }
         win.webContents.send('reset-to-home', { source: 'open-external-ipc', service: 'slack' });
       });
     }
   } catch (error) {
-    console.error('❌ [Electron][open-external] Error opening URL externally:', error);
+    console.error('[MAIN] [Electron][open-external] Error opening URL externally:', error);
     Sentry.captureException(error);
   }
 });
@@ -1056,7 +999,7 @@ ipcMain.handle('permissions-check', async () => {
     const screen = false;
     return { mic, screen };
   } catch (e) {
-    console.error('[Permissions] ❌ Error checking permissions:', e);
+    console.error('[MAIN] [Permissions] Error checking permissions:', e);
     Sentry.captureException(e);
     return { mic: false, screen: false, error: e.message };
   }
@@ -1085,7 +1028,7 @@ ipcMain.handle('permissions-request-all', async () => {
       try {
         await systemPreferences.openSystemPreferences('privacy', 'Microphone');
       } catch (e) {
-        console.warn('[Permissions] ⚠️ Could not open System Settings for Microphone:', e?.message || e);
+        console.warn('[MAIN] [Permissions] Could not open System Settings for Microphone:', e?.message || e);
       }
     }
 
@@ -1106,10 +1049,10 @@ ipcMain.handle('permissions-request-all', async () => {
         screen = !!res;
         screenRequested = true;
       } else {
-        console.warn('[Permissions] ⚠️ Native module missing requestScreenRecordingPermission');
+        console.warn('[MAIN] [Permissions] Native module missing requestScreenRecordingPermission');
       }
     } catch (err) {
-      console.warn('[Permissions] ⚠️ Screen permission request failed:', err?.message || err);
+      console.warn('[MAIN] [Permissions] Screen permission request failed:', err?.message || err);
       screen = false;
     }
     if (isDev) {
@@ -1117,74 +1060,11 @@ ipcMain.handle('permissions-request-all', async () => {
     }
     return { mic, screen, micAction, screenRequested };
   } catch (e) {
-    console.error('[Permissions] ❌ Error requesting permissions:', e);
+    console.error('[MAIN] [Permissions] Error requesting permissions:', e);
     Sentry.captureException(e);
     return { mic: false, screen: false, error: e.message };
   }
 });
-
-ipcMain.on('close-call-windows', () => {
-  if (isDev) {
-    console.log('IPC: Received close-call-windows');
-  }
-  if (mainTipWindowInstance) {
-    mainTipWindowInstance.close();
-    mainTipWindowInstance = null; // Ensure it's cleared
-  }
-  if (sideInfoWindowInstance) {
-    sideInfoWindowInstance.close();
-    sideInfoWindowInstance = null; // Ensure it's cleared
-  }
-});
-
-
-// Handler to start transcription process
-ipcMain.on('connect-whisper', (event) => {
-  if (isDev) {
-    console.log('IPC: Received connect-whisper (Start Transcription)');
-  }
-  isTranscribingActive = true;
-  currentAudioBuffer = [];
-  isCurrentlyTranscribing = false;
-  transcriptionWindow = BrowserWindow.fromWebContents(event.sender);
-  if (transcriptionWindow) {
-      if (isDev) {
-        console.log('MAIN: Transcription activated for window.');
-      }
-  } else {
-       console.error('IPC connect-whisper: Could not find sender window.');
-  }
-});
-
-// Handler to stop transcription process
-ipcMain.on('disconnect-whisper', () => {
-    // console.log('IPC: Received disconnect-whisper (Stop Transcription)');
-    isTranscribingActive = false;
-    currentAudioBuffer = [];
-    transcriptionWindow = null;
-});
-
-// Handler to receive audio chunks from renderer
-ipcMain.on('send-audio-chunk', (_event, float32AudioChunk) => {
-    if (!isTranscribingActive || !transcriptionWindow) {
-        return;
-    }
-    
-    try {
-        const int16Chunk = float32ToInt16Array(float32AudioChunk);
-        currentAudioBuffer.push(int16Chunk);
-
-        const currentBufferSize = currentAudioBuffer.reduce((sum, arr) => sum + arr.byteLength, 0);
-        if (currentBufferSize >= BUFFER_THRESHOLD) {
-            transcribeAudioBuffer();
-        }
-    } catch (error) {
-        console.error("MAIN: Error processing audio chunk:", error);
-        Sentry.captureException(error);
-    }
-});
-
-
 
 // Upload file handler - reads file from disk and uploads to server
 ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessToken, fileName, data }) => {
@@ -1244,12 +1124,12 @@ ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessTo
     });
     
     if (isDev) {
-      console.log('[Main Process] ✅ File upload successful:', response.data);
+      console.log('[Main Process] File upload successful:', response.data);
     }
     return response.data;
     
   } catch (error) {
-    console.error('[Main Process] ❌ Error uploading file:', error);
+    console.error('[Main Process] Error uploading file:', error);
     Sentry.captureException(error);
 
     // Create descriptive error message
@@ -1363,12 +1243,12 @@ ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, a
     });
     
     if (isDev) {
-      console.log('[Main Process] ✅ Both files upload successful:', response.data);
+      console.log('[Main Process] Both files upload successful:', response.data);
     }
     return response.data;
     
   } catch (error) {
-    console.error('[Main Process] ❌ Error uploading both files:', error);
+    console.error('[Main Process] Error uploading both files:', error);
     Sentry.captureException(error);
 
     // Create descriptive error message
@@ -1451,7 +1331,7 @@ ipcMain.handle('get-audio-queue-status', () => {
 // Add IPC handler for reloading the page
 ipcMain.handle('reload-page', () => {
   if (isDev) {
-    console.log('🔄 [Electron] Reloading page...');
+    console.log('[MAIN] Reloading page...');
   }
   if (dashboardWindowInstance) {
     dashboardWindowInstance.reload();
@@ -1525,19 +1405,6 @@ app.on('open-url', (event, url) => {
       dashboardWindowInstance.focus();
     }
   }
-  
-  // Handle zoom callback
-  if (urlObj.pathname === '/zoom-callback') {
-    const connected = params.get('connected');
-    if (isDev) {
-      console.log('Zoom callback received, connected:', connected);
-    }
-    
-    // Send the callback data to the renderer process
-    if (dashboardWindowInstance) {
-      dashboardWindowInstance.webContents.send('zoom-callback', { connected });
-    }
-  }
 });
 
 // Handle second instance (when app is already running and opened via protocol)
@@ -1568,6 +1435,25 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
 app.whenReady().then(() => {
   setupLogging();
 
+  // Run auto-updater check FIRST, before any potential native module crashes
+  if (autoUpdater) {
+    // Check immediately (with small delay to ensure network is ready)
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch(err => {
+        console.error('Failed to check for updates:', err);
+        Sentry.captureException(err);
+      });
+    }, 1000); // 1 second delay
+    
+    // Check every hour
+    setInterval(() => {
+      autoUpdater.checkForUpdates().catch(err => {
+        console.error('Failed to check for updates:', err);
+        Sentry.captureException(err);
+      });
+    }, 60 * 60 * 1000);
+  }
+
   app.on('browser-window-focus', () => {
     if (process.platform === 'darwin') {
       app.setBadgeCount(0);
@@ -1577,133 +1463,124 @@ app.whenReady().then(() => {
   // Load native audio module AFTER logging is set up
   try {
     nativeAudio = require('./native-audio');
-    
-    // Register IPC handlers AFTER native module is loaded
-    // Initialize native audio module
-    ipcMain.handle('native-audio-initialize', async () => {
-      try {
-        await nativeAudio.initialize();
-        return { success: true };
-      } catch (error) {
-        console.error('🎤 [MAIN] Failed to initialize native audio:', error);
-        Sentry.captureException(error);
-        return { success: false, error: error.message };
-      }
-    });
-
-    // List output devices
-    ipcMain.handle('native-audio-list-devices', async () => {
-      try {
-        const devices = await nativeAudio.listOutputDevices();
-        return { success: true, devices };
-      } catch (error) {
-        console.error('🎤 [MAIN] Failed to list devices:', error);
-        Sentry.captureException(error);
-        return { success: false, error: error.message };
-      }
-    });
-
-    // Create multi-output device
-    ipcMain.handle('native-audio-create-device', async (event, { name, subDevices }) => {
-      try {
-        const deviceId = await nativeAudio.createMultiOutputDevice(name, subDevices);
-        return { success: true, deviceId };
-      } catch (error) {
-        console.error('🎤 [MAIN] Failed to create device:', error);
-        Sentry.captureException(error);
-        return { success: false, error: error.message };
-      }
-    });
-
-    // Delete multi-output device
-    ipcMain.handle('native-audio-delete-device', async (event, { deviceId }) => {
-      try {
-        const result = await nativeAudio.deleteMultiOutputDevice(deviceId);
-        return { success: result };
-      } catch (error) {
-        console.error('🎤 [MAIN] Failed to delete device:', error);
-        Sentry.captureException(error);
-        return { success: false, error: error.message };
-      }
-    });
-
-    // Request screen recording permission
-    ipcMain.handle('native-audio-request-permission', async () => {
-      try {
-        const result = await nativeAudio.requestScreenRecordingPermission();
-        return { success: result };
-      } catch (error) {
-        console.error('🎤 [MAIN] Failed to request permission:', error);
-        Sentry.captureException(error);
-        return { success: false, error: error.message };
-      }
-    });
-
-    // Start system audio capture
-    ipcMain.handle('native-audio-start-capture', async (event, options = {}) => {
-      try {
-        const result = await nativeAudio.startSystemAudioCapture(options);
-        return { success: result };
-      } catch (error) {
-        console.error('🎤 [MAIN] Failed to start capture:', error);
-        Sentry.captureException(error);
-        return { success: false, error: error.message };
-      }
-    });
-
-    // Stop system audio capture
-    ipcMain.handle('native-audio-stop-capture', async () => {
-      try {
-        const result = await nativeAudio.stopSystemAudioCapture();
-        // Result is now {success, filePath}
-        return result;
-      } catch (error) {
-        console.error('🎤 [MAIN] Failed to stop capture:', error);
-        Sentry.captureException(error);
-        return { success: false, error: error.message, filePath: null };
-      }
-    });
-
-    // Check if system audio capture is active
-    ipcMain.handle('native-audio-is-capturing', async () => {
-      try {
-        const result = await nativeAudio.isSystemAudioCaptureActive();
-        return { success: true, isCapturing: result };
-      } catch (error) {
-        console.error('🎤 [MAIN] Failed to check capture status:', error);
-        Sentry.captureException(error);
-        return { success: false, error: error.message };
-      }
-    });
   } catch (error) {
-    console.error('🎤 [MAIN] Failed to load native audio module');
-    console.error('🎤 [MAIN] Error message:', error.message);
-    console.error('🎤 [MAIN] Error code:', error.code);
-    console.error('🎤 [MAIN] Error stack:', error.stack);
-    console.error('🎤 [MAIN] Full error:', error);
     Sentry.captureException(error);
   }
+
+  // Register IPC handlers safely (even if module failed to load)
+  // This prevents "No handler registered" errors in the renderer
+  
+  // Initialize native audio module
+  ipcMain.handle('native-audio-initialize', async () => {
+    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
+    try {
+      await nativeAudio.initialize();
+      return { success: true };
+    } catch (error) {
+      console.error('[MAIN] Failed to initialize native audio:', error);
+      Sentry.captureException(error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // List output devices
+  ipcMain.handle('native-audio-list-devices', async () => {
+    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
+    try {
+      const devices = await nativeAudio.listOutputDevices();
+      return { success: true, devices };
+    } catch (error) {
+      console.error('[MAIN] Failed to list devices:', error);
+      Sentry.captureException(error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Create multi-output device
+  ipcMain.handle('native-audio-create-device', async (event, { name, subDevices }) => {
+    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
+    try {
+      const deviceId = await nativeAudio.createMultiOutputDevice(name, subDevices);
+      return { success: true, deviceId };
+    } catch (error) {
+      console.error('[MAIN] Failed to create device:', error);
+      Sentry.captureException(error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Delete multi-output device
+  ipcMain.handle('native-audio-delete-device', async (event, { deviceId }) => {
+    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
+    try {
+      const result = await nativeAudio.deleteMultiOutputDevice(deviceId);
+      return { success: result };
+    } catch (error) {
+      console.error('[MAIN] Failed to delete device:', error);
+      Sentry.captureException(error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Request screen recording permission
+  ipcMain.handle('native-audio-request-permission', async () => {
+    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
+    try {
+      const result = await nativeAudio.requestScreenRecordingPermission();
+      return { success: result };
+    } catch (error) {
+      console.error('[MAIN] Failed to request permission:', error);
+      Sentry.captureException(error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Start system audio capture
+  ipcMain.handle('native-audio-start-capture', async (event, options = {}) => {
+    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
+    try {
+      const result = await nativeAudio.startSystemAudioCapture(options);
+      return { success: result };
+    } catch (error) {
+      console.error('[MAIN] Failed to start capture:', error);
+      Sentry.captureException(error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Stop system audio capture
+  ipcMain.handle('native-audio-stop-capture', async () => {
+    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded', filePath: null };
+    try {
+      const result = await nativeAudio.stopSystemAudioCapture();
+      // Result is now {success, filePath}
+      return result;
+    } catch (error) {
+      console.error('[MAIN] Failed to stop capture:', error);
+      Sentry.captureException(error);
+      return { success: false, error: error.message, filePath: null };
+    }
+  });
+
+  // Check if system audio capture is active
+  ipcMain.handle('native-audio-is-capturing', async () => {
+    if (!nativeAudio) return { success: true, isCapturing: false };
+    try {
+      const result = await nativeAudio.isSystemAudioCaptureActive();
+      return { success: true, isCapturing: result };
+    } catch (error) {
+      console.error('[MAIN] Failed to check capture status:', error);
+      Sentry.captureException(error);
+      return { success: false, error: error.message };
+    }
+  });
   
   // ONLY create the dashboard window initially
   createDashboardWindow(); 
   registerTrayIconMenu();
   setupGlobalShortcut();
   
-  if (autoUpdater) {
-    setTimeout(() => {
-      autoUpdater.checkForUpdates().catch(err => {
-        console.error('Failed to check for updates:', err);
-        Sentry.captureException(err);
-      });
-    }, 3000);
-    
-    setInterval(() => {
-      autoUpdater.checkForUpdates().catch(err => {
-        console.error('Failed to check for updates:', err);
-        Sentry.captureException(err);
-      });
-    }, 60 * 60 * 1000);
-  }
+
   
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the
@@ -2038,18 +1915,18 @@ ipcMain.on('set-window-position', (event, x, y) => {
 // Handler for demo insights from AdminPanel - forwards to coach window
 ipcMain.on('demo-insight', (event, insightData) => {
   if (isDev) {
-    console.log('📤 [Main Process] Received demo-insight:', insightData);
+    console.log('[MAIN] Received demo-insight:', insightData);
   }
   
   // Forward to coach window if it exists and is not destroyed
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
     global.coachWindow.webContents.send('cue-insight', insightData);
     if (isDev) {
-      console.log('✅ [Main Process] Demo insight forwarded to coach window');
+      console.log('[MAIN] Demo insight forwarded to coach window');
     }
   } else {
     if (isDev) {
-      console.warn('⚠️ [Main Process] Coach window not available, cannot forward demo insight');
+      console.warn('[MAIN] Coach window not available, cannot forward demo insight');
     }
   }
 });
