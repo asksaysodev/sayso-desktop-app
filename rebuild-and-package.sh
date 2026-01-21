@@ -107,9 +107,21 @@ notarize_app() {
   xcrun stapler validate "${app_path}"
   
   # NOW create the final ZIP with the stapled .app (for electron-updater)
-  local zip_path="${RELEASE_DIR}/${APP_NAME}-${arch_name}.zip"
+  # RENAME to match the standard name electron-builder used (and listed in latest-mac.yml)
+  local final_zip_name=""
+  if [ "$arch_name" == "Intel" ]; then
+    final_zip_name="${APP_NAME}-${APP_VERSION}-mac.zip"
+  elif [ "$arch_name" == "ARM64" ]; then
+    final_zip_name="${APP_NAME}-${APP_VERSION}-arm64-mac.zip"
+  fi
+  
+  local zip_path="${RELEASE_DIR}/${final_zip_name}"
   echo "🗜️  Creating final ZIP with stapled app: ${zip_path}"
+  
+  # Remove the old un-notarized zip if it exists
   rm -f "${zip_path}"
+  
+  # Create new notarized zip
   ditto -c -k --sequesterRsrc --keepParent "${app_path}" "${zip_path}"
   
   # Clean up temp zip
@@ -195,4 +207,7 @@ fi
 
 echo "✅ Done! All artifacts in ${RELEASE_DIR}/"
 echo "📦 Created DMGs:"
-ls -la "${RELEASE_DIR}"/*.dmg 2>/dev/null || echo "No DMGs found" 
+ls -la "${RELEASE_DIR}"/*.dmg 2>/dev/null || echo "No DMGs found"
+
+echo "🔄 Updating latest-mac.yml with new hashes..."
+node scripts/update-latest-yaml.js 
