@@ -130,23 +130,8 @@ export interface CoachSessionState {
 export interface Prospect {
   id: string;
   name: string;
+  lastname: string;
   email?: string;
-  phone?: string;
+  files: File[];
   company?: string;
-  title?: string;
-  notes?: string;
-  account_id: string;
-  created_at?: string;
-  updated_at?: string;
-  last_contacted?: string;
-  status?: ProspectStatus;
 }
-
-export type ProspectStatus =
-  | 'new'
-  | 'contacted'
-  | 'qualified'
-  | 'proposal'
-  | 'negotiation'
-  | 'closed_won'
-  | 'closed_lost';

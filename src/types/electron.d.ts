@@ -62,6 +62,7 @@ export interface CueParams {
 export interface CueStatusData {
   status: 'connecting' | 'connected' | 'disconnected' | 'error';
   message?: string;
+  stream?: string;
 }
 
 export interface CueInsightData {
@@ -71,6 +72,7 @@ export interface CueInsightData {
 
 export interface CueErrorData {
   error: string;
+  stream?: string;
   code?: string;
 }
 
