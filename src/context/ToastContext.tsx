@@ -1,22 +1,27 @@
 import { createContext, useContext, useState, useRef } from 'react';
 import Toast from '../components/Toast';
 
-const ToastContext = createContext();
+type ToastStatus = 'success' | 'error' | 'warning';
 
-export const useToast = () => {
-    const context = useContext(ToastContext);
-    if (!context) {
-        throw new Error('useToast must be used within a ToastProvider');
-    }
-    return context;
-};
+export interface Toast {
+  status: ToastStatus;
+  text: string;
+  autoClose?: boolean;
+}
 
-export const ToastProvider = ({ children }) => {
+interface ToastContextValue {
+  showToast: (status: ToastStatus, text: string) => void;
+  hideToast: () => void;
+}
 
-    const [toast, setToast] = useState(null);
-    const autoHideTimeoutRef = useRef(null);
+const ToastContext = createContext<ToastContextValue>({} as ToastContextValue)
 
-    const showToast = (status, text) => {
+export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
+
+    const [toast, setToast] = useState<Toast | null>(null);
+    const autoHideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const showToast = (status: ToastStatus, text: string): void => {
         // Clear any existing timeout
         if (autoHideTimeoutRef.current) {
             clearTimeout(autoHideTimeoutRef.current);
@@ -49,4 +54,12 @@ export const ToastProvider = ({ children }) => {
             )}
         </ToastContext.Provider>
     );
+};
+
+export const useToast = () => {
+    const context = useContext(ToastContext);
+    if (!context) {
+        throw new Error('useToast must be used within a ToastProvider');
+    }
+    return context;
 };

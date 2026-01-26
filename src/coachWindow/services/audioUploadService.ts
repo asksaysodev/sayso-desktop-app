@@ -1,6 +1,6 @@
 import { supabase } from '../../config/supabase';
 
-export const compressAudioFile = async (cafFilePath, outputPath) => {
+export const compressAudioFile = async (cafFilePath: string, outputPath: string) => {
     // Call Electron to compress via FFmpeg
     if (window.electron && window.electron.recording) {
         return await window.electron.recording.compressAudio({
@@ -14,7 +14,7 @@ export const compressAudioFile = async (cafFilePath, outputPath) => {
     throw new Error('Electron compression API not available');
 };
 
-export const uploadFileViaIPC = async (filePath, type, parentId, fileName, metadata = {}) => {
+export const uploadFileViaIPC = async (filePath: string, type: string, parentId: string, fileName: string, metadata = {}) => {
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session?.access_token) {
@@ -35,7 +35,7 @@ export const uploadFileViaIPC = async (filePath, type, parentId, fileName, metad
     });
 };
 
-export const uploadBothFilesViaIPC = async ({ user, prospect, sessionId }) => {
+export const uploadBothFilesViaIPC = async ({ user, prospect, sessionId }: { user: { file: string, actualStartMs: number }, prospect: { file: string, actualStartMs: number }, sessionId: string }) => {
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session?.access_token) {
@@ -72,12 +72,11 @@ export const uploadBothFilesViaIPC = async ({ user, prospect, sessionId }) => {
     });
 };
 
-export const uploadFullRecording = async (recordingResult, metadata = {}) => {
+export const uploadFullRecording = async (recordingResult: { userFile: string, prospectFile: string, sessionId: string, prospectId: string, userActualStartMs: number, prospectActualStartMs: number }, metadata = {}) => {
     const { 
       userFile, 
       prospectFile, 
       sessionId, 
-      prospectId, 
       userActualStartMs, 
       prospectActualStartMs 
     } = recordingResult;

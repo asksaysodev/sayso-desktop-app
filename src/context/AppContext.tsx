@@ -1,7 +1,7 @@
 import React, { createContext, useContext } from 'react';
 
 // Utility function to capitalize words
-export const capitalizeWords = (str) => {
+export const capitalizeWords = (str: string): string => {
   if (!str) return '';
   return str
     .split(' ')
@@ -9,11 +9,15 @@ export const capitalizeWords = (str) => {
     .join(' ');
 };
 
+interface AppContextValue {
+  capitalizeWords: (str: string) => string;
+}
+
 // Create the context
-const AppContext = createContext();
+const AppContext = createContext<AppContextValue>({} as AppContextValue);
 
 // Create the provider component
-export const AppProvider = ({ children }) => {
+export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const value = {
     capitalizeWords,
   };

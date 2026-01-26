@@ -3,20 +3,20 @@ import apiClient from '../config/axios';
 export const useFiles = () => {
 
 
-  const handleParseFile = async (fileSignedUrl, originalFileId, folderId) => {
+  const handleParseFile = async (fileSignedUrl: string, originalFileId: string, folderId: string): Promise<void> => {
     try {
       const response = await apiClient.post('/files/parse/' + folderId, {
         file_url: fileSignedUrl,
         original_file_id: originalFileId
       });
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error in handleParseFile:', error);
       throw error;
     }
   };
 
-  const uploadFile = async (file, type, parentId) => {
+  const uploadFile = async (file: File, type: string, parentId: string): Promise<void> => {
     if(!file) {
       console.error('No file provided');
       return;
@@ -53,20 +53,20 @@ export const useFiles = () => {
     }
   };
 
-  const handleUploadFiles = async (files, type, parentId) => {
+  const handleUploadFiles = async (files: File[], type: string, parentId: string): Promise<any[]> => { // $FixTS
     if(!files || files.length === 0) {
       console.error('No files provided');
-      return;
+      return [];
     }
 
     if(!type) {
       console.error('No type provided');
-      return;
+      return [];
     }
 
     if(!parentId) {
       console.error('No parentId provided');
-      return;
+      return [];
     }
 
     const uploadedFiles = [];
@@ -93,15 +93,15 @@ export const useFiles = () => {
       }
     }
 
-    return uploadedFiles;
+    return uploadedFiles as any[]; // $FixTS
   };
 
-  const fetchFiles = async (parentId) => {
+  const fetchFiles = async (parentId: string): Promise<void> => {
     const response = await apiClient.get('/files/fetch/' + parentId);
     return response.data;
   }
 
-  const removeFile = async (fileId) => {
+  const removeFile = async (fileId: string): Promise<void> => {
     const response = await apiClient.delete('/files/remove/' + fileId);
     return response.data;
   }

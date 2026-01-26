@@ -1,8 +1,9 @@
+import { Account, Company, CreateAccountData, UpdateAccountData } from '@/types/user';
 import apiClient from '../config/axios';
 
 export const useAccounts = () => {
 
-  const createAccount = async ( accountData ) => {
+  const createAccount = async ( accountData: CreateAccountData ): Promise<Account> => {
     try {
       const response = await apiClient.post('/accounts/create', { accountData });
       return response.data.data;
@@ -12,7 +13,7 @@ export const useAccounts = () => {
     }
   };
 
-  const getAccount = async (email) => {
+  const getAccount = async (email: string): Promise<Account> => {
     try {
       const response = await apiClient.get(`/accounts/${email}`);
       return response.data.data;
@@ -22,7 +23,7 @@ export const useAccounts = () => {
     }
   };
 
-  const updateAccount = async (updateData) => {
+  const updateAccount = async (updateData: UpdateAccountData): Promise<void> => {
     try {
       if(!updateData) {
         throw new Error('Update data is required');
@@ -36,7 +37,7 @@ export const useAccounts = () => {
 
   } 
 
-  const getCompanyById = async (companyId) => {
+  const getCompanyById = async (companyId: string): Promise<Company> => {
     try {
       const response = await apiClient.get(`/accounts/company/${companyId}`);
       return response.data.data;

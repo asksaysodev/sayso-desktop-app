@@ -1,12 +1,18 @@
 import { Checkbox } from "@/components/ui/checkbox";
+import type { LeadTypeFilter } from "@/types/coach";
 
-const LeadTypeOptions = [
+const LeadTypeOptions: Array<{ key: LeadTypeFilter; label: string }> = [
     { key: 'all', label: 'All'},
     { key: 'buyer', label: 'Buyer' },
-    { key:'seller',label:'Seller' }
-] as const;
+    { key: 'seller', label: 'Seller' }
+];
 
-export default function LeadTypeFilterSelector({ selectedLeadTypeFilter, setSelectedLeadTypeFilter }) {
+interface LeadTypeFilterSelectorProps {
+    selectedLeadTypeFilter: LeadTypeFilter;
+    setSelectedLeadTypeFilter: (leadType: LeadTypeFilter) => void;
+}
+
+export default function LeadTypeFilterSelector({ selectedLeadTypeFilter, setSelectedLeadTypeFilter }: LeadTypeFilterSelectorProps) {
     return (
         <div className="lead-type-filter-selector-container">
             {LeadTypeOptions.map(({ key, label }) => {

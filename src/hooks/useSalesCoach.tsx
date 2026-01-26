@@ -12,20 +12,20 @@ export const useSalesCoach = () => {
 
   const { globalUser } = useAuth();
   const { startLiveCoach, stopLiveCoach } = useAudioCapture();
-  const { setIsCallActive, setIceBreaker, setCurrentInsight, setProspectId, setAccountId, setSessionId } = useSalesCoachContext();
+  const { setIsCallActive, setCurrentInsight, setProspectId, setAccountId, setSessionId } = useSalesCoachContext();
 
-  const getIceBreaker = useCallback(async (prospectId) => {
+  const getIceBreaker = useCallback(async (prospectId: string): Promise<string> => {
     try {
       const response = await apiClient.get(`/sales-coach/ice-breaker/${prospectId}`);
       return response.data.iceBreaker;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error in getIceBreaker:', error);
       throw error;
     }
   }, []);
 
 
-  const handleNewCall = useCallback(async (prospectId, accountId, meetingId) => {
+  const handleNewCall = useCallback(async (prospectId: string, accountId: string, meetingId: string): Promise<void> => {
     if (!globalUser?.id) {
       throw new Error('Global user not found');
     }
@@ -44,7 +44,7 @@ export const useSalesCoach = () => {
       if(iceBreaker) {
 
         const iceBreakerMessage = {
-          message: iceBreaker.iceBreaker,
+          message: typeof iceBreaker === 'string' ? iceBreaker : iceBreaker?.iceBreaker, // $FixTS
           isIceBreaker: true,
         }
         setCurrentInsight(iceBreakerMessage);
@@ -62,10 +62,10 @@ export const useSalesCoach = () => {
       console.error('Error in handleNewCall:', error);
       throw error;
     }
-  }, [globalUser, getIceBreaker, setIceBreaker, startLiveCoach, setIsCallActive]);
+  }, [globalUser, getIceBreaker, startLiveCoach, setIsCallActive]);
 
 
-  const getCallSummary = useCallback(async (meetingId, prospectId, sessionId) => {
+  const getCallSummary = useCallback(async (meetingId: string, prospectId: string, sessionId: string): Promise<any> => { // $FixTS
 
     try {
 
@@ -88,7 +88,7 @@ export const useSalesCoach = () => {
       );
 
       return response.data.summary;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error in getCallSummary:', error); 
     }
     
@@ -96,7 +96,7 @@ export const useSalesCoach = () => {
 
   
 
-  const handleStopLiveCoach = useCallback(async (meetingId, prospectId, sessionId) => {
+  const handleStopLiveCoach = useCallback(async (meetingId: string, prospectId: string, sessionId: string): Promise<void> => {
     setSessionId(null);
     stopLiveCoach();
     setIsCallActive(false);
@@ -104,7 +104,7 @@ export const useSalesCoach = () => {
     // Removed window.location.reload() to prevent Electron app issues
   }, [stopLiveCoach, setIsCallActive, getCallSummary]);
 
-  const handleRestartApp = useCallback(async () => {
+  const handleRestartApp = useCallback(async (): Promise<void> => {
     window.location.reload();
   }, []);
 

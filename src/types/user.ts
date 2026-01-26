@@ -34,6 +34,30 @@ export interface Account {
   role?: UserRole;
 }
 
+export interface AccountUsage {
+  planMinutes: number;
+  remainingMinutes: number;
+  rolloverMinutes: number;
+  usedMinutes: number;
+}
+
+export interface WeeklyActivity {
+  totalMinutes: number;
+  hasNextWeek: boolean;
+  hasPreviousWeek: boolean;
+  dailyActivity: DailyActivity[];
+}
+
+export interface DailyActivity {
+  date: {
+    date: string;
+    dayShort: string;
+  };
+  activity: {
+    minutes: number;
+  } | null;
+}
+
 export type SubscriptionStatus =
   | 'active'
   | 'canceled'
@@ -49,16 +73,9 @@ export type UserRole = 'admin' | 'user' | 'manager';
 export interface Company {
   id: string;
   name: string;
-  created_at?: string;
-  updated_at?: string;
-  owner_id?: string;
-  settings?: CompanySettings;
-}
-
-export interface CompanySettings {
-  logo_url?: string;
-  primary_color?: string;
-  timezone?: string;
+  team?: {
+    members: any[]; // $FixTS:
+  };
 }
 
 export interface CreateAccountData {

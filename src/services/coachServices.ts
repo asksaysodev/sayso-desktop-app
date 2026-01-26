@@ -1,9 +1,16 @@
-// import axios from 'axios';
 import apiClient from '../config/axios';
 import * as Sentry from "@sentry/electron/renderer";
+import type {
+  DynamicContext,
+  DynamicContextRequest,
+  Signal,
+  CoachInsight,
+  CallProgress,
+  InsightResponse,
+  ChatMessage
+} from '@/types/coach';
 
-
-export const getDynamicContext = async (data) => {
+export const getDynamicContext = async (data: DynamicContextRequest): Promise<DynamicContext> => {
   try {
     const response = await apiClient.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/sales-coach/dynamic-context`, data);
     return response.data;
@@ -14,7 +21,13 @@ export const getDynamicContext = async (data) => {
   }
 };
 
-export const runCoach = async ( conversationContext, insights, signals, callProgress, prospectId ) => {
+export const runCoach = async (
+  conversationContext: string,
+  insights: CoachInsight[],
+  signals: Signal[],
+  callProgress: CallProgress,
+  prospectId: string
+): Promise<unknown> => { // $FixTS: Define API response type
 
   if(!conversationContext || !insights || !signals || !callProgress || !prospectId) {
     console.log('conversationContext:', conversationContext);
@@ -45,7 +58,7 @@ export const runCoach = async ( conversationContext, insights, signals, callProg
 }
 
 // Helper function to format dynamicContext into readable text with enhanced instructions
-const formatDynamicContext = (dynamicContext) => {
+const formatDynamicContext = (dynamicContext: DynamicContext | null): string => {
   if (!dynamicContext) return 'No context available';
   
   let contextText = 'CONTEXT FOR SALES COACHING:\n\n';
@@ -55,7 +68,8 @@ const formatDynamicContext = (dynamicContext) => {
     contextText += '📋 PROSPECT BACKGROUND & NEEDS:\n';
     contextText += 'Use this information to understand the prospect\'s situation, company, and potential pain points:\n';
     dynamicContext.prospectContext.forEach((item, index) => {
-      const relevance = (parseFloat(item.similarity) * 100).toFixed(1);
+      const stringifiedSimilarity = typeof item.similarity === 'string' ? item.similarity : item.similarity.toString();
+      const relevance = (parseFloat(stringifiedSimilarity) * 100).toFixed(1);
       contextText += `${index + 1}. [Relevance: ${relevance}%] ${item.text}\n`;
     });
     contextText += '\n';
@@ -66,7 +80,8 @@ const formatDynamicContext = (dynamicContext) => {
     contextText += '💼 PRODUCT KNOWLEDGE & FEATURES:\n';
     contextText += '**USE THIS INFORMATION TO SUGGEST SPECIFIC PRODUCT FEATURES, PRICING, OR CAPABILITIES:**\n';
     dynamicContext.accountContext.forEach((item, index) => {
-      const relevance = (parseFloat(item.similarity) * 100).toFixed(1);
+      const stringifiedSimilarity = typeof item.similarity === 'string' ? item.similarity : item.similarity.toString();
+      const relevance = (parseFloat(stringifiedSimilarity) * 100).toFixed(1);
       contextText += `${index + 1}. [Relevance: ${relevance}%] ${item.text}\n`;
     });
   }
@@ -89,14 +104,14 @@ const formatDynamicContext = (dynamicContext) => {
   return contextText;
 };
 
-export const trackSignals = async (currentConversation) => {
+export const trackSignals = async (currentConversation: string): Promise<any[]> => { // $FixTS
   if(!currentConversation) {
     throw new Error('Missing required parameters');
   }
 
   try {
 
-    const systemMessage = {
+    const systemMessage: ChatMessage = {
       role: "system",
       content: `You are detecting sales signals from a live sales call transcript. Analyze the dialogue and return whether the following signals are present. For each detected signal, return the exact quote that triggered it. Interpret meaning flexibly — do not rely on exact phrasing. Use semantic understanding.
 
@@ -172,7 +187,7 @@ export const trackSignals = async (currentConversation) => {
       -`
     };
     
-    const messages = [systemMessage];
+    const messages: ChatMessage[] = [systemMessage];
 
 
     const response = await apiClient.post(
@@ -187,10 +202,10 @@ export const trackSignals = async (currentConversation) => {
     let parsedResponse;
     try {
       parsedResponse = JSON.parse(chatCompletionResponse);
-    } catch (parseError) {
+    } catch (parseError: unknown) {
       console.error('❌ Failed to parse trackSignals response as JSON:', {
         response: chatCompletionResponse,
-        error: parseError.message
+        error: parseError instanceof Error ? parseError.message : 'Unknown error'
       });
       Sentry.captureException(parseError);
       // Return a safe default response instead of throwing
@@ -256,23 +271,29 @@ export const trackSignals = async (currentConversation) => {
   }
 };
 
-export const runChatCompletion = async (currentConversation, dynamicContext, previousInsights, signals, callProgress) => {
+export const runChatCompletion = async (
+  currentConversation: string,
+  dynamicContext: DynamicContext,
+  previousInsights: CoachInsight[],
+  signals: Signal[],
+  callProgress: CallProgress
+): Promise<InsightResponse> => {
 
   if(!currentConversation || !dynamicContext || !previousInsights) {
     throw new Error('Missing required parameters');
   }
 
-  try {   
+  try {
 
-    // // Parse previous insights - they might be objects with Message property
-    // const previousInsightsFormatted = previousInsights.map((insight, index) => {
-    //   // Handle both string and object formats
-    //   const insightText = typeof insight === 'string' ? insight : insight.Message || insight.message || JSON.stringify(insight);
-    //   return `${index + 1}. ${insightText}`;
-    // }).join('\n');
+    // Parse previous insights - they might be objects with Message property
+    const previousInsightsFormatted = previousInsights.map((insight, index) => {
+      // Handle both string and object formats
+      const insightText = typeof insight === 'string' ? insight : insight.message || JSON.stringify(insight);
+      return `${index + 1}. ${insightText}`;
+    }).join('\n');
 
-    // // Format dynamicContext into readable text
-    // const contextText = formatDynamicContext(dynamicContext);
+    // Format dynamicContext into readable text
+    const contextText = formatDynamicContext(dynamicContext);
 
     // const systemMessage = {
     //   role: "system",
@@ -321,7 +342,7 @@ export const runChatCompletion = async (currentConversation, dynamicContext, pre
     //   }`  
     // };
 
-    const systemMessage = {
+    const systemMessage: ChatMessage = {
       role: "system",
       content: `You are a world-class sales coach assisting a rep during a live sales conversation. Your goal is to provide real-time, actionable guidance based on the conversation so far, relevant context, and the current state of the call.
     
@@ -380,8 +401,8 @@ export const runChatCompletion = async (currentConversation, dynamicContext, pre
     };
     
     
-    const messages = [systemMessage];
-    
+    const messages: ChatMessage[] = [systemMessage];
+
     const response = await apiClient.post(`${import.meta.env.VITE_BACKEND_BASE_URL}/sales-coach/chat-completion`, {
       messages: messages
     });
@@ -392,10 +413,10 @@ export const runChatCompletion = async (currentConversation, dynamicContext, pre
     let parsedResponse;
     try {
       parsedResponse = JSON.parse(chatCompletionResponse);
-    } catch (parseError) {
+    } catch (parseError: unknown) {
       console.error('❌ Failed to parse runChatCompletion response as JSON:', {
         response: chatCompletionResponse,
-        error: parseError.message
+        error: parseError instanceof Error ? parseError.message : 'Unknown error'
       });
       Sentry.captureException(parseError);
       // Return a safe default response instead of throwing
@@ -405,7 +426,7 @@ export const runChatCompletion = async (currentConversation, dynamicContext, pre
       };
     }
 
-    return parsedResponse;
+    return parsedResponse as InsightResponse;
 
   } catch (error) {
     console.error('❌ Error in runChatCompletion:', error);

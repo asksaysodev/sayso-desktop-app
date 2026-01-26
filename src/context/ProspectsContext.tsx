@@ -1,17 +1,26 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { useAuth } from './AuthContext'
 import { useProspects } from '../hooks/useProspects'
+import { Prospect } from '@/types/coach';
 
-const ProspectsContext = createContext({})
+interface ProspectsContextValue {
+  prospects: Prospect[];
+  setProspects: (prospects: Prospect[]) => void;
+  loading: boolean;
+  fetchProspects: () => Promise<void>;
+}
 
-export const ProspectsProvider = ({ children }) => {
+const ProspectsContext = createContext<ProspectsContextValue>({} as ProspectsContextValue)
+
+
+export const ProspectsProvider = ({ children }: { children: React.ReactNode }) => {
   const { globalUser } = useAuth()
-  const [prospects, setProspects] = useState([])
+  const [prospects, setProspects] = useState<Prospect[]>([])
   const [loading, setLoading] = useState(true)
 
   const { getAccountProspects } = useProspects()
 
-  const fetchProspects = async () => {
+  const fetchProspects = async (): Promise<void> => {
     if (globalUser) {
       setLoading(true)
       try {

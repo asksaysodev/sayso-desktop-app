@@ -7,15 +7,15 @@ export default function FloatingChecklistContainer() {
 
   // STATES
   const [isDragging, setIsDragging] = useState(false);
-  const [position, setPosition] = useState(null); 
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [lockedHeight, setLockedHeight] = useState(null);
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null); 
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [lockedHeight, setLockedHeight] = useState<number | null>(null);
   const [hasEmergenceAnimationCompleted, setHasEmergenceAnimationCompleted] = useState(false);
 
   // REFS
-  const containerRef = useRef(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const isDraggingRef = useRef(false);
-  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   //CONTEXT
   const { isChecklistVisible, signals } = useSalesCoachContext();
@@ -41,13 +41,14 @@ export default function FloatingChecklistContainer() {
 
   // Helper to get the current position of the container
   const getCurrentPosition = () => {
+    if (!containerRef.current) return { x: 0, y: 0 };
     const rect = containerRef.current.getBoundingClientRect();
     return { x: rect.left, y: rect.top };
   };
 
 
-  const handleMouseDown = useCallback((e) => {
-    if (e.target.closest('li')) {
+  const handleMouseDown = useCallback((e: MouseEvent) => {
+    if (e.target instanceof HTMLElement && e.target.closest('li')) {
       return;
     }
     setIsDragging(true);
@@ -69,6 +70,7 @@ export default function FloatingChecklistContainer() {
         y: e.clientY - y
       };
     } else {
+      if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       setDragOffset({
         x: e.clientX - rect.left,
@@ -81,8 +83,8 @@ export default function FloatingChecklistContainer() {
     }
   }, [position]);
 
-  const handleMouseMove = useCallback((e) => {
-    if (!isDraggingRef.current) return;
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDraggingRef.current || !dragOffsetRef.current) return;
     setPosition({
       x: e.clientX - dragOffsetRef.current.x,
       y: e.clientY - dragOffsetRef.current.y

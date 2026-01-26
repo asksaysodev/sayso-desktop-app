@@ -5,6 +5,7 @@ export default function useStripeCancellation() {
     const { mutate, isPending, isError} = useMutation({
         mutationFn: getStripeCancellationPageUrl,
         onSuccess: (data) => {
+            console.log('data', data);
             window.electron?.openExternal(data.url);
         },
         onError: (error) => {

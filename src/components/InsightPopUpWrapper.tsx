@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useSalesCoachContext } from '../context/SalesCoachContext';
 import InsightPopUp from './InsightPopUp';
+import { InsightMessage } from '@/types/coach';
 
 export default function InsightPopUpWrapper() {
 
-    const [displayMessage, setDisplayMessage] = useState(null);
+    const [displayMessage, setDisplayMessage] = useState<InsightMessage | null>(null);
     const [isClosing, setIsClosing] = useState(false);
 
     const { currentInsight } = useSalesCoachContext();
 
-    const handleClose = (isIceBreaker) => {
+    const handleClose = (isIceBreaker: boolean): void => {
 
         setTimeout(() => {
             setIsClosing(true);

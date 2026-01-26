@@ -11,30 +11,30 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 // Create a robust storage wrapper that handles errors gracefully
 const robustStorage = {
-  async setItem(key, value) {
+  async setItem(key: string, value: string): Promise<void> {
     try {
       await cryptoStorage.setItem(key, value);
-    } catch (error) {
+    } catch (error: any) {
       console.warn('Crypto storage failed, using fallback:', error.message);
       Sentry.captureException(error);
       fallbackStorage.setItem(key, value);
     }
   },
   
-  async getItem(key) {
+  async getItem(key: string): Promise<string | null> {
     try {
       return await cryptoStorage.getItem(key);
-    } catch (error) {
+    } catch (error: any) {
       console.warn('Crypto storage failed, using fallback:', error.message);
       Sentry.captureException(error);
       return fallbackStorage.getItem(key);
     }
   },
   
-  removeItem(key) {
+  removeItem(key: string): void {
     try {
       cryptoStorage.removeItem(key);
-    } catch (error) {
+    } catch (error: any) {
       console.warn('Crypto storage failed, using fallback:', error.message);
       Sentry.captureException(error);
       fallbackStorage.removeItem(key);

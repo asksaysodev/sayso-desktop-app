@@ -1,6 +1,6 @@
 import { supabase } from "../../config/supabase";
 
-export const cue_startStreaming = async (sessionId) => {
+export const cue_startStreaming = async (sessionId: string) => {
     try {
         if(!sessionId) {
             throw new Error('Session ID is required');

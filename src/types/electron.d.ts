@@ -35,28 +35,32 @@ export interface AudioCaptureOptions {
 }
 
 export interface RecordingAPI {
-  startDualChannel: (params: DualChannelParams) => Promise<boolean>;
+  startDualChannel: (params: AudioRecordingParams) => Promise<boolean>;
   stopDualChannel: () => Promise<boolean>;
   compressAudio: (options: CompressAudioOptions) => Promise<string>;
 }
 
-export interface DualChannelParams {
-  micDeviceId?: string;
-  systemAudioDeviceId?: string;
-  outputPath?: string;
+export interface AudioRecordingParams {
+  sessionId: string;
+  prospectId: string;
+  metadata: {
+    sessionId: string;
+    prospectId: string;
+    timestamp: number;
+  };
 }
 
 export interface CompressAudioOptions {
+  format?: string;
   inputPath: string;
   outputPath: string;
   bitrate?: string;
+  sampleRate?: number;
 }
 
 export interface CueParams {
-  prospectId: string;
-  accountId: string;
-  authToken: string;
-  callId?: string;
+  sessionId: string;
+  token: string;
 }
 
 export interface CueStatusData {
@@ -76,8 +80,14 @@ export interface CueErrorData {
   code?: string;
 }
 
+export interface CueResult {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
 export interface CueAPI {
-  start: (params: CueParams) => Promise<boolean>;
+  start: (params: CueParams) => Promise<CueResult>;
   stop: () => Promise<boolean>;
   onStatus: (callback: (data: CueStatusData) => void) => () => void;
   onInsight: (callback: (data: CueInsightData) => void) => () => void;
@@ -87,15 +97,19 @@ export interface CueAPI {
 
 export interface UploadFileOptions {
   filePath: string;
-  uploadUrl: string;
+  type: string;
+  parentId: string;
+  accessToken: string;
+  fileName: string;
+  data?: Record<string, unknown>;
   contentType?: string;
 }
 
 export interface UploadBothFilesOptions {
-  micFilePath: string;
-  systemFilePath: string;
-  micUploadUrl: string;
-  systemUploadUrl: string;
+  user: { file: string, actualStartMs: number };
+  prospect: { file: string, actualStartMs: number };
+  sessionId: string;
+  accessToken: string;
 }
 
 export interface PermissionsAPI {
@@ -104,9 +118,8 @@ export interface PermissionsAPI {
 }
 
 export interface PermissionsStatus {
-  microphone: boolean;
-  screenCapture: boolean;
-  accessibility: boolean;
+  mic: boolean;
+  screen: boolean;
 }
 
 export interface ElectronBridge {

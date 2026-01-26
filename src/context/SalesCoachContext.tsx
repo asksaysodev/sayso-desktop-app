@@ -1,9 +1,24 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { getDynamicContext, runChatCompletion, trackSignals } from '../services/coachServices';
+import { InsightMessage, Signal } from '@/types/coach';
 
-const SalesCoachContext = createContext();
+interface SalesCoachContextValue {
+  isCallActive: boolean;
+  setIsCallActive: (isCallActive: boolean) => void;
+  isZoomInitialized: boolean;
+  setIsZoomInitialized: (isZoomInitialized: boolean) => void;
+  currentInsight: InsightMessage | null;
+  setCurrentInsight: (currentInsight: InsightMessage) => void;
+  setProspectId: (prospectId: string | null) => void;
+  setAccountId: (accountId: string | null) => void;
+  setSessionId: (sessionId: string | null) => void;
+  isChecklistVisible: boolean;
+  signals: Signal[];
+}
 
-export const SalesCoachProvider = ({ children }) => {
+const SalesCoachContext = createContext<SalesCoachContextValue>({} as SalesCoachContextValue)
+
+export const SalesCoachProvider = ({ children }: { children: React.ReactNode }) => {
 
   //REFS
   const intervalRef = useRef(null);
@@ -19,17 +34,17 @@ export const SalesCoachProvider = ({ children }) => {
   const [isZoomInitialized, setIsZoomInitialized] = useState(false);
   const [transcriptions, setTranscriptions] = useState([]);
   const [insights, setInsights] = useState([]);
-  const [currentInsight, setCurrentInsight] = useState(null);
+  const [currentInsight, setCurrentInsight] = useState<InsightMessage | null>(null);
   const [isCallStarting, setIsCallStarting] = useState(false);
   const [specificContext, setSpecificContext] = useState(null);
-  const [prospectId, setProspectId] = useState(null);
-  const [accountId, setAccountId] = useState(null);
+  const [prospectId, setProspectId] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(null);
   const [isChecklistVisible, setIsChecklistVisible] = useState(false);
   const [callProgress, setCallProgress] = useState(null);
   const [timerStartTime, setTimerStartTime] = useState(null);
   const [signalReceived, setSignalReceived] = useState(null);
   const [signals, setSignals] = useState([]);
-  const [sessionId, setSessionId] = useState(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
 
   
@@ -60,10 +75,10 @@ export const SalesCoachProvider = ({ children }) => {
         setIsCoachWindowOpen(false);
       };
 
-      window.electron.ipcRenderer.on('coach-window-closed', handleCoachWindowClosed);
+      window.electron?.ipcRenderer?.on('coach-window-closed', handleCoachWindowClosed);
 
       return () => {
-        window.electron.ipcRenderer.removeAllListeners('coach-window-closed');
+        window.electron?.ipcRenderer?.removeAllListeners('coach-window-closed');
       };
     }
   }, []);

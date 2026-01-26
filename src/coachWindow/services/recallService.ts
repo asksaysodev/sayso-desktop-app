@@ -1,6 +1,7 @@
+import { CoachInsight, Signal } from "@/types/coach";
 import apiClient from "../../config/axios"
 
-export const getIceBreaker = async (prospectId) => {
+export const getIceBreaker = async (prospectId: string) => {
     try {
         const response = await apiClient.get(`/sales-coach/ice-breaker/${prospectId}`); 
         console.log('response', response)
@@ -19,7 +20,7 @@ export const getProspects = async () => {
     }
 }
 
-export const processCallSummary = async (sessionId, prospectId, callDurationInSeconds, signals, insights, callTimestamp) => {
+export const processCallSummary = async (sessionId: string, prospectId: string, callDurationInSeconds: number, signals: Signal[], insights: CoachInsight[], callTimestamp: string) => {
     console.log('🔍 [processCallSummary] Session ID:', sessionId);
     try {
         if(!sessionId) {

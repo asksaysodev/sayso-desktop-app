@@ -3,27 +3,39 @@ import { supabase } from '../config/supabase'
 import { useAccounts } from '../hooks/useAccounts'
 import { useLocation } from 'react-router-dom'
 import * as Sentry from "@sentry/electron/renderer"
+import { Account, AuthResult, SignInData, SignUpData, User } from '@/types/user'
 
-// Define the shape of our auth context
-const AuthContext = createContext({})
+interface AuthContextValue {
+  signUp: (data: SignUpData) => Promise<AuthResult>;
+  signIn: (data: SignInData) => Promise<AuthResult>;
+  handleSignOut: () => Promise<void>;
+  user: User | null;
+  globalUser: Account | null;
+  authToken: string | null;
+  userLoading: boolean;
+  loading: boolean;
+  updateGlobalUser: (accountEmail: string) => Promise<void>;
+}
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null)
+const AuthContext = createContext<AuthContextValue>({} as AuthContextValue)
+
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [globalUser, setGlobalUser] = useState(null)
-  const [authToken, setAuthToken] = useState(null)
+  const [authToken, setAuthToken] = useState<string | null>(null)
   const [userLoading, setUserLoading] = useState(true)
-  const prevUserRef = useRef(null)
+  const prevUserRef = useRef<User | null>(null)
   const location = useLocation()
 
   const { createAccount, getAccount } = useAccounts()
 
   // Wrapper function to handle localStorage updates
-  const updateGlobalUserState = (newGlobalUser) => {
+  const updateGlobalUserState = (newGlobalUser: any) => { // $FixTS
     const ipcRenderer = window.electron?.ipcRenderer;
     if (newGlobalUser === null) {
       if (ipcRenderer) {
-        window.electron.ipcRenderer.send('update-user-auth', { userAuthenticated: null });
+        window.electron?.ipcRenderer?.send('update-user-auth', { userAuthenticated: null });
       }
       localStorage.removeItem('sayso-global-user')
     } else {
@@ -36,7 +48,7 @@ export const AuthProvider = ({ children }) => {
     setGlobalUser(newGlobalUser)
   }
 
-  const updateGlobalUser = async (accountEmail) => {
+  const updateGlobalUser = async (accountEmail: string): Promise<void> => {
     try{
       const account = await getAccount(accountEmail);
       updateGlobalUserState(account);
@@ -86,8 +98,8 @@ export const AuthProvider = ({ children }) => {
 
     // Check active sessions and sets the user
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      prevUserRef.current = session?.user ?? null
+      setUser(session?.user as User | null)
+      prevUserRef.current = session?.user as User | null
       setLoading(false)
     })
 
@@ -97,7 +109,7 @@ export const AuthProvider = ({ children }) => {
       // Only update state for actual auth events
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
         // Prevent unnecessary state updates if the user hasn't actually changed
-        const newUser = session?.user ?? null
+        const newUser = session?.user as User | null
         // For token refresh, we might just need to update the token even if user is same
         if (event === 'TOKEN_REFRESHED' || JSON.stringify(newUser) !== JSON.stringify(prevUserRef.current)) {
           setUser(newUser)
@@ -112,7 +124,7 @@ export const AuthProvider = ({ children }) => {
   }, [location])
 
   useEffect(() => {
-    let timeoutId;
+    let timeoutId: NodeJS.Timeout | undefined;
 
     // Always set userLoading to true when user changes (even if user is null)
     setUserLoading(true);
@@ -147,7 +159,7 @@ export const AuthProvider = ({ children }) => {
     }
   }, [user])
 
-  const value = {
+  const values = {
     signUp: async (data) => {
       // First, sign up with Supabase Auth
       const result = await supabase.auth.signUp(data)
@@ -173,10 +185,10 @@ export const AuthProvider = ({ children }) => {
     userLoading,
     loading,
     updateGlobalUser,
-  }
+  } as AuthContextValue;
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={values}>
       {!loading && children}
     </AuthContext.Provider>
   )

@@ -1,6 +1,15 @@
-import axios from 'axios';
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { supabase } from './supabase';
 import * as Sentry from "@sentry/electron/renderer";
+
+interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
+	_retryCount?: number;
+	_retry?: boolean;
+}
+interface QueuedRequest {
+	resolve: (token: string | null) => void;
+	reject: (error: unknown) => void;
+}
 
 // Create axios instance with base configuration
 const apiClient = axios.create({
@@ -11,29 +20,31 @@ const apiClient = axios.create({
 // Request interceptor to add auth token
 apiClient.interceptors.request.use(
 	async (config) => {
+		const customConfig = config as CustomAxiosRequestConfig;
+
 		// Get the current session
 		const { data: { session } } = await supabase.auth.getSession();
 
 		if (session?.access_token) {
-			config.headers.Authorization = `Bearer ${session.access_token}`;
+			customConfig.headers.Authorization = `Bearer ${session.access_token}`;
 		}
 
 		// Add retry tracking
-		config._retryCount = config._retryCount || 0;
+		customConfig._retryCount = customConfig._retryCount || 0;
 
 		Sentry.addBreadcrumb({
 			category: 'api.request',
-			message: `${config.method?.toUpperCase()} ${config.url}`,
+			message: `${customConfig.method?.toUpperCase()} ${customConfig.url}`,
 			level: 'info',
 			data: {
-				method: config.method,
-				url: config.url,
-				baseURL: config.baseURL,
-				retryCount: config._retryCount
+				method: customConfig.method,
+				url: customConfig.url,
+				baseURL: customConfig.baseURL,
+				retryCount: customConfig._retryCount
 			}
 		});
 
-		return config;
+		return customConfig;
 	},
 	(error) => {
 		return Promise.reject(error);
@@ -42,9 +53,9 @@ apiClient.interceptors.request.use(
 
 // Queue to hold requests while refreshing token
 let isRefreshing = false;
-let failedQueue = [];
+let failedQueue: QueuedRequest[] = [];
 
-const processQueue = (error, token = null) => {
+const processQueue = (error: unknown, token: string | null = null): void => {
 	failedQueue.forEach((prom) => {
 		if (error) {
 			prom.reject(error);

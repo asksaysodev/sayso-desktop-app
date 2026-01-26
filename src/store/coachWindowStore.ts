@@ -6,6 +6,8 @@ import { stopDualChannelRecording, startDualChannelRecording } from '../coachWin
 import { cue_startStreaming, cue_stopStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
 import apiClient from '../config/axios';
+import { CoachFeature, CoachWindowStore } from '@/types/store/coachWindowStore';
+import { Prospect } from '@/types/coach';
 
 export const CUE_CONFIG = {
     /** Display duration of the toast */
@@ -53,10 +55,10 @@ const getInitialSharedState = () => ({
     audio: { ...AUDIO_INITIAL_STATE },
 })
 
-let openWindowCheckInterval = null;
-let openWindowTimeoutId = null;
+let openWindowCheckInterval: NodeJS.Timeout | null = null;
+let openWindowTimeoutId: NodeJS.Timeout | null = null;
 
-export const useCoachWindowStore = create((set, get) => ({
+export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
     // ========== SHARED STATE ========== //
     isCoachActive: false,
     isCoachLoading: false,
@@ -76,15 +78,15 @@ export const useCoachWindowStore = create((set, get) => ({
     needsSystemSettings: false,
 
     // ========== SHARED ACTIONS ========== //
-    setIsCoachActive: (isCoachActive) => set({ isCoachActive }),
-    setIsCoachLoading: (isCoachLoading) => set({ isCoachLoading }),
-    setCoachFeature: (coachFeature) => set({ coachFeature }),
-    clearError: () => set({ error: null }),
+    setIsCoachActive: (isCoachActive: boolean) => set({ isCoachActive }),
+    setIsCoachLoading: (isCoachLoading: boolean) => set({ isCoachLoading }),
+    setCoachFeature: (coachFeature: CoachFeature) => set({ coachFeature }),
+    clearError: (): void => set({ error: null }),
 
     // ========== PERMISSIONS ACTIONS ========== //
     requestPermissions: async () => {
         try {
-            const result = await window.electron.permissions.requestAll();
+            const result = await window.electron?.permissions.requestAll();
             if (result?.mic && result?.screen) {
                 localStorage.setItem('coachPermissionsGranted', 'true');
                 set({ showPermissionsModal: false, needsSystemSettings: false });
@@ -153,20 +155,20 @@ export const useCoachWindowStore = create((set, get) => ({
             }
 
             console.log('⏳ [CoachWindowStore] Electron not ready, retrying...');
-            clearInterval(openWindowCheckInterval);
-            clearTimeout(openWindowTimeoutId);
+            if (openWindowCheckInterval) clearInterval(openWindowCheckInterval);
+            if (openWindowTimeoutId) clearTimeout(openWindowTimeoutId);
 
             openWindowCheckInterval = setInterval(() => {
                 if (tryOpen()) {
-                    clearInterval(openWindowCheckInterval);
-                    clearTimeout(openWindowTimeoutId);
+                    if (openWindowCheckInterval) clearInterval(openWindowCheckInterval);
+                    if (openWindowTimeoutId) clearTimeout(openWindowTimeoutId);
                     console.log('[CoachWindowStore] Coach window opened');
                     resolve(true);
                 }
             }, 50);
 
             openWindowTimeoutId = setTimeout(() => {
-                clearInterval(openWindowCheckInterval);
+                if (openWindowCheckInterval) clearInterval(openWindowCheckInterval);
                 if (!window.electron?.ipcRenderer) {
                     console.error('[CoachWindowStore] Electron unavailable after timeout');
                     reject(new Error('Electron not available - timeout after 1s'));
@@ -176,8 +178,8 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     closeCoachWindow: () => {
-        clearInterval(openWindowCheckInterval);
-        clearTimeout(openWindowTimeoutId);
+        if (openWindowCheckInterval) clearInterval(openWindowCheckInterval);
+        if (openWindowTimeoutId) clearTimeout(openWindowTimeoutId);
 
         get().shared_resetCoach();
 
@@ -200,7 +202,7 @@ export const useCoachWindowStore = create((set, get) => ({
 
     resetCallDuration: () => set({ callDurationInSeconds: 0 }),
 
-    recall_createNewSessionData: (prospectId) => {
+    recall_createNewSessionData: (prospectId: string) => {
         if (!prospectId) return null;
 
         const newSessionId = v4();
@@ -214,14 +216,14 @@ export const useCoachWindowStore = create((set, get) => ({
     },
 
     // ========== RECALL ACTIONS ========== //
-    setSelectedProspect: (selectedProspect) => set((state) => ({
+    setSelectedProspect: (selectedProspect: Prospect) => set((state) => ({
         recall: {
             ...state.recall,
             selectedProspect
         }
     })),
 
-    setProspects: (prospects) => set((state) => ({
+    setProspects: (prospects: Prospect[]) => set((state) => ({
         recall: {
             ...state.recall,
             prospects
@@ -246,7 +248,7 @@ export const useCoachWindowStore = create((set, get) => ({
                     isLoadingProspects: false
                 }
             }));
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error fetching prospects:', error);
             set((state) => ({
                 recall: {
@@ -258,7 +260,7 @@ export const useCoachWindowStore = create((set, get) => ({
         }
     },
 
-    recall_startDualChannelRecording: async (prospectId) => {
+    recall_startDualChannelRecording: async (prospectId: string) => {
         set({ isCoachLoading: true })
 
         try {
@@ -272,7 +274,7 @@ export const useCoachWindowStore = create((set, get) => ({
 
             const recordingParams = {
                 sessionId: sessionData.sessionId,
-                prospectId: prospectId.prospectId,
+                prospectId,
                 metadata: {
                     sessionId: sessionData.sessionId,
                     prospectId: sessionData.prospectId,
@@ -364,7 +366,7 @@ export const useCoachWindowStore = create((set, get) => ({
             };
             const response = await apiClient.post('/cue/session/new', payload);
             return response.data;
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error creating new cue session:', error);
             console.log('123123', error.response?.data.error);
             set({ error: error.response?.data?.error });

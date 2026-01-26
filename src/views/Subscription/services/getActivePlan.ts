@@ -1,6 +1,7 @@
 import apiClient from "@/config/axios";
+import type { GetAccountSubscriptionResponse } from "../types";
 
-export default async function getActivePlan() {
+export default async function getActivePlan(): Promise<GetAccountSubscriptionResponse> {
     const response = await apiClient.get('/accounts/subscription');
     
     if (!response?.data) {

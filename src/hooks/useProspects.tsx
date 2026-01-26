@@ -2,14 +2,16 @@ import apiClient from '../config/axios';
 import * as Sentry from "@sentry/electron/renderer";
 
 import { useFiles } from './useFiles';
+import { Prospect } from '@/types/coach';
 
 export const useProspects = () => {
 
   const { handleUploadFiles } = useFiles();
 
-  const handleNewProspect = async (prospect) => {
+  const handleNewProspect = async (prospect: Prospect): Promise<Prospect> => {
 
-    const prospectData = {
+    const prospectData: Prospect = {
+      id: crypto.randomUUID(),
       name: prospect.name,
       lastname: prospect.lastname,
       email: prospect.email,
@@ -24,7 +26,7 @@ export const useProspects = () => {
     return newProspect;
   };
 
-  const createProspect = async (prospect) => {
+  const createProspect = async (prospect: Prospect): Promise<Prospect> => {
     try {
       const response = await apiClient.post('/prospects/create', { prospect });
       return response.data.data;
@@ -36,7 +38,7 @@ export const useProspects = () => {
 
   };
 
-  const getAccountProspects = async () => {
+  const getAccountProspects = async (): Promise<Prospect[]> => {
     try {
       const response = await apiClient.get('/prospects/account-prospects');
       return response.data.data;
@@ -47,7 +49,7 @@ export const useProspects = () => {
     }
   };
 
-  const getProspect = async ( prospectId ) => {
+  const getProspect = async ( prospectId: string ): Promise<Prospect> => {
     try {
       const response = await apiClient.get(`/prospects/${prospectId}`);
       return response.data.data;
@@ -58,7 +60,7 @@ export const useProspects = () => {
     }
   };
 
-  const saveProspectMeeting = async (prospectId, meetingId, meetingTopic, meetingStartTime) => {
+  const saveProspectMeeting = async (prospectId: string, meetingId: string, meetingTopic: string, meetingStartTime: string): Promise<void> => {
 
     if(!meetingId || !meetingTopic || !meetingStartTime) {
       throw new Error('Meeting ID, topic, and start time are required');
@@ -81,7 +83,7 @@ export const useProspects = () => {
 
   }
 
-  const removeZoomMeeting = async (prospectId) => {
+  const removeZoomMeeting = async (prospectId: string): Promise<void> => {
     try {
       const response = await apiClient.delete(`/prospects/remove-zoom-meeting/${prospectId}`);
       return response.data;
@@ -93,7 +95,7 @@ export const useProspects = () => {
 
   } 
 
-  const updateProspect = async (prospectId, updateData) => {
+  const updateProspect = async (prospectId: string, updateData: any): Promise<void> => { // $FixTS
     try {
       if(!prospectId || !updateData) {
         throw new Error('Prospect ID and updateData are required');
@@ -108,7 +110,7 @@ export const useProspects = () => {
 
   } 
 
-  const deleteProspect = async (prospectId) => {
+  const deleteProspect = async (prospectId: string): Promise<void> => {
     try {
       const response = await apiClient.delete(`/prospects/delete-prospect/${prospectId}`);
       return response.data;

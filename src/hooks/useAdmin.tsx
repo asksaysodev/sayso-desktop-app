@@ -1,8 +1,9 @@
+import { Signal } from '@/types/coach';
 import apiClient from '../config/axios';
 
 export const useAdmin = () => {
 
-  const postCueSignals = async ( leadType, signals ) => {
+  const postCueSignals = async ( leadType: string, signals: Signal[] ): Promise<void> => {
     try {
       if(!leadType || !signals) {
         throw new Error('Lead type and signals are required');
@@ -11,7 +12,7 @@ export const useAdmin = () => {
       const response = await apiClient.post('/support/cue/signals', { leadType, signals });
       console.log('✅ [useAdmin] Received response:', response.data);
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ [useAdmin] Error posting cue signals:', error);
       console.error('❌ [useAdmin] Error details:', {
         message: error.message,

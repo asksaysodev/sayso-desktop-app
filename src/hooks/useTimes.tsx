@@ -1,6 +1,7 @@
 export const useTimes = () => {
 
-    const formatTime = (time) => {
+    const formatTime = (time: number | string | Date | undefined ): string => {
+    if (!time) return '';
     const date = new Date(time);
     const options = { 
         weekday: 'long',
@@ -10,7 +11,7 @@ export const useTimes = () => {
         hour: '2-digit',
         minute: '2-digit',
         timeZoneName: 'short'
-    };
+    } as const;
     const formattedTime = date.toLocaleString('en-US', options);
     return formattedTime;
     }

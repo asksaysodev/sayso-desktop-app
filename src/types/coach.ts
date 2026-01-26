@@ -132,6 +132,35 @@ export interface Prospect {
   name: string;
   lastname: string;
   email?: string;
-  files: File[];
+  files?: File[];
   company?: string;
+}
+
+export interface InsightMessage {
+  message: string;
+  isIceBreaker: boolean;
+}
+
+// Shared types
+export type LeadType = 'buyer' | 'seller';
+export type LeadTypeFilter = 'all' | LeadType;
+export type FeatureType = 'cue' | 'recall';
+
+export interface Insight {
+  id: string;
+  timestamp: string;
+  message: string;
+  lead_type: LeadType;
+  session_id: string;
+  feature: FeatureType;
+}
+
+export interface InsightGroup {
+  date: string;
+  insights: Insight[];
+}
+
+export interface GetInsightsResponse {
+  insights: InsightGroup[];
+  hasNextPage: boolean;
 }
