@@ -4,7 +4,7 @@
 const ENCRYPTION_KEY = import.meta.env.VITE_TOKEN_ENCRYPTION_KEY; // In production, use environment variable
 
 // Simple XOR encryption (for demonstration - not cryptographically secure)
-const encryptToken = (text) => {
+const encryptToken = (text: string): string | null => {
   if (!text) return null;
   
   let result = '';
@@ -14,7 +14,7 @@ const encryptToken = (text) => {
   return btoa(result); // Base64 encode
 };
 
-const decryptToken = (encryptedText) => {
+const decryptToken = (encryptedText: string): string | null => {
   if (!encryptedText) return null;
   
   try {
@@ -32,24 +32,24 @@ const decryptToken = (encryptedText) => {
 
 // Secure storage wrapper
 export const secureStorage = {
-  setItem: (key, value) => {
+  setItem: (key: string, value: string): void => {
     const encrypted = encryptToken(value);
     localStorage.setItem(key, encrypted);
   },
   
-  getItem: (key) => {
+  getItem: (key: string): string | null => {
     const encrypted = localStorage.getItem(key);
     return encrypted ? decryptToken(encrypted) : null;
   },
   
-  removeItem: (key) => {
+  removeItem: (key: string): void => {
     localStorage.removeItem(key);
   }
 };
 
 // Web Crypto API version (more secure, but requires HTTPS)
 export const cryptoStorage = {
-  async setItem(key, value) {
+  async setItem(key: string, value: string): Promise<void> {
     // Check if Web Crypto API is available
     if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) {
       console.warn('Web Crypto API not available, falling back to localStorage');
@@ -102,7 +102,7 @@ export const cryptoStorage = {
     }
   },
   
-  async getItem(key) {
+  async getItem(key: string): Promise<string | null> {
     // Check if Web Crypto API is available
     if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) {
       return localStorage.getItem(key);
@@ -162,22 +162,22 @@ export const cryptoStorage = {
     }
   },
   
-  removeItem(key) {
+  removeItem(key: string): void {
     localStorage.removeItem(key);
   }
 };
 
 // Fallback storage that always works (no encryption)
 export const fallbackStorage = {
-  setItem: (key, value) => {
+  setItem: (key: string, value: string): void => {
     localStorage.setItem(key, value);
   },
   
-  getItem: (key) => {
+  getItem: (key: string): string | null => {
     return localStorage.getItem(key);
   },
   
-  removeItem: (key) => {
+  removeItem: (key: string): void => {
     localStorage.removeItem(key);
   }
 }; 

@@ -1,7 +1,7 @@
 // Debug utility to test storage system
 import { cryptoStorage, fallbackStorage } from './tokenEncryption';
 
-export const debugStorage = () => {
+export const debugStorage = (): void => {
   console.log('🔍 Debugging Storage System...');
   
   // Test 1: Check if cryptoStorage is available

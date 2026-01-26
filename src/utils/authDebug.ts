@@ -1,5 +1,8 @@
-// Utility to check auth storage status
-export const checkAuthStorage = () => {
+/**
+ * Utility to check auth storage status
+ * @returns {string} - The stored data
+ */
+export const checkAuthStorage = (): string | null => {
   const storageKey = 'sayso-auth';
   const storedData = localStorage.getItem(storageKey);
   
@@ -18,15 +21,18 @@ export const checkAuthStorage = () => {
     }
   }
   
-  return storedData;
+  return storedData || null;
 };
 
-// Check all localStorage keys related to auth
-export const checkAllAuthKeys = () => {
+/**
+ * Check all localStorage keys related to auth
+ * @returns {void}
+ */
+export const checkAllAuthKeys = (): void => {
   console.log('🔍 All localStorage keys:');
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key.includes('auth') || key.includes('supabase')) {
+    if (key && (key.includes('auth') || key.includes('supabase'))) {
       console.log(`Key: ${key}`);
       console.log(`Value: ${localStorage.getItem(key)}`);
     }
