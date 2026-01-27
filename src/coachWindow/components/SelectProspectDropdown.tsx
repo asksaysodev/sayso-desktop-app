@@ -2,7 +2,12 @@ import { useEffect } from "react";
 import { useCoachWindowStore } from "../../store/coachWindowStore";
 import Dropdown from "../../components/Dropdown";
 
-export default function SelectProspectDropdown({ isDropdownOpen, setIsDropdownOpen }) {
+interface SelectProspectDropdownProps {
+    isDropdownOpen: boolean;
+    setIsDropdownOpen: (isOpen: boolean) => void;
+}
+
+export default function SelectProspectDropdown({ isDropdownOpen, setIsDropdownOpen }: SelectProspectDropdownProps) {
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const selectedProspect = useCoachWindowStore(state => state.recall.selectedProspect);
     const setSelectedProspect = useCoachWindowStore(state => state.setSelectedProspect);

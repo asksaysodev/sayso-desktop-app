@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 
-export default function CoachInsightContainer({displayInsight}) {
+interface Props {
+    displayInsight: string;
+}
+
+export default function CoachInsightContainer({displayInsight}: Props) {
     const [isVisible, setIsVisible] = useState(false);
     const [isClosing, setIsClosing] = useState(false);
 

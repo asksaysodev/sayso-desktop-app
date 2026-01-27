@@ -3,10 +3,18 @@ import { GrPowerReset } from "react-icons/gr";
 import { LuEye, LuEyeClosed, LuLoader } from "react-icons/lu";
 import CallTimer from "./CallTimer";
 import { useCoachWindowStore } from "../../store/coachWindowStore";
+import { CoachFeature } from "@/types/store/coachWindowStore";
 
 const ICON_SIZE = 15;
 
-export default function CoachActiveButtons({ coachFeature, handleCoach, isInsightsLayoutOpen, setIsInsightsLayoutOpen }) {
+interface Props {
+    coachFeature: CoachFeature;
+    handleCoach: () => void;
+    isInsightsLayoutOpen: boolean;
+    setIsInsightsLayoutOpen: (isOpen: boolean) => void;
+}
+
+export default function CoachActiveButtons({ coachFeature, handleCoach, isInsightsLayoutOpen, setIsInsightsLayoutOpen }: Props) {
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isResettingCueSession = useCoachWindowStore(state => state.cue.isResettingCueSession);
     const cue_onPressResetSession = useCoachWindowStore(state => state.cue_onPressResetSession);

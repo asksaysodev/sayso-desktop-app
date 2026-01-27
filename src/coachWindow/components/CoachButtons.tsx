@@ -1,8 +1,16 @@
 import { LuLoader } from "react-icons/lu";
 import CoachActiveButtons from "./CoachActiveButtons";
 import { useCoachWindowStore } from "../../store/coachWindowStore";
+import { Prospect } from "@/types/coach";
 
-export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayoutOpen, setIsDropdownOpen, isDropdownOpen }) {
+interface Props {
+    isInsightsLayoutOpen: boolean;
+    setIsInsightsLayoutOpen: (isOpen: boolean) => void;
+    setIsDropdownOpen: (isOpen: boolean) => void;
+    isDropdownOpen: boolean;
+}
+
+export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayoutOpen, setIsDropdownOpen, isDropdownOpen }: Props) {
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
@@ -16,14 +24,14 @@ export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayout
 
     const COACH_ACTIONS = {
         recall: {
-            start: async (prospect) => {
+            start: async (prospect: Prospect) => {
                 if (!prospect) return;
                 await recall_startDualChannelRecording(prospect.id);
             },
             stop: async () => {
                 await recall_handleStopRecording();
             },
-            validate: (prospect) => !!prospect && !!prospect.id,
+            validate: (prospect: Prospect) => !!prospect && !!prospect.id,
         },
         cue: {
             start: async () => {
@@ -50,8 +58,8 @@ export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayout
                 if (isDropdownOpen) {
                     setIsDropdownOpen(false);
                 }
-                if (!actions.validate(recall_selectedProspect)) return;
-                await actions.start(recall_selectedProspect);
+                if (!actions.validate(recall_selectedProspect as Prospect)) return;
+                await actions.start(recall_selectedProspect as Prospect);
             }
 
         } catch (error) {

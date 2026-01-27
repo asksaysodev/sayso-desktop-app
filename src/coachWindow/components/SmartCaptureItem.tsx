@@ -3,21 +3,31 @@ import { useState } from 'react';
 import { IoChevronDown , IoChevronUp } from 'react-icons/io5';
 import { FaCheck } from 'react-icons/fa6';
 
-export default function SmartCaptureItem({signal, title}) {
+interface SignalData {
+    detected: boolean;
+    quote: string | null;
+}
+
+interface Props {
+    signal: SignalData | null;
+    title: string;
+}
+
+export default function SmartCaptureItem({signal, title}: Props) {
 
     //STATE
     const [isOpen, setIsOpen] = useState(false);
 
     //FUNCTIONS
-    const trimPhrase = (phrase) => {
+    const trimPhrase = (phrase: string): string => {
         if(!phrase || phrase === '') {
             return '...';
         }
         return '...' + phrase.substring(0, 90) + '...';
     }
 
-    console.log('signal received', signal, title);
-    const fakemessage = "I'd say we're definitely considering all the options. You've made a good case and I'll take everything we just said discussed into account before making a final decision";
+    // console.log('signal received', signal, title);
+    // const fakemessage = "I'd say we're definitely considering all the options. You've made a good case and I'll take everything we just said discussed into account before making a final decision";
 
     
     return (

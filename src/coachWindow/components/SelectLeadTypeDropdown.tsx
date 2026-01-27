@@ -1,20 +1,33 @@
 import { useCoachWindowStore } from "../../store/coachWindowStore";
 import Dropdown from "../../components/Dropdown";
+import { LeadTypeEnum } from "@/types/coach";
 
 const LEAD_TYPES = [
-    { id: 'buyer', label: 'Buyer', initials: 'B' },
-    { id: 'seller', label: 'Seller', initials: 'S' }
+    { id: LeadTypeEnum.BUYER, label: 'Buyer', initials: 'B' },
+    { id: LeadTypeEnum.SELLER, label: 'Seller', initials: 'S' }
 ];
 
-export default function SelectLeadTypeDropdown({ isDropdownOpen, setIsDropdownOpen }) {
+
+interface LeadTypeItem {
+    id: LeadTypeEnum;
+    label: string;
+    initials: string;
+}
+
+interface Props {
+    isDropdownOpen: boolean;
+    setIsDropdownOpen: (isOpen: boolean) => void;
+}
+
+export default function SelectLeadTypeDropdown({ isDropdownOpen, setIsDropdownOpen }: Props) {
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const leadType = useCoachWindowStore(state => state.cue.leadType);
     const setLeadType = useCoachWindowStore(state => state.setLeadType);
 
     const selectedLeadType = LEAD_TYPES.find(type => type.id === leadType);
 
-    const handleSelect = (type) => {
-        setLeadType(type.id);
+    const handleSelect = (leadTypeSelected: LeadTypeItem) => {
+        setLeadType(leadTypeSelected.id);
 		setIsDropdownOpen(false);
     };
 

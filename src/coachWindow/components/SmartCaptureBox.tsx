@@ -1,10 +1,15 @@
 import SmartCaptureItem from './SmartCaptureItem';
 
 import '../styles/SmartCaptureBox.css';
+import { Signal, SignalType } from '@/types/coach';
 
-export default function SmartCaptureBox({signals}) {
+interface Props {
+    signals: Signal[];
+}
 
-    const getLatestSignal = (signalType) => {
+export default function SmartCaptureBox({signals}: Props) {
+
+    const getLatestSignal = (signalType: SignalType) => {
         if (!signals || !Array.isArray(signals)) return null;
         
         const filteredSignals = signals.filter(s => s.signal === signalType);

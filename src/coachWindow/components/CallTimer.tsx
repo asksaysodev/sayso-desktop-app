@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { useCoachWindowStore } from "../../store/coachWindowStore";
 
 // Function to format seconds into h:mm:ss format
-const formatDuration = (totalSeconds) => {
+const formatDuration = (totalSeconds: number): string => {
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;

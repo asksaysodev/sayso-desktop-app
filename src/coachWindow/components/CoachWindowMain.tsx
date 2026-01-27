@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, MouseEventHandler } from 'react';
 
 import { MdDragIndicator } from 'react-icons/md';
 import { IoClose } from 'react-icons/io5';
@@ -28,28 +28,30 @@ const WINDOW_HEIGHT_SIZES = {
 }
 
 // cue
-const defaultConfig = {
-    /** Display duration of the toast */
-    displayDuration: 6000,
-    /** Time between toasts - allows exit animation (300ms) to complete with buffer */
-    transitionDelay: 500,
-    /** Time until the toast expires */
-    expirationTime: 30000,
-    /** Animation duration of the toast */
-    animationDuration: 300,
-    /** Time until the toast is considered too old to display */
-    maxAgeBeforeDisplay: 90000, // 90s
-};
+// const defaultConfig = {
+//     /** Display duration of the toast */
+//     displayDuration: 6000,
+//     /** Time between toasts - allows exit animation (300ms) to complete with buffer */
+//     transitionDelay: 500,
+//     /** Time until the toast expires */
+//     expirationTime: 30000,
+//     /** Animation duration of the toast */
+//     animationDuration: 300,
+//     /** Time until the toast is considered too old to display */
+//     maxAgeBeforeDisplay: 90000, // 90s
+// };
+
+type DragStartRef = { mouseX: number, mouseY: number, winX: number, winY: number };
 
 export default function CoachWindowMain() {
 
     //REFS
-    const containerRef = useRef(null);
-    const insightsLayoutRef = useRef(null);
-    const errorContainerRef = useRef(null);
-    const sessionStoppedDialogRef = useRef(null);
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const insightsLayoutRef = useRef<HTMLDivElement | null>(null);
+    const errorContainerRef = useRef<HTMLDivElement | null>(null);
+    const sessionStoppedDialogRef = useRef<HTMLDivElement | null>(null);
     const isDraggingRef = useRef(false);
-    const dragStartRef = useRef({ mouseX: 0, mouseY: 0, winX: 0, winY: 0 });
+    const dragStartRef = useRef<DragStartRef>({ mouseX: 0, mouseY: 0, winX: 0, winY: 0 });
     //STATE
     const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -80,10 +82,12 @@ export default function CoachWindowMain() {
     }
 
     // Manual window drag handlers
-    const handleDragStart = async (e) => {
+    const handleDragStart = async (e: MouseEvent) => {
         e.preventDefault();
         isDraggingRef.current = true;
         setIsDragging(true);
+
+        if(!window.electronAPI) return;
 
         const [winX, winY] = await window.electronAPI.getWindowPosition();
         dragStartRef.current = {
@@ -97,7 +101,7 @@ export default function CoachWindowMain() {
         document.addEventListener('mouseup', handleDragEnd);
     };
 
-    const handleDragMove = (e) => {
+    const handleDragMove = (e: MouseEvent) => {
         if (!isDraggingRef.current) return;
 
         const deltaX = e.screenX - dragStartRef.current.mouseX;
@@ -105,6 +109,8 @@ export default function CoachWindowMain() {
 
         const newX = dragStartRef.current.winX + deltaX;
         const newY = dragStartRef.current.winY + deltaY;
+
+        if(!window.electronAPI) return;
 
         window.electronAPI.setWindowPosition(newX, newY);
     };
@@ -116,7 +122,7 @@ export default function CoachWindowMain() {
         document.removeEventListener('mouseup', handleDragEnd);
     };
 
-    function getTotalHeightWithRef(ref) {
+    function getTotalHeightWithRef(ref: any) {
         if (!ref || !ref?.current) return 0;
 
         const actualHeight = ref.current?.offsetHeight ?? 0;
@@ -193,7 +199,7 @@ export default function CoachWindowMain() {
         // When it appears, update immediately
         const delay = currentInsight === null ? 50 : 0;
 
-        let rafId = null;
+        let rafId: number | null = null;
         const timeoutId = setTimeout(() => {
             // Use double requestAnimationFrame to ensure DOM has fully updated
             rafId = requestAnimationFrame(() => {
@@ -306,7 +312,7 @@ export default function CoachWindowMain() {
                     <div className="coach-window-drag-container">
                         <button
                             className='coach-window-drag-indicator'
-                            onMouseDown={handleDragStart}
+                            onMouseDown={handleDragStart as unknown as MouseEventHandler<HTMLButtonElement>}
                         >
                             <MdDragIndicator/>
                         </button>
@@ -357,7 +363,6 @@ export default function CoachWindowMain() {
             {isInsightsLayoutOpen && isCoachActive && (
                 <InsightsVerticalLayout 
                     ref={insightsLayoutRef}
-                    setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
                 />
             )}
 

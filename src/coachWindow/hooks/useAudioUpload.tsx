@@ -6,7 +6,7 @@ export const useAudioUpload = () => {
   const [isCompressing, setIsCompressing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
-  const compressAudioFile = async (cafFilePath, outputPath) => {
+  const compressAudioFile = async (cafFilePath: string, outputPath: string) => {
     // Call Electron to compress via FFmpeg
     if (window.electron && window.electron.recording) {
       return await window.electron.recording.compressAudio({
@@ -20,7 +20,7 @@ export const useAudioUpload = () => {
     throw new Error('Electron compression API not available');
   };
 
-  const uploadFileViaIPC = async (filePath, type, parentId, fileName, metadata = {}) => {
+  const uploadFileViaIPC = async (filePath: string, type: string, parentId: string, fileName: string, metadata = {}) => {
     // Get auth token from Supabase
     const { data: { session } } = await supabase.auth.getSession();
     
@@ -42,7 +42,7 @@ export const useAudioUpload = () => {
     });
   };
 
-  const uploadBothFilesViaIPC = async ({ user, prospect, sessionId }) => {
+  const uploadBothFilesViaIPC = async ({ user, prospect, sessionId }: { user: { file: string, actualStartMs: number }, prospect: { file: string, actualStartMs: number }, sessionId: string }) => {
     // Get auth token from Supabase
     const { data: { session } } = await supabase.auth.getSession();
     
@@ -81,7 +81,7 @@ export const useAudioUpload = () => {
     });
   };
 
-  const uploadFullRecording = async (recordingResult, metadata = {}) => {
+  const uploadFullRecording = async (recordingResult: { userFile: string, prospectFile: string, sessionId: string, prospectId: string, userActualStartMs: number, prospectActualStartMs: number }, metadata = {}) => {
     try {
       setIsCompressing(true);
       

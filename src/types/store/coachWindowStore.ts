@@ -16,6 +16,7 @@ export interface CueInsight {
     createdAt: number;
     priority?: number;
     expiresAt?: number;
+    appointmentBooked?: boolean;
 }
 
 export interface AudioState {

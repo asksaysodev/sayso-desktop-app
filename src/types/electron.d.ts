@@ -72,6 +72,10 @@ export interface CueStatusData {
 export interface CueInsightData {
   insight: string;
   timestamp: number;
+  message: string;
+  priority: number;
+  appointmentBooked: boolean;
+  id: string;
 }
 
 export interface CueErrorData {
@@ -136,7 +140,7 @@ export interface ElectronBridge {
 export interface ElectronAPIBridge {
   resizeWindow: (width: number, height: number) => void;
   closeCoachWindow: () => void;
-  getWindowPosition: () => Promise<{ x: number; y: number }>;
+  getWindowPosition: () => Promise<[number, number]>;
   setWindowPosition: (x: number, y: number) => void;
 }
 

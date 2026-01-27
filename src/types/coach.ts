@@ -4,10 +4,10 @@
 
 // Signal types
 export type SignalType =
-  | 'pain_points'
+  | 'pain_point'
   | 'economic_impact'
-  | 'decision_makers'
-  | 'objections';
+  | 'decision_maker'
+  | 'objection';
 
 export interface Signal {
   signal: SignalType;
@@ -143,6 +143,10 @@ export interface InsightMessage {
 
 // Shared types
 export type LeadType = 'buyer' | 'seller';
+export enum LeadTypeEnum {
+  BUYER = 'buyer',
+  SELLER = 'seller',
+}
 export type LeadTypeFilter = 'all' | LeadType;
 export type FeatureType = 'cue' | 'recall';
 
@@ -153,6 +157,9 @@ export interface Insight {
   lead_type: LeadType;
   session_id: string;
   feature: FeatureType;
+  expiresAt?: number;
+  createdAt?: number;
+  priority?: number;
 }
 
 export interface InsightGroup {

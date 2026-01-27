@@ -1,16 +1,19 @@
+import { InsightMessage } from "@/types/coach";
 import { useState, useRef, useEffect, useCallback } from "react";
+
+// $FixTS: check types, since we are not using this hook i will leave it as is for now
 
 export default function  useInsightScheduler ( {displayMs = 15000, minIntervalMs = 5000 } = {}) {
 
     //STATE
-    const [currentInsight, setCurrentInsight] = useState(null);
+    const [currentInsight, setCurrentInsight] = useState<InsightMessage | null>(null);
 
     //REFS
-    const queueRef = useRef([]);
+    const queueRef = useRef<InsightMessage[]>([]);
     const lastStartRef = useRef(0);
     const busyRef = useRef(false);
-    const showTimer = useRef(null);
-    const hideTimer = useRef(null);
+    const showTimer = useRef<NodeJS.Timeout | null>(null);
+    const hideTimer = useRef<NodeJS.Timeout | null>(null);
 
     //FUNCTIONS
     const clearTimers = () => {
@@ -49,7 +52,7 @@ export default function  useInsightScheduler ( {displayMs = 15000, minIntervalMs
         const now = Date.now();
         
         // Check if the next item in queue is an ice breaker
-        const nextItem = queueRef.current[0];
+        const nextItem: InsightMessage = queueRef.current[0];
         const isIceBreaker = nextItem && nextItem.isIceBreaker === true;
         
         let wait = 0;
@@ -82,7 +85,7 @@ export default function  useInsightScheduler ( {displayMs = 15000, minIntervalMs
         showTimer.current = setTimeout(() => {
             const next = queueRef.current.shift();
             console.log('🎯 [useInsightScheduler] Displaying insight:', next);
-            setCurrentInsight(next);
+            setCurrentInsight(next ?? null);
             lastStartRef.current = Date.now();
 
             hideTimer.current = setTimeout(() => {
@@ -95,7 +98,7 @@ export default function  useInsightScheduler ( {displayMs = 15000, minIntervalMs
         }, wait);
     }, [displayMs, minIntervalMs]);
 
-    const enqueue = useCallback((insight) => {
+    const enqueue = useCallback((insight: InsightMessage) => {
         console.log('📥 [useInsightScheduler] Enqueueing insight:', insight);
         queueRef.current.push(insight);
         console.log('📊 [useInsightScheduler] Queue status after enqueue:', {

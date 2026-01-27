@@ -22,6 +22,8 @@ const config = {
     maxAgeBeforeDisplay: 90000, // 90s
 };
 
+// $FixTS: we are not using this hook, instead we are using the CoachWindowStore. We could remove it but i will leave it for now.
+
 export default function useCue() {
     
     //STATE

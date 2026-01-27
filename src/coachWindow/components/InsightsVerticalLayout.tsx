@@ -8,7 +8,7 @@ const TIMING_CONFIG = {
     exitAnimationDuration: 250,
 };
 
-const InsightsVerticalLayout = forwardRef(({ setIsInsightsLayoutOpen }, ref) => {
+const InsightsVerticalLayout = forwardRef<HTMLDivElement>((props, ref) => {
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
     const removeInsight = useCoachWindowStore(state => state.cue_removeInsight);
 
@@ -43,7 +43,7 @@ const InsightsVerticalLayout = forwardRef(({ setIsInsightsLayoutOpen }, ref) => 
         previousInsightsRef.current = currentInsights;
     }, [allInsightsToDisplay]);
 
-    const handleRemoveInsight = (insightId) => {
+    const handleRemoveInsight = (insightId: string) => {
         setExitingItems(prev => new Set(prev).add(insightId));
 
         setTimeout(() => {

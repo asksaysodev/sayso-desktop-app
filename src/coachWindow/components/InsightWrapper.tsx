@@ -2,24 +2,15 @@ import { useState, useEffect } from 'react';
 import calculateInsightDisplayDuration from "../helpers/calculateInsightDisplayDuration";
 import '../styles/Cue.css';
 
-{/**
-    interface InsightWrapperProps {
-        // Function to be called when the insight is complete (next())
-        onComplete: () => void;
+interface Props {
+    onComplete: () => void;
+    insightText: string;
+    displayDuration: number;
+    transitionDelay: number;
+    animationDuration: number;
+}
 
-        priority: "high" | "mid" | "low";
-        insightText: string;
-
-        // Display duration of the toast
-        displayDuration: number;
-        //Time between toasts - allows exit animation (300ms) to complete with buffer
-        transitionDelay: number;
-        // Animation duration of the toast
-        animationDuration: number;
-    }
- */}
-
-export default function InsightWrapper({ onComplete, insightText, displayDuration, transitionDelay, animationDuration }) {
+export default function InsightWrapper({ onComplete, insightText, displayDuration, transitionDelay, animationDuration }: Props) {
     const [isVisible, setIsVisible] = useState(false);
     const [isExiting, setIsExiting] = useState(false);
 
@@ -52,7 +43,7 @@ export default function InsightWrapper({ onComplete, insightText, displayDuratio
         className={`toast ${isVisible ? 'toast--visible' : ''} ${isExiting ? 'toast--exiting' : ''}`}
         style={{
             '--animation-duration': `${animationDuration}ms`,
-        }}
+        } as React.CSSProperties}
     >
         <div className="toast__text">{insightText}</div>
     </div>

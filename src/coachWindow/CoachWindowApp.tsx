@@ -1,4 +1,3 @@
-import React from 'react';
 import CoachWindowMain from './components/CoachWindowMain';
 
 function CoachWindowApp() {

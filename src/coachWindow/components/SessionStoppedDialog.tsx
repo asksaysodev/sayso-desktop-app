@@ -2,7 +2,11 @@ import SaysoButton from '@/components/SaysoButton';
 import { forwardRef } from 'react';
 import '../styles/sessionStoppedDialog.css';
 
-const SessionStoppedDialog = forwardRef(({ setShowSessionAutoStopped }, ref) => {
+interface SessionStoppedDialogProps {
+    setShowSessionAutoStopped: (show: boolean) => void;
+}
+
+const SessionStoppedDialog = forwardRef<HTMLDivElement, SessionStoppedDialogProps>(({ setShowSessionAutoStopped }, ref) => {
     
     return (
         <div ref={ref} className="insights-vertical-layout-container session-stopped-dialog">
