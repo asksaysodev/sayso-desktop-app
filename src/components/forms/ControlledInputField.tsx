@@ -56,7 +56,6 @@ export default function ControlledInputField({
                                     }
                                 }}
                                 onBlur={field.onBlur}
-                                {...field}
                                 {...rest}
                             />
                             <div className="inputRightChildren">
@@ -80,7 +79,6 @@ export default function ControlledInputField({
                                 }
                             }}
                             onBlur={field.onBlur}
-                            {...field}
                             {...rest}
                         />
                     )}

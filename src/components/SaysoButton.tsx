@@ -15,19 +15,19 @@ import '../styles/SaysoButton.css';
 interface Props {
     label: string;
     onClick: () => void;
-    disabled: boolean;
-    loading: boolean;
-    icon: React.ReactNode;
-    variant: 'sayso-indigo' | 'error' | 'outlined';
-    fullWidth: boolean;
-    type: 'button' | 'submit' | 'reset';
+    disabled?: boolean;
+    loading?: boolean;
+    icon?: React.ReactNode;
+    variant?: 'sayso-indigo' | 'error' | 'outlined';
+    fullWidth?: boolean;
+    type?: 'button' | 'submit' | 'reset';
 }
 
 export default function SaysoButton({ 
     label, 
     onClick, 
-    disabled, 
-    loading,
+    disabled = false, 
+    loading = false,
     icon,
     variant = 'sayso-indigo',
     fullWidth = false,

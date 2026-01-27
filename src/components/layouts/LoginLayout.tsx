@@ -6,7 +6,7 @@ interface Props {
     children: React.ReactNode;
     title?: string;
     description?: string;
-    error?: string;
+    error?: string | null;
 }
 
 export default function LoginLayout({ children, title, description, error }: Props) {

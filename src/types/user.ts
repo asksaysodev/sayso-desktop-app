@@ -32,6 +32,7 @@ export interface Account {
   updated_at?: string;
   is_admin?: boolean;
   role?: UserRole;
+  slack_connected?: boolean;
 }
 
 export interface AccountUsage {
@@ -73,6 +74,7 @@ export type UserRole = 'admin' | 'user' | 'manager';
 export interface Company {
   id: string;
   name: string;
+  company_name?: string;
   team?: {
     members: any[]; // $FixTS:
   };

@@ -40,24 +40,26 @@ export interface GetAccountSubscriptionResponse {
 }
 
 export interface GetStripeCancellationPageUrlResponse {
-    data: {
-        url: string;
-    };
+    url: string;
 }
 
 export interface GetStripeCheckoutPageUrlResponse {
-    data: {
-        url: string;
-    };
+    url: string;
 }
 
 export interface GetPricingPlansResponse extends Array<PricingPlan> {}
+
+export interface PlanFeature {
+  id: string;
+  name: string;
+  included: boolean;
+}
 
 export interface PricingPlan {
   id: string;
   name: string;
   description: string;
-  features: unknown;
+  features: { features: PlanFeature[] };
   includedMinutes: number;
   type: string;
   purchasable: boolean;
@@ -73,6 +75,12 @@ export interface PricingOption {
   stripePriceId: string;
   priceInCents: number;
   currency: string;
-  interval: string; // 'month' or 'year' i think $FixTS
+  interval: string;
   includedMinutesPerMonth: number;
+}
+
+export type BillingInterval = 'month' | 'year';
+export enum BillingIntervalEnum {
+    MONTH = 'month',
+    YEAR = 'year',
 }

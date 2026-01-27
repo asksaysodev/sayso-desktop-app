@@ -1,5 +1,22 @@
 import apiClient from '../config/axios';
 
+export interface StoredFile {
+  id: string;
+  type: string;
+  parent_id: string;
+  file_path: string;
+  file_size: number;
+  file_name: string;
+  file_type: string;
+  account_id: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface FetchFilesResponse {
+  files: StoredFile[];
+}
+
 export const useFiles = () => {
 
 
@@ -16,20 +33,20 @@ export const useFiles = () => {
     }
   };
 
-  const uploadFile = async (file: File, type: string, parentId: string): Promise<void> => {
+  const uploadFile = async (file: File, type: string, parentId: string): Promise<StoredFile> => {
     if(!file) {
       console.error('No file provided');
-      return;
+      throw new Error('No file provided');
     }
 
     if(!type) {
       console.error('No type provided');
-      return;
+      throw new Error('No type provided');
     }
 
     if(!parentId) {
       console.error('No parentId provided');
-      return;
+      throw new Error('No parentId provided');
     }
 
     try {
@@ -53,7 +70,7 @@ export const useFiles = () => {
     }
   };
 
-  const handleUploadFiles = async (files: File[], type: string, parentId: string): Promise<any[]> => { // $FixTS
+  const handleUploadFiles = async (files: File[], type: string, parentId: string): Promise<StoredFile[]> => {
     if(!files || files.length === 0) {
       console.error('No files provided');
       return [];
@@ -69,7 +86,7 @@ export const useFiles = () => {
       return [];
     }
 
-    const uploadedFiles = [];
+    const uploadedFiles: StoredFile[] = [];
 
     for (const file of files) {
       try {
@@ -93,10 +110,10 @@ export const useFiles = () => {
       }
     }
 
-    return uploadedFiles as any[]; // $FixTS
+    return uploadedFiles;
   };
 
-  const fetchFiles = async (parentId: string): Promise<void> => {
+  const fetchFiles = async (parentId: string): Promise<FetchFilesResponse> => {
     const response = await apiClient.get('/files/fetch/' + parentId);
     return response.data;
   }

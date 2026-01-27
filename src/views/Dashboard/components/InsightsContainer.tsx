@@ -30,7 +30,7 @@ export default function InsightsContainer() {
     const [selectedLeadTypeFilter, setSelectedLeadTypeFilter] = useState<LeadTypeFilter>('all');
     const [searchInsightInputValue, setSearchInsightInputValue] = useState('');
     const [dateRangeFilter, setDateRangeFilter] = useState<DateRange>(INITIAL_DATE_RANGE);
-    const [openedInsights, setOpenedInsights] = useState([]);
+    const [openedInsights, setOpenedInsights] = useState<string[]>([]);
     const [isScrolled, setIsScrolled] = useState(false);
     const listContainerRef = useRef<HTMLDivElement>(null);
     const [page, setPage] = useState(0);

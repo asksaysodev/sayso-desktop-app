@@ -42,7 +42,7 @@ export default function ProspectsContainer() {
             return;
         }
 
-        const filteredProspects = prospects.filter(prospect => prospect.name.toLowerCase().includes(search.toLowerCase()) || prospect.email.toLowerCase().includes(search.toLowerCase()) || prospect.company.toLowerCase().includes(search.toLowerCase()));
+        const filteredProspects = prospects.filter(prospect => prospect.name.toLowerCase().includes(search.toLowerCase()) || prospect?.email?.toLowerCase().includes(search.toLowerCase()) || prospect?.company?.toLowerCase().includes(search.toLowerCase()));
 
         if(filteredProspects.length > 0) {
             setDisplayingProspects(filteredProspects);

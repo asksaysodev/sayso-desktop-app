@@ -39,9 +39,9 @@ export default function FileCard({status, file, showDeleteModal = false, progres
             return;
         } else {
             //REMOVE FROM FORM LOCAL DATA
-            setFormData(prevData => ({
+            setFormData((prevData: any) => ({ // $FixTS
                 ...prevData,
-                files: prevData.files.filter(f => f.name !== file.name)
+                files: prevData.files.filter((f: any) => f.name !== file.name) // $FixTS
             }));
         }
     }

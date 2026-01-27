@@ -1,0 +1,1 @@
+export type WeeklyActivityDirection = 'prev' | 'next';
