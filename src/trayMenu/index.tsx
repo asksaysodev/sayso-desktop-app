@@ -7,7 +7,7 @@ import { sentryConfig } from '@/config/sentry';
 
 Sentry.init(sentryConfig);
 
-const root = ReactDOM.createRoot(document.getElementById('tray-menu-root'));
+const root = ReactDOM.createRoot(document.getElementById('tray-menu-root') as HTMLElement);
 root.render(
   <React.StrictMode>
     <TrayMenuApp />

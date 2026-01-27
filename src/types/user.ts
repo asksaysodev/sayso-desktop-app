@@ -31,8 +31,20 @@ export interface Account {
   created_at?: string;
   updated_at?: string;
   is_admin?: boolean;
+  isAdmin?: boolean;
   role?: UserRole;
   slack_connected?: boolean;
+  zoom_connected?: boolean;
+  stripe_customer_id?: string | null;
+  stripe_subscription_id?: string | null;
+  minutes_balance?: number | null;
+  subscription_current_period_end?: string | null;
+  subscription_created_at?: string | null;
+  last_invoice_paid_at?: string | null;
+  subscription_cancelled_at?: string | null;
+  subscription_updated_at?: string | null;
+  stripe_price_id?: string | null;
+  subscription_current_period_start?: string | null;
 }
 
 export interface AccountUsage {

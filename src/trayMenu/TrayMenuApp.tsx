@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import trayToggleOn from '/assets/tray-toggle-on.png';
 import trayToggleOff from '/assets/tray-toggle-off.png';
-import { useAuth } from '@/context/AuthContext';
+import { Account } from '@/types/user';
 
 /**
  * Tray Menu App - Custom menu window for system tray
@@ -9,7 +9,7 @@ import { useAuth } from '@/context/AuthContext';
  */
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
-  const [userAuthenticated, setUserAuthenticated] = useState(null);
+  const [userAuthenticated, setUserAuthenticated] = useState<Account | null>(null);
 
   const disableToggleCoach = useMemo(() => {
     return !userAuthenticated || userAuthenticated?.subscription_plan_id === null;
@@ -20,23 +20,23 @@ const TrayMenuApp = () => {
     
     if (!ipcRenderer) return;
 
-    const handleUserAuth = (state) => {
+    const handleUserAuth = (state: { authUser: Account | null }) => {
       setUserAuthenticated(state.authUser);
     };
 
-    const handleCoachWindowState = (state) => {
+    const handleCoachWindowState = (state: { isOpen: boolean }) => {
       setIsCoachOpen(state.isOpen);
     };
 
-    ipcRenderer.on('coach-window-state', handleCoachWindowState);
+    ipcRenderer.on('coach-window-state', handleCoachWindowState as any); // $FixTS
     ipcRenderer.send('get-coach-window-state');
 
-    ipcRenderer.on('user-auth', handleUserAuth);
+    ipcRenderer.on('user-auth', handleUserAuth as any); // $FixTS
     ipcRenderer.send('get-user-auth');
 
     return () => {
-      ipcRenderer.off('coach-window-state', handleCoachWindowState);
-      ipcRenderer.off('user-auth', handleUserAuth);
+      ipcRenderer.off('coach-window-state', handleCoachWindowState as any); // $FixTS
+      ipcRenderer.off('user-auth', handleUserAuth as any); // $FixTS
     };
   }, []);
 
