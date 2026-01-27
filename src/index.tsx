@@ -10,7 +10,7 @@ import { sentryConfig } from '@/config/sentry';
 
 Sentry.init(sentryConfig);
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <HashRouter>
       <App />
