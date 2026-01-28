@@ -99,7 +99,7 @@ export default function ActiveSubscriptionInformation() {
                                     {dayjs(invoice.created_at).format('MMM D, YYYY')}
                                 </div>
                                 <div className="invoice-col-total">
-                                    ${(invoice.amount_paid_in_cents ?? 0 / 100).toFixed(2)}
+                                    ${((invoice.amount_paid_in_cents ?? 0) / 100).toFixed(2)}
                                 </div>
                                 <div className="invoice-col-status">
                                     {invoice.status && invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
