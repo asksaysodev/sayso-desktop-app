@@ -45,3 +45,6 @@ electron/bin/ffmpeg
 
 electron/main.js
 electron/main.js.map
+
+tsconfig.electron.tsbuildinfo
+*.tsbuildinfo

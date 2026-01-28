@@ -6,12 +6,64 @@
 import type { BrowserWindow } from 'electron';
 import type { ChildProcess } from 'child_process';
 
-// Account type for authenticated user (simplified - main process only needs basic info)
-interface AuthUser {
+// (simplified - main process only needs basic info)
+export interface AuthUser {
   id: string;
   email: string;
   subscription_plan_id: string | null;
   [key: string]: unknown;
+}
+
+export interface AudioQueueItem {
+  filePath: string;
+  speaker: string;
+  retries: number;
+  status: string;
+  timestamp: number;
+}
+
+// Audio capture options for native audio module
+export interface AudioCaptureOptions {
+  streamingCallback?: (audioData: Buffer, sampleRate: number) => void;
+  streamingOnly?: boolean;
+  [key: string]: unknown;
+}
+
+export interface CueInsight {
+  insight: string;
+  timestamp: number;
+  message: string;
+  priority: number;
+  appointmentBooked: boolean;
+  id: string;
+}
+
+export interface CueParams {
+  sessionId: string;
+  token: string;
+}
+
+export interface UploadFileOptions {
+  filePath: string;
+  type: string;
+  parentId: string;
+  accessToken: string;
+  fileName: string;
+  data?: Record<string, unknown>;
+  contentType?: string;
+}
+
+export interface UploadBothFilesOptions {
+  user: {
+    file: string;
+    actualStartMs: number;
+  };
+  prospect: {
+    file: string;
+    actualStartMs: number;
+  };
+  sessionId: string;
+  accessToken: string;
 }
 
 declare global {

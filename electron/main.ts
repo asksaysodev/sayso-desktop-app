@@ -1,5 +1,16 @@
 /// <reference path="./globals.d.ts" />
-import type { BrowserWindow as BrowserWindowType, Tray as TrayType } from 'electron';
+import type { 
+  BrowserWindow as BrowserWindowType, 
+  Tray as TrayType,
+  WebContents
+} from 'electron';
+import type { Event } from 'electron';
+import type { 
+  AuthUser, 
+  AudioQueueItem, 
+  AudioCaptureOptions, 
+  CueInsight 
+} from './globals';
 
 const { app, BrowserWindow, ipcMain, screen: electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu } = require('electron');
 const path = require('node:path');
@@ -69,7 +80,7 @@ if (app.isPackaged) {
       message: `Version ${info.version} has been downloaded`,
       detail: 'The update will be installed when you quit and restart the app.',
       buttons: ['Restart Now', 'Later']
-    }).then((result) => {
+    }).then((result: { response: number }) => {
       if (result.response === 0) {
         // User clicked "Restart Now"
         setImmediate(() => {
@@ -121,7 +132,7 @@ function setupLogging() {
     const originalError = console.error;
     const originalWarn = console.warn;
     
-    function writeToFile(level, ...args) {
+    function writeToFile(level: string, ...args: any[]) {
       const timestamp = new Date().toISOString();
       const message = args.map(arg => 
         typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
@@ -131,7 +142,7 @@ function setupLogging() {
       
       try {
         fs.appendFileSync(logFile, logEntry);
-      } catch (err) {
+      } catch (err: any) {
         // Fallback to original console if file writing fails
         originalError(`Failed to write to log file: ${err.message}`);
       }
@@ -531,7 +542,7 @@ ipcMain.handle('get-streaming-status', async () => {
 });
 
 // Start Cue (handles 2 audio websockets: user + prospect)
-ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
+ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { sessionId, token }: { sessionId: string, token: string }) => {
   try {
     
     if (!token) {
@@ -567,7 +578,7 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
           console.error('[Cue] Error sending prospect connected status:', error);
         }
       },
-      onError: (stream, error) => {
+      onError: (stream: string, error: Error) => {
         console.error(`[Cue] ${stream} stream error:`, error);
         try {
           if (!event.sender.isDestroyed()) {
@@ -577,7 +588,7 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
           console.error('[Cue] Error sending error status:', err);
         }
       },
-      onMessage: (message) => {
+      onMessage: (message: any) => {
         try {
           // Forward insight messages to renderer process
           if (message && message.type === 'insight' && message.data) {
@@ -614,7 +625,7 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
 
     // Set up audio capture callbacks (streaming only - no file saving)
     await startUserStreaming({
-      streamingCallback: (buffer, format) => {
+      streamingCallback: (buffer: Buffer, format: string) => {
         if (cueAudioStreamer) {
           cueAudioStreamer.addUserAudio(buffer, format);
         }
@@ -630,7 +641,7 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
     }
 
     await nativeAudio.startProspectStreaming({
-      streamingCallback: (buffer, format) => {
+      streamingCallback: (buffer: Buffer, format: string) => {
         if (cueAudioStreamer) {
           cueAudioStreamer.addProspectAudio(buffer, format);
         }
@@ -641,7 +652,7 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
       success: true, 
       sessionId: sessionId 
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('[MAIN] Error starting Cue:', error);
     Sentry.captureException(error);
     // Clean up on error
@@ -651,7 +662,7 @@ ipcMain.handle('start-cue', async (event, { sessionId, token }) => {
 });
 
 // Stop Cue (closes all websockets)
-ipcMain.handle('stop-cue', async (event) => {
+ipcMain.handle('stop-cue', async (event: Electron.IpcMainInvokeEvent) => {
   try {
     // Stop audio streaming (streaming only - no file recording to stop)
     await stopUserStreaming();
@@ -673,7 +684,7 @@ ipcMain.handle('stop-cue', async (event) => {
     // }
 
     return { success: true };
-  } catch (error) {
+  } catch (error: any) {
     console.error('[MAIN] Error stopping Cue:', error);
     Sentry.captureException(error);
     // Force cleanup on error
@@ -823,7 +834,7 @@ const createDashboardWindow = () => {
   });
 
   // Enhanced media permissions handler for packaged app
-  dashboardWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+  dashboardWindow.webContents.session.setPermissionRequestHandler((webContents: WebContents, permission: string, callback: (allowed: boolean) => void) => {
     const allowedPermissions = ['media', 'microphone', 'display-capture'];
     if (isDev) {
       console.log(`[MAIN] Permission requested: ${permission}`);
@@ -844,7 +855,7 @@ const createDashboardWindow = () => {
   });
 
   // Enhanced device permission handler
-  dashboardWindow.webContents.session.setDevicePermissionHandler((webContents, permission, deviceId) => {
+  dashboardWindow.webContents.session.setDevicePermissionHandler((webContents: WebContents, permission: string, deviceId: string) => {
     if (isDev) {
       console.log(`[MAIN] Device permission requested for: ${permission} (${deviceId})`);
     }
@@ -900,7 +911,7 @@ const createDashboardWindow = () => {
   });
 
   // Enhanced CSP for better camera support
-  dashboardWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+  dashboardWindow.webContents.session.webRequest.onHeadersReceived((details: Electron.OnHeadersReceivedListenerDetails, callback: (response: Electron.HeadersReceivedResponse) => void) => {
     const cspHeader = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; " +
       "script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; " +
       "style-src * 'unsafe-inline' data: blob:; " +
@@ -920,7 +931,7 @@ const createDashboardWindow = () => {
     });
   });
 
-  dashboardWindow.webContents.setWindowOpenHandler(({ url }) => {
+  dashboardWindow.webContents.setWindowOpenHandler(({ url }: { url: string }) => {
     if (isDev) {
       console.log('[Electron][setWindowOpenHandler] Attempt to open URL:', url);
     }
@@ -935,7 +946,7 @@ const createDashboardWindow = () => {
     return { action: 'allow' };
   });
 
-  dashboardWindow.webContents.on('will-navigate', (event, url) => {
+  dashboardWindow.webContents.on('will-navigate', (event: Event, url: string) => {
     if (isDev) {
       console.log('[Electron][will-navigate] Navigation attempt to:', url);
     }
@@ -955,7 +966,7 @@ const createDashboardWindow = () => {
 };
 
 // Handler for opening URLs externally
-ipcMain.on('open-external', (event, url) => {
+ipcMain.on('open-external', (event: Electron.IpcMainInvokeEvent, url: string) => {
   if (isDev) {
     console.log('[MAIN] [Electron][open-external] IPC event received!');
     console.log('[MAIN] [Electron][open-external] URL:', url);
@@ -973,7 +984,7 @@ ipcMain.on('open-external', (event, url) => {
       if (isDev) {
         console.log('[MAIN] [Electron][open-external] Slack auth detected, sending reset-to-home [TRIGGER #1]');
       }
-      BrowserWindow.getAllWindows().forEach(win => {
+      BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
         if (isDev) {
           console.log('[MAIN] [Electron][open-external] Sending reset-to-home to window:', win.id);
         }
@@ -999,7 +1010,7 @@ ipcMain.handle('permissions-check', async () => {
     // We'll return false here and request explicitly via native module when needed.
     const screen = false;
     return { mic, screen };
-  } catch (e) {
+  } catch (e: any) {
     console.error('[MAIN] [Permissions] Error checking permissions:', e);
     Sentry.captureException(e);
     return { mic: false, screen: false, error: e.message };
@@ -1028,7 +1039,7 @@ ipcMain.handle('permissions-request-all', async () => {
       micAction = 'open-settings';
       try {
         await systemPreferences.openSystemPreferences('privacy', 'Microphone');
-      } catch (e) {
+      } catch (e: any) {
         console.warn('[MAIN] [Permissions] Could not open System Settings for Microphone:', e?.message || e);
       }
     }
@@ -1052,7 +1063,7 @@ ipcMain.handle('permissions-request-all', async () => {
       } else {
         console.warn('[MAIN] [Permissions] Native module missing requestScreenRecordingPermission');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[MAIN] [Permissions] Screen permission request failed:', err?.message || err);
       screen = false;
     }
@@ -1060,7 +1071,7 @@ ipcMain.handle('permissions-request-all', async () => {
       console.log('[Permissions] requestAll result:', { mic, screen, micAction, screenRequested });
     }
     return { mic, screen, micAction, screenRequested };
-  } catch (e) {
+  } catch (e: any) {
     console.error('[MAIN] [Permissions] Error requesting permissions:', e);
     Sentry.captureException(e);
     return { mic: false, screen: false, error: e.message };
@@ -1068,7 +1079,7 @@ ipcMain.handle('permissions-request-all', async () => {
 });
 
 // Upload file handler - reads file from disk and uploads to server
-ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessToken, fileName, data }) => {
+ipcMain.handle('upload-file', async (event: Electron.IpcMainInvokeEvent, { filePath, type, parentId, accessToken, fileName, data }: { filePath: string, type: string, parentId: string, accessToken: string, fileName: string, data: any }) => {
   if (isDev) {
     console.log('[Main Process] Uploading file:', { filePath, type, parentId, fileName });
   }
@@ -1129,7 +1140,7 @@ ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessTo
     }
     return response.data;
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Main Process] Error uploading file:', error);
     Sentry.captureException(error);
 
@@ -1153,7 +1164,7 @@ ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessTo
 });
 
 // Upload both files handler - reads both files from disk and uploads to server together
-ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, accessToken }) => {
+ipcMain.handle('upload-both-files', async (event: Electron.IpcMainInvokeEvent, { user, prospect, sessionId, accessToken }: { user: { file: string, actualStartMs: number }, prospect: { file: string, actualStartMs: number }, sessionId: string, accessToken: string }) => {
   if (isDev) {
     console.log('[Main Process] Uploading both files:', { 
       userFile: user?.file, 
@@ -1248,7 +1259,7 @@ ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, a
     }
     return response.data;
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Main Process] Error uploading both files:', error);
     Sentry.captureException(error);
 
@@ -1271,7 +1282,7 @@ ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, a
 });
 
 // --- Audio Queue Event Handlers ---
-audioQueue.on('queued', (item) => {
+audioQueue.on('queued', (item: AudioQueueItem) => {
   if (isDev) {
     console.log(`[Audio Queue] Queued new audio chunk: ${item.filePath} (${item.speaker})`);
   }
@@ -1280,7 +1291,7 @@ audioQueue.on('queued', (item) => {
   }
 });
 
-audioQueue.on('processing', (item) => {
+audioQueue.on('processing', (item: AudioQueueItem) => {
   if (isDev) {
     console.log(`[Audio Queue] Processing audio chunk: ${item.filePath} (${item.speaker})`);
   }
@@ -1289,7 +1300,7 @@ audioQueue.on('processing', (item) => {
   }
 });
 
-audioQueue.on('completed', (item) => {
+audioQueue.on('completed', (item: AudioQueueItem) => {
   if (isDev) {
     console.log(`[Audio Queue] Completed processing audio chunk: ${item.filePath} (${item.speaker})`);
   }
@@ -1298,7 +1309,7 @@ audioQueue.on('completed', (item) => {
   }
 });
 
-audioQueue.on('failed', (item) => {
+audioQueue.on('failed', (item: AudioQueueItem) => {
   console.error(`[Audio Queue] Failed to process audio chunk after ${item.retries} retries: ${item.filePath} (${item.speaker})`);
   Sentry.captureMessage(`Audio queue failed: ${item.filePath} (${item.speaker}) after ${item.retries} retries`, 'error');
   if (dashboardWindowInstance) {
@@ -1306,7 +1317,7 @@ audioQueue.on('failed', (item) => {
   }
 });
 
-audioQueue.on('retrying', (item) => {
+audioQueue.on('retrying', (item: AudioQueueItem) => {
   if (isDev) {
     console.log(`[Audio Queue] Retrying audio chunk (attempt ${item.retries}): ${item.filePath} (${item.speaker})`);
   }
@@ -1315,7 +1326,7 @@ audioQueue.on('retrying', (item) => {
   }
 });
 
-audioQueue.on('queueEmpty', () => {
+audioQueue.on('queueEmpty', (): void => {
   if (isDev) {
     console.log('[Audio Queue] Queue is now empty');
   }
@@ -1348,7 +1359,7 @@ ipcMain.handle('test-simple', () => {
 // Native Audio Module IPC Handlers moved to app.whenReady() after module loads
 
 // Handle protocol activation (when app is opened via sayso:// URL)
-app.on('open-url', (event, url) => {
+app.on('open-url', (event: Event, url: string) => {
   if (isDev) {
     console.log('[Electron] open-url event:', url);
     console.log('Protocol URL received:', url);
@@ -1409,7 +1420,7 @@ app.on('open-url', (event, url) => {
 });
 
 // Handle second instance (when app is already running and opened via protocol)
-app.on('second-instance', (event, commandLine, workingDirectory) => {
+app.on('second-instance', (event: Event, commandLine: string[], workingDirectory: string) => {
   if (isDev) {
     console.log('Second instance detected, command line:', commandLine);
   }
@@ -1477,7 +1488,7 @@ app.whenReady().then(() => {
     try {
       await nativeAudio.initialize();
       return { success: true };
-    } catch (error) {
+    } catch (error: any) {
       console.error('[MAIN] Failed to initialize native audio:', error);
       Sentry.captureException(error);
       return { success: false, error: error.message };
@@ -1490,7 +1501,7 @@ app.whenReady().then(() => {
     try {
       const devices = await nativeAudio.listOutputDevices();
       return { success: true, devices };
-    } catch (error) {
+    } catch (error: any) {
       console.error('[MAIN] Failed to list devices:', error);
       Sentry.captureException(error);
       return { success: false, error: error.message };
@@ -1498,12 +1509,12 @@ app.whenReady().then(() => {
   });
 
   // Create multi-output device
-  ipcMain.handle('native-audio-create-device', async (event, { name, subDevices }) => {
+  ipcMain.handle('native-audio-create-device', async (event: Electron.IpcMainInvokeEvent, { name, subDevices }: { name: string, subDevices: string[] }) => {
     if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
     try {
       const deviceId = await nativeAudio.createMultiOutputDevice(name, subDevices);
       return { success: true, deviceId };
-    } catch (error) {
+    } catch (error: any) {
       console.error('[MAIN] Failed to create device:', error);
       Sentry.captureException(error);
       return { success: false, error: error.message };
@@ -1511,12 +1522,12 @@ app.whenReady().then(() => {
   });
 
   // Delete multi-output device
-  ipcMain.handle('native-audio-delete-device', async (event, { deviceId }) => {
+  ipcMain.handle('native-audio-delete-device', async (event: Electron.IpcMainInvokeEvent, { deviceId }: { deviceId: string }) => {
     if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
     try {
       const result = await nativeAudio.deleteMultiOutputDevice(deviceId);
       return { success: result };
-    } catch (error) {
+    } catch (error: any) {
       console.error('[MAIN] Failed to delete device:', error);
       Sentry.captureException(error);
       return { success: false, error: error.message };
@@ -1524,12 +1535,12 @@ app.whenReady().then(() => {
   });
 
   // Request screen recording permission
-  ipcMain.handle('native-audio-request-permission', async () => {
+  ipcMain.handle('native-audio-request-permission', async (): Promise<{ success: boolean, error?: string }> => {
     if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
     try {
       const result = await nativeAudio.requestScreenRecordingPermission();
       return { success: result };
-    } catch (error) {
+    } catch (error: any) {
       console.error('[MAIN] Failed to request permission:', error);
       Sentry.captureException(error);
       return { success: false, error: error.message };
@@ -1537,12 +1548,12 @@ app.whenReady().then(() => {
   });
 
   // Start system audio capture
-  ipcMain.handle('native-audio-start-capture', async (event, options = {}) => {
+  ipcMain.handle('native-audio-start-capture', async (event: Electron.IpcMainInvokeEvent, options: AudioCaptureOptions = {}) => {
     if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
     try {
       const result = await nativeAudio.startSystemAudioCapture(options);
       return { success: result };
-    } catch (error) {
+    } catch (error: any) {
       console.error('[MAIN] Failed to start capture:', error);
       Sentry.captureException(error);
       return { success: false, error: error.message };
@@ -1556,7 +1567,7 @@ app.whenReady().then(() => {
       const result = await nativeAudio.stopSystemAudioCapture();
       // Result is now {success, filePath}
       return result;
-    } catch (error) {
+    } catch (error: any) {
       console.error('[MAIN] Failed to stop capture:', error);
       Sentry.captureException(error);
       return { success: false, error: error.message, filePath: null };
@@ -1569,7 +1580,7 @@ app.whenReady().then(() => {
     try {
       const result = await nativeAudio.isSystemAudioCaptureActive();
       return { success: true, isCapturing: result };
-    } catch (error) {
+    } catch (error: any) {
       console.error('[MAIN] Failed to check capture status:', error);
       Sentry.captureException(error);
       return { success: false, error: error.message };
@@ -1599,7 +1610,7 @@ app.whenReady().then(() => {
 });
 
 // Cleanup audio capture before app quits
-app.on('before-quit', async (event) => {
+app.on('before-quit', async (event: Event) => {
   if (isDev) {
     console.log('App quitting - cleaning up audio capture...');
   }
@@ -1621,13 +1632,13 @@ app.on('window-all-closed', () => {
   // you would add app.quit() here.
 });
 
-let lastLeaveUrl = null;
+let lastLeaveUrl: string | null = null;
 let lastLeaveUrlTime = 0;
 let isProcessingPostCall = false;
 
 // Intercept navigation in ALL windows
-app.on('web-contents-created', (event, contents) => {
-  contents.on('will-navigate', (event, url) => {
+app.on('web-contents-created', (event: Event, contents: WebContents) => {
+  contents.on('will-navigate', (event: Event, url: string) => {
     if (isDev) {
       console.log('[Electron][DEBUG] will-navigate triggered:', {
         url,
@@ -1667,7 +1678,7 @@ app.on('web-contents-created', (event, contents) => {
         console.log('[Electron][DEBUG] will-navigate: Extracted params:', { meetingId, prospectId, sessionId });
       }
             // Send IPC to ALL windows
-      BrowserWindow.getAllWindows().forEach(win => {
+      BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
         if (isDev) {
           console.log('[Electron][DEBUG] will-navigate: Sending reset-to-home to window:', win.id, { meetingId, prospectId, sessionId });
         }
@@ -1676,7 +1687,7 @@ app.on('web-contents-created', (event, contents) => {
     }
   });
 
-  contents.setWindowOpenHandler(({ url }) => {
+  contents.setWindowOpenHandler(({ url }: { url: string }) => {
     if (isDev) {
       console.log('[Electron][setWindowOpenHandler] Attempt to open URL:', url);
     }
@@ -1709,7 +1720,7 @@ app.on('web-contents-created', (event, contents) => {
       if (isDev) {
         console.log('[Electron][setWindowOpenHandler] Extracted params:', { meetingId, prospectId, sessionId });
       }
-      BrowserWindow.getAllWindows().forEach(win => {
+      BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
         if (isDev) {
           console.log('[Electron][setWindowOpenHandler] Sending reset-to-home to window:', win.id, { meetingId, prospectId, sessionId });
         }
@@ -1720,7 +1731,7 @@ app.on('web-contents-created', (event, contents) => {
     return { action: 'allow' };
   });
 
-  contents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+  contents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details: Electron.OnBeforeRequestListenerDetails, callback: (response: { cancel?: boolean; redirectURL?: string }) => void) => {
     if (isDev) {
       console.log('[Electron][webRequest.onBeforeRequest] URL:', details.url);
     }
@@ -1735,7 +1746,7 @@ global.authUser = false;
  * Handler for getting user auth state
  * Sends current authentication status to requesting window
  */
-ipcMain.on('get-user-auth', (event) => {
+ipcMain.on('get-user-auth', (event: Electron.IpcMainInvokeEvent) => {
   event.sender.send('user-auth', {
     authUser: global.authUser
   });
@@ -1744,7 +1755,7 @@ ipcMain.on('get-user-auth', (event) => {
 /**
  * Handler for updating user auth state
  */
-ipcMain.on('update-user-auth', (event, { userAuthenticated }) => {
+ipcMain.on('update-user-auth', (event: Electron.IpcMainInvokeEvent, { userAuthenticated }: { userAuthenticated: AuthUser | null }) => {
   global.authUser = userAuthenticated;
   
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
@@ -1771,7 +1782,7 @@ ipcMain.on('open-coach-window', () => {
 });
 
 // Handler for getting coach window state
-ipcMain.on('get-coach-window-state', (event) => {
+ipcMain.on('get-coach-window-state', (event: Electron.IpcMainInvokeEvent) => {
   event.sender.send('coach-window-state', {
     isOpen: isCoachWindowOpen()
   });
@@ -1871,7 +1882,7 @@ const createCoachWindow = () => {
 };
 
 // Update the resize handler to use WindowManager
-ipcMain.on('resize-coach-window', (event, width, height) => {
+ipcMain.on('resize-coach-window', (event: Electron.IpcMainInvokeEvent, width: number, height: number) => {
   if (isDev) {
     console.log(`IPC: Received resize-coach-window request: ${width}x${height}`);
   }
@@ -1907,14 +1918,14 @@ ipcMain.handle('get-window-position', () => {
   return [0, 0];
 });
 
-ipcMain.on('set-window-position', (event, x, y) => {
+ipcMain.on('set-window-position', (event: Electron.IpcMainInvokeEvent, x: number, y: number) => {
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
     global.coachWindow.setPosition(Math.round(x), Math.round(y));
   }
 });
 
 // Handler for demo insights from AdminPanel - forwards to coach window
-ipcMain.on('demo-insight', (event, insightData) => {
+ipcMain.on('demo-insight', (event: Electron.IpcMainInvokeEvent, insightData: CueInsight) => {
   if (isDev) {
     console.log('[MAIN] Received demo-insight:', insightData);
   }

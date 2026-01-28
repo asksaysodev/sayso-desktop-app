@@ -1,14 +1,16 @@
 const { contextBridge, ipcRenderer, app } = require('electron');
+import type { Event } from 'electron';
+import { AudioCaptureOptions, CueParams, UploadBothFilesOptions, UploadFileOptions } from './globals';
 
 try {
   contextBridge.exposeInMainWorld('electron', {
     ipcRenderer: {
-      invoke: (channel, ...args) => {
+      invoke: (channel: string, ...args: unknown[]) => {
         return ipcRenderer.invoke(channel, ...args);
       },
-      on: (channel, callback) => {
+      on: (channel: string, callback: (data: unknown) => void) => {
         console.log('🔌 PRELOAD: Setting up listener for channel:', channel);
-        ipcRenderer.on(channel, (event, ...args) => {
+        ipcRenderer.on(channel, (event: Event, ...args: unknown[]) => {
           console.log('📨 PRELOAD: Received data on channel:', channel, args);
           callback(args[0]);
         });
@@ -17,19 +19,19 @@ try {
           ipcRenderer.removeAllListeners(channel);
         };
       },
-      send: (channel, ...args) => {
+      send: (channel: string, ...args: unknown[]) => {
         ipcRenderer.send(channel, ...args);
       },
-      removeAllListeners: (channel) => {
+      removeAllListeners: (channel: string) => {
         ipcRenderer.removeAllListeners(channel);
       },
-      off: (channel, callback) => {
+      off: (channel: string, callback: (...args: unknown[]) => void) => {
         console.log('🧹 PRELOAD: Removing listener for channel:', channel);
         ipcRenderer.removeListener(channel, callback);
       }
     },
     // Add openExternal method for opening URLs in external browser
-    openExternal: (url) => {
+    openExternal: (url: string) => {
       ipcRenderer.send('open-external', url);
     },
     
@@ -37,49 +39,49 @@ try {
     nativeAudio: {
       initialize: () => ipcRenderer.invoke('native-audio-initialize'),
       listDevices: () => ipcRenderer.invoke('native-audio-list-devices'),
-      createDevice: (name, subDevices) => ipcRenderer.invoke('native-audio-create-device', { name, subDevices }),
-      deleteDevice: (deviceId) => ipcRenderer.invoke('native-audio-delete-device', { deviceId }),
+      createDevice: (name: string, subDevices: string[]) => ipcRenderer.invoke('native-audio-create-device', { name, subDevices }),
+      deleteDevice: (deviceId: string) => ipcRenderer.invoke('native-audio-delete-device', { deviceId }),
       requestPermission: () => ipcRenderer.invoke('native-audio-request-permission'),
-      startCapture: (options) => ipcRenderer.invoke('native-audio-start-capture', options),
+      startCapture: (options: AudioCaptureOptions) => ipcRenderer.invoke('native-audio-start-capture', options),
       stopCapture: () => ipcRenderer.invoke('native-audio-stop-capture'),
       isCapturing: () => ipcRenderer.invoke('native-audio-is-capturing')
     },
     
     // Dual Channel Recording API
     recording: {
-      startDualChannel: (params) => ipcRenderer.invoke('start-audio-capture', params),
+      startDualChannel: (params: AudioCaptureOptions) => ipcRenderer.invoke('start-audio-capture', params),
       stopDualChannel: () => ipcRenderer.invoke('stop-audio-capture'),
-      compressAudio: (options) => ipcRenderer.invoke('compress-audio', options)
+      compressAudio: (options: AudioCaptureOptions) => ipcRenderer.invoke('compress-audio', options)
     },
     
     // Cue API (handles 2 audio websockets + insights websocket)
     cue: {
-      start: (params) => ipcRenderer.invoke('start-cue', params),
+      start: (params: CueParams) => ipcRenderer.invoke('start-cue', params),
       stop: () => ipcRenderer.invoke('stop-cue'),
       // Listen for Cue status updates
-      onStatus: (callback) => {
-        ipcRenderer.on('cue-status', (event, data) => callback(data));
+      onStatus: (callback: (data: any) => void) => {
+        ipcRenderer.on('cue-status', (event: Event, data: any) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-status');
       },
       // Listen for insights (TODO: will be implemented when insights websocket is added)
-      onInsight: (callback) => {
-        ipcRenderer.on('cue-insight', (event, data) => callback(data));
+      onInsight: (callback: (data: any) => void) => {
+        ipcRenderer.on('cue-insight', (event: Event, data: any) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-insight');
       },
       // Listen for Cue errors
-      onError: (callback) => {
-        ipcRenderer.on('cue-error', (event, data) => callback(data));
+      onError: (callback: (data: any) => void) => {
+        ipcRenderer.on('cue-error', (event: Event, data: any) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-error');
       },
-      onAutoStop: (callback) => {
-        ipcRenderer.on('cue-auto-stop', (event, data) => callback(data));
+      onAutoStop: (callback: (data: any) => void) => {
+        ipcRenderer.on('cue-auto-stop', (event: Event, data: any) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-auto-stop');
       }
     },
     
     // File Upload API
-    uploadFile: (options) => ipcRenderer.invoke('upload-file', { ...options }),
-    uploadBothFiles: (options) => ipcRenderer.invoke('upload-both-files', { ...options }),
+    uploadFile: (options: UploadFileOptions) => ipcRenderer.invoke('upload-file', { ...options }),
+    uploadBothFiles: (options: UploadBothFilesOptions) => ipcRenderer.invoke('upload-both-files', { ...options }),
 
     // Permissions API
     permissions: {
@@ -89,10 +91,10 @@ try {
   });
 
   contextBridge.exposeInMainWorld('electronAPI', {
-    resizeWindow: (width, height) => ipcRenderer.send('resize-coach-window', width, height),
+    resizeWindow: (width: number, height: number) => ipcRenderer.send('resize-coach-window', width, height),
     closeCoachWindow: () => ipcRenderer.send('close-coach-window'),
     getWindowPosition: () => ipcRenderer.invoke('get-window-position'),
-    setWindowPosition: (x, y) => ipcRenderer.send('set-window-position', x, y)
+    setWindowPosition: (x: number, y: number) => ipcRenderer.send('set-window-position', x, y)
   });
 
   // Extract --indexHtmlPath from process.argv
