@@ -12,7 +12,7 @@
 
 .controlledInputFieldGroup .inputRightChildren {
   position: absolute;
-  right: 0px;
+  right: 13px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;

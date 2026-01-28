@@ -1,14 +1,7 @@
+import { AdminStore } from "@/types/store/adminStore";
+import { LeadType } from "@/types/coach";
 import { Tool } from "@/views/Admin/types";
 import { create } from "zustand";
-
-type LeadType = 'buyer' | 'seller';
-
-interface AdminStore {
-    leadType: LeadType;
-    setLeadType: (leadType: LeadType) => void;
-    selectedTool: Tool;
-    setSelectedTool: (selectedTool: Tool) => void;
-}
 
 export const useAdminStore = create<AdminStore>((set, get) => ({
     selectedTool: 'cue-signals',

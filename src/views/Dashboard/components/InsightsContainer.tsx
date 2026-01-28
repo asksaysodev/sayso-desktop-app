@@ -21,29 +21,20 @@ import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import getInsights from '../services/getInsights';
 import { useQuery } from '@tanstack/react-query';
 import SaysoInputGroup from '@/components/forms/SaysoInputGroup';
+import type { LeadTypeFilter, Insight, InsightGroup } from '@/types/coach';
 
 dayjs.extend(isBetween);
 dayjs.extend(isSameOrAfter);
 
-type LeadType = 'all' | 'buyer' | 'seller';
-interface Insight { 
-    id: string;
-    timestamp: string; 
-    message: string; 
-    lead_type: LeadType;
-    session_id: string;
-    feature: 'cue' | 'recall';
-}
-
 export default function InsightsContainer() {
-    const [selectedLeadTypeFilter, setSelectedLeadTypeFilter] = useState<LeadType>('all');
+    const [selectedLeadTypeFilter, setSelectedLeadTypeFilter] = useState<LeadTypeFilter>('all');
     const [searchInsightInputValue, setSearchInsightInputValue] = useState('');
     const [dateRangeFilter, setDateRangeFilter] = useState<DateRange>(INITIAL_DATE_RANGE);
-    const [openedInsights, setOpenedInsights] = useState([]);
+    const [openedInsights, setOpenedInsights] = useState<string[]>([]);
     const [isScrolled, setIsScrolled] = useState(false);
     const listContainerRef = useRef<HTMLDivElement>(null);
     const [page, setPage] = useState(0);
-    const [allInsights, setAllInsights] = useState<Array<{ date: string, insights: Insight[] }>>([]);
+    const [allInsights, setAllInsights] = useState<InsightGroup[]>([]);
 
     const { data: insightsData, isLoading: isLoadingInsights, error: errorInsights, isFetching, isRefetching: isRefetchingInsights } = useQuery({
         queryKey: ['dashboard-insights', page],

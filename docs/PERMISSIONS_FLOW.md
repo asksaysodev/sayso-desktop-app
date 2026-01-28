@@ -27,7 +27,7 @@ Permissions are requested when the user attempts to open the Coach Window, not a
 The Coach Window can be opened from three places:
 
 **Button** `src/components/CoachCTA.jsx` | User clicks "Start AI Coach" |
-**Keyboard shortcut** `electron/main.cjs` | User presses `Control+S` |
+**Keyboard shortcut** `electron/main.ts` | User presses `Control+S` |
 **Tray Menu** `src/trayMenu/TrayMenuApp.jsx` | User clicks tray menu item |
 
 All entry points call `openCoachWindow()` from the store, ensuring **single source of truth** for permission handling.

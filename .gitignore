@@ -42,3 +42,14 @@ electron/bin/ffmpeg
 .env.sentry-build-plugin
 
 .sentryclirc
+
+electron/main.js
+electron/main.js.map
+electron/*.js
+electron/*.js.map
+electron/audioQueue.js
+electron/utils/*.js
+electron/utils/*.js.map
+
+tsconfig.electron.tsbuildinfo
+*.tsbuildinfo

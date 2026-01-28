@@ -1,11 +1,10 @@
 import { LuX } from "react-icons/lu";
 import dayjs from "dayjs";
 import { DateRange } from "react-day-picker";
-
-type LeadType = 'all' | 'buyer' | 'seller';
+import type { LeadTypeFilter } from "@/types/coach";
 
 interface ActiveFiltersProps {
-    selectedLeadTypeFilter: LeadType;
+    selectedLeadTypeFilter: LeadTypeFilter;
     searchInsightInputValue: string;
     dateRangeFilter: DateRange | undefined;
     onClearLeadType: () => void;
