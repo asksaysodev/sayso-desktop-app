@@ -42,3 +42,6 @@ electron/bin/ffmpeg
 .env.sentry-build-plugin
 
 .sentryclirc
+
+electron/main.js
+electron/main.js.map

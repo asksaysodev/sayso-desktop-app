@@ -1,4 +1,7 @@
-const { app, BrowserWindow, ipcMain, screen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu } = require('electron');
+/// <reference path="./globals.d.ts" />
+import type { BrowserWindow as BrowserWindowType, Tray as TrayType } from 'electron';
+
+const { app, BrowserWindow, ipcMain, screen: electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { WindowManager } = require('./utils/windowManager');
@@ -8,7 +11,7 @@ const sentryConfig = require('./sentry.config');
 
 Sentry.init(sentryConfig);
 
-let autoUpdater = null;
+let autoUpdater: import('electron-updater').AppUpdater | null = null;
 
 // Global error handler to prevent app crashes from unhandled exceptions
 // (e.g. native module failures on unsupported hardware)
@@ -22,46 +25,44 @@ process.on('uncaughtException', (error) => {
 if (app.isPackaged) {
   const { autoUpdater: updater } = require('electron-updater');
   const log = require('electron-log');
-  
-  autoUpdater = updater;
-  
-  autoUpdater.logger = log;
-  autoUpdater.logger.transports.file.level = 'info';
+
+  updater.logger = log;
+  updater.logger.transports.file.level = 'info';
   log.info('Auto-updater initialized');
-  
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.allowDowngrade = false;
-  
-  autoUpdater.on('checking-for-update', () => {
+
+  updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = true;
+  updater.allowDowngrade = false;
+
+  updater.on('checking-for-update', () => {
     log.info('Checking for updates...');
   });
-  
-  autoUpdater.on('update-available', (info) => {
+
+  updater.on('update-available', (info: { version: string }) => {
     log.info('Update available:', info.version);
     log.info('Downloading update...');
   });
-  
-  autoUpdater.on('update-not-available', (info) => {
+
+  updater.on('update-not-available', (info: { version: string }) => {
     log.info('Update not available. Current version:', info.version);
   });
-  
-  autoUpdater.on('error', (err) => {
+
+  updater.on('error', (err: Error) => {
     log.error('Error in auto-updater:', err);
     Sentry.captureException(err);
   });
-  
-  autoUpdater.on('download-progress', (progressObj) => {
+
+  updater.on('download-progress', (progressObj: { percent?: number; transferred?: number; total?: number; bytesPerSecond?: number }) => {
     const percent = progressObj.percent ? progressObj.percent.toFixed(2) : 0;
     const transferred = progressObj.transferred || 0;
     const total = progressObj.total || 0;
     const speed = progressObj.bytesPerSecond || 0;
     log.info(`Download progress: ${percent}% (${transferred}/${total} bytes) - Speed: ${speed} bytes/sec`);
   });
-  
-  autoUpdater.on('update-downloaded', (info) => {
+
+  updater.on('update-downloaded', (info: { version: string }) => {
     log.info('Update downloaded:', info.version);
-    
+
     dialog.showMessageBox({
       type: 'info',
       title: 'Update Ready',
@@ -73,15 +74,18 @@ if (app.isPackaged) {
         // User clicked "Restart Now"
         setImmediate(() => {
           app.removeAllListeners('window-all-closed');
-          autoUpdater.quitAndInstall(false, true);
+          updater.quitAndInstall(false, true);
         });
       }
     });
   });
+
+  // Assign to module-level variable for use elsewhere
+  autoUpdater = updater;
 }
 
 // Native audio module - will be loaded after logging is set up
-let nativeAudio = null;
+let nativeAudio: any = null;
 
 // Add file logging for production
 function setupLogging() {
@@ -157,9 +161,9 @@ function isCoachWindowOpen() {
   return global.coachWindow && !global.coachWindow.isDestroyed();
 }
 
-// ===== CUSTOM TRAY MENU WINDOW ===== 
-let tray = null;
-let trayMenuWindow = null;
+// ===== CUSTOM TRAY MENU WINDOW =====
+let tray: TrayType | null = null;
+let trayMenuWindow: BrowserWindowType | null = null;
 
 /**
  * Creates and positions the custom tray menu window near the tray icon
@@ -206,18 +210,13 @@ function createTrayMenuWindow() {
     ? 'http://localhost:5173/tray-menu.html'
     : `file://${path.join(__dirname, '../dist/tray-menu.html')}`;
 
-  trayMenuWindow.loadURL(trayMenuUrl);
-
-  // Handle blur (click outside) to close the menu
-  // trayMenuWindow.on('blur', () => {
-  //   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
-  //     // hideTrayMenu();
-  //   }
-  // });
-
-  trayMenuWindow.on('closed', () => {
-    trayMenuWindow = null;
-  });
+  if (trayMenuWindow) {
+    trayMenuWindow.loadURL(trayMenuUrl);
+    
+    trayMenuWindow.on('closed', () => {
+      trayMenuWindow = null;
+    });
+  }
 }
 
 /**
@@ -264,7 +263,7 @@ function positionTrayMenu() {
 
   const trayBounds = tray.getBounds();
   const windowBounds = trayMenuWindow.getBounds();
-  const primaryDisplay = screen.getPrimaryDisplay();
+  const primaryDisplay = electronScreen.getPrimaryDisplay();
   const workArea = primaryDisplay.workArea;
 
   let x, y;
@@ -312,23 +311,25 @@ function registerTrayIconMenu() {
   icon.setTemplateImage(true);
   
   tray = new Tray(icon);
-  tray.setToolTip('Sayso');
+  if (tray) {
+    tray.setToolTip('Sayso');
 
-  tray.on('click', () => {
-    if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
-      hideTrayMenu();
-    } else {
-      showTrayMenu();
-    }
-  });
+    tray.on('click', () => {
+      if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
+        hideTrayMenu();
+      } else {
+        showTrayMenu();
+      }
+    });
 
-  tray.on('right-click', () => {
-    if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
-      hideTrayMenu();
-    } else {
-      showTrayMenu();
-    }
-  });
+    tray.on('right-click', () => {
+      if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
+        hideTrayMenu();
+      } else {
+        showTrayMenu();
+      }
+    });
+  }
 }
 
 /**
@@ -350,7 +351,7 @@ const shortcuts = [
       if (!global.authUser || global.authUser?.subscription_plan_id === null) return;
       
       if (isCoachWindowOpen()) {
-        global.coachWindow.close();
+        global.coachWindow?.close();
       } else {
         createCoachWindow();
       }
@@ -381,10 +382,10 @@ if (!process.env.NODE_ENV) {
 // Store active recording session metadata
 
 // Store AudioStreamer instance
-let audioStreamer = null;
+let audioStreamer: any = null;
 
 // Store Cue instances (separate from regular streaming)
-let cueAudioStreamer = null;
+let cueAudioStreamer: any = null;
 
 /**
  * Cleanup all audio capture resources (screen capture, microphone, streams)
@@ -726,7 +727,7 @@ loadEnvironmentVariables();
 
 // Now require other modules that depend on environment variables
 const wav = require('wav');
-const FormData = require('form-data');
+const NodeFormData = require('form-data');
 const axios = require('axios');
 const { 
   stopUserStreaming,
@@ -758,7 +759,7 @@ if (require('electron-squirrel-startup')) {
 const isDev = !app.isPackaged;
 
 // Keep track of window instances
-let dashboardWindowInstance = null;
+let dashboardWindowInstance: BrowserWindowType | null = null;
 
 // --- Dashboard Window (Standard Window) ---
 const createDashboardWindow = () => {
@@ -1092,7 +1093,7 @@ ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessTo
     }
     
     // Create FormData with file stream
-    const formData = new FormData();
+    const formData = new NodeFormData();
     const fileStream = fs.createReadStream(filePath);
     
     // Use provided fileName or generate from filePath
@@ -1144,7 +1145,7 @@ ipcMain.handle('upload-file', async (event, { filePath, type, parentId, accessTo
       errorMessage = 'Upload timed out. Please try again.';
     }
 
-    const uploadError = new Error(errorMessage);
+    const uploadError = new Error(errorMessage) as UploadError;
     uploadError.originalError = error;
     uploadError.filePath = filePath;
     throw uploadError;
@@ -1202,7 +1203,7 @@ ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, a
     }
     
     // Create FormData with both file streams
-    const formData = new FormData();
+    const formData = new NodeFormData();
     
     // Append user file
     const userFileStream = fs.createReadStream(user.file);
@@ -1263,7 +1264,7 @@ ipcMain.handle('upload-both-files', async (event, { user, prospect, sessionId, a
       errorMessage = 'Upload timed out. Please try again.';
     }
 
-    const uploadError = new Error(errorMessage);
+    const uploadError = new Error(errorMessage) as UploadError;
     uploadError.originalError = error;
     throw uploadError;
   }
