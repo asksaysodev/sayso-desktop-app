@@ -47,6 +47,7 @@ electron/main.js
 electron/main.js.map
 electron/*.js
 electron/*.js.map
+electron/audioQueue.js
 
 tsconfig.electron.tsbuildinfo
 *.tsbuildinfo
