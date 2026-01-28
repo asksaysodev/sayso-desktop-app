@@ -19,8 +19,7 @@ import fs from 'node:fs';
 import { nativeImage } from 'electron/common';
 import * as Sentry from '@sentry/electron/main';
 import sentryConfig from './sentry.config';
-
-const { WindowManager } = require('./utils/windowManager');
+import { WindowManager } from './utils/windowManager';
 
 Sentry.init(sentryConfig);
 
@@ -1830,7 +1829,7 @@ const createCoachWindow = () => {
       nodeIntegration: false,
       webSecurity: true,
       enableBlinkFeatures: 'MediaDevices,MediaStream,WebRTC',
-      permissions: ['media', 'microphone'],
+      // permissions: ['media', 'microphone'], 'permissions' does not exist in type 'WebPreferences'.
       allowRunningInsecureContent: false,
       experimentalFeatures: false
     },
@@ -1892,7 +1891,9 @@ ipcMain.on('resize-coach-window', (event: Electron.IpcMainInvokeEvent, width: nu
   if (isDev) {
     console.log(`IPC: Received resize-coach-window request: ${width}x${height}`);
   }
-  WindowManager.resizeCoachWindow(global.coachWindow, width, height);
+  if (global.coachWindow) {
+    WindowManager.resizeCoachWindow(global.coachWindow, width, height);
+  }
 });
 
 // Add this handler after the other IPC handlers around line 850
