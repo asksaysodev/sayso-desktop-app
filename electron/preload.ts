@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, app } = require('electron');
+import { contextBridge, ipcRenderer, app } from 'electron';
 import type { Event } from 'electron';
 import { AudioCaptureOptions, CueParams, UploadBothFilesOptions, UploadFileOptions } from './globals';
 

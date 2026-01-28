@@ -1,6 +1,7 @@
 /// <reference path="./globals.d.ts" />
 import type { 
   BrowserWindow as BrowserWindowType, 
+  DevicePermissionHandlerHandlerDetails, 
   Tray as TrayType,
   WebContents
 } from 'electron';
@@ -12,19 +13,20 @@ import type {
   CueInsight 
 } from './globals';
 
-const { app, BrowserWindow, ipcMain, screen: electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu } = require('electron');
-const path = require('node:path');
-const fs = require('node:fs');
+import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu } from 'electron';
+import path from 'node:path';
+import fs from 'node:fs';
+import { nativeImage } from 'electron/common';
+import * as Sentry from '@sentry/electron/main';
+import sentryConfig from './sentry.config';
+
 const { WindowManager } = require('./utils/windowManager');
-const { nativeImage } = require('electron/common');
-const Sentry = require("@sentry/electron/main");
-const sentryConfig = require('./sentry.config'); 
 
 Sentry.init(sentryConfig);
 
 let autoUpdater: import('electron-updater').AppUpdater | null = null;
 
-// Global error handler to prevent app crashes from unhandled exceptions
+// Global error handler to prevent app crashes from unhandled exc eptions
 // (e.g. native module failures on unsupported hardware)
 process.on('uncaughtException', (error) => {
   console.error('[MAIN] Uncaught Exception:', error);
@@ -610,7 +612,9 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
               
               if (process.platform === 'darwin') {
                 app.setBadgeCount(app.getBadgeCount() + 1);
-                app.dock.bounce('critical');
+                if (app.dock) {
+                  app.dock.bounce('critical');
+                }
               }
             } 
           }
@@ -813,7 +817,7 @@ const createDashboardWindow = () => {
       webSecurity: true,
       // Enhanced media permissions for packaged app
       enableBlinkFeatures: 'MediaDevices,MediaStream,WebRTC',
-      permissions: ['media', 'microphone'],
+      // permissions: ['media', 'microphone'], 'permissions' does not exist in type 'WebPreferences'.
       // Add these for better camera support
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
@@ -855,9 +859,11 @@ const createDashboardWindow = () => {
   });
 
   // Enhanced device permission handler
-  dashboardWindow.webContents.session.setDevicePermissionHandler((webContents: WebContents, permission: string, deviceId: string) => {
+  dashboardWindow.webContents.session.setDevicePermissionHandler((details): boolean => {
+    const { deviceType, origin, device } = details;
     if (isDev) {
-      console.log(`[MAIN] Device permission requested for: ${permission} (${deviceId})`);
+      const deviceId = 'deviceId' in device ? device.deviceId : 'unknown';
+      console.log(`[MAIN] Device permission requested for: ${deviceType} from ${origin} (${deviceId})`);
     }
     // Always allow device access for camera/microphone
     return true;
@@ -895,7 +901,7 @@ const createDashboardWindow = () => {
   });
 
   // Handle device change events
-  dashboardWindow.webContents.on('media-devices-changed', () => {
+  dashboardWindow.webContents.on('media-devices-changed' as any, () => {
     if (isDev) {
       console.log('[MAIN] Media devices changed, reinitializing...');
     }
@@ -1038,7 +1044,7 @@ ipcMain.handle('permissions-request-all', async () => {
       mic = false;
       micAction = 'open-settings';
       try {
-        await systemPreferences.openSystemPreferences('privacy', 'Microphone');
+        await (systemPreferences as any).openSystemPreferences('privacy', 'Microphone');
       } catch (e: any) {
         console.warn('[MAIN] [Permissions] Could not open System Settings for Microphone:', e?.message || e);
       }

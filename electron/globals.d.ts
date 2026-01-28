@@ -20,6 +20,7 @@ export interface AudioQueueItem {
   retries: number;
   status: string;
   timestamp: number;
+  onChunk: (filePath: string, speaker: string) => Promise<void>;
 }
 
 // Audio capture options for native audio module
@@ -66,11 +67,19 @@ export interface UploadBothFilesOptions {
   accessToken: string;
 }
 
+export interface UploadAudioChunkMetadata {
+  accountId?: string;
+  prospectId?: string;
+  meetingId?: string;
+  sessionId?: string;
+}
+
 declare global {
   // Custom error type for file uploads
   interface UploadError extends Error {
     originalError?: unknown;
     filePath?: string;
+    speaker?: string;
   }
   var coachWindow: BrowserWindow | null;
   var mainWindow: BrowserWindow | null;
