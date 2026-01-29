@@ -4,6 +4,9 @@ import { useAccounts } from '../hooks/useAccounts'
 import { useLocation } from 'react-router-dom'
 import * as Sentry from "@sentry/electron/renderer"
 import { Account, AuthResult, SignInData, SignUpData, User } from '@/types/user'
+import { AALLevel, MFAServiceError } from '@/types/supabaseMFA'
+import { getAAL, listFactors, verifyTOTPCode } from '@/services/mfaServices'
+import type { Factor } from '@supabase/supabase-js'
 
 interface AuthContextValue {
   signUp: (data: SignUpData) => Promise<AuthResult>;
@@ -15,6 +18,12 @@ interface AuthContextValue {
   userLoading: boolean;
   loading: boolean;
   updateGlobalUser: (accountEmail: string) => Promise<void>;
+  mfaRequired: boolean;
+  currentAAL: AALLevel | null;
+  mfaFactors: Factor[];
+  checkMFAStatus: () => Promise<boolean>;
+  verifyMFA: (code: string) => Promise<{ success: boolean; error: MFAServiceError | null }>;
+  clearMFARequired: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue>({} as AuthContextValue)
@@ -27,6 +36,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [userLoading, setUserLoading] = useState(true)
   const prevUserRef = useRef<User | null>(null)
   const location = useLocation()
+  const [mfaRequired, setMfaRequired] = useState(false)
+  const [currentAAL, setCurrentAAL] = useState<AALLevel | null>(null)
+  const [mfaFactors, setMfaFactors] = useState<Factor[]>([])
 
   const { createAccount, getAccount } = useAccounts()
 
@@ -49,7 +61,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }
 
   const updateGlobalUser = async (accountEmail: string): Promise<void> => {
-    try{
+    try {
       const account = await getAccount(accountEmail);
       updateGlobalUserState(account);
     } catch (error) {
@@ -63,13 +75,59 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     updateGlobalUserState(null);
     setAuthToken(null);
     Sentry.setUser(null);
+    setMfaRequired(false);
+    setCurrentAAL(null);
+    setMfaFactors([]);
+  }
+
+  /**
+   * Checks if MFA verification is required for the current session.
+   */
+  const checkMFAStatus = async (): Promise<boolean> => {
+    const [aalResult, factorsResult] = await Promise.all([
+      getAAL(),
+      listFactors()
+    ])
+
+    if (aalResult.error || !aalResult.data) {
+      return false
+    }
+
+    const { currentLevel, nextLevel } = aalResult.data
+    setCurrentAAL(currentLevel)
+    setMfaFactors(factorsResult.data)
+
+    const needsMFA = currentLevel === 'aal1' && nextLevel === 'aal2'
+    setMfaRequired(needsMFA)
+
+    return needsMFA
+  }
+
+  const verifyMFA = async (code: string): Promise<{ success: boolean; error: MFAServiceError | null }> => {
+    if (mfaFactors.length === 0) {
+      return { success: false, error: { message: 'No MFA factors enrolled' } }
+    }
+
+    const factor = mfaFactors[0]
+    const result = await verifyTOTPCode(factor.id, code)
+
+    if (result.success) {
+      setMfaRequired(false)
+      setCurrentAAL('aal2')
+    }
+
+    return result
+  }
+
+  const clearMFARequired = () => {
+    setMfaRequired(false)
   }
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
 
     resetUser();
-    
+
     if (window.electron?.ipcRenderer) {
       window.electron.ipcRenderer.send('update-user-auth', { userAuthenticated: null });
     }
@@ -105,7 +163,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     // Listen for changes on auth state (sign in, sign out, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      
+
       // Only update state for actual auth events
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
         // Prevent unnecessary state updates if the user hasn't actually changed
@@ -134,7 +192,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       timeoutId = setTimeout(() => {
         getAccount(user.email).then((account) => {
           updateGlobalUserState(account)
-          Sentry.setUser({ 
+          Sentry.setUser({
             id: account?.id,
             email: account?.email,
             name: account?.name,
@@ -185,6 +243,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     userLoading,
     loading,
     updateGlobalUser,
+    // MFA
+    mfaRequired,
+    currentAAL,
+    mfaFactors,
+    checkMFAStatus,
+    verifyMFA,
+    clearMFARequired,
   } as AuthContextValue;
 
   return (
