@@ -87,8 +87,18 @@ export default function useLoginForm() {
 
       if (signInResult?.error) throw signInResult.error;
 
-      const aalResult = await getAAL();
-      const needsMFA = checkIfNeedsMFA(aalResult.data?.currentLevel, aalResult.data?.nextLevel);
+      let aalResult = await getAAL();
+
+      if (aalResult.error) {
+        aalResult = await getAAL();
+      }
+
+      if (aalResult.error || !aalResult.data) {                                                                                                                                                  
+        navigate('/mfa-verify', { replace: true });                                                                                                                                              
+        return;                                                                                                                                                                                  
+      }       
+
+      const needsMFA = checkIfNeedsMFA(aalResult.data.currentLevel, aalResult.data.nextLevel);
 
       if (needsMFA) {
         navigate('/mfa-verify', { replace: true });
