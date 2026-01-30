@@ -9,6 +9,7 @@ import {
 } from '../helpers/formValidation';
 import * as Sentry from "@sentry/electron/renderer";
 import { LoginFormData } from '../types';
+import { getAAL } from '@/services/mfaServices';
 
 const INITIAL_VALUES: LoginFormData = {
   name: '',
@@ -26,7 +27,7 @@ export default function useLoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [isBtnLoading, setIsBtnLoading] = useState(false);
   const navigate = useNavigate();
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, checkIfNeedsMFA } = useAuth();
 
   const customResolver = (values: LoginFormData) => {
     let errors = {};
@@ -79,11 +80,21 @@ export default function useLoginForm() {
 
   const performAuthentication = async (data: LoginFormData) => {
     if (isLoggingIn) {
-      const { error } = await signIn({
+      const signInResult = await signIn({
         email: data.email,
         password: data.password
       });
-      if (error) throw error;
+
+      if (signInResult?.error) throw signInResult.error;
+
+      const aalResult = await getAAL();
+      const needsMFA = checkIfNeedsMFA(aalResult.data?.currentLevel, aalResult.data?.nextLevel);
+
+      if (needsMFA) {
+        navigate('/mfa-verify', { replace: true });
+      } else {
+        navigate('/', { replace: true });
+      }
     } else {
       const { error } = await signUp({
         email: data.email,
@@ -112,7 +123,6 @@ export default function useLoginForm() {
 
     try {
       await performAuthentication(data);
-      navigate('/', { replace: true });
     } catch (err: any) {
       setError(err.message);
       console.error('Authentication error:', err);

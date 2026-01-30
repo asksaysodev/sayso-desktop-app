@@ -24,6 +24,7 @@ interface AuthContextValue {
   checkMFAStatus: () => Promise<boolean>;
   verifyMFA: (code: string) => Promise<{ success: boolean; error: MFAServiceError | null }>;
   clearMFARequired: () => void;
+  checkIfNeedsMFA: (currentLevel: AALLevel | null | undefined, nextLevel: AALLevel | null | undefined) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue>({} as AuthContextValue)
@@ -83,6 +84,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   /**
    * Checks if MFA verification is required for the current session.
    */
+  const checkIfNeedsMFA = (currentLevel: AALLevel | null | undefined, nextLevel: AALLevel | null | undefined): boolean => {
+    if (!currentLevel || !nextLevel) return false;
+    return currentLevel === 'aal1' && nextLevel === 'aal2';
+  }
+
   const checkMFAStatus = async (): Promise<boolean> => {
     const [aalResult, factorsResult] = await Promise.all([
       getAAL(),
@@ -97,7 +103,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setCurrentAAL(currentLevel)
     setMfaFactors(factorsResult.data)
 
-    const needsMFA = currentLevel === 'aal1' && nextLevel === 'aal2'
+    const needsMFA = checkIfNeedsMFA(currentLevel, nextLevel)
     setMfaRequired(needsMFA)
 
     return needsMFA
@@ -217,25 +223,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [user])
 
-  const values = {
-    signUp: async (data) => {
-      // First, sign up with Supabase Auth
-      const result = await supabase.auth.signUp(data)
-      // If sign up is successful, create the account in the DB
-      if (!result.error) {
-        // Try to get user info from the data/options
-        const { email, options } = data
-        const { name, lastname, company } = options?.data || {}
-        try {
-          await createAccount({ email, name, lastname, company })
-        } catch (err) {
-          console.error('Error creating account in DB:', err)
-          Sentry.captureException(err)
-        }
+  const signUp = async (data: SignUpData) => {
+    // First, sign up with Supabase Auth
+    const result = await supabase.auth.signUp(data)
+    // If sign up is successful, create the account in the DB
+    if (!result.error) {
+      // Try to get user info from the data/options
+      const { email, options } = data
+      const { name, lastname, company } = options?.data || {}
+      try {
+        await createAccount({ email, name, lastname, company })
+      } catch (err) {
+        console.error('Error creating account in DB:', err)
+        Sentry.captureException(err)
       }
-      return result
-    },
-    signIn: (data) => supabase.auth.signInWithPassword(data),
+    }
+    return result
+  }
+
+  const signIn = async (data: SignInData): Promise<AuthResult> => {
+    return await supabase.auth.signInWithPassword(data) as AuthResult
+  }
+
+  const values = {
+    signUp,
+    signIn,
     handleSignOut,
     user,
     globalUser,
@@ -249,6 +261,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     checkMFAStatus,
     verifyMFA,
     clearMFARequired,
+    checkIfNeedsMFA,
   } as AuthContextValue;
 
   return (
