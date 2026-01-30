@@ -243,7 +243,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     userLoading,
     loading,
     updateGlobalUser,
-    // MFA
     mfaRequired,
     currentAAL,
     mfaFactors,
