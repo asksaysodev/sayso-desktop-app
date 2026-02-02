@@ -63,10 +63,13 @@
 .account-settings-title-container {
     width: 100%;
     display: flex;
-    flex-direction: column;
-    align-items: start;
-    justify-content: start;
-    /* margin-bottom: 24px; */
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.account-settings-title-container-switch {
+    background-color: var(--sayso-blue) !important;
 }
 
 .account-settings-title-container h1 {
@@ -581,4 +584,253 @@
 
 .invite-team-member-item-container svg:hover{
     opacity: 1;
+}
+
+/* Security Settings - Section Based Layout */
+.security-settings-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.security-setting-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px 0;
+    border-bottom: 1px solid var(--sayso-border);
+}
+
+.security-setting-item:last-child {
+    border-bottom: none;
+}
+
+.security-setting-icon-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: var(--sayso-border);
+    color: var(--sayso-darkgray);
+    flex-shrink: 0;
+}
+
+.security-setting-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.security-setting-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--sayso-dark);
+    margin: 0;
+}
+
+.security-setting-description {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--sayso-lightgray);
+    margin: 0;
+}
+
+/* MFA Enrollment Modal */
+.mfa-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.mfa-modal {
+    background-color: white;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+}
+
+.mfa-modal-header {
+    padding: 24px 24px 0;
+    text-align: center;
+}
+
+.mfa-modal-header h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--sayso-dark);
+    margin: 0 0 8px;
+}
+
+.mfa-modal-subtitle {
+    font-size: 14px;
+    color: var(--sayso-lightgray);
+    margin: 0;
+}
+
+.mfa-modal-content {
+    padding: 24px;
+}
+
+.mfa-qr-container {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+
+.mfa-qr-code {
+    width: 180px;
+    height: 180px;
+    border-radius: 8px;
+    border: 1px solid var(--sayso-border);
+}
+
+.mfa-secret-container {
+    text-align: center;
+}
+
+.mfa-secret-label {
+    font-size: 13px;
+    color: var(--sayso-lightgray);
+    margin: 0 0 8px;
+}
+
+.mfa-secret-box {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background-color: var(--sayso-border);
+    padding: 8px 12px;
+    border-radius: 6px;
+}
+
+.mfa-secret-code {
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--sayso-dark);
+    letter-spacing: 1px;
+    word-break: break-all;
+}
+
+.mfa-copy-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    color: var(--sayso-darkgray);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.mfa-copy-btn:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.mfa-verify-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.mfa-code-input {
+    width: 100%;
+    max-width: 200px;
+    padding: 12px 16px;
+    font-size: 24px;
+    font-family: monospace;
+    text-align: center;
+    letter-spacing: 8px;
+    border: 1px solid var(--sayso-border);
+    border-radius: 8px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.mfa-code-input:focus {
+    border-color: var(--sayso-indigo);
+}
+
+.mfa-code-input-error {
+    border-color: var(--sayso-destructive);
+}
+
+.mfa-code-input::placeholder {
+    letter-spacing: 8px;
+    color: var(--sayso-border);
+}
+
+.mfa-error {
+    font-size: 13px;
+    color: var(--sayso-destructive);
+    margin: 0;
+    text-align: center;
+}
+
+.mfa-modal-actions {
+    display: flex;
+    gap: 12px;
+    padding: 0 24px 24px;
+    justify-content: flex-end;
+}
+
+.mfa-btn {
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mfa-btn-secondary {
+    background-color: white;
+    border: 1px solid var(--sayso-border);
+    color: var(--sayso-darkgray);
+}
+
+.mfa-btn-secondary:hover {
+    background-color: var(--sayso-border);
+}
+
+.mfa-btn-primary {
+    background-color: var(--sayso-indigo);
+    border: 1px solid var(--sayso-indigo);
+    color: white;
+}
+
+.mfa-btn-primary:hover {
+    opacity: 0.9;
+}
+
+.mfa-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.mfa-btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.mfa-spinner {
+    animation: spin 1s linear infinite;
 }
