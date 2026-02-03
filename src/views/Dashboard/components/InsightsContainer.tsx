@@ -1,16 +1,11 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
-import { LuUsers, LuSearch, LuCommand, LuHistory } from 'react-icons/lu';
+import { LuUsers, LuSearch } from 'react-icons/lu';
 import SaysoPopover from '@/components/SaysoPopover';
 
 import LeadTypeFilterSelector from './LeadTypeFilterSelector';
 import InsightsCalendarPopover, { INITIAL_DATE_RANGE } from './InsightsCalendarPopover';
 import ActiveFilters from "./ActiveFilters";
 
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
 import dayjs from "dayjs";
 import InsightCollapsibleTable from './InsightCollapsibleTable';
 import InsightsListSkeleton from './InsightsListSkeleton';
@@ -19,9 +14,9 @@ import { DateRange } from 'react-day-picker';
 import isBetween from 'dayjs/plugin/isBetween';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import getInsights from '../services/getInsights';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import SaysoInputGroup from '@/components/forms/SaysoInputGroup';
-import type { LeadTypeFilter, Insight, InsightGroup } from '@/types/coach';
+import type { LeadTypeFilter, InsightGroup } from '@/types/coach';
 
 dayjs.extend(isBetween);
 dayjs.extend(isSameOrAfter);
@@ -33,40 +28,43 @@ export default function InsightsContainer() {
     const [openedInsights, setOpenedInsights] = useState<string[]>([]);
     const [isScrolled, setIsScrolled] = useState(false);
     const listContainerRef = useRef<HTMLDivElement>(null);
-    const [page, setPage] = useState(0);
-    const [allInsights, setAllInsights] = useState<InsightGroup[]>([]);
 
-    const { data: insightsData, isLoading: isLoadingInsights, error: errorInsights, isFetching, isRefetching: isRefetchingInsights } = useQuery({
-        queryKey: ['dashboard-insights', page],
-        queryFn: () => getInsights(page)
+    const {
+        data: insightsData,
+        isLoading: isLoadingInsights,
+        error: errorInsights,
+        isFetching,
+        isFetchingNextPage,
+        isRefetching: isRefetchingInsights,
+        fetchNextPage,
+        hasNextPage
+    } = useInfiniteQuery({
+        queryKey: ['dashboard-insights'],
+        queryFn: ({ pageParam }) => getInsights(pageParam),
+        getNextPageParam: (lastPage, allPages) => lastPage.hasNextPage ? allPages.length : undefined,
+        initialPageParam: 0,
     });
-    
-    const { insights = [], hasNextPage = false} = insightsData || {};
 
-    useEffect(() => {
-        if (insights.length > 0) {
-            setAllInsights(prev => {
-                if (page === 0) {
-                    return insights;
+    const insights = useMemo(() => {
+        if (!insightsData?.pages) return [];
+
+        const dateMap = new Map<string, InsightGroup>();
+
+        insightsData.pages.forEach(page => {
+            page.insights.forEach(group => {
+                const existing = dateMap.get(group.date);
+                if (existing) {
+                    const existingIds = new Set(existing.insights.map(i => i.id));
+                    const newInsights = group.insights.filter(i => !existingIds.has(i.id));
+                    existing.insights.push(...newInsights);
+                } else {
+                    dateMap.set(group.date, { ...group, insights: [...group.insights] });
                 }
-                
-                const existingDates = new Map(prev.map(item => [item.date, item]));
-                
-                insights.forEach(newGroup => {
-                    const existing = existingDates.get(newGroup.date);
-                    if (existing) {
-                        const existingIds = new Set(existing.insights.map(i => i.id));
-                        const newInsights = newGroup.insights.filter(i => !existingIds.has(i.id));
-                        existing.insights.push(...newInsights);
-                    } else {
-                        existingDates.set(newGroup.date, newGroup);
-                    }
-                });
-                
-                return Array.from(existingDates.values()).sort((a, b) => b.date.localeCompare(a.date));
             });
-        }
-    }, [insights, page]);
+        });
+
+        return Array.from(dateMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+    }, [insightsData?.pages]);
 
     /**
      * Checks if a date falls within the specified date range (inclusive)
@@ -83,7 +81,7 @@ export default function InsightsContainer() {
     const filteredInsights = useMemo(() => {
         const searchQuery = searchInsightInputValue.trim().toLowerCase();
         
-        const filtered = allInsights
+        const filtered = insights
             .map(({ date, insights: groupInsights }) => {
                 let filteredGroupInsights = groupInsights;
 
@@ -110,7 +108,7 @@ export default function InsightsContainer() {
             .filter(group => group.insights.length > 0);
 
         return filtered;
-    }, [selectedLeadTypeFilter, allInsights, searchInsightInputValue, dateRangeFilter])
+    }, [selectedLeadTypeFilter, insights, searchInsightInputValue, dateRangeFilter])
 
     useEffect(() => {
         const listContainer = listContainerRef.current;
@@ -122,17 +120,17 @@ export default function InsightsContainer() {
             const { scrollTop, scrollHeight, clientHeight } = listContainer;
             const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
 
-            if (isNearBottom && hasNextPage && !isFetching) {
-                setPage(prev => prev + 1);
+            if (isNearBottom && hasNextPage && !isFetchingNextPage) {
+                fetchNextPage();
             }
         };
 
         listContainer.addEventListener('scroll', handleScroll);
-        
+
         return () => {
             listContainer.removeEventListener('scroll', handleScroll);
         };
-    }, [hasNextPage, isFetching]);
+    }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
     return (
         <div className='insights-container'>
@@ -193,7 +191,7 @@ export default function InsightsContainer() {
                                 />
                             )
                         })}
-                        {isFetching && page > 0 && (
+                        {isFetchingNextPage && (
                             <div className='empty-insights-container'>
                                 <p className='empty-insights-text'>Loading more insights...</p>
                             </div>
@@ -202,7 +200,7 @@ export default function InsightsContainer() {
                 ) : (
                     <div className='empty-insights-container'>
                         <p className='empty-insights-text'>
-                            {allInsights.length === 0 ? 'No Insights yet.' : 'No results found...'}
+                            {insights.length === 0 ? 'No Insights yet.' : 'No results found...'}
                         </p>
                     </div>
                 )}
