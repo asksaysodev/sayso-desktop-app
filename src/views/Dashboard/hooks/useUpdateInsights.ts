@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { InfiniteData, useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateInsight } from "../services/updateInsight";
 import { InsightRating } from "../types";
 import * as Sentry from '@sentry/electron/renderer';
@@ -14,24 +14,25 @@ export default function useUpdateInsights() {
         onMutate: async ({ insightId, rating }) => {
             await queryClient.cancelQueries({ queryKey: ['dashboard-insights'] });
 
-            const previousData = queryClient.getQueriesData<GetInsightsResponse>({
-                queryKey: ['dashboard-insights']
-            });
+            const previousData = queryClient.getQueryData<InfiniteData<GetInsightsResponse>>(['dashboard-insights']);
 
-            queryClient.setQueriesData<GetInsightsResponse>(
-                { queryKey: ['dashboard-insights'] },
+            queryClient.setQueryData<InfiniteData<GetInsightsResponse>>(
+                ['dashboard-insights'],
                 (old) => {
                     if (!old) return old;
 
                     return {
                         ...old,
-                        insights: old.insights.map(group => ({
-                            ...group,
-                            insights: group.insights.map(insight =>
-                                insight.id === insightId
-                                    ? { ...insight, rating }
-                                    : insight
-                            )
+                        pages: old.pages.map(page => ({
+                            ...page,
+                            insights: page.insights.map(group => ({
+                                ...group,
+                                insights: group.insights.map(insight =>
+                                    insight.id === insightId
+                                        ? { ...insight, rating }
+                                        : insight
+                                )
+                            }))
                         }))
                     };
                 }
@@ -41,9 +42,7 @@ export default function useUpdateInsights() {
         },
         onError: (error, variables, context) => {
             if (context?.previousData) {
-                context.previousData.forEach(([queryKey, data]) => {
-                    queryClient.setQueryData(queryKey, data);
-                });
+                queryClient.setQueryData(['dashboard-insights'], context.previousData);
             }
 
             showToast('error', 'Error updating insight rating');
