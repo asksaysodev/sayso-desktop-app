@@ -2,6 +2,7 @@
 import { AuthProvider } from './context/AuthContext';
 import { ProspectsProvider } from './context/ProspectsContext';
 import { SalesCoachProvider } from './context/SalesCoachContext';
+import { SubscriptionAlertProvider } from './context/SubscriptionAlertContext';
 import { ToastProvider } from './context/ToastContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -17,9 +18,11 @@ export default function Providers({ children }: Props) {
           <ToastProvider>
               <AuthProvider>
                   <ProspectsProvider>
-                      <SalesCoachProvider>
-                          {children}
-                      </SalesCoachProvider>
+                    <SubscriptionAlertProvider>
+                        <SalesCoachProvider>
+                            {children}
+                        </SalesCoachProvider>
+                    </SubscriptionAlertProvider>
                   </ProspectsProvider>
               </AuthProvider>
           </ToastProvider>

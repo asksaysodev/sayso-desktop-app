@@ -21,7 +21,7 @@ export default function ActiveSubscriptionInformation() {
 
     const {subscription, invoices} = activePlan || {};
 
-    const isTrailing = useMemo(() => {
+    const isTrialing = useMemo(() => {
         return subscription?.status === 'trialing';
     }, [subscription]);
 
@@ -70,7 +70,7 @@ export default function ActiveSubscriptionInformation() {
                             </div>
 
                             <div>
-                                {isTrailing && (
+                                {isTrialing && (
                                     <p className="plan-renewal-text">
                                             180 free trial minutes, then 1800 minutes included.
                                     </p>
@@ -81,7 +81,7 @@ export default function ActiveSubscriptionInformation() {
                             </div>
                         </div>
                     </div>
-                    {isTrailing && (
+                    {isTrialing && (
                         <button className="adjust-plan-button">Upgrade to paid account</button>
                     )}
                 </div>
