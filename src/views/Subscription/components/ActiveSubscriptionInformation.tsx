@@ -1,5 +1,3 @@
-import { useAuth } from "@/context/AuthContext";
-import { LuReceiptText } from "react-icons/lu";
 import getActivePlan from "../services/getActivePlan";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
@@ -136,7 +134,7 @@ export default function ActiveSubscriptionInformation() {
                         onClick={handleCancelSubscription}
                         disabled={isPendingGetStripeCancellationPageUrl}
                         loading={isPendingGetStripeCancellationPageUrl}
-                        variant="error"
+                        variant="sayso-indigo"
                     />
                 </div>
             </div>
