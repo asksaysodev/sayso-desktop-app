@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { InputGroupAddon, InputGroupInput } from "../ui/input-group";
 
 import { InputGroup } from "../ui/input-group";
@@ -13,12 +14,13 @@ interface Props {
 
 export default function SaysoInputGroup({ placeholder, value, onChange, icon, size, className }: Props) {
     return (
-        <InputGroup className={className}>
+        <InputGroup className={cn("!h-10", className)}>
             <InputGroupInput
                 size={size}
                 placeholder={placeholder}
                 value={value}
                 onChange={onChange}
+                className="!h-10"
             />
             <InputGroupAddon>
                 {icon && icon}

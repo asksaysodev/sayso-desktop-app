@@ -18,7 +18,7 @@ interface Props {
     disabled?: boolean;
     loading?: boolean;
     icon?: React.ReactNode;
-    variant?: 'sayso-indigo' | 'error' | 'outlined';
+    variant?: 'sayso-indigo' | 'error' | 'outlined' | 'blue';
     fullWidth?: boolean;
     type?: 'button' | 'submit' | 'reset';
 }

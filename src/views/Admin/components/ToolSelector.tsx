@@ -42,7 +42,7 @@ export default function ToolSelector({ selectedTool, setSelectedTool }: Props) {
                 variant="outline"
                 role="combobox"
                 aria-expanded={open}
-                className="w-[250px] justify-between"
+                className="w-[250px] justify-between !h-10"
                 style={{ border: '1px solid var(--sayso-border)' }}
                 >
                 {selectedTool
