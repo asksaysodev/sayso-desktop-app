@@ -7,7 +7,6 @@ export default async function getSignals(): Promise<GetSignalResponse> {
     if (!response?.data) {
         throw new Error('Failed to fetch signals');
     }
-    console.log(response.data)
 
     return response.data;
 }

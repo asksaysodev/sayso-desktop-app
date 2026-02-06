@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { LuArrowUp, LuCheck, LuX } from 'react-icons/lu';
+import { LuTrash2, LuCheck, LuX } from 'react-icons/lu';
 import { useMutation } from '@tanstack/react-query';
-import uploadSignalSheet from '../services/uploadSignalSheet';
 import { useAdminStore } from '@/store/adminStore';
 import ButtonSpinner from '@/components/ButtonSpinner';
+import deleteSignalSheetVersion from '../services/deleteSignalSheetVersion';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -14,27 +14,36 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 type ModalState = 'confirm' | 'loading' | 'success' | 'error';
 
-export default function ImportSheetButton() {
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+export default function DeleteSheetButton() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalState, setModalState] = useState<ModalState>('confirm');
 
-    const signalSheets = useAdminStore(state => state.signalSheets);
+    const activeSheetVersion = useAdminStore(state => state.activeSheetVersion);
+    const liveSheetVersion = useAdminStore(state => state.liveSheetVersion);
     const setSignalSheets = useAdminStore(state => state.setSignalSheets);
     const setActiveSheetVersion = useAdminStore(state => state.setActiveSheetVersion);
+    const setLiveSheetVersion = useAdminStore(state => state.setLiveSheetVersion);
 
-    const { mutate: uploadSheet } = useMutation({
-        mutationFn: uploadSignalSheet,
+    const isViewingLiveSheet = activeSheetVersion === liveSheetVersion;
+
+    const { mutate: deleteSheet } = useMutation({
+        mutationFn: deleteSignalSheetVersion,
         onMutate: () => {
             setModalState('loading');
         },
         onSuccess: (data) => {
-            const newSheet = { version: data.version, signals: data.uploadedSignals };
-            setSignalSheets([...signalSheets, newSheet]);
-            setActiveSheetVersion(data.version);
+            setSignalSheets(data.versions);
+            setActiveSheetVersion(data.activeVersion);
+            setLiveSheetVersion(data.activeVersion);
             setModalState('success');
         },
         onError: () => {
@@ -42,26 +51,17 @@ export default function ImportSheetButton() {
         },
     });
 
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
+    const handleDeleteSheet = (): void => {
+        deleteSheet(activeSheetVersion);
+    };
 
-        setSelectedFile(file);
+    const handleOpenModal = () => {
         setModalState('confirm');
         setIsModalOpen(true);
-
-        event.target.value = '';
     };
 
-    const handleConfirm = () => {
-        if (selectedFile) {
-            uploadSheet(selectedFile);
-        }
-    };
-
-    const handleClose = () => {
+    const handleCloseModal = () => {
         setIsModalOpen(false);
-        setSelectedFile(null);
         setModalState('confirm');
     };
 
@@ -71,14 +71,14 @@ export default function ImportSheetButton() {
                 return (
                     <>
                         <AlertDialogHeader>
-                            <AlertDialogTitle>Import New Sheet Version</AlertDialogTitle>
+                            <AlertDialogTitle>Delete Sheet Version</AlertDialogTitle>
                             <AlertDialogDescription>
-                                This will create a new version of the signal sheet with the contents of "{selectedFile?.name}". Do you want to continue?
+                                Are you sure you want to delete version {activeSheetVersion}? This action cannot be undone.
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                            <AlertDialogCancel onClick={handleClose}>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleConfirm(); }}>Confirm</AlertDialogAction>
+                            <AlertDialogCancel onClick={handleCloseModal}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleDeleteSheet(); }}>Delete</AlertDialogAction>
                         </AlertDialogFooter>
                     </>
                 );
@@ -87,11 +87,11 @@ export default function ImportSheetButton() {
                 return (
                     <>
                         <AlertDialogHeader>
-                            <AlertDialogTitle>Uploading Sheet</AlertDialogTitle>
+                            <AlertDialogTitle>Deleting Sheet</AlertDialogTitle>
                         </AlertDialogHeader>
                         <div className="import-modal-loading">
                             <ButtonSpinner color="#1d4871" size={24} />
-                            <span>Uploading {selectedFile?.name}...</span>
+                            <span>Deleting version {activeSheetVersion}...</span>
                         </div>
                     </>
                 );
@@ -100,14 +100,14 @@ export default function ImportSheetButton() {
                 return (
                     <>
                         <AlertDialogHeader>
-                            <AlertDialogTitle>Import Complete</AlertDialogTitle>
+                            <AlertDialogTitle>Sheet Deleted</AlertDialogTitle>
                         </AlertDialogHeader>
                         <div className="import-modal-result success">
                             <LuCheck size={32} />
-                            <span>Sheet imported successfully!</span>
+                            <span>Sheet version deleted successfully!</span>
                         </div>
                         <AlertDialogFooter>
-                            <AlertDialogAction onClick={handleClose}>Done</AlertDialogAction>
+                            <AlertDialogAction onClick={handleCloseModal}>Done</AlertDialogAction>
                         </AlertDialogFooter>
                     </>
                 );
@@ -116,15 +116,15 @@ export default function ImportSheetButton() {
                 return (
                     <>
                         <AlertDialogHeader>
-                            <AlertDialogTitle>Import Failed</AlertDialogTitle>
+                            <AlertDialogTitle>Delete Failed</AlertDialogTitle>
                         </AlertDialogHeader>
                         <div className="import-modal-result error">
                             <LuX size={32} />
-                            <span>Failed to import sheet. Please try again.</span>
+                            <span>Failed to delete sheet. Please try again.</span>
                         </div>
                         <AlertDialogFooter>
-                            <AlertDialogCancel onClick={handleClose}>Close</AlertDialogCancel>
-                            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleConfirm(); }}>Retry</AlertDialogAction>
+                            <AlertDialogCancel onClick={handleCloseModal}>Close</AlertDialogCancel>
+                            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleDeleteSheet(); }}>Retry</AlertDialogAction>
                         </AlertDialogFooter>
                     </>
                 );
@@ -133,17 +133,24 @@ export default function ImportSheetButton() {
 
     return (
         <>
-            <label className="import-sheet-button">
-                <LuArrowUp size={16} />
-                <span>Import</span>
-                <input
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    onChange={handleFileChange}
-                />
-            </label>
+            <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <button
+                            className="sayso-outlined-button delete-sheet-button"
+                            onClick={handleOpenModal}
+                            disabled={isViewingLiveSheet}
+                        >
+                            <LuTrash2 size={16} color="#dc2626" />
+                        </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <p>Delete Signal Sheet Version</p>
+                    </TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
 
-            <AlertDialog open={isModalOpen} onOpenChange={(open) => !open && modalState !== 'loading' && handleClose()}>
+            <AlertDialog open={isModalOpen} onOpenChange={(open) => !open && modalState !== 'loading' && handleCloseModal()}>
                 <AlertDialogContent>
                     {renderModalContent()}
                 </AlertDialogContent>

@@ -86,6 +86,26 @@
     color: var(--sayso-dark);
 }
 
+.signals-header-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+}
+
+.delete-sheet-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    border-radius: 8px;
+}
+
+.delete-sheet-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 .live-dot {
     width: 8px;
     height: 8px;
@@ -209,11 +229,11 @@
 
 .signal-collapsible-header h3 {
     font-size: 16px;
-    font-weight: 600;
-    color: var(--sayso-indigo);
+    font-weight: 500;
+    color: var(--sayso-darkgray);
 }
 
-.signal-collapsible-header span {   
+.signal-collapsible-header span {
     font-size: 12px;
     font-weight: 500;
     color: var(--sayso-indigo);
@@ -308,7 +328,7 @@
 
 .signal-card-field label {
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 400;
     color: var(--sayso-indigo);
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -358,4 +378,52 @@
 
 .import-sheet-button input {
     display: none;
+}
+
+/* Import Modal States */
+.import-modal-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 32px 16px;
+    color: var(--sayso-indigo);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.import-modal-result {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 24px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: center;
+}
+
+.import-modal-result.success {
+    color: #16a34a;
+}
+
+.import-modal-result.error {
+    color: #dc2626;
+}
+
+/* Alert Dialog Button Overrides */
+[role="alertdialog"] button.bg-primary {
+    background-color: var(--sayso-indigo) !important;
+}
+
+[role="alertdialog"] button.bg-primary:hover {
+    background-color: var(--sayso-indigo) !important;
+    filter: brightness(0.9);
+}
+
+[role="alertdialog"] button.border {
+    border: 1px solid var(--sayso-border) !important;
+    box-shadow: none;
 }

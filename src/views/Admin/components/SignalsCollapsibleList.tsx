@@ -5,6 +5,7 @@ import ButtonSpinner from "@/components/ButtonSpinner";
 import { useMemo, useState } from "react";
 import SaysoInputGroup from "@/components/forms/SaysoInputGroup";
 import { useAdminStore } from "@/store/adminStore";
+import DeleteSheetButton from "./DeleteSheetButton";
 
 interface Props {
     isLoadingSignals: boolean;
@@ -28,15 +29,20 @@ export default function SignalsCollapsibleList({ isLoadingSignals = false, error
     },[signalSheets,activeSheetVersion])
 
     const filteredSignals = useMemo(() => {
-        if (!searchByNameInput) {``
+        if (!searchByNameInput) {
             return displayingSignals;
         }
         const searchTerm = searchByNameInput.toLowerCase();
-        return displayingSignals.filter((signal) =>
-            signal.name.toLowerCase().includes(searchTerm) ||
-            signal.description.toLowerCase().includes(searchTerm) ||
-            signal.instructions.toLowerCase().includes(searchTerm)
-        );
+        return displayingSignals.filter((signal) => {
+            const stageInstructionsMatch = signal.stage_instructions
+                ? Object.values(signal.stage_instructions).some(text => text.toLowerCase().includes(searchTerm))
+                : false;
+
+            return signal.name.toLowerCase().includes(searchTerm) ||
+                signal.description.toLowerCase().includes(searchTerm) ||
+                signal.instructions.toLowerCase().includes(searchTerm) ||
+                stageInstructionsMatch;
+        });
     }, [displayingSignals, searchByNameInput]);
 
     const handleExpandSignal = (id: string) => {
@@ -85,9 +91,12 @@ export default function SignalsCollapsibleList({ isLoadingSignals = false, error
                     />
                 </div>
 
-                <div className='live-indicator'>
-                    <span>Live</span>
-                    <div className={`${liveSheetVersion === activeSheetVersion ? 'live-dot' : 'not-live-dot'}`} />
+                <div className="signals-header-actions">
+                    <div className='live-indicator'>
+                        <span>Live</span>
+                        <div className={`${liveSheetVersion === activeSheetVersion ? 'live-dot' : 'not-live-dot'}`} />
+                    </div>
+                    <DeleteSheetButton />
                 </div>
             </div>
 

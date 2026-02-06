@@ -55,14 +55,6 @@ export default function CueSignals() {
         populateSignalSheets(signals);
     }, [signals, errorSignals])
 
-    // useEffect(() => {
-    //     if (signals) {
-    //         const signalsWithPriorities = updatePriorities(signals);
-    //         setOriginalSignals(signalsWithPriorities);
-    //         setNewSignals(signalsWithPriorities);
-    //     }
-    // }, [signals]);
-
     return (
         <>
             <SignalsCollapsibleList
