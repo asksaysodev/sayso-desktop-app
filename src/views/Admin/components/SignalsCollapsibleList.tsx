@@ -1,11 +1,10 @@
-import { LuSearch } from "react-icons/lu";
 import { Signal } from "../types";
 import SignalCollapsible from "./SignalCollapsible";
 import ButtonSpinner from "@/components/ButtonSpinner";
 import { useMemo, useState } from "react";
-import SaysoInputGroup from "@/components/forms/SaysoInputGroup";
 import { useAdminStore } from "@/store/adminStore";
 import DeleteSheetButton from "./DeleteSheetButton";
+import SignalSearchBar, { StageFitFilter } from "./SignalSearchBar";
 
 interface Props {
     isLoadingSignals: boolean;
@@ -16,7 +15,8 @@ interface Props {
 
 export default function SignalsCollapsibleList({ isLoadingSignals = false, error = null, refetchSignals, isRefetchingSignals = false }: Props) {
     const [expandedSignalId, setExpandedSignalId] = useState<string[] | null>(null);
-    const [searchByNameInput, setSearchByNameInput] = useState('');
+    const [searchText, setSearchText] = useState('');
+    const [stageFitFilter, setStageFitFilter] = useState<StageFitFilter | null>(null);
 
     const signalSheets = useAdminStore(state => state.signalSheets);
     const activeSheetVersion = useAdminStore(state => state.activeSheetVersion);
@@ -29,21 +29,34 @@ export default function SignalsCollapsibleList({ isLoadingSignals = false, error
     },[signalSheets,activeSheetVersion])
 
     const filteredSignals = useMemo(() => {
-        if (!searchByNameInput) {
-            return displayingSignals;
-        }
-        const searchTerm = searchByNameInput.toLowerCase();
-        return displayingSignals.filter((signal) => {
-            const stageInstructionsMatch = signal.stage_instructions
-                ? Object.values(signal.stage_instructions).some(text => text.toLowerCase().includes(searchTerm))
-                : false;
+        let results = displayingSignals;
 
-            return signal.name.toLowerCase().includes(searchTerm) ||
-                signal.description.toLowerCase().includes(searchTerm) ||
-                signal.instructions.toLowerCase().includes(searchTerm) ||
-                stageInstructionsMatch;
-        });
-    }, [displayingSignals, searchByNameInput]);
+        // Apply stage_fit filter
+        if (stageFitFilter) {
+            results = results.filter((signal) => {
+                if (!signal.stage_fit) return false;
+                const stageFitValue = signal.stage_fit[stageFitFilter.stage];
+                return stageFitValue?.toLowerCase() === stageFitFilter.value.toLowerCase();
+            });
+        }
+
+        // Apply text search
+        if (searchText) {
+            const searchTerm = searchText.toLowerCase();
+            results = results.filter((signal) => {
+                const stageInstructionsMatch = signal.stage_instructions
+                    ? Object.values(signal.stage_instructions).some(text => text.toLowerCase().includes(searchTerm))
+                    : false;
+
+                return signal.name.toLowerCase().includes(searchTerm) ||
+                    signal.description.toLowerCase().includes(searchTerm) ||
+                    signal.instructions.toLowerCase().includes(searchTerm) ||
+                    stageInstructionsMatch;
+            });
+        }
+
+        return results;
+    }, [displayingSignals, searchText, stageFitFilter]);
 
     const handleExpandSignal = (id: string) => {
         setExpandedSignalId((prev) => {
@@ -81,15 +94,12 @@ export default function SignalsCollapsibleList({ isLoadingSignals = false, error
     return (
         <div className='signals-draggable-list'>
             <div className="signals-draggable-list-header">
-                <div>
-                    <SaysoInputGroup
-                        placeholder='Search signals by name or content'
-                        value={searchByNameInput}
-                        onChange={(e) => setSearchByNameInput(e.target.value)}
-                        icon={<LuSearch />}
-                        size={40}
-                    />
-                </div>
+                <SignalSearchBar
+                    searchText={searchText}
+                    onSearchTextChange={setSearchText}
+                    stageFitFilter={stageFitFilter}
+                    onStageFitFilterChange={setStageFitFilter}
+                />
 
                 <div className="signals-header-actions">
                     <div className='live-indicator'>

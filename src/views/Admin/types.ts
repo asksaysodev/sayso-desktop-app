@@ -34,3 +34,6 @@ export interface UploadSignalSheetResponse {
     message: string;
     uploadedSignals: Signal[];
 };
+
+export type SignalStageFitKey = 'connect' | 'discover' | 'convert';
+export type SignalStageFitValue = 'Primary' | 'Lower' | 'Allowed';
