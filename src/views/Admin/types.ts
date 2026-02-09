@@ -37,3 +37,17 @@ export interface UploadSignalSheetResponse {
 
 export type SignalStageFitKey = 'connect' | 'discover' | 'convert';
 export type SignalStageFitValue = 'Primary' | 'Lower' | 'Allowed';
+
+export type StageFitFilter = {
+    key: 'stage_fit';
+    stage: SignalStageFitKey;
+    value: SignalStageFitValue;
+};
+
+export type ActiveFilter = StageFitFilter;
+export interface FilterConfig {
+    key: ActiveFilter['key'];
+    label: string;
+    description: string;
+    defaultValue: () => ActiveFilter;
+}

@@ -1,10 +1,10 @@
-import { Signal } from "../types";
+import { ActiveFilter, Signal } from "../types";
 import SignalCollapsible from "./SignalCollapsible";
 import ButtonSpinner from "@/components/ButtonSpinner";
 import { useMemo, useState } from "react";
 import { useAdminStore } from "@/store/adminStore";
 import DeleteSheetButton from "./DeleteSheetButton";
-import SignalSearchBar, { StageFitFilter } from "./SignalSearchBar";
+import SignalSearchBar from "./SignalSearchBar";
 
 interface Props {
     isLoadingSignals: boolean;
@@ -16,8 +16,7 @@ interface Props {
 export default function SignalsCollapsibleList({ isLoadingSignals = false, error = null, refetchSignals, isRefetchingSignals = false }: Props) {
     const [expandedSignalId, setExpandedSignalId] = useState<string[] | null>(null);
     const [searchText, setSearchText] = useState('');
-    const [stageFitFilter, setStageFitFilter] = useState<StageFitFilter | null>(null);
-
+    const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
     const signalSheets = useAdminStore(state => state.signalSheets);
     const activeSheetVersion = useAdminStore(state => state.activeSheetVersion);
     const liveSheetVersion = useAdminStore(state => state.liveSheetVersion);
@@ -31,16 +30,18 @@ export default function SignalsCollapsibleList({ isLoadingSignals = false, error
     const filteredSignals = useMemo(() => {
         let results = displayingSignals;
 
-        // Apply stage_fit filter
-        if (stageFitFilter) {
-            results = results.filter((signal) => {
-                if (!signal.stage_fit) return false;
-                const stageFitValue = signal.stage_fit[stageFitFilter.stage];
-                return stageFitValue?.toLowerCase() === stageFitFilter.value.toLowerCase();
-            });
+        if (activeFilters.length > 0) {
+            activeFilters.forEach(filter => {
+                if (filter.key === 'stage_fit') {
+                    results = results.filter((signal) => {
+                        if (!signal.stage_fit) return false;
+                        const stageFitValue = signal.stage_fit[filter.stage];
+                        return stageFitValue?.toLowerCase() === filter.value.toLowerCase();
+                    });
+                }
+            })
         }
 
-        // Apply text search
         if (searchText) {
             const searchTerm = searchText.toLowerCase();
             results = results.filter((signal) => {
@@ -56,7 +57,7 @@ export default function SignalsCollapsibleList({ isLoadingSignals = false, error
         }
 
         return results;
-    }, [displayingSignals, searchText, stageFitFilter]);
+    }, [displayingSignals, searchText, activeFilters]);
 
     const handleExpandSignal = (id: string) => {
         setExpandedSignalId((prev) => {
@@ -97,8 +98,8 @@ export default function SignalsCollapsibleList({ isLoadingSignals = false, error
                 <SignalSearchBar
                     searchText={searchText}
                     onSearchTextChange={setSearchText}
-                    stageFitFilter={stageFitFilter}
-                    onStageFitFilterChange={setStageFitFilter}
+                    activeFilters={activeFilters}
+                    setActiveFilters={setActiveFilters}
                 />
 
                 <div className="signals-header-actions">
