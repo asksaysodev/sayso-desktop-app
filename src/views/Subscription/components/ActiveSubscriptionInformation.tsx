@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import dayjs from "dayjs";
 import useStripeCancellation from "../hooks/useStripeCancellation";
+import useStripeUpgrade from "../hooks/useStripeUpgrade";
 import SaysoButton from "@/components/SaysoButton";
 import ActiveSubscriptionInformationSkeleton from "./ActiveSubscriptionInformationSkeleton";
 import ActiveSubscriptionInformationError from "./ActiveSubscriptionInformationError";
@@ -11,8 +12,12 @@ export default function ActiveSubscriptionInformation() {
     const {
         mutateGetStripeCancellationPageUrl,
         isPendingGetStripeCancellationPageUrl,
-        isErrorGetStripeCancellationPageUrl
     } = useStripeCancellation();
+
+    const {
+        mutateUpgradeTrialSubscription,
+        isPendingUpgradeTrialSubscription,
+    } = useStripeUpgrade();
 
     const { data: activePlan, isLoading: isLoadingActivePlan, isError: isErrorActivePlan, refetch } = useQuery({
         queryKey: ['active-plan'],
@@ -82,7 +87,13 @@ export default function ActiveSubscriptionInformation() {
                         </div>
                     </div>
                     {isTrialing && (
-                        <button className="adjust-plan-button">Upgrade to paid account</button>
+                        <button
+                            className="adjust-plan-button"
+                            onClick={() => mutateUpgradeTrialSubscription()}
+                            disabled={isPendingUpgradeTrialSubscription}
+                        >
+                            {isPendingUpgradeTrialSubscription ? 'Upgrading...' : 'Upgrade to paid account'}
+                        </button>
                     )}
                 </div>
             </div>
