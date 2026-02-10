@@ -1,7 +1,6 @@
 import { Signal } from "../types";
 import { LuChevronDown, LuChevronRight } from 'react-icons/lu';
 import SignalCardField from './SignalCardField';
-import { json } from "stream/consumers";
 
 interface Props {
     signal: Signal;
