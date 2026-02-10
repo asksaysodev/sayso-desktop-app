@@ -1,4 +1,4 @@
-import { LuUser, LuFileScan, LuBuilding, LuUnplug } from 'react-icons/lu';
+import { LuUser, LuFileScan, LuBuilding, LuUnplug, LuLock } from 'react-icons/lu';
 import TabSelector from '../../../components/TabSelector';
 import '../../../components/TabSelector.css';
 import { AccountSettingsPanel, AccountSettingsPanelEnum } from '../types';
@@ -34,11 +34,16 @@ export default function AccountSettingsTabs({ onSelectPanel, selectedPanel }: Pr
             value: AccountSettingsPanelEnum.CONNECTIONS,
             hidden: true
         },
+        {
+            icon: <LuLock size={ICON_SIZE} />,
+            label: 'Security',
+            value: AccountSettingsPanelEnum.SECURITY,
+        },
     ];
-    
+
     return (
         <div className='account-settings-selector-container'>
-            <TabSelector 
+            <TabSelector
                 tabs={tabs}
                 selectedValue={selectedPanel}
                 onChange={(value: string) => onSelectPanel(value as AccountSettingsPanel)}

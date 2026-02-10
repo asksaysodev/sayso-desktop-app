@@ -29,6 +29,8 @@ interface CharacterCounterProps {
 }
 
 export default function CharacterCounter({ text, type }: CharacterCounterProps) {
+    if (!text) return null;
+    
     const length = text.length;
     const status = getValidationStatus(length, type);
     

@@ -1,5 +1,3 @@
-import { useAuth } from "@/context/AuthContext";
-import { LuReceiptText } from "react-icons/lu";
 import getActivePlan from "../services/getActivePlan";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
@@ -22,6 +20,10 @@ export default function ActiveSubscriptionInformation() {
     });
 
     const {subscription, invoices} = activePlan || {};
+
+    const isTrialing = useMemo(() => {
+        return subscription?.status === 'trialing';
+    }, [subscription]);
 
     const billingPeriod = useMemo(() => {
         return subscription?.billing?.cycle === 'month' ? 'Monthly' : 'Yearly';
@@ -68,7 +70,7 @@ export default function ActiveSubscriptionInformation() {
                             </div>
 
                             <div>
-                                {subscription?.status === "trialing" && (
+                                {isTrialing && (
                                     <p className="plan-renewal-text">
                                             180 free trial minutes, then 1800 minutes included.
                                     </p>
@@ -79,7 +81,9 @@ export default function ActiveSubscriptionInformation() {
                             </div>
                         </div>
                     </div>
-                    {/* <button className="adjust-plan-button">Buy tokens</button> */}
+                    {isTrialing && (
+                        <button className="adjust-plan-button">Upgrade to paid account</button>
+                    )}
                 </div>
             </div>
 
@@ -130,7 +134,7 @@ export default function ActiveSubscriptionInformation() {
                         onClick={handleCancelSubscription}
                         disabled={isPendingGetStripeCancellationPageUrl}
                         loading={isPendingGetStripeCancellationPageUrl}
-                        variant="error"
+                        variant="sayso-indigo"
                     />
                 </div>
             </div>

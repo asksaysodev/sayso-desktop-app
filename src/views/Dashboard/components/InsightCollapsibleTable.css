@@ -115,6 +115,42 @@
     width: 180px;
 }
 
+.rate-cell {
+    width: 120px;
+    text-align: center;
+}
+
+.rate-button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--sayso-lightgray);
+    opacity: 0.5;
+    transition: color 0.2s ease, opacity 0.2s ease, transform 0.1s ease;
+    margin: 0 4px;
+}
+
+.rate-button:hover {
+    opacity: 0.7;
+}
+
+.rate-button:active {
+    transform: scale(0.95);
+}
+
+.rate-button.active {
+    color: var(--sayso-indigo);
+    opacity: 1;
+}
+
+.rate-button.active:hover {
+    opacity: 1;
+}
+
 .calendar-buttons-container {
     display: flex;
     gap: 8px;

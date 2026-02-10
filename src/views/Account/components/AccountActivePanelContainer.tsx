@@ -1,10 +1,11 @@
-import FormLineAccount from "../../../components/FormLineAccount"
 import { useAuth } from "../../../context/AuthContext";
 import { AccountSettingsPanel, AccountSettingsPanelEnum } from "../types";
 import AccountSettingsCompanyForm from "./AccountSettingsCompanyForm"
 import AccountSettingsConnectionsForm from "./AccountSettingsConnectionsForm"
 import AccountSettingsFilesForm from "./AccountSettingsFilesForm"
 import AccountSettingsPersonalForm from "./AccountSettingsPersonalForm";
+import AccountActivePanelContainerHeader from "./AccountActivePanelContainerHeader";
+import AccountSettingsSecurity from "./AccountSettingsSecurity";
 
 interface Props {
     selectedPanel: AccountSettingsPanel;
@@ -15,31 +16,9 @@ export default function AccountActivePanelContainer({ selectedPanel, setUnsavedC
 
     const { globalUser } = useAuth();
 
-    const panelFormContent = {
-        [AccountSettingsPanelEnum.PERSONAL]: {
-            title: 'My Information',
-            description: 'Fill in general info about yourself'
-        },
-        [AccountSettingsPanelEnum.COMPANY]: {
-            title: 'My Company',
-            description: 'Manage your company and team information'
-        },
-        [AccountSettingsPanelEnum.FILES]: {
-            title: 'Context Files',
-            description: 'Upload files to give your coach more context about your company or product'
-        },
-        [AccountSettingsPanelEnum.CONNECTIONS]: {
-            title: 'Connections',
-            description: 'Connect your software and external accounts'
-        },
-    }
-
     return (
         <div className='account-settings-panel-container'>
-            <div className='account-settings-title-container'>
-                <h1>{panelFormContent[selectedPanel]?.title}</h1>
-                <p>{panelFormContent[selectedPanel]?.description}</p>
-            </div>
+            <AccountActivePanelContainerHeader selectedPanel={selectedPanel} />
             <div className='account-settings-panel-container-content'>
                  {
                     selectedPanel === AccountSettingsPanelEnum.PERSONAL ? (
@@ -51,8 +30,10 @@ export default function AccountActivePanelContainer({ selectedPanel, setUnsavedC
                     selectedPanel === AccountSettingsPanelEnum.FILES ? (
                         <AccountSettingsFilesForm />
                     ) : 
-                    selectedPanel === AccountSettingsPanelEnum.CONNECTIONS && (
+                    selectedPanel === AccountSettingsPanelEnum.CONNECTIONS ? (
                         <AccountSettingsConnectionsForm />
+                    ) : selectedPanel === AccountSettingsPanelEnum.SECURITY && (
+                        <AccountSettingsSecurity />
                     ) 
                 }
             </div>

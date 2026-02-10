@@ -2,11 +2,13 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 
 import AuthGuard from './components/AuthGuard';
 import GuestGuard from './components/GuestGuard';
+import MFAGuard from './components/MFAGuard';
 import Layout from './components/Layout';
 
 import Login from './views/Login';
 import PasswordRecovery from './views/PasswordRecovery';
 import ResetPassword from './views/ResetPassword';
+import MFAVerify from './views/MFAVerify';
 import Dashboard from './views/Dashboard';
 import Account from './views/Account';
 import StreamingTest from './components/StreamingTest';
@@ -42,6 +44,14 @@ export default function AppRoutes() {
             <Route
                 path="/reset-password"
                 element={<ResetPassword />}
+            />
+            <Route
+                path="/mfa-verify"
+                element={
+                    <MFAGuard>
+                        <MFAVerify />
+                    </MFAGuard>
+                }
             />
             <Route
                 path="/"
