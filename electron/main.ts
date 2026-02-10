@@ -13,7 +13,7 @@ import type {
   CueInsight 
 } from './globals';
 
-import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu, nativeTheme } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { nativeImage } from 'electron/common';
@@ -209,7 +209,7 @@ function createTrayMenuWindow() {
     hasShadow: true,
     vibrancy: allowVibrancy ? 'menu' : undefined,
     visualEffectState: allowVibrancy ? 'active' : undefined,
-    backgroundColor: allowVibrancy ? '#00000000' : '#F9FAFB',
+    backgroundColor: allowVibrancy ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
@@ -229,6 +229,14 @@ function createTrayMenuWindow() {
     trayMenuWindow.on('closed', () => {
       trayMenuWindow = null;
     });
+
+    if (!allowVibrancy) {
+      nativeTheme.on('updated', () => {
+        if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+          trayMenuWindow.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB');
+        }
+      });
+    }
   }
 }
 
