@@ -803,6 +803,7 @@ const createDashboardWindow = () => {
   const indexHtmlPath = path.join(process.resourcesPath, 'dist', 'index.html');
   const allowVibrancy: boolean = process.platform === 'darwin' && process.arch !== 'x64'; 
   const dashboardWindow = new BrowserWindow({
+    show: false,
     width: 1400,
     height: 900,
     icon: path.join(__dirname, '../public/assets/icon.icns'),
@@ -838,6 +839,10 @@ const createDashboardWindow = () => {
   const dashboardUrl = isDev 
     ? 'http://localhost:5173/#/' 
     : `file://${path.join(__dirname, '../dist/index.html')}#/`;
+  dashboardWindow.once('ready-to-show', () => {
+    dashboardWindow.show();
+  });
+
   dashboardWindow.loadURL(dashboardUrl);
   if (isDev) {
     dashboardWindow.webContents.openDevTools();
