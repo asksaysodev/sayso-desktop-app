@@ -1,8 +1,8 @@
 import apiClient from "@/config/axios";
-import { Signal } from "../types";
+import { GetSignalResponse } from "../types";
 
-export default async function getSignals(leadType: string): Promise<Signal[]> {
-    const response = await apiClient.get(`/admin/cue/signals?leadType=${leadType}`);
+export default async function getSignals(): Promise<GetSignalResponse> {
+    const response = await apiClient.get(`/admin/cue/signals`);
 
     if (!response?.data) {
         throw new Error('Failed to fetch signals');

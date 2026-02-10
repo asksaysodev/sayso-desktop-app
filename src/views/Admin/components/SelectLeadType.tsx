@@ -16,7 +16,7 @@ export default function SelectLeadType() {
         <div className="select-lead-type-container">
             <label htmlFor="lead-type-select">Lead Type</label>
             <Select value={leadType} onValueChange={setLeadType}>
-                <SelectTrigger className="w-[180px] sayso-outlined-button">
+                <SelectTrigger className="w-[180px] sayso-outlined-button !h-10">
                     <SelectValue placeholder="Select a lead type" />
                 </SelectTrigger>
                 <SelectContent>

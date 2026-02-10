@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 
 import AuthGuard from './components/AuthGuard';
 import GuestGuard from './components/GuestGuard';
+import MFAGuard from './components/MFAGuard';
 import Layout from './components/Layout';
 
 import Login from './views/Login';

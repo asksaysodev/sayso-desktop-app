@@ -4,14 +4,16 @@ import './Admin.css';
 import { useCallback, useMemo } from 'react';
 import ToolSelector from './components/ToolSelector';
 import CueMainInstructions from './components/CueMainInstructions';
-import CueSignals from './components/CueSignals';
 import SelectLeadType from './components/SelectLeadType';
 import { useAdminStore } from '@/store/adminStore';
+import CueSignals from './components/CueSignals';
+import ImportSheetButton from './components/ImportSheetButton';
+import SheetVersionSelector from './components/SheetVersionSelector';
 
 export default function Admin() {
     const selectedTool = useAdminStore(state => state.selectedTool);
     const setSelectedTool = useAdminStore(state => state.setSelectedTool);
-    
+
     const renderTool = useCallback(() => {
         if (selectedTool === 'cue-signals') {
             return <CueSignals />
@@ -19,15 +21,22 @@ export default function Admin() {
         return <CueMainInstructions />
     }, [selectedTool]);
 
-    const showSelectLeadType = useMemo(() => ['cue-signals', 'cue-main-instructions'].includes(selectedTool), [selectedTool]);
-
     return (
        <ViewLayout title='Admin Panel'>
-            <div className='admin-panel-header'>
-                <ToolSelector selectedTool={selectedTool} setSelectedTool={setSelectedTool} />
-                {showSelectLeadType && <SelectLeadType />}
+            <div className='admin-panel-container'>
+                <div className='admin-panel-header'>
+                    <div className='admin-panel-header-left-actions'>
+                        <ToolSelector selectedTool={selectedTool} setSelectedTool={setSelectedTool} />
+                        {selectedTool === 'cue-signals' && <SheetVersionSelector />}
+                    </div>
+
+                    {selectedTool === 'cue-signals' && <div className='admin-panel-header-right-actions'>
+                        <ImportSheetButton />
+                    </div>}
+                </div>
+
+                {renderTool()}
             </div>
-            {renderTool()}
        </ViewLayout>
     )
 }

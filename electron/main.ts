@@ -13,7 +13,7 @@ import type {
   CueInsight 
 } from './globals';
 
-import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu, nativeTheme } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { nativeImage } from 'electron/common';
@@ -191,7 +191,8 @@ function createTrayMenuWindow() {
   }
 
   const preloadScriptPath = path.join(__dirname, 'preload.js');
-  
+  const allowVibrancy: boolean = process.platform === 'darwin' && process.arch !== 'x64'; 
+
   // Create a frameless, always-on-top window
   trayMenuWindow = new BrowserWindow({
     width: 264,
@@ -206,9 +207,9 @@ function createTrayMenuWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: true,
-    vibrancy: 'menu',
-    visualEffectState: 'active',
-    backgroundColor: '#00000000',
+    vibrancy: allowVibrancy ? 'menu' : undefined,
+    visualEffectState: allowVibrancy ? 'active' : undefined,
+    backgroundColor: allowVibrancy ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
@@ -228,6 +229,14 @@ function createTrayMenuWindow() {
     trayMenuWindow.on('closed', () => {
       trayMenuWindow = null;
     });
+
+    if (!allowVibrancy) {
+      nativeTheme.on('updated', () => {
+        if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+          trayMenuWindow.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB');
+        }
+      });
+    }
   }
 }
 
@@ -792,7 +801,9 @@ const createDashboardWindow = () => {
     console.error(`[MAIN]: Preload script NOT FOUND at: ${preloadScriptPath}`);
   }
   const indexHtmlPath = path.join(process.resourcesPath, 'dist', 'index.html');
+  const allowVibrancy: boolean = process.platform === 'darwin' && process.arch !== 'x64'; 
   const dashboardWindow = new BrowserWindow({
+    show: false,
     width: 1400,
     height: 900,
     icon: path.join(__dirname, '../public/assets/icon.icns'),
@@ -800,8 +811,8 @@ const createDashboardWindow = () => {
     maximizable: false,
     fullscreenable: false,
     roundedCorners: true,
-    vibrancy: 'under-window',
-    visualEffectState: 'active',
+    vibrancy: allowVibrancy ? 'under-window': undefined,
+    visualEffectState: allowVibrancy ? 'active' : undefined,
     titleBarStyle: 'hiddenInset',
     // titleBarStyle: 'hidden',
     titleBarOverlay: {
@@ -828,6 +839,10 @@ const createDashboardWindow = () => {
   const dashboardUrl = isDev 
     ? 'http://localhost:5173/#/' 
     : `file://${path.join(__dirname, '../dist/index.html')}#/`;
+  dashboardWindow.once('ready-to-show', () => {
+    dashboardWindow.show();
+  });
+
   dashboardWindow.loadURL(dashboardUrl);
   if (isDev) {
     dashboardWindow.webContents.openDevTools();

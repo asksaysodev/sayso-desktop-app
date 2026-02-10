@@ -2,6 +2,8 @@
  * Sales Coach type definitions
  */
 
+import { InsightRating } from "@/views/Dashboard/types";
+
 // Signal types
 export type SignalType =
   | 'pain_point'
@@ -160,6 +162,7 @@ export interface Insight {
   expiresAt?: number;
   createdAt?: number;
   priority?: number;
+  rating?: InsightRating;
 }
 
 export interface InsightGroup {
