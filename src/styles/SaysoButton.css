@@ -109,3 +109,27 @@
     outline: 2px solid var(--sayso-border);
     outline-offset: 2px;
 }
+
+/* Variant: blue */
+.sayso-button.variant-blue {
+    background-color: var(--sayso-blue);
+    color: white;
+    border: none;
+}
+
+.sayso-button.variant-blue:hover:not(:disabled) {
+    background-color: var(--sayso-blue);
+    filter: brightness(0.9);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.sayso-button.variant-blue:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.sayso-button.variant-blue:focus-visible {
+    outline: 2px solid var(--sayso-blue);
+    outline-offset: 2px;
+}
