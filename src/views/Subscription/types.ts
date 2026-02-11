@@ -84,3 +84,12 @@ export enum BillingIntervalEnum {
     MONTH = 'month',
     YEAR = 'year',
 }
+
+export interface UpgradeTrialSuccessResponse {
+  message: string;
+  status: string;
+}
+
+export interface UpgradeTrialErrorResponse {
+  error: string;
+}
