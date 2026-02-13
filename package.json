@@ -1,6 +1,6 @@
 {
   "name": "sayso-app",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Sayso Desktop App",
   "main": "electron/main.js",
   "repository": {
