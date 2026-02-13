@@ -243,9 +243,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           Sentry.captureException(err)
           throw err
         })
-      accountCreationRef.current = creationPromise
-      await creationPromise
-      accountCreationRef.current = null
+        accountCreationRef.current = creationPromise;
+      try {
+          await creationPromise;
+      } finally {
+          accountCreationRef.current = null;
+      }
     }
     return result
   }
