@@ -7,8 +7,10 @@ import useStripeUpgrade from "../hooks/useStripeUpgrade";
 import SaysoButton from "@/components/SaysoButton";
 import ActiveSubscriptionInformationSkeleton from "./ActiveSubscriptionInformationSkeleton";
 import ActiveSubscriptionInformationError from "./ActiveSubscriptionInformationError";
+import { useAuth } from "@/context/AuthContext";
 
 export default function ActiveSubscriptionInformation() {
+    const { globalUser } = useAuth();
     const {
         mutateGetStripeCancellationPageUrl,
         isPendingGetStripeCancellationPageUrl,
@@ -21,7 +23,8 @@ export default function ActiveSubscriptionInformation() {
 
     const { data: activePlan, isLoading: isLoadingActivePlan, isError: isErrorActivePlan, refetch } = useQuery({
         queryKey: ['active-plan'],
-        queryFn: getActivePlan
+        queryFn: getActivePlan,
+        enabled: !!globalUser?.subscription_plan_id
     });
 
     const {subscription, invoices} = activePlan || {};

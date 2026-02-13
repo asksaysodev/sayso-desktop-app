@@ -30,7 +30,8 @@ export const SubscriptionAlertProvider = ({ children }: { children: React.ReactN
     
     const { data: activePlan } = useQuery({
         queryKey: ['active-plan'],
-        queryFn: getActivePlan
+        queryFn: getActivePlan,
+        enabled: !!globalUser?.subscription_plan_id
     });
 
     const isTrialing = useMemo(() => {
@@ -48,13 +49,13 @@ export const SubscriptionAlertProvider = ({ children }: { children: React.ReactN
     }, []);
 
     useEffect(() => {
-        if (isOutOfMinutes && isTrialing) {
+        if (globalUser?.subscription_plan_id && isOutOfMinutes && isTrialing) {
             if (!sessionStorage.getItem('alreadyShownAlert')) {
                 showSubscriptionAlert(DEFAULT_SUBSCRIPTION_ALERT.title, DEFAULT_SUBSCRIPTION_ALERT.description);
                 sessionStorage.setItem('alreadyShownAlert', 'true');
             }
         }
-    }, [isOutOfMinutes, isTrialing, showSubscriptionAlert]);
+    }, [isOutOfMinutes, isTrialing, showSubscriptionAlert, globalUser]);
     
 
     const hideSubscriptionAlert = () => {
