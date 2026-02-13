@@ -118,6 +118,7 @@ export default function useLoginForm() {
         }
       });
       if (error) throw error;
+      navigate('/', { replace: true });
     }
   };
 
