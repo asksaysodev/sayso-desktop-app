@@ -12,6 +12,7 @@ import type { AuthMFAEnrollResponse, AuthMFAGetAuthenticatorAssuranceLevelRespon
 export async function enrollTOTP(): Promise<{ data: EnrollTOTPResult | null; error: MFAServiceError | null }> {
     const { data, error } = await supabase.auth.mfa.enroll({
         factorType: 'totp',
+        issuer: 'Sayso',
     })
 
     if (error) {
