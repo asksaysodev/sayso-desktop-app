@@ -36,6 +36,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [authToken, setAuthToken] = useState<string | null>(null)
   const [userLoading, setUserLoading] = useState(true)
   const prevUserRef = useRef<User | null>(null)
+  const accountCreationRef = useRef<Promise<void> | null>(null)
   const location = useLocation()
   const [mfaRequired, setMfaRequired] = useState(false)
   const [currentAAL, setCurrentAAL] = useState<AALLevel | null>(null)
@@ -195,8 +196,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     if (user) {
       // Add a small delay to prevent rapid re-fetching
-      timeoutId = setTimeout(() => {
-        getAccount(user.email).then((account) => {
+      timeoutId = setTimeout(async () => {
+        try {
+          if (accountCreationRef.current) {
+            await accountCreationRef.current
+          }
+          const account = await getAccount(user.email)
           updateGlobalUserState(account)
           Sentry.setUser({
             id: account?.id,
@@ -209,7 +214,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             subscription_status: account?.subscription_status
           });
           setUserLoading(false)
-        })
+        } catch (error) {
+          console.error('Error fetching account:', error)
+          Sentry.captureException(error)
+          setUserLoading(false)
+        }
       }, 300) // 300ms delay
     } else {
       updateGlobalUserState(null)
@@ -224,18 +233,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [user])
 
   const signUp = async (data: SignUpData) => {
-    // First, sign up with Supabase Auth
     const result = await supabase.auth.signUp(data)
-    // If sign up is successful, create the account in the DB
     if (!result.error) {
-      // Try to get user info from the data/options
       const { email, options } = data
       const { name, lastname, company } = options?.data || {}
+      const creationPromise: any = createAccount({ email, name, lastname, company })
+        .catch((err) => {
+          console.error('Error creating account in DB:', err)
+          Sentry.captureException(err)
+          throw err
+        })
+        accountCreationRef.current = creationPromise;
       try {
-        await createAccount({ email, name, lastname, company })
-      } catch (err) {
-        console.error('Error creating account in DB:', err)
-        Sentry.captureException(err)
+          await creationPromise;
+      } finally {
+          accountCreationRef.current = null;
       }
     }
     return result
