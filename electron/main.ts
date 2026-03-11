@@ -1620,11 +1620,12 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) {
       // Recreate dashboard if no windows exist
       createDashboardWindow();
+      setupGlobalShortcut();
     }
      // If dashboard exists but is minimized/hidden, restore and focus.
      else if (dashboardWindowInstance) {
-        dashboardWindowInstance.restore(); 
-        dashboardWindowInstance.focus(); 
+        dashboardWindowInstance.restore();
+        dashboardWindowInstance.focus();
      }
   });
 });
@@ -1634,9 +1635,10 @@ app.on('before-quit', async (event: Event) => {
   if (isDev) {
     console.log('App quitting - cleaning up audio capture...');
   }
-  
+
   // Force cleanup of all audio capture before quitting
   await cleanupAllAudioCapture();
+  unregisterGlobalShortcuts();
 });
 
 // Modify window-all-closed to NOT quit if dashboard is meant to be main interface
@@ -1645,8 +1647,6 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
-
-  unregisterGlobalShortcuts();
 
   // If you want the app to quit when the dashboard closes even on macOS,
   // you would add app.quit() here.
