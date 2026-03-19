@@ -84,6 +84,8 @@ declare global {
   var coachWindow: BrowserWindow | null;
   var mainWindow: BrowserWindow | null;
   var authUser: AuthUser | false | null;
+  var authAccessToken: string | null;
+  var authRefreshToken: string | null;
 
   // Audio recording processes
   var userStreamingProcess: ChildProcess | null;

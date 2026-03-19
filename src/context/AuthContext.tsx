@@ -140,6 +140,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }
 
+  // Keep auth tokens in main process in sync for tray menu use
+  useEffect(() => {
+    const ipcRenderer = window.electron?.ipcRenderer;
+    if (!ipcRenderer) return;
+
+    if (authToken) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        ipcRenderer.send('update-auth-tokens', {
+          accessToken: session?.access_token ?? null,
+          refreshToken: session?.refresh_token ?? null,
+        });
+      });
+    } else {
+      ipcRenderer.send('update-auth-tokens', { accessToken: null, refreshToken: null });
+    }
+  }, [authToken]);
+
   // Handle session expiration
   useEffect(() => {
     const handleSessionExpired = () => {
@@ -151,6 +168,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     return () => {
       window.removeEventListener('auth:session-expired', handleSessionExpired);
+    };
+  }, []);
+
+  // Handle logout triggered from tray menu
+  useEffect(() => {
+    const ipcRenderer = window.electron?.ipcRenderer;
+    if (!ipcRenderer) return;
+
+    ipcRenderer.on('trigger-logout', handleSignOut as any);
+    return () => {
+      ipcRenderer.off('trigger-logout', handleSignOut as any);
     };
   }, []);
 

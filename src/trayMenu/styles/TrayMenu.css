@@ -86,10 +86,24 @@ body {
   -webkit-user-select: none;
 }
 
+.tray-menu-item-label.bottom-item {
+    text-align: center !important;
+}
+
 .tray-menu-separator {
   height: 1px;
   margin: 4px 0px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.tray-menu-bottom-row {
+  display: flex;
+  flex-direction: row;
+}
+
+.tray-menu-item--bottom {
+  flex: 1;
+  justify-content: center;
 }
 
 /* Dark theme support for macOS dark mode */
