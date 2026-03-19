@@ -154,6 +154,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
+  // Handle logout triggered from tray menu
+  useEffect(() => {
+    const ipcRenderer = window.electron?.ipcRenderer;
+    if (!ipcRenderer) return;
+
+    ipcRenderer.on('trigger-logout', handleSignOut as any);
+    return () => {
+      ipcRenderer.off('trigger-logout', handleSignOut as any);
+    };
+  }, []);
+
   useEffect(() => {
     // Skip auth check for /zoom-success
     if (location.pathname === '/zoom-success') {

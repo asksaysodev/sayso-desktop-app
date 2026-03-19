@@ -40,6 +40,21 @@ const TrayMenuApp = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const ipcRenderer = window.electron?.ipcRenderer;
+    if (!ipcRenderer) return;
+      let height;
+      if (disableToggleCoach && !userAuthenticated) {
+          height = 82;
+      } else if (!disableToggleCoach && userAuthenticated) {
+          height = 172;
+      } else {
+          height = 128;
+      }
+      
+    ipcRenderer.send('set-tray-menu-height', height);
+  }, [disableToggleCoach, userAuthenticated]);
+
   const handleToggleCoach = () => {
     const ipcRenderer = window.electron?.ipcRenderer;
 
@@ -67,31 +82,72 @@ const TrayMenuApp = () => {
       </div>
       
       <div className="tray-menu-items">
-        <button 
-          className="tray-menu-item"
-          onClick={handleToggleCoach}
-          disabled={disableToggleCoach}
-        >
-          <div className="tray-menu-item-icon">
-            <img 
-              src={isCoachOpen ? trayToggleOn : trayToggleOff}
-              alt={isCoachOpen ? 'Close' : 'Open'}
-              className="tray-menu-item-icon-img"
-            />
-          </div>
-          <span className="tray-menu-item-label">
-            {isCoachOpen ? 'Close Coach' : 'Start Coach'}
-          </span>
-        </button>
+        {!disableToggleCoach && (
+          <>
+            <button
+              className="tray-menu-item"
+              onClick={handleToggleCoach}
+              disabled={disableToggleCoach}
+            >
+              <div className="tray-menu-item-icon">
+                <img
+                  src={isCoachOpen ? trayToggleOn : trayToggleOff}
+                  alt={isCoachOpen ? 'Close' : 'Open'}
+                  className="tray-menu-item-icon-img"
+                />
+              </div>
+              <span className="tray-menu-item-label">
+                {isCoachOpen ? 'Close coach' : 'Start coach'}
+              </span>
+            </button>
+            <div className="tray-menu-separator" />
+          </>
+        )}
+        
+        {userAuthenticated && 
+            <>
+                <button 
+                    className="tray-menu-item"
+                    onClick={() => window.electron?.openExternal('https://app.asksayso.com/settings')}
+                >
+                {/*<div className="tray-menu-item-icon">
+                    <img 
+                    src={trayToggleOff}
+                    alt={'mocked'}
+                    className="tray-menu-item-icon-img"
+                    />
+                </div>*/}
+                    <span className="tray-menu-item-label">
+                        Account settings
+                    </span>
+                </button>
+                
+                <div className="tray-menu-separator" />
+            </>
+        }
+        
 
-        <div className="tray-menu-separator" />
-
-        <button 
-          className="tray-menu-item"
-          onClick={handleQuit}
-        >
-          <span className="tray-menu-item-label">Quit</span>
-        </button>
+        <div className="tray-menu-bottom-row">
+          <button className="tray-menu-item tray-menu-item--bottom" onClick={handleQuit}>
+            <span className="tray-menu-item-label">Quit</span>
+          </button>
+          <button
+            className="tray-menu-item tray-menu-item--bottom"
+            onClick={() => {
+              const ipc = window.electron?.ipcRenderer;
+              if (!ipc) return;
+              if (userAuthenticated) {
+                ipc.send('tray-logout');
+              } else {
+                ipc.send('tray-show-window');
+              }
+            }}
+          >
+            <span className="tray-menu-item-label">
+              {userAuthenticated ? 'Log out' : 'Log in'}
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   );

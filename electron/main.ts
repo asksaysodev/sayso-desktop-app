@@ -196,7 +196,8 @@ function createTrayMenuWindow() {
   // Create a frameless, always-on-top window
   trayMenuWindow = new BrowserWindow({
     width: 264,
-    height: 128,
+    // height: 128,
+    height: 172,
     show: false,
     frame: false,
     transparent: true,
@@ -227,9 +228,13 @@ function createTrayMenuWindow() {
     trayMenuWindow.loadURL(trayMenuUrl);
     
     trayMenuWindow.on('closed', () => {
-      trayMenuWindow = null;
+        trayMenuWindow = null;
     });
 
+    trayMenuWindow.on('blur', () => {
+        hideTrayMenu();
+    });
+    
     if (!allowVibrancy) {
       nativeTheme.on('updated', () => {
         if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
@@ -249,13 +254,17 @@ function showTrayMenu() {
     // Wait a bit for the window to be created before positioning
     setTimeout(() => {
       if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+        trayMenuWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
         positionTrayMenu();
         trayMenuWindow.show();
+        trayMenuWindow.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
       }
     }, 100);
   } else {
+    trayMenuWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     positionTrayMenu();
     trayMenuWindow.show();
+    trayMenuWindow.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
   }
 
   // Send initial coach window state
@@ -1811,6 +1820,41 @@ ipcMain.on('get-coach-window-state', (event: Electron.IpcMainInvokeEvent) => {
 // Handler for getting coach window state (async version for invoke)
 ipcMain.handle('get-coach-window-open-state', () => {
   return isCoachWindowOpen();
+});
+
+// Handler for showing the main window from the tray menu (e.g. Log In)
+ipcMain.on('tray-show-window', () => {
+  if (!dashboardWindowInstance || dashboardWindowInstance.isDestroyed()) {
+    createDashboardWindow();
+  } else {
+    if (dashboardWindowInstance.isMinimized()) dashboardWindowInstance.restore();
+    dashboardWindowInstance.show();
+    dashboardWindowInstance.focus();
+  }
+});
+
+// Handler for triggering logout from the tray menu
+ipcMain.on('tray-logout', () => {
+  hideTrayMenu();
+  if (!dashboardWindowInstance || dashboardWindowInstance.isDestroyed()) {
+    createDashboardWindow();
+    dashboardWindowInstance!.webContents.once('did-finish-load', () => {
+      dashboardWindowInstance?.webContents.send('trigger-logout');
+    });
+  } else {
+    if (dashboardWindowInstance.isMinimized()) dashboardWindowInstance.restore();
+    dashboardWindowInstance.show();
+    dashboardWindowInstance.focus();
+    dashboardWindowInstance.webContents.send('trigger-logout');
+  }
+});
+
+// Handler for resizing the tray menu window (e.g. when items are shown/hidden)
+ipcMain.on('set-tray-menu-height', (_event: Electron.IpcMainEvent, height: number) => {
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.setSize(264, height, false);
+    positionTrayMenu();
+  }
 });
 
 // Handler for quitting the app
