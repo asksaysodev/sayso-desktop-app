@@ -80,9 +80,8 @@ console.log(userAuthenticated,'dasdadsa')
         if (!ipc) return;
         const { accessToken, refreshToken } = await ipc.invoke('get-auth-tokens') as { accessToken: string | null; refreshToken: string | null };
         const url = new URL('https://app.asksayso.com/settings');
-        if (accessToken) url.searchParams.set('access_token', accessToken);
-        if (refreshToken) url.searchParams.set('refresh_token', refreshToken);
-        window.electron?.openExternal(url.toString());
+         if (accessToken) url.hash = `access_token=${accessToken}&refresh_token=${refreshToken}`;                                                                               
+         window.electron?.openExternal(url.toString());
     }
     const handleAuthPress = () => {
         const ipc = window.electron?.ipcRenderer;
