@@ -86,6 +86,10 @@ body {
   -webkit-user-select: none;
 }
 
+.tray-menu-item-label.bottom-item {
+    text-align: center !important;
+}
+
 .tray-menu-separator {
   height: 1px;
   margin: 4px 0px;

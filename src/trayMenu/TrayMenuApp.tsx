@@ -129,7 +129,7 @@ const TrayMenuApp = () => {
 
         <div className="tray-menu-bottom-row">
           <button className="tray-menu-item tray-menu-item--bottom" onClick={handleQuit}>
-            <span className="tray-menu-item-label">Quit</span>
+            <span className="tray-menu-item-label bottom-item">Quit</span>
           </button>
           <button
             className="tray-menu-item tray-menu-item--bottom"
@@ -143,7 +143,7 @@ const TrayMenuApp = () => {
               }
             }}
           >
-            <span className="tray-menu-item-label">
+            <span className="tray-menu-item-label bottom-item">
               {userAuthenticated ? 'Log out' : 'Log in'}
             </span>
           </button>
