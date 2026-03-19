@@ -10,7 +10,7 @@ import { Account } from '@/types/user';
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
   const [userAuthenticated, setUserAuthenticated] = useState<Account | null>(null);
-
+console.log(userAuthenticated,'dasdadsa')
   const disableToggleCoach = useMemo(() => {
     return !userAuthenticated || userAuthenticated?.subscription_plan_id === null;
   }, [userAuthenticated]);
@@ -74,7 +74,26 @@ const TrayMenuApp = () => {
       ipcRenderer.send('quit-app');
     }
   };
-
+    
+    const handlePressAccountSettings = async () => {
+        const ipc = window.electron?.ipcRenderer;
+        if (!ipc) return;
+        const { accessToken, refreshToken } = await ipc.invoke('get-auth-tokens') as { accessToken: string | null; refreshToken: string | null };
+        const url = new URL('https://app.asksayso.com/settings');
+        if (accessToken) url.searchParams.set('access_token', accessToken);
+        if (refreshToken) url.searchParams.set('refresh_token', refreshToken);
+        window.electron?.openExternal(url.toString());
+    }
+    const handleAuthPress = () => {
+        const ipc = window.electron?.ipcRenderer;
+        if (!ipc) return;
+        if (userAuthenticated) {
+            ipc.send('tray-logout');
+        } else {
+            ipc.send('tray-show-window');
+        }
+    }
+    
   return (
     <div className="tray-menu">
       <div className="tray-menu-header">
@@ -106,17 +125,10 @@ const TrayMenuApp = () => {
         
         {userAuthenticated && 
             <>
-                <button 
+                <button
                     className="tray-menu-item"
-                    onClick={() => window.electron?.openExternal('https://app.asksayso.com/settings')}
+                    onClick={handlePressAccountSettings}
                 >
-                {/*<div className="tray-menu-item-icon">
-                    <img 
-                    src={trayToggleOff}
-                    alt={'mocked'}
-                    className="tray-menu-item-icon-img"
-                    />
-                </div>*/}
                     <span className="tray-menu-item-label">
                         Account settings
                     </span>
@@ -133,15 +145,7 @@ const TrayMenuApp = () => {
           </button>
           <button
             className="tray-menu-item tray-menu-item--bottom"
-            onClick={() => {
-              const ipc = window.electron?.ipcRenderer;
-              if (!ipc) return;
-              if (userAuthenticated) {
-                ipc.send('tray-logout');
-              } else {
-                ipc.send('tray-show-window');
-              }
-            }}
+            onClick={handleAuthPress}
           >
             <span className="tray-menu-item-label bottom-item">
               {userAuthenticated ? 'Log out' : 'Log in'}

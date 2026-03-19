@@ -1782,6 +1782,24 @@ ipcMain.on('get-user-auth', (event: Electron.IpcMainInvokeEvent) => {
 });
 
 /**
+ * Handler for storing auth tokens (kept in sync with AuthContext on sign-in and token refresh)
+ */
+ipcMain.on('update-auth-tokens', (_event: Electron.IpcMainEvent, { accessToken, refreshToken }: { accessToken: string | null; refreshToken: string | null }) => {
+  global.authAccessToken = accessToken;
+  global.authRefreshToken = refreshToken;
+});
+
+/**
+ * Handler for retrieving stored auth tokens (used by tray menu to build authenticated URLs)
+ */
+ipcMain.handle('get-auth-tokens', () => {
+  return {
+    accessToken: global.authAccessToken ?? null,
+    refreshToken: global.authRefreshToken ?? null,
+  };
+});
+
+/**
  * Handler for updating user auth state
  */
 ipcMain.on('update-user-auth', (event: Electron.IpcMainInvokeEvent, { userAuthenticated }: { userAuthenticated: AuthUser | null }) => {
