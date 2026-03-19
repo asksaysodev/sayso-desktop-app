@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import trayToggleOn from '/assets/tray-toggle-on.png';
 import trayToggleOff from '/assets/tray-toggle-off.png';
 import { Account } from '@/types/user';
+import { supabase } from '@/config/supabase';
 
 /**
  * Tray Menu App - Custom menu window for system tray
@@ -76,11 +77,9 @@ const TrayMenuApp = () => {
   };
     
     const handlePressAccountSettings = async () => {
-        const ipc = window.electron?.ipcRenderer;
-        if (!ipc) return;
-        const { accessToken, refreshToken } = await ipc.invoke('get-auth-tokens') as { accessToken: string | null; refreshToken: string | null };
+        const { data: { session } } = await supabase.auth.getSession();
         const url = new URL('https://app.asksayso.com/settings');
-        if (accessToken) url.hash = `access_token=${accessToken}&refresh_token=${refreshToken}`;                                                                               
+        if (session?.access_token) url.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}`;
         window.electron?.openExternal(url.toString());
     }
     const handleAuthPress = () => {
