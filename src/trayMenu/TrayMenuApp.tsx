@@ -10,7 +10,7 @@ import { Account } from '@/types/user';
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
   const [userAuthenticated, setUserAuthenticated] = useState<Account | null>(null);
-console.log(userAuthenticated,'dasdadsa')
+
   const disableToggleCoach = useMemo(() => {
     return !userAuthenticated || userAuthenticated?.subscription_plan_id === null;
   }, [userAuthenticated]);
@@ -80,8 +80,7 @@ console.log(userAuthenticated,'dasdadsa')
         if (!ipc) return;
         const { accessToken, refreshToken } = await ipc.invoke('get-auth-tokens') as { accessToken: string | null; refreshToken: string | null };
         const url = new URL('https://app.asksayso.com/settings');
-        if (accessToken) url.searchParams.set('access_token', accessToken);
-        if (refreshToken) url.searchParams.set('refresh_token', refreshToken);
+        if (accessToken) url.hash = `access_token=${accessToken}&refresh_token=${refreshToken}`;                                                                               
         window.electron?.openExternal(url.toString());
     }
     const handleAuthPress = () => {
