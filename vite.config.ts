@@ -56,7 +56,8 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         'coach-window': resolve(__dirname, 'coach-window.html'),
-        'tray-menu': resolve(__dirname, 'tray-menu.html')
+        'tray-menu': resolve(__dirname, 'tray-menu.html'),
+        'coach-settings-window': resolve(__dirname, 'coach-settings-window.html')
       },
       output: {
         manualChunks: undefined, // Disable manual chunks for better Electron compatibility
