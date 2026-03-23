@@ -417,6 +417,9 @@ let audioStreamer: any = null;
 // Store Cue instances (separate from regular streaming)
 let cueAudioStreamer: any = null;
 
+/** Serialize stop-cue: overlapping IPC invokes await the same teardown (no double native stop). */
+let cueStopInFlight: Promise<{ success: boolean; error?: string; deduped?: boolean }> | null = null;
+
 /**
  * Cleanup all audio capture resources (screen capture, microphone, streams)
  * Called when coach window closes or app quits to ensure permissions are released
@@ -683,35 +686,40 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
 });
 
 // Stop Cue (closes all websockets)
-ipcMain.handle('stop-cue', async (event: Electron.IpcMainInvokeEvent) => {
-  try {
-    // Stop audio streaming (streaming only - no file recording to stop)
-    await stopUserStreaming();
-    if (nativeAudio) {
-      await nativeAudio.stopSystemAudioCapture();
-      nativeAudio.setStreamingCallback(null);
-    }
-
-    // Stop audio websockets (2)
-    if (cueAudioStreamer) {
-      await cueAudioStreamer.stop(false); // Don't send termination message
-      cueAudioStreamer = null;
-    }
-
-    // TODO: Stop insights websocket (1) when implemented
-    // if (cueInsightsWebSocket) {
-    //   await cueInsightsWebSocket.disconnect();
-    //   cueInsightsWebSocket = null;
-    // }
-
-    return { success: true };
-  } catch (error: any) {
-    console.error('[MAIN] Error stopping Cue:', error);
-    Sentry.captureException(error);
-    // Force cleanup on error
-    cueAudioStreamer = null;
-    return { success: false, error: error.message };
+ipcMain.handle('stop-cue', async (_event: Electron.IpcMainInvokeEvent) => {
+  if (cueStopInFlight) {
+    const result = await cueStopInFlight;
+    return { ...result, deduped: true };
   }
+
+  const stopWork = (async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+      // Stop audio streaming (streaming only - no file recording to stop)
+      await stopUserStreaming();
+      if (nativeAudio) {
+        await nativeAudio.stopSystemAudioCapture();
+        nativeAudio.setStreamingCallback(null);
+      }
+
+      // Stop audio websockets (2)
+      if (cueAudioStreamer) {
+        await cueAudioStreamer.stop(false); // Don't send termination message
+        cueAudioStreamer = null;
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('[MAIN] Error stopping Cue:', error);
+      Sentry.captureException(error);
+      cueAudioStreamer = null;
+      return { success: false, error: error.message };
+    } finally {
+      cueStopInFlight = null;
+    }
+  })();
+
+  cueStopInFlight = stopWork;
+  return stopWork;
 });
 
 
