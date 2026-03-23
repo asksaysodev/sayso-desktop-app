@@ -80,42 +80,17 @@ class WindowManager {
     };
   }
   
-  static getCoachSettingsWindowConfig(customWidth = null) {
-      const width = customWidth || WINDOW_CONFIG.COACH_SETTINGS.DEFAULT_WIDTH;
-      // maximizable: false,
-      // fullscreenable: false,
-      // roundedCorners: true,
-      // vibrancy: allowVibrancy ? 'under-window': undefined,
-      // visualEffectState: allowVibrancy ? 'active' : undefined,
-      // titleBarStyle: 'hiddenInset',
-      // // titleBarStyle: 'hidden',
-      // titleBarOverlay: {
-      //   color: '#ffffff',
-      //   symbolColor: '#000000',
-      //   height: 30
-      // },
-      // webPreferences: {
-      //   preload: preloadScriptPath,
-      //   contextIsolation: true,
-      //   nodeIntegration: false,
-      //   webSecurity: true,
-      //   // Enhanced media permissions for packaged app
-      //   enableBlinkFeatures: 'MediaDevices,MediaStream,WebRTC',
-      //   // permissions: ['media', 'microphone'], 'permissions' does not exist in type 'WebPreferences'.
-      //   // Add these for better camera support
-      //   allowRunningInsecureContent: false,
-      //   experimentalFeatures: false,
-      //   additionalArguments: [`--indexHtmlPath=${indexHtmlPath}`]
-      // },
-        return {
-            width,
-            height: WINDOW_CONFIG.COACH_SETTINGS.DEFAULT_HEIGHT,
-            hasShadow: WINDOW_CONFIG.COACH_SETTINGS.HAS_SHADOW,
-            borderless: WINDOW_CONFIG.COACH_SETTINGS.BORDERLESS,
-            maximizable: false,
-            fullscreenable: false,
-            roundedCorners: true,
-        };
+  static getCoachSettingsWindowConfig() {
+      return {
+          width: 800,
+          height: 600,
+          // alwaysOnTop: true,
+          visibleOnAllWorkspaces: true,
+          resizable: false,
+          minimizable: false,
+          maximizable: false,
+          fullscreenable: false,
+      };
   }
 }
 

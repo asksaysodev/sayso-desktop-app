@@ -21,23 +21,6 @@ const WINDOW_CONFIG = {
     BORDERLESS: true,
     HAS_SHADOW: false
   },
-  COACH_SETTINGS: {
-    // FRAME: false,
-    TRANSPARENT: true,
-    // ALWAYS_ON_TOP: true,
-    // DEV_TOOLS: false,
-    // VISIBLE_ON_ALL_WORKSPACES: true,
-    // RESIZABLE: false,
-    // MAXIMIZABLE: false,
-    // MINIMIZABLE: false,
-    // FULLSCREENABLE: false,
-    BORDERLESS: true,
-    HAS_SHADOW: false,
-    DEFAULT_WIDTH: 1024,
-    DEFAULT_HEIGHT: 768,
-    MIN_WIDTH: 800,
-    MIN_HEIGHT: 600
-  },
   DASHBOARD: {
     DEFAULT_WIDTH: 1024,
     DEFAULT_HEIGHT: 768,

@@ -1935,6 +1935,12 @@ const createCoachSettingsWindow = () => {
     const coachSettingsWindow = new BrowserWindow({
         ...windowConfig,
         icon: path.join(__dirname, '../public/assets/icon.icns'),
+        titleBarStyle: 'hiddenInset',
+        titleBarOverlay: {
+          color: '#02192f',
+          symbolColor: '#FFF',
+          height: 30,
+        },
         webPreferences: {
             preload: preloadScriptPath,
             contextIsolation: true,
