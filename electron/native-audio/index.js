@@ -182,10 +182,16 @@ class AudioDeviceManager {
    */
   async stopMicrophoneCapture() {
     await this.initialize();
-    
-    // Clear streaming callback when stopping
-    this.setStreamingCallback(null);
-    
+
+    // Clear *microphone* callback only. setStreamingCallback(null) would also clear the
+    // native SCK/prospect path and break prospect streaming if user mic stops first.
+    if (nativeAudio.setMicrophoneStreamingCallback) {
+      nativeAudio.setMicrophoneStreamingCallback(null);
+    } else {
+      // Legacy native without mic-specific API (used setStreamingCallback for mic)
+      this.setStreamingCallback(null);
+    }
+
     return nativeAudio.stopMicrophoneCapture();
   }
 
