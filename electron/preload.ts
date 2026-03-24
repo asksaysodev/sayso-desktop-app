@@ -76,6 +76,10 @@ try {
       onAutoStop: (callback: (data: any) => void) => {
         ipcRenderer.on('cue-auto-stop', (event: Event, data: any) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-auto-stop');
+      },
+      onLowUserAudio: (callback: (data: { sessionId: string }) => void) => {
+        ipcRenderer.on('cue-low-user-audio', (_event: Event, data: { sessionId: string }) => callback(data));
+        return () => ipcRenderer.removeAllListeners('cue-low-user-audio');
       }
     },
     

@@ -420,6 +420,56 @@ let cueAudioStreamer: any = null;
 /** Serialize stop-cue: overlapping IPC invokes await the same teardown (no double native stop). */
 let cueStopInFlight: Promise<{ success: boolean; error?: string; deduped?: boolean }> | null = null;
 
+/** Per-session telemetry: chunks + bytes forwarded from native callbacks into AudioStreamer */
+let cueCaptureStats = {
+  userChunks: 0,
+  prospectChunks: 0,
+  userBytes: 0,
+  prospectBytes: 0
+};
+
+let cueLowAudioTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearCueLowAudioTimer() {
+  if (cueLowAudioTimer) {
+    clearTimeout(cueLowAudioTimer);
+    cueLowAudioTimer = null;
+  }
+}
+
+function scheduleCueLowAudioCheck(sessionId: string) {
+  clearCueLowAudioTimer();
+  cueLowAudioTimer = setTimeout(() => {
+    cueLowAudioTimer = null;
+    if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
+    if (cueCaptureStats.userChunks > 0) return;
+    try {
+      if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+        global.coachWindow.webContents.send('cue-low-user-audio', { sessionId });
+      }
+    } catch {
+      /* ignore */
+    }
+  }, 4000);
+}
+
+/**
+ * Stop Cue mic + SCK + websocket streamer (shared by stop-cue and defensive start-cue).
+ * Does not touch cueStopInFlight mutex.
+ */
+async function teardownCueStreamsAndNative(): Promise<void> {
+  clearCueLowAudioTimer();
+  await stopUserStreaming();
+  if (nativeAudio) {
+    await nativeAudio.stopSystemAudioCapture();
+    nativeAudio.setStreamingCallback(null);
+  }
+  if (cueAudioStreamer) {
+    await cueAudioStreamer.stop(false);
+    cueAudioStreamer = null;
+  }
+}
+
 /**
  * Cleanup all audio capture resources (screen capture, microphone, streams)
  * Called when coach window closes or app quits to ensure permissions are released
@@ -430,6 +480,10 @@ async function cleanupAllAudioCapture() {
   }
   
   try {
+    if (cueStopInFlight) {
+      await cueStopInFlight;
+    }
+
     // 1. Stop user streaming (handles global.userStreamingProcess)
     await stopUserStreaming();
     
@@ -579,6 +633,34 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
       throw new Error('Native audio module not loaded. Please wait for app initialization.');
     }
 
+    if (cueStopInFlight) {
+      await cueStopInFlight;
+    }
+
+    let systemCaptureActive = false;
+    let micCaptureActive = false;
+    try {
+      if (typeof nativeAudio.isSystemAudioCaptureActive === 'function') {
+        systemCaptureActive = !!(await nativeAudio.isSystemAudioCaptureActive());
+      }
+      if (typeof nativeAudio.isMicrophoneCaptureActive === 'function') {
+        micCaptureActive = !!(await nativeAudio.isMicrophoneCaptureActive());
+      }
+    } catch (probeErr) {
+      console.warn('[Cue] Could not probe native capture state:', probeErr);
+    }
+
+    if (cueAudioStreamer || systemCaptureActive || micCaptureActive) {
+      console.warn('[Cue] Guard: leftover streamer or native capture — running teardown before start', {
+        hadStreamer: !!cueAudioStreamer,
+        systemCaptureActive,
+        micCaptureActive
+      });
+      await teardownCueStreamsAndNative();
+    }
+
+    cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
+
     // Create AudioStreamer for 2 audio websockets (user + prospect)
     cueAudioStreamer = new AudioStreamer({
       sessionId: sessionId, // Use provided sessionId from backend
@@ -651,6 +733,8 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
     await startUserStreaming({
       streamingCallback: (buffer: Buffer, format: string) => {
         if (cueAudioStreamer) {
+          cueCaptureStats.userChunks += 1;
+          cueCaptureStats.userBytes += buffer?.length ?? 0;
           cueAudioStreamer.addUserAudio(buffer, format);
         }
       }
@@ -667,10 +751,18 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
     await nativeAudio.startProspectStreaming({
       streamingCallback: (buffer: Buffer, format: string) => {
         if (cueAudioStreamer) {
+          cueCaptureStats.prospectChunks += 1;
+          cueCaptureStats.prospectBytes += buffer?.length ?? 0;
           cueAudioStreamer.addProspectAudio(buffer, format);
         }
       }
     });
+
+    scheduleCueLowAudioCheck(sessionId);
+
+    if (isDev) {
+      console.log('[Cue] Started session', sessionId, '— stats reset; low-audio check in 4s if no user chunks');
+    }
 
     return { 
       success: true, 
@@ -679,6 +771,7 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
   } catch (error: any) {
     console.error('[MAIN] Error starting Cue:', error);
     Sentry.captureException(error);
+    clearCueLowAudioTimer();
     // Clean up on error
     cueAudioStreamer = null;
     return { success: false, error: error.message };
@@ -693,25 +786,19 @@ ipcMain.handle('stop-cue', async (_event: Electron.IpcMainInvokeEvent) => {
   }
 
   const stopWork = (async (): Promise<{ success: boolean; error?: string }> => {
+    const statsAtStop = { ...cueCaptureStats };
     try {
-      // Stop audio streaming (streaming only - no file recording to stop)
-      await stopUserStreaming();
-      if (nativeAudio) {
-        await nativeAudio.stopSystemAudioCapture();
-        nativeAudio.setStreamingCallback(null);
-      }
-
-      // Stop audio websockets (2)
-      if (cueAudioStreamer) {
-        await cueAudioStreamer.stop(false); // Don't send termination message
-        cueAudioStreamer = null;
-      }
-
+      await teardownCueStreamsAndNative();
+      console.log(
+        `[Cue] Session teardown complete — capture stats: userChunks=${statsAtStop.userChunks} prospectChunks=${statsAtStop.prospectChunks} userBytes=${statsAtStop.userBytes} prospectBytes=${statsAtStop.prospectBytes}`
+      );
+      cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
       return { success: true };
     } catch (error: any) {
       console.error('[MAIN] Error stopping Cue:', error);
       Sentry.captureException(error);
       cueAudioStreamer = null;
+      cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
       return { success: false, error: error.message };
     } finally {
       cueStopInFlight = null;
