@@ -1709,8 +1709,7 @@ app.whenReady().then(() => {
   ipcMain.handle('native-audio-start-capture', async (event: Electron.IpcMainInvokeEvent, options: AudioCaptureOptions = {}) => {
     if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
     try {
-      const result = await nativeAudio.startSystemAudioCapture(options);
-      return { success: result };
+      return await nativeAudio.startSystemAudioCapture(options);
     } catch (error: any) {
       console.error('[MAIN] Failed to start capture:', error);
       Sentry.captureException(error);
