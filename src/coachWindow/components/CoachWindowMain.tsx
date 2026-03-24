@@ -269,7 +269,23 @@ export default function CoachWindowMain() {
 		return () => {
 			unsubscribe();
 		};
-	}, [isCoachActive, coachFeature, isInsightsLayoutOpen, hasReceivedFirstInsight]);
+    }, [isCoachActive, coachFeature, isInsightsLayoutOpen, hasReceivedFirstInsight]);
+
+    useEffect(() => {
+        if (!isCoachActive || coachFeature !== 'cue') return;
+        if (!window.electron?.cue?.onLowUserAudio) return;
+
+        const unsubscribe = window.electron.cue.onLowUserAudio(() => {
+            useCoachWindowStore.setState({
+                error:
+                    "Sayso isn't receiving microphone audio yet. Check your input device, or wait a few seconds after stopping before starting again.",
+            });
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [isCoachActive, coachFeature]);
 
     useEffect(() => {
         if (!window.electron?.cue?.onAutoStop) {
