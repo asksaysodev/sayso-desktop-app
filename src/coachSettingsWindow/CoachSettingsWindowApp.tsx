@@ -7,6 +7,8 @@ import AudioSettings from "./components/AudioSettings";
 import TopDragBar from "@/components/TopDragBar";
 import { searchSettings, SettingsRegistryEntry } from "./settingsRegistry";
 import CoachSettingsSeachBar from "./components/CoachSettingsSearchBar";
+import { CoachSettingsProvider } from "./context/CoachSettingsContext";
+import useCoachSettingsContext from "./context/CoachSettingsContext";
 
 export type SidebarOptionType = 'cue' | 'auto-stop' | 'audio' | 'scripts';
 
@@ -23,7 +25,8 @@ const SIDEBAR_OPTIONS: SidebarOption[] = [
     { key: 'scripts', label: 'Scripts', icon: <LuBookText /> },
 ];
 
-function CoachSettingsWindowApp() {
+function CoachSettingsContent() {
+    const { coachSettingsIsLoading } = useCoachSettingsContext();
     const [active, setActive] = useState<SidebarOptionType>('cue');
     const [searchValue, setSearchValue] = useState('');
     const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -36,7 +39,7 @@ function CoachSettingsWindowApp() {
         if (!el) return;
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         el.classList.add('highlight');
-            const timer = setTimeout(() => el.classList.remove('highlight'), 1500);
+        const timer = setTimeout(() => el.classList.remove('highlight'), 1500);
         setHighlightId(null);
         return () => clearTimeout(timer);
     }, [active, highlightId]);
@@ -55,10 +58,12 @@ function CoachSettingsWindowApp() {
         }
     };
 
+    if (coachSettingsIsLoading) return null;
+
     return (
-        <div className="coach-settings-container">
+        <>
             <TopDragBar />
-            
+
             <div className="coach-settings-sidebar">
                 <CoachSettingsSeachBar onChangeText={setSearchValue} value={searchValue} />
                 {searchValue
@@ -87,11 +92,21 @@ function CoachSettingsWindowApp() {
                     ))
                 }
             </div>
-            
+
             <div className="coach-settings-active-content-container">
                 {renderContent()}
             </div>
-        </div>
+        </>
+    );
+}
+
+function CoachSettingsWindowApp() {
+    return (
+        <CoachSettingsProvider>
+            <div className="coach-settings-container">
+                <CoachSettingsContent />
+            </div>
+        </CoachSettingsProvider>
     );
 }
 

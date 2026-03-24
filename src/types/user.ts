@@ -19,6 +19,8 @@ export interface UserMetadata {
   company?: string;
 }
 
+type AccountType = 'individual' | 'team';
+export type AccountStatus = 'active' | 'expired' | 'pending' | 'revoked';
 export interface Account {
   id: string;
   email: string;
@@ -45,8 +47,22 @@ export interface Account {
   subscription_updated_at?: string | null;
   stripe_price_id?: string | null;
   subscription_current_period_start?: string | null;
+  account_type: AccountType;
+  status: AccountStatus;
 }
-
+export interface OrgMemberInvite {
+    email: string;
+    expires_at: string;
+    id: string;
+    invited_by: string;
+    lastname: string;
+    name: string;
+    status: AccountStatus;
+}
+export interface OrganizationMembersResponse {
+    members: Account[]; 
+    invites: OrgMemberInvite[];
+}
 export interface AccountUsage {
   planMinutes: number;
   remainingMinutes: number;
@@ -81,7 +97,7 @@ export type SubscriptionStatus =
   | 'unpaid'
   | 'paused';
 
-export type UserRole = 'admin' | 'user' | 'manager';
+export type UserRole = 'admin' | 'user' | 'superadmin';
 
 export interface Company {
   id: string;
@@ -100,7 +116,7 @@ export interface CreateAccountData {
 }
 
 export interface UpdateAccountData {
-  id: string;
+  id?: string;
   name?: string;
   lastname?: string;
   company_id?: string;
