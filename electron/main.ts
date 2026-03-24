@@ -772,8 +772,12 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
     console.error('[MAIN] Error starting Cue:', error);
     Sentry.captureException(error);
     clearCueLowAudioTimer();
-    // Clean up on error
-    cueAudioStreamer = null;
+    try {
+      await teardownCueStreamsAndNative();
+    } catch (teardownErr: any) {
+      console.error('[Cue] Error tearing down after failed start:', teardownErr);
+      cueAudioStreamer = null;
+    }
     return { success: false, error: error.message };
   }
 });
