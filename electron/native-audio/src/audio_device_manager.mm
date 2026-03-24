@@ -1097,9 +1097,10 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs) {
         return false;
     }
     
-    AVAudioFormat* inputFormat = [g_micInputNode inputFormatForBus:0];
-    
-    [g_micInputNode installTapOnBus:0 bufferSize:4096 format:inputFormat block:^(AVAudioPCMBuffer* buffer, AVAudioTime* when) {
+    // Use nil format so the tap matches the hardware connection. Passing inputFormatForBus:0 can
+    // raise NSException "Failed to create tap due to format mismatch" on some routes (e.g. after SCK).
+    @try {
+        [g_micInputNode installTapOnBus:0 bufferSize:4096 format:nil block:^(AVAudioPCMBuffer* buffer, AVAudioTime* when) {
         if (!buffer) {
             return;
         }
@@ -1151,6 +1152,11 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs) {
         g_micStreamingAsyncHandle->data = streamData;
         uv_async_send(g_micStreamingAsyncHandle);
     }];
+    } @catch (NSException *ex) {
+        NSLog(@"❌ [NATIVE] installTapOnBus failed: %@ — %@", ex.name, ex.reason);
+        MicEngineTeardownOnly();
+        return false;
+    }
     
     NSError* error = nil;
     BOOL ok = [g_micEngine startAndReturnError:&error];

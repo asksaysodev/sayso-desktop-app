@@ -100,21 +100,27 @@ class AudioDeviceManager {
    * Start system audio capture with optional streaming callback
    * @param {Object} options - Capture options
    * @param {Function} options.streamingCallback - Optional callback for audio chunks
-   * @returns {Promise<boolean>} Resolves true when SCK audio output is attached and capture started; rejects on failure
+   * @returns {Promise<{ success: boolean, error?: string }>} success when SCK audio output is attached and capture started
    */
   async startSystemAudioCapture(options = {}) {
-    await this.initialize();
-    
-    // Extract streaming callback from options if provided
-    const { streamingCallback, ...captureOptions } = options;
-    
-    // Set streaming callback if provided
-    if (streamingCallback) {
-      this.setStreamingCallback(streamingCallback);
+    try {
+      await this.initialize();
+      const { streamingCallback, ...captureOptions } = options;
+      if (streamingCallback) {
+        this.setStreamingCallback(streamingCallback);
+      }
+      const nativeResult = await nativeAudio.startSystemAudioCapture(captureOptions);
+      if (nativeResult === true) {
+        return { success: true };
+      }
+      return {
+        success: false,
+        error: 'System audio capture did not start (unexpected native result)',
+      };
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      return { success: false, error: message };
     }
-    
-    // Start capture with remaining options
-    return nativeAudio.startSystemAudioCapture(captureOptions);
   }
 
   /**
@@ -132,8 +138,10 @@ class AudioDeviceManager {
     // Set streaming callback
     this.setStreamingCallback(streamingCallback);
     
-    // Resolves when SCK audio output is attached and capture started; rejects on addStreamOutput/start failures
-    await nativeAudio.startSystemAudioCapture({ streamingOnly: true });
+    const started = await this.startSystemAudioCapture({ streamingOnly: true });
+    if (!started.success) {
+      throw new Error(started.error || '[AUDIO MANAGER] System audio capture failed to start');
+    }
     return { success: true };
   }
 
