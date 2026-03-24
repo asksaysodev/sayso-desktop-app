@@ -730,15 +730,15 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
     await cueAudioStreamer.start(token);
 
     // Set up audio capture callbacks (streaming only - no file saving)
-    await startUserStreaming({
-      streamingCallback: (buffer: Buffer, format: string) => {
-        if (cueAudioStreamer) {
-          cueCaptureStats.userChunks += 1;
-          cueCaptureStats.userBytes += buffer?.length ?? 0;
-          cueAudioStreamer.addUserAudio(buffer, format);
-        }
+    const cueUserStreamingCallback = (buffer: Buffer, format: unknown) => {
+      if (cueAudioStreamer) {
+        cueCaptureStats.userChunks += 1;
+        cueCaptureStats.userBytes += buffer?.length ?? 0;
+        cueAudioStreamer.addUserAudio(buffer, format);
       }
-    });
+    };
+    await startUserStreaming({ streamingCallback: cueUserStreamingCallback });
+    await ensureCueUserMicDeliversJsChunks(sessionId, cueUserStreamingCallback);
 
     if (!nativeAudio) {
       throw new Error('Native audio module not loaded. Please wait for app initialization.');
@@ -860,6 +860,36 @@ const {
   stopUserStreaming,
   startUserStreaming
 } = require('./recorder');
+
+const CUE_MIC_JS_WARMUP_MS = 500;
+const CUE_MIC_JS_RESTART_WAIT_MS = 700;
+
+async function waitForCueUserChunks(sessionId: string, maxMs: number): Promise<boolean> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    if (cueCaptureStats.userChunks > 0) return true;
+    if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return false;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  return cueCaptureStats.userChunks > 0;
+}
+
+/** If Node never receives mic buffers after native start, stop/start mic once (belt-and-suspenders). */
+async function ensureCueUserMicDeliversJsChunks(
+  sessionId: string,
+  streamingCallback: (buffer: Buffer, format: unknown) => void
+): Promise<void> {
+  if (await waitForCueUserChunks(sessionId, CUE_MIC_JS_WARMUP_MS)) return;
+  if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
+  console.warn('[Cue] No user chunks on JS side after native mic start — restarting user streaming once', {
+    sessionId,
+  });
+  await stopUserStreaming();
+  if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
+  await startUserStreaming({ streamingCallback });
+  await waitForCueUserChunks(sessionId, CUE_MIC_JS_RESTART_WAIT_MS);
+}
+
 const audioQueue = require('./audioQueue');
 const { AudioStreamer } = require('./streaming/audioStreamer');
 const { getAuthToken } = require('./utils/authTokens');

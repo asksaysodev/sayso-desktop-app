@@ -11,9 +11,11 @@
 #include <AudioToolbox/AudioToolbox.h>
 #include <dispatch/dispatch.h>
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <cstdio>
 #include <vector>
+#include <unistd.h>
 
 using namespace v8;
 
@@ -51,6 +53,8 @@ static uv_async_t* g_micStreamingAsyncHandle = nullptr;
 static AVAudioEngine* g_micEngine = nullptr;
 static AVAudioInputNode* g_micInputNode = nullptr;
 static bool g_isMicCapturing = false;
+// Set from the realtime mic tap when the first buffer is enqueued (Bluetooth / cold-start can delay taps).
+static std::atomic<bool> g_micFirstTapSeen{false};
 
 // Structure to pass audio data to async callback
 struct StreamingData {
@@ -964,52 +968,47 @@ NAN_METHOD(StopSystemAudioCapture) {
     info.GetReturnValue().Set(result);
 }
 
-// Start microphone capture for streaming
-NAN_METHOD(StartMicrophoneCapture) {
-    NSLog(@"🎤 [NATIVE] Starting microphone capture");
-    
-    if (g_isMicCapturing) {
-        NSLog(@"⚠️ [NATIVE] Microphone capture already active");
-        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
-        return;
+// Tear down mic engine + tap without clearing Node callbacks (internal retry path).
+static void MicEngineTeardownOnly() {
+    if (g_micInputNode) {
+        [g_micInputNode removeTapOnBus:0];
+        g_micInputNode = nullptr;
     }
-    
-    // Check if microphone streaming callback is set up
-    // Note: Microphone uses its own separate callback (g_micStreamingCallback)
-    // This is set via SetMicrophoneStreamingCallback, not SetStreamingCallback
-    if (g_micStreamingCallback.IsEmpty()) {
-        NSLog(@"⚠️ [NATIVE] Microphone streaming callback is empty - cannot capture microphone");
-        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
-        return;
+    if (g_micEngine) {
+        [g_micEngine stop];
+        g_micEngine = nullptr;
     }
-    
-    // Create microphone-specific async handle if it doesn't exist
-    if (!g_micStreamingAsyncHandle) {
-        g_micStreamingAsyncHandle = new uv_async_t;
-        uv_async_init(uv_default_loop(), g_micStreamingAsyncHandle, MicStreamingAsyncCallback);
+}
+
+static bool WaitForMicFirstTapMs(int timeoutMs) {
+    const useconds_t stepUs = 2000;
+    int elapsedMs = 0;
+    while (elapsedMs < timeoutMs) {
+        if (g_micFirstTapSeen.load(std::memory_order_acquire)) {
+            return true;
+        }
+        usleep(stepUs);
+        elapsedMs += 2;
     }
+    return g_micFirstTapSeen.load(std::memory_order_acquire);
+}
+
+// Starts engine and blocks until the realtime tap enqueues at least one buffer (or timeout).
+static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs) {
+    g_micFirstTapSeen.store(false, std::memory_order_release);
     
-    // Note: On macOS, microphone permissions are handled automatically by the system
-    // when AVAudioEngine tries to access the input. No AVAudioSession needed.
-    
-    // Create audio engine
     g_micEngine = [[AVAudioEngine alloc] init];
     g_micInputNode = [g_micEngine inputNode];
     
     if (!g_micInputNode) {
         NSLog(@"❌ [NATIVE] Failed to get input node from audio engine");
         g_micEngine = nullptr;
-        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
-        return;
+        return false;
     }
     
-    // Get the input format (use mic's native format)
     AVAudioFormat* inputFormat = [g_micInputNode inputFormatForBus:0];
     
-    // Install tap - capture at mic's native format, let JS converter handle resampling
-    // Use larger buffer for smoother streaming (4096 frames ≈ 85ms at 48kHz)
     [g_micInputNode installTapOnBus:0 bufferSize:4096 format:inputFormat block:^(AVAudioPCMBuffer* buffer, AVAudioTime* when) {
-        // Check prerequisites
         if (!buffer) {
             return;
         }
@@ -1027,13 +1026,14 @@ NAN_METHOD(StartMicrophoneCapture) {
         AVAudioFormat* bufferFormat = buffer.format;
         int channels = (int)bufferFormat.channelCount;
         int frameLength = (int)buffer.frameLength;
+        if (frameLength <= 0) {
+            return;
+        }
         
-        // Determine bit depth and get audio data
         StreamingData* streamData = new StreamingData();
         size_t dataSize = 0;
         
         if (bufferFormat.commonFormat == AVAudioPCMFormatFloat32) {
-            // 32-bit float
             float* floatData = buffer.floatChannelData[0];
             dataSize = frameLength * channels * sizeof(float);
             streamData->audioData.resize(dataSize);
@@ -1041,7 +1041,6 @@ NAN_METHOD(StartMicrophoneCapture) {
             streamData->bitDepth = 32;
             streamData->isFloat = true;
         } else if (bufferFormat.commonFormat == AVAudioPCMFormatInt16) {
-            // 16-bit int
             int16_t* intData = buffer.int16ChannelData[0];
             dataSize = frameLength * channels * sizeof(int16_t);
             streamData->audioData.resize(dataSize);
@@ -1049,7 +1048,6 @@ NAN_METHOD(StartMicrophoneCapture) {
             streamData->bitDepth = 16;
             streamData->isFloat = false;
         } else {
-            // Unsupported format, skip
             NSLog(@"⚠️ [NATIVE] Unsupported audio format: %lu", (unsigned long)bufferFormat.commonFormat);
             delete streamData;
             return;
@@ -1058,26 +1056,66 @@ NAN_METHOD(StartMicrophoneCapture) {
         streamData->sampleRate = bufferFormat.sampleRate;
         streamData->channels = channels;
         
-        // Send to microphone-specific callback
+        g_micFirstTapSeen.store(true, std::memory_order_release);
         g_micStreamingAsyncHandle->data = streamData;
         uv_async_send(g_micStreamingAsyncHandle);
     }];
     
-    // Start engine
     NSError* error = nil;
-    BOOL success = [g_micEngine startAndReturnError:&error];
+    BOOL ok = [g_micEngine startAndReturnError:&error];
     
-    if (success) {
-        g_isMicCapturing = true;
-        NSLog(@"✅ [NATIVE] Microphone capture started successfully");
-        info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
-    } else {
+    if (!ok) {
         NSLog(@"❌ [NATIVE] Failed to start microphone capture: %@", error.localizedDescription);
-        [g_micInputNode removeTapOnBus:0];
-        g_micEngine = nullptr;
-        g_micInputNode = nullptr;
-        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        MicEngineTeardownOnly();
+        return false;
     }
+    
+    if (!WaitForMicFirstTapMs(waitForFirstTapMs)) {
+        NSLog(@"⚠️ [NATIVE] Mic engine started but no tap buffers within %d ms — tearing down for retry",
+              waitForFirstTapMs);
+        MicEngineTeardownOnly();
+        return false;
+    }
+    
+    return true;
+}
+
+// Start microphone capture for streaming
+NAN_METHOD(StartMicrophoneCapture) {
+    NSLog(@"🎤 [NATIVE] Starting microphone capture");
+    
+    if (g_isMicCapturing) {
+        NSLog(@"⚠️ [NATIVE] Microphone capture already active");
+        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        return;
+    }
+    
+    if (g_micStreamingCallback.IsEmpty()) {
+        NSLog(@"⚠️ [NATIVE] Microphone streaming callback is empty - cannot capture microphone");
+        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        return;
+    }
+    
+    if (!g_micStreamingAsyncHandle) {
+        g_micStreamingAsyncHandle = new uv_async_t;
+        uv_async_init(uv_default_loop(), g_micStreamingAsyncHandle, MicStreamingAsyncCallback);
+    }
+    
+    const int kFirstTapWaitMs = 1200;
+    const int kRetryTapWaitMs = 1500;
+    
+    if (!TryStartMicrophoneCaptureOnce(kFirstTapWaitMs)) {
+        NSLog(@"🎤 [NATIVE] Mic: repeating capture once (cold start / Bluetooth input path)");
+        if (!TryStartMicrophoneCaptureOnce(kRetryTapWaitMs)) {
+            NSLog(@"❌ [NATIVE] Microphone capture failed after retry: no tap buffers");
+            info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+            return;
+        }
+    }
+    
+    g_isMicCapturing = true;
+    NSLog(@"✅ [NATIVE] Microphone capture started successfully (first tap received)");
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
 // Stop microphone capture
