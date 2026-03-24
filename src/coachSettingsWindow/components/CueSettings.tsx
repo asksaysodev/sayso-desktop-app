@@ -8,7 +8,7 @@ import updateCueMode from "../services/cue/updateCueInsightMode";
 export default function CueSettings() {
     const [mode, setMode] = useState<CueMode>('condensed');
     const [bufferTime, setBufferTime] = useState<number | undefined>(undefined);
-    const { coachSettings, mutateBufferTime } = useCoachSettingsContext();
+    const { coachSettings, mutateBufferTime, mutateCueMode } = useCoachSettingsContext();
     const serverValue = useRef<number | undefined>(undefined);
     const debouncedBufferTime = useDebounce(bufferTime, 1500);
 
@@ -29,7 +29,7 @@ export default function CueSettings() {
     
     const handleChangeCueMode = (mode: CueMode) => {
         setMode(mode);
-        updateCueMode(mode);
+        mutateCueMode(mode);
     }
     
     return (
