@@ -100,7 +100,7 @@ class AudioDeviceManager {
    * Start system audio capture with optional streaming callback
    * @param {Object} options - Capture options
    * @param {Function} options.streamingCallback - Optional callback for audio chunks
-   * @returns {Promise<Object>} - Result object with success and filePath
+   * @returns {Promise<boolean>} Resolves true when SCK audio output is attached and capture started; rejects on failure
    */
   async startSystemAudioCapture(options = {}) {
     await this.initialize();
@@ -132,9 +132,8 @@ class AudioDeviceManager {
     // Set streaming callback
     this.setStreamingCallback(streamingCallback);
     
-    // Start capture with streamingOnly flag to skip file creation
-    const result = await nativeAudio.startSystemAudioCapture({ streamingOnly: true });
-    
+    // Resolves when SCK audio output is attached and capture started; rejects on addStreamOutput/start failures
+    await nativeAudio.startSystemAudioCapture({ streamingOnly: true });
     return { success: true };
   }
 

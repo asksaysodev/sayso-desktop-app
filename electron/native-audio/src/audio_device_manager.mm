@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <vector>
+#include <string>
 #include <unistd.h>
 
 using namespace v8;
@@ -738,6 +739,69 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
 
 static AudioCaptureDelegate* g_delegate = nil;
 
+// ScreenCaptureKit async start: Promise settled on libuv thread when addStreamOutput / startCapture completes.
+struct PendingSckStart {
+    uv_async_t async;
+    Nan::Persistent<v8::Promise::Resolver> resolver;
+    bool reject;
+    std::string message;
+};
+
+static PendingSckStart* g_sckStartPending = nullptr;
+
+static Local<Promise> MakeRejectedPromise(Isolate* isolate, const char* msg) {
+    Local<Context> context = isolate->GetCurrentContext();
+    MaybeLocal<Promise::Resolver> maybe = Promise::Resolver::New(context);
+    if (maybe.IsEmpty()) {
+        return Local<Promise>();
+    }
+    Local<Promise::Resolver> resolver = maybe.ToLocalChecked();
+    resolver->Reject(context, Nan::Error(msg)).Check();
+    return resolver->GetPromise();
+}
+
+static void ResetSCKPipelineAfterFailedStart() {
+    if (g_delegate) {
+        g_delegate.audioCallback = nil;
+    }
+    g_stream = nil;
+    g_filter = nil;
+    g_config = nil;
+    g_isCapturing = false;
+}
+
+static void SckStartSettledCb(uv_async_t* handle) {
+    PendingSckStart* p = static_cast<PendingSckStart*>(handle->data);
+    if (!p) {
+        return;
+    }
+    g_sckStartPending = nullptr;
+
+    Nan::HandleScope scope;
+    Isolate* isolate = Isolate::GetCurrent();
+    Local<Context> context = isolate->GetCurrentContext();
+    Local<Promise::Resolver> res = Nan::New(p->resolver);
+    p->resolver.Reset();
+
+    if (p->reject) {
+        const char* m = p->message.empty() ? "System audio capture failed" : p->message.c_str();
+        res->Reject(context, Nan::Error(m)).Check();
+    } else {
+        res->Resolve(context, Nan::True()).Check();
+    }
+
+    uv_close(reinterpret_cast<uv_handle_t*>(handle), [](uv_handle_t* h) {
+        PendingSckStart* self = static_cast<PendingSckStart*>(h->data);
+        delete self;
+    });
+}
+
+static void ScheduleSckStartSettle(PendingSckStart* pending, bool reject, const std::string& message) {
+    pending->reject = reject;
+    pending->message = message;
+    uv_async_send(&pending->async);
+}
+
 // Initialize the native module
 NAN_METHOD(Initialize) {
     
@@ -774,9 +838,17 @@ NAN_METHOD(RequestScreenRecordingPermission) {
 NAN_METHOD(StartSystemAudioCapture) {
     NSLog(@"🎤 [NATIVE] Starting system audio capture");
     
+    Isolate* isolate = info.GetIsolate();
+    Local<Context> context = isolate->GetCurrentContext();
+    
     if (g_isCapturing) {
         NSLog(@"⚠️ [NATIVE] System audio capture already active");
-        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        info.GetReturnValue().Set(MakeRejectedPromise(isolate, "System audio capture already active"));
+        return;
+    }
+    if (g_sckStartPending != nullptr) {
+        NSLog(@"⚠️ [NATIVE] System audio capture start already in progress");
+        info.GetReturnValue().Set(MakeRejectedPromise(isolate, "System audio capture start already in progress"));
         return;
     }
     
@@ -799,20 +871,16 @@ NAN_METHOD(StartSystemAudioCapture) {
     g_actualStartMs = 0.0;
 
     // Set output directory
-    // Dev: keep existing project directory behavior
-    // Prod: unify with mic path at ~/Library/Application Support/sayso-app/temp/full_recordings
     std::string currentPath = std::string([[[NSBundle mainBundle] bundlePath] UTF8String]);
     size_t electronPos = currentPath.find("/node_modules/electron/dist/Electron.app");
     if (electronPos != std::string::npos) {
-        // Development mode - use project directory (unchanged)
         currentPath = currentPath.substr(0, electronPos);
         g_outputDirectory = currentPath + "/electron/full_recordings";
         NSLog(@"🎤 [NATIVE] Development mode - using project directory: %s", g_outputDirectory.c_str());
     } else {
-        // Production mode - use unified temp path under sayso-app
         NSArray* paths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
         NSString* appSupportDir = [paths firstObject];
-        NSString* appDir = [appSupportDir stringByAppendingPathComponent:@"sayso-app"]; // match mic path app name
+        NSString* appDir = [appSupportDir stringByAppendingPathComponent:@"sayso-app"];
         NSString* tempFullRecordingsDir = [appDir stringByAppendingPathComponent:@"temp/full_recordings"];
         g_outputDirectory = std::string([tempFullRecordingsDir UTF8String]);
         NSLog(@"🎤 [NATIVE] Production mode - unified output directory: %s", g_outputDirectory.c_str());
@@ -820,86 +888,109 @@ NAN_METHOD(StartSystemAudioCapture) {
     
     NSLog(@"🎤 [NATIVE] Final output directory: %s", g_outputDirectory.c_str());
     
-    // Get shareable content
+    MaybeLocal<Promise::Resolver> maybeResolver = Promise::Resolver::New(context);
+    if (maybeResolver.IsEmpty()) {
+        info.GetReturnValue().Set(MakeRejectedPromise(isolate, "Failed to create promise resolver"));
+        return;
+    }
+    Local<Promise::Resolver> resolver = maybeResolver.ToLocalChecked();
+    info.GetReturnValue().Set(resolver->GetPromise());
+    
+    PendingSckStart* pending = new PendingSckStart();
+    pending->async.data = pending;
+    pending->reject = false;
+    int uvErr = uv_async_init(uv_default_loop(), &pending->async, SckStartSettledCb);
+    if (uvErr != 0) {
+        delete pending;
+        resolver->Reject(context, Nan::Error("Failed to initialize async notifier for system audio start")).Check();
+        return;
+    }
+    pending->resolver.Reset(resolver);
+    g_sckStartPending = pending;
+    
     [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
         if (error) {
             NSLog(@"❌ [NATIVE] Failed to get shareable content: %@", error.localizedDescription);
+            std::string msg([[error localizedDescription] UTF8String]);
+            if (msg.empty()) {
+                msg = "Failed to get shareable content (screen recording permission?)";
+            }
+            ScheduleSckStartSettle(pending, true, msg);
             return;
         }
         
         if (content.displays.count == 0) {
             NSLog(@"❌ [NATIVE] No displays available");
+            ScheduleSckStartSettle(pending, true, "No displays available for system audio capture");
             return;
         }
         
-        // Get the main display
         SCDisplay *display = content.displays.firstObject;
         NSLog(@"🎤 [NATIVE] Using display: %u", display.displayID);
         
-                    // Create content filter for system audio (not display)
         g_filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
         
-                    // Create stream configuration with optimal audio settings
         g_config = [[SCStreamConfiguration alloc] init];
         g_config.capturesAudio = YES;
         g_config.excludesCurrentProcessAudio = YES;
-                    
-                    // Let ScreenCaptureKit use the actual system audio rate - don't force any rate
-                    // This avoids sample rate conversion and pitch issues
-                    g_config.channelCount = 2;    // Stereo
-                    
-                    NSLog(@"🎤 [NATIVE] Stream configuration: Audio=YES, Channels=%ld (system will decide sample rate)", (long)g_config.channelCount);
-                    
-                    // Optimize for audio processing (reduce frame rate since we only need audio)
-                    g_config.minimumFrameInterval = CMTimeMake(1, 60); // 60 FPS minimum but we'll ignore video
-                    g_config.queueDepth = 10;     // Larger buffer for smoother audio
-                    
-                    // Additional audio-specific optimizations
-                    g_config.capturesAudio = YES;
-                    g_config.excludesCurrentProcessAudio = YES;
+        g_config.channelCount = 2;
         
-        NSLog(@"🎤 [NATIVE] Stream configuration: Audio=%@, SampleRate=%ld, Channels=%ld", 
-              g_config.capturesAudio ? @"YES" : @"NO", 
-              (long)g_config.sampleRate, 
+        NSLog(@"🎤 [NATIVE] Stream configuration: Audio=YES, Channels=%ld (system will decide sample rate)", (long)g_config.channelCount);
+        
+        g_config.minimumFrameInterval = CMTimeMake(1, 60);
+        g_config.queueDepth = 10;
+        g_config.capturesAudio = YES;
+        g_config.excludesCurrentProcessAudio = YES;
+        
+        NSLog(@"🎤 [NATIVE] Stream configuration: Audio=%@, SampleRate=%ld, Channels=%ld",
+              g_config.capturesAudio ? @"YES" : @"NO",
+              (long)g_config.sampleRate,
               (long)g_config.channelCount);
         
-        // Create stream
-        g_stream = [[SCStream alloc] initWithFilter:g_filter 
-                                       configuration:g_config 
+        g_stream = [[SCStream alloc] initWithFilter:g_filter
+                                       configuration:g_config
                                              delegate:g_delegate];
         
-        // Set up audio callback
         g_delegate.audioCallback = ^(CMSampleBufferRef sampleBuffer) {
             audioCallback(sampleBuffer);
         };
         
-                    // Add stream output with correct method signature (includes error parameter)
-                    NSError *streamError = nil;
-                    BOOL success = [g_stream addStreamOutput:g_delegate 
-                             type:SCStreamOutputTypeAudio 
-                                          sampleHandlerQueue:g_audioQueue 
-                                                       error:&streamError];
-                    
-                    if (success) {
-                        NSLog(@"✅ [NATIVE] Stream output added successfully");
-                    } else {
-                        NSLog(@"❌ [NATIVE] Failed to add stream output: %@", streamError.localizedDescription);
-                        // Continue anyway - we'll start the stream and see what happens
-                    }
+        NSError *streamError = nil;
+        BOOL outputOk = [g_stream addStreamOutput:g_delegate
+                                             type:SCStreamOutputTypeAudio
+                              sampleHandlerQueue:g_audioQueue
+                                           error:&streamError];
         
-        // Start capture
-        [g_stream startCaptureWithCompletionHandler:^(NSError *error) {
-            if (error) {
-                NSLog(@"❌ [NATIVE] Failed to start capture: %@", error.localizedDescription);
-                g_isCapturing = false;
+        if (!outputOk) {
+            NSString* desc = streamError ? streamError.localizedDescription : @"Unknown error";
+            NSLog(@"❌ [NATIVE] Failed to add stream output: %@", desc);
+            std::string msg([desc UTF8String]);
+            if (msg.empty()) {
+                msg = "Failed to add ScreenCaptureKit audio stream output";
+            }
+            ResetSCKPipelineAfterFailedStart();
+            ScheduleSckStartSettle(pending, true, msg);
+            return;
+        }
+        
+        NSLog(@"✅ [NATIVE] Stream output added successfully");
+        
+        [g_stream startCaptureWithCompletionHandler:^(NSError *startErr) {
+            if (startErr) {
+                NSLog(@"❌ [NATIVE] Failed to start capture: %@", startErr.localizedDescription);
+                std::string msg([[startErr localizedDescription] UTF8String]);
+                if (msg.empty()) {
+                    msg = "Failed to start system audio capture";
+                }
+                ResetSCKPipelineAfterFailedStart();
+                ScheduleSckStartSettle(pending, true, msg);
             } else {
                 NSLog(@"✅ [NATIVE] System audio capture started successfully");
                 g_isCapturing = true;
+                ScheduleSckStartSettle(pending, false, "");
             }
         }];
     }];
-    
-    info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
 // Stop system audio capture
