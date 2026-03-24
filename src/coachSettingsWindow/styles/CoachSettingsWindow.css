@@ -58,8 +58,21 @@ body {
 }
 
 .sidebar-search:focus {
-    border-color: var(--sayso-blue);
+    border-color: rgba(255, 255, 255, 0.35);
     background: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-search-clear {
+    position: absolute;
+    right: 10px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.35);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.sidebar-search-clear:hover {
+    color: rgba(255, 255, 255, 0.7);
 }
 
 .sidebar-option-button {
@@ -91,9 +104,9 @@ body {
 }
 
 .sidebar-option-button.active {
-    background-color: var(--sayso-blue);
+    background-color: rgba(255, 255, 255, 0.12);
     color: #fff;
-    box-shadow: 0 0 14px rgba(35, 103, 238, 0.45);
+    box-shadow: none;
 }
 
 /* ── Content area ── */
@@ -133,12 +146,21 @@ body {
     flex-direction: row;
     align-items: center;
     gap: 32px;
-    padding: 20px 0;
+    padding: 20px 14px;
     border-bottom: 1px solid rgba(114, 126, 137, 0.2);
 }
 
 .cue-setting-item:last-child {
     border-bottom: none;
+}
+
+@keyframes setting-highlight {
+    0%   { background: rgba(255, 255, 255, 0.1); border-radius: 8px; }
+    100% { background: transparent; border-radius: 8px; }
+}
+
+.cue-setting-item.highlight {
+    animation: setting-highlight 4s ease-out forwards;
 }
 
 .cue-setting-left {
@@ -195,9 +217,9 @@ body {
 }
 
 .cue-mode-option.active {
-    background-color: var(--sayso-blue);
+    background-color: rgba(255, 255, 255, 0.15);
     color: #fff;
-    box-shadow: 0 0 10px rgba(35, 103, 238, 0.4);
+    box-shadow: none;
 }
 
 /* Buffer time slider */
@@ -225,26 +247,26 @@ body {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: var(--sayso-blue);
+    background: #fff;
     cursor: pointer;
-    border: 2px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 0 8px rgba(35, 103, 238, 0.5);
+    border: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 
 .cue-range::-moz-range-thumb {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: var(--sayso-blue);
+    background: #fff;
     cursor: pointer;
-    border: 2px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 0 8px rgba(35, 103, 238, 0.5);
+    border: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 
 .cue-range-value {
     font-size: 14px;
     font-weight: 600;
-    color: var(--sayso-blue);
+    color: rgba(255, 255, 255, 0.65);
     min-width: 28px;
     text-align: right;
     flex-shrink: 0;
@@ -287,8 +309,8 @@ body {
 }
 
 .settings-toggle.on {
-    background: var(--sayso-blue);
-    box-shadow: 0 0 10px rgba(35, 103, 238, 0.4);
+    background: rgba(255, 255, 255, 0.35);
+    box-shadow: none;
 }
 
 .settings-toggle-thumb {
@@ -382,6 +404,39 @@ body {
 }
 
 .settings-dropdown-item.active {
-    color: var(--sayso-blue);
+    color: #fff;
+}
+
+/* ── Audio Settings ── */
+
+.audio-device-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.audio-level-meter {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.audio-level-bar {
+    width: 8px;
+    height: 22px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.12);
+    flex-shrink: 0;
+    transition: background 0.06s ease;
+}
+
+.audio-level-bar.active {
+    background: rgba(255, 255, 255, 0.88);
+}
+
+.audio-stream-error {
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: rgba(255, 80, 80, 0.85);
 }
 

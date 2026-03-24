@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { LuChevronDown } from "react-icons/lu";
 import SettingsContentLayout from "./SettingsContentLayout";
+import { SETTINGS_REGISTRY } from "../settingsRegistry";
 
 const SCRIPT_OPTIONS = [
     { id: 1, label: 'Option 1' },
@@ -26,7 +27,7 @@ export default function ScriptsSettings() {
 
     return (
         <SettingsContentLayout title="Scripts">
-            <div className="cue-setting-item">
+            <div id="scripts-active" className="cue-setting-item">
                 <div className="cue-setting-left">
                     <span className="cue-setting-label">Active</span>
                     <p className="cue-setting-description">Enable or disable script guidance during your call.</p>
@@ -42,7 +43,7 @@ export default function ScriptsSettings() {
                     </button>
                 </div>
             </div>
-            <div className="cue-setting-item">
+            <div id="scripts-script" className="cue-setting-item">
                 <div className="cue-setting-left">
                     <span className="cue-setting-label">Script</span>
                     <p className="cue-setting-description">Choose which script to use during your call.</p>

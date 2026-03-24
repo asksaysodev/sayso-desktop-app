@@ -6,7 +6,7 @@ export default function AutoStopSettings() {
 
     return (
         <SettingsContentLayout title="Auto Stop">
-            <div className="cue-setting-item">
+            <div id="auto-stop-time-delay" className="cue-setting-item">
                 <div className="cue-setting-left">
                     <span className="cue-setting-label">Time Delay</span>
                     <p className="cue-setting-description">How long after the call starts before Sayso automatically stops the session.</p>
