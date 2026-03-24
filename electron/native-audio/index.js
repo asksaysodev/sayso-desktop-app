@@ -145,13 +145,16 @@ class AudioDeviceManager {
     return { success: true };
   }
 
+  /**
+   * Stops SCK system audio; resolves after native teardown completes (safe before next start).
+   * @returns {Promise<{ success: boolean, filePath?: string|null, actualStartMs?: number|null, error?: string }>}
+   */
   async stopSystemAudioCapture() {
     await this.initialize();
-    
-    // Clear streaming callback when stopping
+
     this.setStreamingCallback(null);
-    
-    return nativeAudio.stopSystemAudioCapture();
+
+    return await nativeAudio.stopSystemAudioCapture();
   }
 
   async isSystemAudioCaptureActive() {

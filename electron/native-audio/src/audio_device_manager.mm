@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstdio>
+#include <list>
 #include <vector>
 #include <string>
 #include <unistd.h>
@@ -749,6 +750,20 @@ struct PendingSckStart {
 
 static PendingSckStart* g_sckStartPending = nullptr;
 
+// Async system-audio stop: JS Promise resolves on libuv thread after SCK stopCapture completes.
+struct PendingSckStop {
+    uv_async_t async;
+    std::list<Nan::Persistent<v8::Promise::Resolver>> resolvers;
+    std::string savedFilePath;
+    bool hasFilePath;
+    double actualStartMsCopy;
+    bool hasActualStartMs;
+    bool stopFailed;
+    std::string stopErrorDescription;
+};
+
+static PendingSckStop* g_sckStopPending = nullptr;
+
 static Local<Promise> MakeRejectedPromise(Isolate* isolate, const char* msg) {
     Local<Context> context = isolate->GetCurrentContext();
     MaybeLocal<Promise::Resolver> maybe = Promise::Resolver::New(context);
@@ -802,6 +817,50 @@ static void ScheduleSckStartSettle(PendingSckStart* pending, bool reject, const 
     uv_async_send(&pending->async);
 }
 
+static void SckStopSettledCb(uv_async_t* handle) {
+    PendingSckStop* p = static_cast<PendingSckStop*>(handle->data);
+    if (!p) {
+        return;
+    }
+    g_sckStopPending = nullptr;
+
+    Nan::HandleScope scope;
+    Isolate* isolate = Isolate::GetCurrent();
+    Local<Context> context = isolate->GetCurrentContext();
+
+    Local<Object> result = Nan::New<Object>();
+    Nan::Set(result, Nan::New("success").ToLocalChecked(), Nan::New<v8::Boolean>(!p->stopFailed));
+    if (p->hasFilePath) {
+        Nan::Set(result, Nan::New("filePath").ToLocalChecked(),
+                 Nan::New<String>(p->savedFilePath.c_str()).ToLocalChecked());
+    } else {
+        Nan::Set(result, Nan::New("filePath").ToLocalChecked(), Nan::Null());
+    }
+    if (p->hasActualStartMs) {
+        Nan::Set(result, Nan::New("actualStartMs").ToLocalChecked(), Nan::New<Number>(p->actualStartMsCopy));
+    } else {
+        Nan::Set(result, Nan::New("actualStartMs").ToLocalChecked(), Nan::Null());
+    }
+    if (p->stopFailed && !p->stopErrorDescription.empty()) {
+        Nan::Set(result, Nan::New("error").ToLocalChecked(),
+                 Nan::New<String>(p->stopErrorDescription.c_str()).ToLocalChecked());
+    }
+
+    for (auto& pers : p->resolvers) {
+        Local<Promise::Resolver> res = Nan::New(pers);
+        if (!res.IsEmpty()) {
+            res->Resolve(context, result).Check();
+        }
+        pers.Reset();
+    }
+    p->resolvers.clear();
+
+    uv_close(reinterpret_cast<uv_handle_t*>(handle), [](uv_handle_t* h) {
+        PendingSckStop* self = static_cast<PendingSckStop*>(h->data);
+        delete self;
+    });
+}
+
 // Initialize the native module
 NAN_METHOD(Initialize) {
     
@@ -849,6 +908,11 @@ NAN_METHOD(StartSystemAudioCapture) {
     if (g_sckStartPending != nullptr) {
         NSLog(@"⚠️ [NATIVE] System audio capture start already in progress");
         info.GetReturnValue().Set(MakeRejectedPromise(isolate, "System audio capture start already in progress"));
+        return;
+    }
+    if (g_sckStopPending != nullptr) {
+        NSLog(@"⚠️ [NATIVE] System audio stop still in progress");
+        info.GetReturnValue().Set(MakeRejectedPromise(isolate, "System audio stop still in progress"));
         return;
     }
     
@@ -993,70 +1057,119 @@ NAN_METHOD(StartSystemAudioCapture) {
     }];
 }
 
-// Stop system audio capture
+// Stop system audio capture (returns Promise; resolves after SCK stop + pipeline teardown completes)
 NAN_METHOD(StopSystemAudioCapture) {
     NSLog(@"🎤 [NATIVE] Stopping system audio capture");
     
-    if (!g_isCapturing || !g_stream) {
-        NSLog(@"⚠️ [NATIVE] System audio capture not active");
-        Local<Object> result = Nan::New<Object>();
-        Nan::Set(result, Nan::New("success").ToLocalChecked(), Nan::New<v8::Boolean>(false));
-        Nan::Set(result, Nan::New("filePath").ToLocalChecked(), Nan::Null());
-        info.GetReturnValue().Set(result);
+    Isolate* isolate = info.GetIsolate();
+    Local<Context> context = isolate->GetCurrentContext();
+    
+    // Idle: no stream object (covers "not capturing" and avoids mis-reporting mid-start as inactive)
+    if (!g_stream) {
+        NSLog(@"⚠️ [NATIVE] System audio capture not active (no stream)");
+        MaybeLocal<Promise::Resolver> maybeIdle = Promise::Resolver::New(context);
+        if (maybeIdle.IsEmpty()) {
+            info.GetReturnValue().Set(MakeRejectedPromise(isolate, "Failed to create promise resolver for stop"));
+            return;
+        }
+        Local<Promise::Resolver> idleResolver = maybeIdle.ToLocalChecked();
+        Local<Object> idleResult = Nan::New<Object>();
+        Nan::Set(idleResult, Nan::New("success").ToLocalChecked(), Nan::New<v8::Boolean>(false));
+        Nan::Set(idleResult, Nan::New("filePath").ToLocalChecked(), Nan::Null());
+        Nan::Set(idleResult, Nan::New("actualStartMs").ToLocalChecked(), Nan::Null());
+        idleResolver->Resolve(context, idleResult).Check();
+        info.GetReturnValue().Set(idleResolver->GetPromise());
         return;
     }
     
-    // Save file path before closing (g_audioFilePath is set during recording)
-    std::string savedFilePath = g_audioFilePath;
-    bool hasFilePath = !savedFilePath.empty();
+    // Coalesce concurrent stop calls onto the same SCK completion
+    if (g_sckStopPending != nullptr) {
+        MaybeLocal<Promise::Resolver> maybeCo = Promise::Resolver::New(context);
+        if (maybeCo.IsEmpty()) {
+            info.GetReturnValue().Set(MakeRejectedPromise(isolate, "Failed to create promise resolver for stop"));
+            return;
+        }
+        Local<Promise::Resolver> coResolver = maybeCo.ToLocalChecked();
+        g_sckStopPending->resolvers.emplace_back();
+        g_sckStopPending->resolvers.back().Reset(coResolver);
+        info.GetReturnValue().Set(coResolver->GetPromise());
+        return;
+    }
+    
+    PendingSckStop* pending = new PendingSckStop();
+    pending->async.data = pending;
+    pending->savedFilePath = g_audioFilePath;
+    pending->hasFilePath = !pending->savedFilePath.empty();
+    pending->actualStartMsCopy = g_actualStartMs;
+    pending->hasActualStartMs = g_actualStartMs > 0.0;
+    pending->stopFailed = false;
+    
+    MaybeLocal<Promise::Resolver> maybeFirst = Promise::Resolver::New(context);
+    if (maybeFirst.IsEmpty()) {
+        delete pending;
+        info.GetReturnValue().Set(MakeRejectedPromise(isolate, "Failed to create promise resolver for stop"));
+        return;
+    }
+    Local<Promise::Resolver> firstResolver = maybeFirst.ToLocalChecked();
+    pending->resolvers.emplace_back();
+    pending->resolvers.back().Reset(firstResolver);
+    
+    int uvErr = uv_async_init(uv_default_loop(), &pending->async, SckStopSettledCb);
+    if (uvErr != 0) {
+        for (auto& pr : pending->resolvers) {
+            pr.Reset();
+        }
+        pending->resolvers.clear();
+        delete pending;
+        firstResolver->Reject(context, Nan::Error("Failed to initialize async notifier for system audio stop")).Check();
+        info.GetReturnValue().Set(firstResolver->GetPromise());
+        return;
+    }
+    
+    g_sckStopPending = pending;
+    
+    if (pending->hasFilePath) {
+        NSLog(@"✅ [NATIVE] Stop will return file path: %s", pending->savedFilePath.c_str());
+    } else {
+        NSLog(@"⚠️ [NATIVE] No file path available at stop");
+    }
     
     [g_stream stopCaptureWithCompletionHandler:^(NSError *error) {
         if (error) {
             NSLog(@"❌ [NATIVE] Failed to stop capture: %@", error.localizedDescription);
+            pending->stopFailed = true;
+            NSString* desc = error.localizedDescription;
+            if (desc) {
+                pending->stopErrorDescription = std::string([desc UTF8String]);
+            }
         } else {
             NSLog(@"✅ [NATIVE] System audio capture stopped successfully");
         }
-        g_isCapturing = false;
         
-    // Reset streaming-only flag when stopping capture
-    g_streamingOnly = false;
-    
-    // Close audio file when stopping capture
-    closeAudioFile();
-    
-    // Clear streaming callback when stopping
-    g_streamingCallback.Reset();
-    
-    // Clean up async handle
-    if (g_streamingAsyncHandle) {
-        uv_async_t* handleToDelete = g_streamingAsyncHandle;
-        g_streamingAsyncHandle = nullptr;
-        uv_close((uv_handle_t*)handleToDelete, [](uv_handle_t* handle) {
-            delete reinterpret_cast<uv_async_t*>(handle);
-        });
-    }
+        if (g_delegate) {
+            g_delegate.audioCallback = nil;
+        }
+        g_isCapturing = false;
+        g_streamingOnly = false;
+        closeAudioFile();
+        g_streamingCallback.Reset();
+        
+        if (g_streamingAsyncHandle) {
+            uv_async_t* handleToDelete = g_streamingAsyncHandle;
+            g_streamingAsyncHandle = nullptr;
+            uv_close((uv_handle_t*)handleToDelete, [](uv_handle_t* handle) {
+                delete reinterpret_cast<uv_async_t*>(handle);
+            });
+        }
+        
+        g_stream = nil;
+        g_filter = nil;
+        g_config = nil;
+        
+        uv_async_send(&pending->async);
     }];
     
-    // Return result object with success, file path and actual start time
-    Local<Object> result = Nan::New<Object>();
-    Nan::Set(result, Nan::New("success").ToLocalChecked(), Nan::New<v8::Boolean>(true));
-    
-    if (hasFilePath) {
-        Nan::Set(result, Nan::New("filePath").ToLocalChecked(), 
-                Nan::New<String>(savedFilePath.c_str()).ToLocalChecked());
-        NSLog(@"✅ [NATIVE] Returning file path: %s", savedFilePath.c_str());
-    } else {
-        Nan::Set(result, Nan::New("filePath").ToLocalChecked(), Nan::Null());
-        NSLog(@"⚠️ [NATIVE] No file path available");
-    }
-    // Include actualStartMs if available
-    if (g_actualStartMs > 0.0) {
-        Nan::Set(result, Nan::New("actualStartMs").ToLocalChecked(), Nan::New<Number>(g_actualStartMs));
-    } else {
-        Nan::Set(result, Nan::New("actualStartMs").ToLocalChecked(), Nan::Null());
-    }
-    
-    info.GetReturnValue().Set(result);
+    info.GetReturnValue().Set(firstResolver->GetPromise());
 }
 
 // Tear down mic engine + tap without clearing Node callbacks (internal retry path).
