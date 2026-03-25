@@ -55,6 +55,11 @@ static uv_async_t* g_micStreamingAsyncHandle = nullptr;
 static AVAudioEngine* g_micEngine = nullptr;
 static AVAudioInputNode* g_micInputNode = nullptr;
 static bool g_isMicCapturing = false;
+
+// Core Audio: log when the system default input device changes (diagnostics only; does not alter capture).
+static bool g_defaultInputListenerRegistered = false;
+static AudioDeviceID g_lastKnownDefaultInputDevice = kAudioObjectUnknown;
+
 // Set from the realtime mic tap when the first buffer is enqueued (Bluetooth / cold-start can delay taps).
 static std::atomic<bool> g_micFirstTapSeen{false};
 
@@ -861,6 +866,114 @@ static void SckStopSettledCb(uv_async_t* handle) {
     });
 }
 
+static NSString* SaysoCopyAudioDeviceName(AudioDeviceID deviceID) {
+    if (deviceID == kAudioObjectUnknown) {
+        return @"(unknown)";
+    }
+    CFStringRef nameRef = nullptr;
+    UInt32 dataSize = sizeof(nameRef);
+    AudioObjectPropertyAddress pa = {
+        kAudioObjectPropertyName,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    OSStatus st = AudioObjectGetPropertyData(deviceID, &pa, 0, nullptr, &dataSize, &nameRef);
+    if (st != noErr || nameRef == nullptr) {
+        return [NSString stringWithFormat:@"device %u", (unsigned)deviceID];
+    }
+    NSString* s = [NSString stringWithString:(__bridge NSString*)nameRef];
+    CFRelease(nameRef);
+    return s;
+}
+
+static NSString* SaysoCopyAudioDeviceUID(AudioDeviceID deviceID) {
+    if (deviceID == kAudioObjectUnknown) {
+        return nil;
+    }
+    CFStringRef uidRef = nullptr;
+    UInt32 dataSize = sizeof(uidRef);
+    AudioObjectPropertyAddress pa = {
+        kAudioDevicePropertyDeviceUID,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    OSStatus st = AudioObjectGetPropertyData(deviceID, &pa, 0, nullptr, &dataSize, &uidRef);
+    if (st != noErr || uidRef == nullptr) {
+        return nil;
+    }
+    NSString* s = [NSString stringWithString:(__bridge NSString*)uidRef];
+    CFRelease(uidRef);
+    return s;
+}
+
+static OSStatus SaysoDefaultInputDeviceListenerProc(AudioObjectID /*inObjectID*/,
+                                                    UInt32 inNumberAddresses,
+                                                    const AudioObjectPropertyAddress* inAddresses,
+                                                    void* /*inClientData*/) {
+    for (UInt32 i = 0; i < inNumberAddresses; i++) {
+        if (inAddresses[i].mSelector != kAudioHardwarePropertyDefaultInputDevice) {
+            continue;
+        }
+
+        AudioDeviceID newDevice = kAudioObjectUnknown;
+        UInt32 size = sizeof(newDevice);
+        AudioObjectPropertyAddress pa = {
+            kAudioHardwarePropertyDefaultInputDevice,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain
+        };
+        OSStatus err = AudioObjectGetPropertyData(kAudioObjectSystemObject, &pa, 0, nullptr, &size, &newDevice);
+        if (err != noErr) {
+            NSLog(@"🔊 [NATIVE] Default input listener: failed to read new default device (err=%d)", (int)err);
+            continue;
+        }
+
+        AudioDeviceID previous = g_lastKnownDefaultInputDevice;
+        g_lastKnownDefaultInputDevice = newDevice;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSString* prevName = SaysoCopyAudioDeviceName(previous);
+            NSString* newName = SaysoCopyAudioDeviceName(newDevice);
+            NSString* newUid = SaysoCopyAudioDeviceUID(newDevice);
+            NSLog(@"🔊 [NATIVE] Default INPUT changed: %u \"%@\" -> %u \"%@\" uid=\"%@\" | Sayso micCaptureActive=%s",
+                  (unsigned)previous, prevName,
+                  (unsigned)newDevice, newName,
+                  newUid ? newUid : @"(nil)",
+                  g_isMicCapturing ? "YES" : "NO");
+        });
+    }
+    return noErr;
+}
+
+static void SaysoRegisterDefaultInputDeviceListener() {
+    if (g_defaultInputListenerRegistered) {
+        return;
+    }
+    AudioObjectPropertyAddress pa = {
+        kAudioHardwarePropertyDefaultInputDevice,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    OSStatus st = AudioObjectAddPropertyListener(kAudioObjectSystemObject, &pa, SaysoDefaultInputDeviceListenerProc, nullptr);
+    if (st != noErr) {
+        NSLog(@"❌ [NATIVE] Could not register default-input listener: %d", (int)st);
+        return;
+    }
+    g_defaultInputListenerRegistered = true;
+
+    AudioDeviceID current = kAudioObjectUnknown;
+    UInt32 sz = sizeof(current);
+    OSStatus q = AudioObjectGetPropertyData(kAudioObjectSystemObject, &pa, 0, nullptr, &sz, &current);
+    if (q == noErr) {
+        g_lastKnownDefaultInputDevice = current;
+        NSString* nm = SaysoCopyAudioDeviceName(current);
+        NSString* uid = SaysoCopyAudioDeviceUID(current);
+        NSLog(@"🔊 [NATIVE] Default INPUT at init: id=%u name=\"%@\" uid=\"%@\"",
+              (unsigned)current, nm, uid ? uid : @"(nil)");
+    }
+    NSLog(@"✅ [NATIVE] CoreAudio default-input device listener registered");
+}
+
 // Initialize the native module
 NAN_METHOD(Initialize) {
     
@@ -869,6 +982,8 @@ NAN_METHOD(Initialize) {
     
     // Create delegate
     g_delegate = [[AudioCaptureDelegate alloc] init];
+
+    SaysoRegisterDefaultInputDeviceListener();
     
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
