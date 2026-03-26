@@ -17,14 +17,17 @@ export default function CallTimer({ shouldStopTimer }: { shouldStopTimer: boolea
     const resetCallDuration = useCoachWindowStore(state => state.resetCallDuration);
 
     useEffect(() => {
-        if(isCoachActive && !shouldStopTimer) {
+        if (!isCoachActive) {
+            resetCallDuration();
+            return;
+        }
+        if (!shouldStopTimer) {
             const interval = setInterval(() => {
                 incrementCallDuration();
-            }, 1000)
-            return () => clearInterval(interval)
-        } else {
-            resetCallDuration()
+            }, 1000);
+            return () => clearInterval(interval);
         }
+        // isCoachActive but shouldStopTimer=true (e.g. stop in progress) — pause timer, don't reset
     }, [isCoachActive, shouldStopTimer])
 
     return (

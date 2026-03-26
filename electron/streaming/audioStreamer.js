@@ -52,6 +52,10 @@ class AudioStreamer {
     this.maxSendFailures = 5; // Max failures before giving up
 
     this.autoStopping = false;
+    /** Debounce timer for reset_transcription (fresh STT session) after route stabilizes. */
+    this._routeResetTimer = null;
+    /** Log PCM energy for N ms after a route change to confirm audio is non-silent. */
+    this._logEnergyUntilMs = 0;
   }
 
   /**
@@ -129,6 +133,8 @@ class AudioStreamer {
       this.userSendFailures = 0;
       this.prospectSendFailures = 0;
       this.autoStopping = false;
+      this._routeResetTimer = null;
+      this._logEnergyUntilMs = 0;
       
     } catch (error) {
       console.error('❌ [AudioStreamer] Failed to start streaming:', error);
@@ -186,9 +192,29 @@ class AudioStreamer {
     }
 
     try {
-      // Add to buffer
-      this.userBuffer.addAudioData(buffer, format);
-      
+      const routeFormatChanged = this.userBuffer.addAudioData(buffer, format);
+      if (routeFormatChanged && this.userWebSocket && this.userWebSocket.isConnected()) {
+        const now = Date.now();
+
+        // Debounced: request a fresh STT session (non-destructive swap on server) after route settles.
+        // Do NOT send force_endpoint — AssemblyAI treats ForceEndpoint as a session terminator.
+        if (this._routeResetTimer) {
+          clearTimeout(this._routeResetTimer);
+        }
+        this._routeResetTimer = setTimeout(() => {
+          this._routeResetTimer = null;
+          if (this.userWebSocket && this.userWebSocket.isConnected()) {
+            this.userWebSocket.sendJson({ type: 'reset_transcription' });
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[AudioStreamer] Sent reset_transcription after route stabilize');
+            }
+          }
+        }, 1500);
+
+        // Gate near-silent chunks and log energy for 5s after the route change
+        this._logEnergyUntilMs = now + 5000;
+      }
+
       // Process ready chunks
       this._processUserChunks();
     } catch (error) {
@@ -238,7 +264,33 @@ class AudioStreamer {
         try {
           // Convert to AssemblyAI format
           const convertedBuffer = convertToAssemblyAIFormat(chunk.buffer, chunk.format);
-          
+
+          // Within 3 seconds of a route change, compute peak energy and gate near-silent chunks.
+          // AirPods take ~0.5-1s to initialize their mic on reconnect, emitting noise/silence
+          // that can cause AssemblyAI to close the active session. Drop those bad chunks early.
+          const inRouteChangeWindow = Date.now() < this._logEnergyUntilMs;
+          if (inRouteChangeWindow) {
+            const samples = new Int16Array(convertedBuffer.buffer, convertedBuffer.byteOffset, convertedBuffer.length / 2);
+            let maxAbs = 0;
+            for (let i = 0; i < samples.length; i++) {
+              const v = Math.abs(samples[i]);
+              if (v > maxAbs) maxAbs = v;
+            }
+            if (maxAbs < 500) {
+              if (process.env.NODE_ENV === 'development') {
+                console.warn(`⚠️ [AudioStreamer] User chunk SILENT after route change (maxSample=${maxAbs}) — dropping chunk`);
+              }
+              continue; // Don't send garbage audio to the server during mic init
+            }
+            if (process.env.NODE_ENV === 'development') {
+              if (maxAbs < 1500) {
+                console.log(`🔉 [AudioStreamer] User chunk low-energy after route change (maxSample=${maxAbs})`);
+              } else {
+                console.log(`✅ [AudioStreamer] User chunk energy ok after route change (maxSample=${maxAbs})`);
+              }
+            }
+          }
+
           // Send via WebSocket
           const sent = this.userWebSocket.send(convertedBuffer);
           
@@ -349,6 +401,11 @@ class AudioStreamer {
       this.isStreaming = false;
       this.userSendFailures = 0;
       this.prospectSendFailures = 0;
+      if (this._routeResetTimer) {
+        clearTimeout(this._routeResetTimer);
+        this._routeResetTimer = null;
+      }
+      this._logEnergyUntilMs = 0;
 
     } catch (error) {
       console.error('❌ [AudioStreamer] Error stopping streaming:', error);

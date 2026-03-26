@@ -12,6 +12,7 @@
 #include <dispatch/dispatch.h>
 #include <algorithm>
 #include <atomic>
+#include <mutex>
 #include <cstdlib>
 #include <cstdio>
 #include <list>
@@ -55,8 +56,21 @@ static uv_async_t* g_micStreamingAsyncHandle = nullptr;
 static AVAudioEngine* g_micEngine = nullptr;
 static AVAudioInputNode* g_micInputNode = nullptr;
 static bool g_isMicCapturing = false;
+
+// Core Audio: default input changes — log + debounced mic engine restart while capture is active.
+static bool g_defaultInputListenerRegistered = false;
+static AudioDeviceID g_lastKnownDefaultInputDevice = kAudioObjectUnknown;
+
+// Last HAL default input device id the running AVAudioEngine was started against (follow-OS-default mode).
+static AudioDeviceID g_micOpenedInputDeviceId = kAudioObjectUnknown;
+static std::mutex g_micEngineLifecycleMutex;
+// Bumped on each new default-input notification or Stop — invalidates in-flight debounce/stability delays.
+static std::atomic<uint64_t> g_micRouteRestartGeneration{0};
+
 // Set from the realtime mic tap when the first buffer is enqueued (Bluetooth / cold-start can delay taps).
 static std::atomic<bool> g_micFirstTapSeen{false};
+
+static void SaysoScheduleMicRouteDebouncedRestart();
 
 // Structure to pass audio data to async callback
 struct StreamingData {
@@ -861,6 +875,131 @@ static void SckStopSettledCb(uv_async_t* handle) {
     });
 }
 
+static NSString* SaysoCopyAudioDeviceName(AudioDeviceID deviceID) {
+    if (deviceID == kAudioObjectUnknown) {
+        return @"(unknown)";
+    }
+    CFStringRef nameRef = nullptr;
+    UInt32 dataSize = sizeof(nameRef);
+    AudioObjectPropertyAddress pa = {
+        kAudioObjectPropertyName,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    OSStatus st = AudioObjectGetPropertyData(deviceID, &pa, 0, nullptr, &dataSize, &nameRef);
+    if (st != noErr || nameRef == nullptr) {
+        return [NSString stringWithFormat:@"device %u", (unsigned)deviceID];
+    }
+    NSString* s = [NSString stringWithString:(__bridge NSString*)nameRef];
+    CFRelease(nameRef);
+    return s;
+}
+
+static NSString* SaysoCopyAudioDeviceUID(AudioDeviceID deviceID) {
+    if (deviceID == kAudioObjectUnknown) {
+        return nil;
+    }
+    CFStringRef uidRef = nullptr;
+    UInt32 dataSize = sizeof(uidRef);
+    AudioObjectPropertyAddress pa = {
+        kAudioDevicePropertyDeviceUID,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    OSStatus st = AudioObjectGetPropertyData(deviceID, &pa, 0, nullptr, &dataSize, &uidRef);
+    if (st != noErr || uidRef == nullptr) {
+        return nil;
+    }
+    NSString* s = [NSString stringWithString:(__bridge NSString*)uidRef];
+    CFRelease(uidRef);
+    return s;
+}
+
+static AudioDeviceID SaysoGetCurrentDefaultInputDeviceID() {
+    AudioDeviceID dev = kAudioObjectUnknown;
+    UInt32 sz = sizeof(dev);
+    AudioObjectPropertyAddress pa = {
+        kAudioHardwarePropertyDefaultInputDevice,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &pa, 0, nullptr, &sz, &dev) != noErr) {
+        return kAudioObjectUnknown;
+    }
+    return dev;
+}
+
+static OSStatus SaysoDefaultInputDeviceListenerProc(AudioObjectID /*inObjectID*/,
+                                                    UInt32 inNumberAddresses,
+                                                    const AudioObjectPropertyAddress* inAddresses,
+                                                    void* /*inClientData*/) {
+    for (UInt32 i = 0; i < inNumberAddresses; i++) {
+        if (inAddresses[i].mSelector != kAudioHardwarePropertyDefaultInputDevice) {
+            continue;
+        }
+
+        AudioDeviceID newDevice = kAudioObjectUnknown;
+        UInt32 size = sizeof(newDevice);
+        AudioObjectPropertyAddress pa = {
+            kAudioHardwarePropertyDefaultInputDevice,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain
+        };
+        OSStatus err = AudioObjectGetPropertyData(kAudioObjectSystemObject, &pa, 0, nullptr, &size, &newDevice);
+        if (err != noErr) {
+            NSLog(@"🔊 [NATIVE] Default input listener: failed to read new default device (err=%d)", (int)err);
+            continue;
+        }
+
+        AudioDeviceID previous = g_lastKnownDefaultInputDevice;
+        g_lastKnownDefaultInputDevice = newDevice;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSString* prevName = SaysoCopyAudioDeviceName(previous);
+            NSString* newName = SaysoCopyAudioDeviceName(newDevice);
+            NSString* newUid = SaysoCopyAudioDeviceUID(newDevice);
+            NSLog(@"🔊 [NATIVE] Default INPUT changed: %u \"%@\" -> %u \"%@\" uid=\"%@\" | Sayso micCaptureActive=%s",
+                  (unsigned)previous, prevName,
+                  (unsigned)newDevice, newName,
+                  newUid ? newUid : @"(nil)",
+                  g_isMicCapturing ? "YES" : "NO");
+            if (g_isMicCapturing) {
+                SaysoScheduleMicRouteDebouncedRestart();
+            }
+        });
+    }
+    return noErr;
+}
+
+static void SaysoRegisterDefaultInputDeviceListener() {
+    if (g_defaultInputListenerRegistered) {
+        return;
+    }
+    AudioObjectPropertyAddress pa = {
+        kAudioHardwarePropertyDefaultInputDevice,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    OSStatus st = AudioObjectAddPropertyListener(kAudioObjectSystemObject, &pa, SaysoDefaultInputDeviceListenerProc, nullptr);
+    if (st != noErr) {
+        NSLog(@"❌ [NATIVE] Could not register default-input listener: %d", (int)st);
+        return;
+    }
+    g_defaultInputListenerRegistered = true;
+
+    AudioDeviceID current = kAudioObjectUnknown;
+    UInt32 sz = sizeof(current);
+    OSStatus q = AudioObjectGetPropertyData(kAudioObjectSystemObject, &pa, 0, nullptr, &sz, &current);
+    if (q == noErr) {
+        g_lastKnownDefaultInputDevice = current;
+        NSString* nm = SaysoCopyAudioDeviceName(current);
+        NSString* uid = SaysoCopyAudioDeviceUID(current);
+        NSLog(@"🔊 [NATIVE] Default INPUT at init: id=%u name=\"%@\" uid=\"%@\"",
+              (unsigned)current, nm, uid ? uid : @"(nil)");
+    }
+    NSLog(@"✅ [NATIVE] CoreAudio default-input device listener registered");
+}
+
 // Initialize the native module
 NAN_METHOD(Initialize) {
     
@@ -869,6 +1008,8 @@ NAN_METHOD(Initialize) {
     
     // Create delegate
     g_delegate = [[AudioCaptureDelegate alloc] init];
+
+    SaysoRegisterDefaultInputDeviceListener();
     
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
@@ -1290,61 +1431,206 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs) {
     return true;
 }
 
+static dispatch_queue_t SaysoMicRouteRestartQueue() {
+    static dispatch_queue_t q;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        q = dispatch_queue_create("com.sayso.micRouteRestart", DISPATCH_QUEUE_SERIAL);
+    });
+    return q;
+}
+
+// Runs on SaysoMicRouteRestartQueue. Restarts AVAudioEngine so capture follows the new OS default input.
+// When `forcedAfterDefaultInputNotification` is YES, always teardown+restart if capture is active: Core Audio
+// can fire default-input changes for route/format churn where the HAL default id still matches
+// `g_micOpenedInputDeviceId` while AVAudioEngine is stuck on a dead Bluetooth path (e.g. AirPods removed).
+static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotification) {
+    std::lock_guard<std::mutex> lk(g_micEngineLifecycleMutex);
+
+    if (!g_isMicCapturing) {
+        return;
+    }
+    if (g_micStreamingCallback.IsEmpty() || !g_micStreamingAsyncHandle) {
+        return;
+    }
+
+    AudioDeviceID currentDefault = SaysoGetCurrentDefaultInputDeviceID();
+    if (currentDefault == kAudioObjectUnknown) {
+        NSLog(@"🔊 [NATIVE] Mic route restart skipped: could not read default input device");
+        return;
+    }
+
+    if (!forcedAfterDefaultInputNotification && currentDefault == g_micOpenedInputDeviceId &&
+        g_micEngine != nullptr) {
+        NSLog(@"🔊 [NATIVE] Mic route restart skipped: default id %u unchanged and engine present",
+              (unsigned)currentDefault);
+        return;
+    }
+
+    if (forcedAfterDefaultInputNotification && currentDefault == g_micOpenedInputDeviceId &&
+        g_micEngine != nullptr) {
+        NSLog(@"🔊 [NATIVE] Mic route: forced restart after default-input notification (id %u unchanged — "
+              @"rebinding engine/tap)",
+              (unsigned)currentDefault);
+    }
+
+    NSLog(@"🔊 [NATIVE] Mic route: restarting engine for default input id=%u (previous opened id=%u)",
+          (unsigned)currentDefault, (unsigned)g_micOpenedInputDeviceId);
+
+    MicEngineTeardownOnly();
+
+    const int kFirstTapWaitMs = 1200;
+    const int kRetryTapWaitMs = 1500;
+    bool ok = TryStartMicrophoneCaptureOnce(kFirstTapWaitMs);
+    if (!ok) {
+        NSLog(@"🎤 [NATIVE] Mic route: repeating capture once after default change");
+        ok = TryStartMicrophoneCaptureOnce(kRetryTapWaitMs);
+    }
+
+    if (ok) {
+        g_micOpenedInputDeviceId = currentDefault;
+        NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
+              (unsigned)currentDefault);
+    } else {
+        g_isMicCapturing = false;
+        g_micOpenedInputDeviceId = kAudioObjectUnknown;
+        NSLog(@"❌ [NATIVE] Mic route restart FAILED after OS default change — mic capture marked inactive");
+    }
+}
+
+// Coalesces rapid default-input notifications. Each notification bumps `g_micRouteRestartGeneration`
+// so earlier timers no-op.
+// Fast path: HAL default id != id we opened the engine against → short delays so we don't leave the
+// tap on a dead Bluetooth path for hundreds of ms while the user is already on built-in mic.
+// Slow path: same id (stuck engine / spurious notify) → longer debounce + stability to absorb flap.
+static void SaysoScheduleMicRouteDebouncedRestart() {
+    dispatch_async(SaysoMicRouteRestartQueue(), ^{
+        if (!g_isMicCapturing) {
+            return;
+        }
+
+        AudioDeviceID halNow = SaysoGetCurrentDefaultInputDeviceID();
+        const bool fastPath =
+            (halNow != kAudioObjectUnknown && g_micOpenedInputDeviceId != kAudioObjectUnknown &&
+             halNow != g_micOpenedInputDeviceId);
+
+        const int64_t debounceNs =
+            fastPath ? (80 * NSEC_PER_MSEC) : (600 * NSEC_PER_MSEC);
+        const int64_t stabilityDelayNs =
+            fastPath ? (60 * NSEC_PER_MSEC) : (150 * NSEC_PER_MSEC);
+
+        if (fastPath) {
+            NSLog(@"🔊 [NATIVE] Mic route: fast-path schedule (HAL default %u ≠ opened %u) debounce=%lldms "
+                  @"stability=%lldms",
+                  (unsigned)halNow, (unsigned)g_micOpenedInputDeviceId, (long long)(debounceNs / NSEC_PER_MSEC),
+                  (long long)(stabilityDelayNs / NSEC_PER_MSEC));
+        }
+
+        const uint64_t wave = g_micRouteRestartGeneration.fetch_add(1, std::memory_order_acq_rel) + 1;
+
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, debounceNs), SaysoMicRouteRestartQueue(), ^{
+            if (!g_isMicCapturing) {
+                return;
+            }
+            if (wave != g_micRouteRestartGeneration.load(std::memory_order_acquire)) {
+                return;
+            }
+
+            AudioDeviceID firstDefault = SaysoGetCurrentDefaultInputDeviceID();
+            if (firstDefault == kAudioObjectUnknown) {
+                NSLog(@"🔊 [NATIVE] Mic route debounce fired: could not read default input — skipping restart");
+                return;
+            }
+
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, stabilityDelayNs), SaysoMicRouteRestartQueue(), ^{
+                if (!g_isMicCapturing) {
+                    return;
+                }
+                if (wave != g_micRouteRestartGeneration.load(std::memory_order_acquire)) {
+                    return;
+                }
+
+                AudioDeviceID secondDefault = SaysoGetCurrentDefaultInputDeviceID();
+                if (secondDefault == kAudioObjectUnknown) {
+                    return;
+                }
+                if (firstDefault != secondDefault) {
+                    NSLog(@"🔊 [NATIVE] Mic route: default input still changing (%u → %u) — coalescing again",
+                          (unsigned)firstDefault, (unsigned)secondDefault);
+                    SaysoScheduleMicRouteDebouncedRestart();
+                    return;
+                }
+                SaysoPerformMicRestartIfCapturing(YES);
+            });
+        });
+    });
+}
+
 // Start microphone capture for streaming
 NAN_METHOD(StartMicrophoneCapture) {
     NSLog(@"🎤 [NATIVE] Starting microphone capture");
-    
-    if (g_isMicCapturing) {
-        NSLog(@"⚠️ [NATIVE] Microphone capture already active");
-        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
-        return;
-    }
-    
+
     if (g_micStreamingCallback.IsEmpty()) {
         NSLog(@"⚠️ [NATIVE] Microphone streaming callback is empty - cannot capture microphone");
         info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
         return;
     }
-    
+
     if (!g_micStreamingAsyncHandle) {
         g_micStreamingAsyncHandle = new uv_async_t;
         uv_async_init(uv_default_loop(), g_micStreamingAsyncHandle, MicStreamingAsyncCallback);
     }
-    
+
+    std::lock_guard<std::mutex> lk(g_micEngineLifecycleMutex);
+
+    if (g_isMicCapturing) {
+        NSLog(@"⚠️ [NATIVE] Microphone capture already active");
+        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        return;
+    }
+
     const int kFirstTapWaitMs = 1200;
     const int kRetryTapWaitMs = 1500;
-    
+
     if (!TryStartMicrophoneCaptureOnce(kFirstTapWaitMs)) {
         NSLog(@"🎤 [NATIVE] Mic: repeating capture once (cold start / Bluetooth input path)");
         if (!TryStartMicrophoneCaptureOnce(kRetryTapWaitMs)) {
             NSLog(@"❌ [NATIVE] Microphone capture failed after retry: no tap buffers");
+            g_micOpenedInputDeviceId = kAudioObjectUnknown;
             info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
             return;
         }
     }
-    
+
     g_isMicCapturing = true;
-    NSLog(@"✅ [NATIVE] Microphone capture started successfully (first tap received)");
+    g_micOpenedInputDeviceId = SaysoGetCurrentDefaultInputDeviceID();
+    NSLog(@"✅ [NATIVE] Microphone capture started successfully (first tap received); default input id=%u",
+          (unsigned)g_micOpenedInputDeviceId);
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
 // Stop microphone capture
 NAN_METHOD(StopMicrophoneCapture) {
     NSLog(@"🎤 [NATIVE] Stopping microphone capture");
-    
+
+    g_micRouteRestartGeneration.fetch_add(1, std::memory_order_acq_rel);
+
+    std::lock_guard<std::mutex> lk(g_micEngineLifecycleMutex);
+
     if (g_micInputNode) {
         [g_micInputNode removeTapOnBus:0];
         g_micInputNode = nullptr;
     }
-    
+
     if (g_micEngine) {
         [g_micEngine stop];
         g_micEngine = nullptr;
     }
-    
+
     // Note: On macOS, no audio session to deactivate
-    
+
     g_isMicCapturing = false;
+    g_micOpenedInputDeviceId = kAudioObjectUnknown;
     NSLog(@"✅ [NATIVE] Microphone capture stopped");
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
