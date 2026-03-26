@@ -3,7 +3,6 @@ import SettingsContentLayout from "./SettingsContentLayout";
 import { CueMode } from "../types";
 import useCoachSettingsContext from "../context/CoachSettingsContext";
 import useDebounce from "@/hooks/useDebounce";
-import updateCueMode from "../services/cue/updateCueInsightMode";
 
 export default function CueSettings() {
     const [mode, setMode] = useState<CueMode>('condensed');

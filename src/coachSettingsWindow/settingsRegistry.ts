@@ -33,35 +33,35 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
         section: 'auto-stop',
     },
     // Audio
-    {
-        id: 'audio-input-device',
-        label: 'Input Device',
-        description: 'The microphone used during your call.',
-        keywords: ['input', 'device', 'microphone', 'mic', 'audio', 'hardware'],
-        section: 'audio',
-    },
-    {
-        id: 'audio-input-level',
-        label: 'Input Level',
-        description: 'Live input level from your microphone.',
-        keywords: ['input', 'level', 'volume', 'microphone', 'mic', 'audio', 'meter'],
-        section: 'audio',
-    },
+    // {
+    //     id: 'audio-input-device',
+    //     label: 'Input Device',
+    //     description: 'The microphone used during your call.',
+    //     keywords: ['input', 'device', 'microphone', 'mic', 'audio', 'hardware'],
+    //     section: 'audio',
+    // },
+    // {
+    //     id: 'audio-input-level',
+    //     label: 'Input Level',
+    //     description: 'Live input level from your microphone.',
+    //     keywords: ['input', 'level', 'volume', 'microphone', 'mic', 'audio', 'meter'],
+    //     section: 'audio',
+    // },
     // Scripts
-    {
-        id: 'scripts-active',
-        label: 'Active',
-        description: 'Enable or disable script guidance during your call.',
-        keywords: ['active', 'enable', 'disable', 'script', 'toggle', 'on', 'off'],
-        section: 'scripts',
-    },
-    {
-        id: 'scripts-script',
-        label: 'Script',
-        description: 'Choose which script to use during your call.',
-        keywords: ['script', 'select', 'choose', 'call', 'guidance'],
-        section: 'scripts',
-    },
+    // {
+    //     id: 'scripts-active',
+    //     label: 'Active',
+    //     description: 'Enable or disable script guidance during your call.',
+    //     keywords: ['active', 'enable', 'disable', 'script', 'toggle', 'on', 'off'],
+    //     section: 'scripts',
+    // },
+    // {
+    //     id: 'scripts-script',
+    //     label: 'Script',
+    //     description: 'Choose which script to use during your call.',
+    //     keywords: ['script', 'select', 'choose', 'call', 'guidance'],
+    //     section: 'scripts',
+    // },
 ];
 
 export function searchSettings(query: string): SettingsRegistryEntry[] {

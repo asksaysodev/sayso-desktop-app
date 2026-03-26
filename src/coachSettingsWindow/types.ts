@@ -23,6 +23,12 @@ export interface GetCoachSettingsResponse {
     account_id: string;
     insight_buffer_time_ms: number;
     cue_mode: CueMode;
+    auto_stop_delay_minutes: number;
 }
 
 export type CueMode = 'condensed' | 'full';
+
+export interface PostAutoStopTimeDelayResponse {
+    success: boolean;
+    autoStopDelay: number
+}

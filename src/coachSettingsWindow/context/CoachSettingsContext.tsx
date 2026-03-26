@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import useCoachSettings from '../hooks/useCoachSettings';
-import { CueMode, GetCoachSettingsResponse, PostBufferTimeResponse } from '../types';
+import { CueMode, GetCoachSettingsResponse, PostAutoStopTimeDelayResponse, PostBufferTimeResponse } from '../types';
 import { UseMutateFunction } from '@tanstack/react-query';
 
 interface CoachSettingsContextValue {
@@ -8,6 +8,7 @@ interface CoachSettingsContextValue {
     coachSettingsIsLoading: boolean;
     mutateBufferTime: UseMutateFunction<PostBufferTimeResponse, Error, string | number, unknown>;
     mutateCueMode: UseMutateFunction<unknown, Error, CueMode, unknown>;
+    mutateAutoStopTimeDelay: UseMutateFunction<PostAutoStopTimeDelayResponse, Error, number, unknown>;
 };
 
 const CoachSettingsContext = createContext<CoachSettingsContextValue>({} as CoachSettingsContextValue);
@@ -17,10 +18,17 @@ export const CoachSettingsProvider = ({ children }: { children: React.ReactNode 
         coachSettings, 
         coachSettingsIsLoading, 
         mutateBufferTime,
-        mutateCueMode
+        mutateCueMode,
+        mutateAutoStopTimeDelay
     } = useCoachSettings();
 
-    const values = { coachSettings, coachSettingsIsLoading, mutateBufferTime, mutateCueMode };
+    const values = { 
+        coachSettings, 
+        coachSettingsIsLoading, 
+        mutateBufferTime, 
+        mutateCueMode, 
+        mutateAutoStopTimeDelay 
+    };
     
     return (
         <CoachSettingsContext.Provider value={values}>

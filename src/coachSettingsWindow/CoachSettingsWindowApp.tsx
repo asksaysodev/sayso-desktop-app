@@ -21,8 +21,8 @@ interface SidebarOption {
 const SIDEBAR_OPTIONS: SidebarOption[] = [
     { key: 'cue', label: 'Cue', icon: <LuBolt /> },
     { key: 'auto-stop', label: 'Auto Stop', icon: <LuPause /> },
-    { key: 'audio', label: 'Audio', icon: <LuHeadphones /> },
-    { key: 'scripts', label: 'Scripts', icon: <LuBookText /> },
+    // { key: 'audio', label: 'Audio', icon: <LuHeadphones /> },
+    // { key: 'scripts', label: 'Scripts', icon: <LuBookText /> },
 ];
 
 function CoachSettingsContent() {

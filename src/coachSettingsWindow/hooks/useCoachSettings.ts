@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import postBufferTime from "../services/cue/postBufferTime";
 import getCoachSettings from "../services/cue/getCoachSettings";
 import updateCueMode from "../services/cue/updateCueInsightMode";
+import postAutoStopTimeDelay from "../services/cue/postAutoStopTimeDelay";
 
 export default function useCoachSettings() {
     const queryClient = useQueryClient();
@@ -40,6 +41,17 @@ export default function useCoachSettings() {
         }
     })
 
+    const { mutate: mutateAutoStopTimeDelay } = useMutation({
+        mutationKey: ['post-auto-stop-time-delay'],
+        mutationFn: postAutoStopTimeDelay,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['sales-coach-settings'] });
+        },
+        onError: (error) => {
+            Sentry.captureException(error);
+        }
+    })
+    
     useEffect(()=>{
         if (coachSettingsError !== null) {
             Sentry.captureException(coachSettingsError)
@@ -50,7 +62,9 @@ export default function useCoachSettings() {
         coachSettings,
         coachSettingsIsError,
         coachSettingsIsLoading,
+        
         mutateBufferTime,
-        mutateCueMode
+        mutateCueMode,
+        mutateAutoStopTimeDelay
     }
 }

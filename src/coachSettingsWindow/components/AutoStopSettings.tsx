@@ -1,9 +1,27 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SettingsContentLayout from "./SettingsContentLayout";
+import useCoachSettingsContext from "../context/CoachSettingsContext";
+import useDebounce from "@/hooks/useDebounce";
 
 export default function AutoStopSettings() {
-    const [timeDelay, setTimeDelay] = useState<number>(3);
-
+    const [timeDelay, setTimeDelay] = useState<number | undefined>(undefined);
+    const { coachSettings, mutateAutoStopTimeDelay } = useCoachSettingsContext();
+    const debouncedTimeDelay = useDebounce(timeDelay, 1500);
+    const serverValue = useRef<number | undefined>(undefined);
+    
+    useEffect(() => {
+        if (coachSettings?.auto_stop_delay_minutes !== undefined) {
+            const autoStopDelayMinutes = coachSettings.auto_stop_delay_minutes;
+            serverValue.current = autoStopDelayMinutes;
+            setTimeDelay(autoStopDelayMinutes);
+        }
+    }, [coachSettings])
+    
+    useEffect(() => {
+        if (debouncedTimeDelay === undefined || debouncedTimeDelay === serverValue.current) return;
+        mutateAutoStopTimeDelay(debouncedTimeDelay);
+    }, [debouncedTimeDelay]);
+    
     return (
         <SettingsContentLayout title="Auto Stop">
             <div id="auto-stop-time-delay" className="cue-setting-item">
@@ -15,14 +33,14 @@ export default function AutoStopSettings() {
                     <div className="cue-range-row">
                         <input
                             type="range"
-                            min={1}
-                            max={5}
+                            min={2}
+                            max={10}
                             step={1}
-                            value={timeDelay}
+                            value={timeDelay ?? 0}
                             onChange={e => setTimeDelay(Number(e.target.value))}
                             className="cue-range"
                         />
-                        <span className="cue-range-value">{timeDelay}m</span>
+                        <span className="cue-range-value">{timeDelay ?? 0} min</span>
                     </div>
                 </div>
             </div>
