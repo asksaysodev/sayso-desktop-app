@@ -237,6 +237,27 @@ class WebSocketClient extends EventEmitter {
   }
 
   /**
+   * Send a JSON control message (e.g. force_endpoint after mic route change)
+   * @param {Object} payload - Serializable object
+   * @returns {boolean}
+   */
+  sendJson(payload) {
+    if (!this.isConnected()) {
+      console.warn(`⚠️ [WebSocketClient:${this.speaker}] Cannot send JSON — not connected (state: ${this.state})`);
+      return false;
+    }
+    try {
+      this.ws.send(JSON.stringify(payload));
+      return true;
+    } catch (error) {
+      console.error(`❌ [WebSocketClient:${this.speaker}] Failed to send JSON:`, error.message);
+      Sentry.captureException(error);
+      this.emit('error', error);
+      return false;
+    }
+  }
+
+  /**
    * Disconnect from WebSocket server
    * @param {boolean} shouldReconnect - Whether to allow reconnection after disconnect
    */

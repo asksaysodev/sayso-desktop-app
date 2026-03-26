@@ -47,7 +47,7 @@ class AudioChunkBuffer {
   constructor(speaker, targetChunkSizeMs = CHUNK_CONFIG.targetSizeMs) {
     this.speaker = speaker;
     this.buffer = Buffer.alloc(0); // Internal buffer for raw audio
-    this.format = null; // Set on first chunk: { sampleRate, channels, bitDepth, isFloat }
+    this.format = null; // Set on first chunk; updated if incoming format changes (mic/route change)
     this.targetChunkSizeMs = targetChunkSizeMs;
     this.lastDataTime = null; // Timestamp of last data arrival
     this.timeoutMs = 300; // Flush timeout (300ms)
@@ -65,25 +65,34 @@ class AudioChunkBuffer {
    * Add raw audio data to the buffer
    * @param {Buffer} audioBuffer - Raw audio buffer
    * @param {Object} format - Format info { sampleRate, channels, bitDepth, isFloat }
+   * @returns {boolean} True if an established format changed (route/device), not the first chunk
    */
   addAudioData(audioBuffer, format) {
     if (!audioBuffer || audioBuffer.length === 0) {
-      return;
+      return false;
     }
 
-    // Set format on first chunk
+    let routeFormatChanged = false;
+
+    // Lock format on first chunk; on route/device change (e.g. BT → built-in mic) adopt new format
+    // and clear pending bytes so duration math and chunk slicing match the actual PCM.
     if (!this.format) {
       this.format = { ...format };
     } else {
-      // Warn if format changes (but keep using first format)
-      const formatChanged = 
+      const formatChanged =
         this.format.sampleRate !== format.sampleRate ||
         this.format.channels !== format.channels ||
         this.format.bitDepth !== format.bitDepth ||
         this.format.isFloat !== format.isFloat;
-      
+
       if (formatChanged) {
-        console.warn(`⚠️ [AudioBuffer:${this.speaker}] Format changed but keeping original format. New: ${format.sampleRate}Hz/${format.channels}ch/${format.bitDepth}bit, Using: ${this.format.sampleRate}Hz/${this.format.channels}ch/${this.format.bitDepth}bit`);
+        routeFormatChanged = true;
+        console.warn(
+          `🔄 [AudioBuffer:${this.speaker}] Format changed — resetting buffer. Was: ${this.format.sampleRate}Hz/${this.format.channels}ch/${this.format.bitDepth}bit → Now: ${format.sampleRate}Hz/${format.channels}ch/${format.bitDepth}bit`
+        );
+        this.buffer = Buffer.alloc(0);
+        this.lastDataTime = null;
+        this.format = { ...format };
       }
     }
 
@@ -97,8 +106,10 @@ class AudioChunkBuffer {
       console.warn(`⚠️ [AudioBuffer:${this.speaker}] Buffer exceeded ${this.maxBufferSizeMs}ms (${currentSizeMs.toFixed(0)}ms), flushing and resetting`);
       this.buffer = Buffer.alloc(0);
       this.lastDataTime = null;
-      return;
+      return routeFormatChanged;
     }
+
+    return routeFormatChanged;
   }
 
   /**
