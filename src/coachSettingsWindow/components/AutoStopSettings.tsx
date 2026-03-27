@@ -36,11 +36,11 @@ export default function AutoStopSettings() {
                             min={2}
                             max={10}
                             step={1}
-                            value={timeDelay ?? 0}
+                            value={timeDelay ?? 2}
                             onChange={e => setTimeDelay(Number(e.target.value))}
                             className="cue-range"
                         />
-                        <span className="cue-range-value">{timeDelay ?? 0} min</span>
+                        <span className="cue-range-value">{timeDelay ?? 2} min</span>
                     </div>
                 </div>
             </div>

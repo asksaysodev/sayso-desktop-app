@@ -2,7 +2,7 @@ import apiClient from "@/config/axios";
 import { PostBufferTimeResponse } from "../../types";
 
 export default async function postBufferTime(bufferTime: string | number): Promise<PostBufferTimeResponse> {
-    if (bufferTime === undefined ||bufferTime === null) {
+    if (typeof bufferTime !== 'string' && typeof bufferTime !== 'number') {
          throw new Error('Property bufferTime is neither string nor number');
     }
     

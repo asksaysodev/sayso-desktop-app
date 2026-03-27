@@ -6,7 +6,7 @@ interface Props {
     value: string;
 }
 
-export default function CoachSettingsSeachBar({ onChangeText, value }: Props) {
+export default function CoachSettingsSearchBar({ onChangeText, value }: Props) {
     return (
         <div className="sidebar-search-wrapper">
             <LuSearch className="sidebar-search-icon" />

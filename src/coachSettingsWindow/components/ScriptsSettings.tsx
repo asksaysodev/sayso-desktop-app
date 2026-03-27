@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { LuChevronDown } from "react-icons/lu";
 import SettingsContentLayout from "./SettingsContentLayout";
-import { SETTINGS_REGISTRY } from "../settingsRegistry";
 
 const SCRIPT_OPTIONS = [
     { id: 1, label: 'Option 1' },

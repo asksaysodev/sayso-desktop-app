@@ -11,7 +11,7 @@ interface CoachSettingsContextValue {
     mutateAutoStopTimeDelay: UseMutateFunction<PostAutoStopTimeDelayResponse, Error, number, unknown>;
 };
 
-const CoachSettingsContext = createContext<CoachSettingsContextValue>({} as CoachSettingsContextValue);
+const CoachSettingsContext = createContext<CoachSettingsContextValue | null>(null);
 
 export const CoachSettingsProvider = ({ children }: { children: React.ReactNode }) => {
     const { 

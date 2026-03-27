@@ -1838,7 +1838,7 @@ ipcMain.on('get-coach-settings-window-state', (event: Electron.IpcMainInvokeEven
     })
 })
 ipcMain.handle('get-coach-settings-window-open-state', () => {
-    return isCoachWindowOpen();
+    return isCoachSettingsWindowOpen();
 })
 
 // Handler for opening coach window

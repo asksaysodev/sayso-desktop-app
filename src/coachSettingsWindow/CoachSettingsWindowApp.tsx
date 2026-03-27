@@ -6,7 +6,7 @@ import ScriptsSettings from "./components/ScriptsSettings";
 import AudioSettings from "./components/AudioSettings";
 import TopDragBar from "@/components/TopDragBar";
 import { searchSettings, SettingsRegistryEntry } from "./settingsRegistry";
-import CoachSettingsSeachBar from "./components/CoachSettingsSearchBar";
+import CoachSettingsSearchBar from "./components/CoachSettingsSearchBar";
 import { CoachSettingsProvider } from "./context/CoachSettingsContext";
 import useCoachSettingsContext from "./context/CoachSettingsContext";
 
@@ -65,7 +65,7 @@ function CoachSettingsContent() {
             <TopDragBar />
 
             <div className="coach-settings-sidebar">
-                <CoachSettingsSeachBar onChangeText={setSearchValue} value={searchValue} />
+                <CoachSettingsSearchBar onChangeText={setSearchValue} value={searchValue} />
                 {searchValue
                     ? searchResults.map((entry) => {
                         const sectionMeta = SIDEBAR_OPTIONS.find(o => o.key === entry.section)!;
