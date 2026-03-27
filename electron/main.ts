@@ -172,6 +172,9 @@ function setupLogging() {
 function isCoachWindowOpen() {
   return global.coachWindow && !global.coachWindow.isDestroyed();
 }
+function isCoachSettingsWindowOpen() {
+  return global.coachSettingsWindow && !global.coachSettingsWindow.isDestroyed();
+}
 
 // ===== CUSTOM TRAY MENU WINDOW =====
 let tray: TrayType | null = null;
@@ -1945,6 +1948,26 @@ ipcMain.on('update-user-auth', (event: Electron.IpcMainInvokeEvent, { userAuthen
     });
   }
 })
+// Handle for opening Coach settings window
+ipcMain.on('open-coach-settings-window', () => {
+    createCoachSettingsWindow();
+})
+ipcMain.on('close-coach-settings-window', () => {
+    if (global.coachSettingsWindow && !global.coachSettingsWindow.isDestroyed()) {
+        global.coachSettingsWindow.close();
+        global.coachSettingsWindow = null;
+    } else {
+        global.coachSettingsWindow = null;
+    }
+})
+ipcMain.on('get-coach-settings-window-state', (event: Electron.IpcMainInvokeEvent) => {
+    event.sender.send('coach-settings-window-state', {
+        isOpen: isCoachSettingsWindowOpen()
+    })
+})
+ipcMain.handle('get-coach-settings-window-open-state', () => {
+    return isCoachSettingsWindowOpen();
+})
 
 // Handler for opening coach window
 ipcMain.on('open-coach-window', () => {
@@ -1953,16 +1976,30 @@ ipcMain.on('open-coach-window', () => {
     console.log('IPC: Current global.coachWindow state:', !!global.coachWindow);
   }
   createCoachWindow();
-  // Don't hide tray menu - let user interact with it while it's open
 });
-
+ipcMain.on('close-coach-window', () => {
+  if (isDev) {
+    console.log('IPC: Received close-coach-window request');
+  }
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    if (isDev) {
+      console.log('Closing coach window...');
+    }
+    global.coachWindow.close();
+    global.coachWindow = null;
+  } else {
+    if (isDev) {
+      console.log('No valid coach window to close');
+    }
+    global.coachWindow = null;
+  }
+});
 // Handler for getting coach window state
 ipcMain.on('get-coach-window-state', (event: Electron.IpcMainInvokeEvent) => {
   event.sender.send('coach-window-state', {
     isOpen: isCoachWindowOpen()
   });
 });
-
 // Handler for getting coach window state (async version for invoke)
 ipcMain.handle('get-coach-window-open-state', () => {
   return isCoachWindowOpen();
@@ -2007,6 +2044,55 @@ ipcMain.on('set-tray-menu-height', (_event: Electron.IpcMainEvent, height: numbe
 ipcMain.on('quit-app', () => {
   app.quit();
 });
+
+// --- Coach Settings Window ---
+const createCoachSettingsWindow = () => {
+    if (global.coachSettingsWindow && !global.coachSettingsWindow.isDestroyed()) {
+        if (isDev) {
+            console.log('Coach window already exists and is not destroyed, returning...');
+        }
+        return;
+    }
+    
+    if (global.coachSettingsWindow && global.coachSettingsWindow.isDestroyed()) {
+        global.coachSettingsWindow = null;
+    }
+    
+    const preloadScriptPath = path.join(__dirname, 'preload.js');
+    const windowConfig = WindowManager.getCoachSettingsWindowConfig();
+    const coachSettingsWindow = new BrowserWindow({
+        ...windowConfig,
+        icon: path.join(__dirname, '../public/assets/icon.icns'),
+        titleBarStyle: 'hiddenInset',
+        titleBarOverlay: {
+          color: '#02192f',
+          symbolColor: '#FFF',
+          height: 30,
+        },
+        webPreferences: {
+            preload: preloadScriptPath,
+            contextIsolation: true,
+            nodeIntegration: false,
+            webSecurity: true,
+            enableBlinkFeatures: 'MediaDevices,MediaStream,WebRTC',
+            allowRunningInsecureContent: false,
+            experimentalFeatures: false
+        },
+    });
+    
+    global.coachSettingsWindow = coachSettingsWindow;
+    
+    // dev vs prod URL for the coach window (use the HTML that bootstraps src/coachWindow/index.jsx)
+    const coachSettingsUrl = isDev
+      ? 'http://localhost:5173/coach-settings-window.html'
+      : `file://${path.join(__dirname, '../dist/coach-settings-window.html')}`;
+  
+    coachSettingsWindow.loadURL(coachSettingsUrl);
+    
+    coachSettingsWindow.on('closed', () => {
+        global.coachSettingsWindow = null;
+    })
+}
 
 // --- Coach Window (Sales Coach Interface) ---
 const createCoachWindow = () => {
@@ -2099,27 +2185,6 @@ ipcMain.on('resize-coach-window', (event: Electron.IpcMainInvokeEvent, width: nu
   if (global.coachWindow) {
     WindowManager.resizeCoachWindow(global.coachWindow, width, height);
   }
-});
-
-// Add this handler after the other IPC handlers around line 850
-ipcMain.on('close-coach-window', () => {
-  if (isDev) {
-    console.log('IPC: Received close-coach-window request');
-  }
-  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-    if (isDev) {
-      console.log('Closing coach window...');
-    }
-    global.coachWindow.close();
-    // Immediately clean up the reference since we're closing it
-    global.coachWindow = null;
-  } else {
-    if (isDev) {
-      console.log('No valid coach window to close');
-    }
-    global.coachWindow = null; // Clean up stale reference
-  }
-  // Don't hide tray menu - let user continue interacting with it
 });
 
 // Handler for manual window dragging

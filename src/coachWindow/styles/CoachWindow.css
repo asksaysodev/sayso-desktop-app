@@ -553,7 +553,7 @@ body {
     font-weight: 200;
 }
 
-.coach-window .close-coach-button-container{
+.coach-window .right-side-coach-button{
     height: 32px;
     width: 32px;
     aspect-ratio: 1/1;
@@ -572,7 +572,7 @@ body {
 
 }
 
-.coach-window .close-coach-button-container:hover{
+.coach-window .right-side-coach-button:hover{
     opacity: 1;
     background-color: var(--sayso-indigo);
 }

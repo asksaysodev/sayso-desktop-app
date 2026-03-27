@@ -82,6 +82,7 @@ declare global {
     speaker?: string;
   }
   var coachWindow: BrowserWindow | null;
+  var coachSettingsWindow: BrowserWindow | null;
   var mainWindow: BrowserWindow | null;
   var authUser: AuthUser | false | null;
   var authAccessToken: string | null;

@@ -79,6 +79,19 @@ class WindowManager {
       hasShadow: WINDOW_CONFIG.COACH.HAS_SHADOW
     };
   }
+  
+  static getCoachSettingsWindowConfig() {
+      return {
+          width: 800,
+          height: 600,
+          // alwaysOnTop: true,
+          visibleOnAllWorkspaces: true,
+          resizable: false,
+          minimizable: false,
+          maximizable: false,
+          fullscreenable: false,
+      };
+  }
 }
 
 export { WindowManager };

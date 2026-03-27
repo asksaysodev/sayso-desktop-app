@@ -1,4 +1,4 @@
-import { FaPause, FaStop } from "react-icons/fa6";
+import { FaStop } from "react-icons/fa6";
 import { GrPowerReset } from "react-icons/gr";
 import { LuEye, LuEyeClosed, LuLoader } from "react-icons/lu";
 import CallTimer from "./CallTimer";
@@ -18,7 +18,6 @@ export default function CoachActiveButtons({ coachFeature, handleCoach, isInsigh
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isResettingCueSession = useCoachWindowStore(state => state.cue.isResettingCueSession);
     const cue_onPressResetSession = useCoachWindowStore(state => state.cue_onPressResetSession);
-    const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
     const unseenInsightsCount = useCoachWindowStore(state => state.cue.unseenInsightsCount);
     const resetUnseenInsightsCount = useCoachWindowStore(state => state.cue_resetUnseenInsightsCount);
 

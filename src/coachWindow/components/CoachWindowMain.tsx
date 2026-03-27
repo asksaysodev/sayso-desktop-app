@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useCallback, useMemo, MouseEventHandler } 
 import { MdDragIndicator } from 'react-icons/md';
 import { IoClose } from 'react-icons/io5';
 import { MdErrorOutline } from 'react-icons/md';
-import { LuX } from 'react-icons/lu';
+import { LuSettings, LuX } from 'react-icons/lu';
 import * as Sentry from "@sentry/electron/renderer";
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 
@@ -57,7 +57,7 @@ export default function CoachWindowMain() {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
-
+    const [isCoachSettingsWindowOpen, setIsCoachSettingsWindowOpen] = useState(false);
     //CONTEXT / HOOKS
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
@@ -321,6 +321,37 @@ export default function CoachWindowMain() {
         cue: <SelectLeadTypeDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
     };
 
+    useEffect(() => {
+      const ipcRenderer = window.electron?.ipcRenderer;
+      
+      if (!ipcRenderer) return;
+  
+      const handleCoachSettingsWindowState = (state: { isOpen: boolean }) => {
+        setIsCoachSettingsWindowOpen(state.isOpen);
+      };
+  
+      ipcRenderer.on('coach-settings-window-state', handleCoachSettingsWindowState); // $FixTS
+      ipcRenderer.send('get-coach-settings-window-state');
+
+      return () => {
+        ipcRenderer.off('coach-settings-window-state', handleCoachSettingsWindowState); // $FixTS
+      };
+    }, []);
+    
+    const openCoachSettingsWindow = () => {
+        const ipcRenderer = window.electron?.ipcRenderer;
+
+        if (ipcRenderer) {
+            if (isCoachSettingsWindowOpen) {
+                ipcRenderer.send('close-coach-settings-window');
+                setIsCoachSettingsWindowOpen(false);
+            } else {
+                ipcRenderer.send('open-coach-settings-window');
+                setIsCoachSettingsWindowOpen(true);
+            }
+        }
+    }
+    
     return (
         <div className="coach-window" ref={containerRef}>
             <div className={`main-container coach-box-bubble`}>
@@ -354,9 +385,14 @@ export default function CoachWindowMain() {
 
                     {
                         !isCoachActive && (
-                            <button className='close-coach-button-container' onClick={() => handleCloseCoachWindow()}>
-                                <IoClose />
-                            </button>
+                            <>
+                                <button className='right-side-coach-button' onClick={openCoachSettingsWindow}>
+                                    <LuSettings />
+                                </button>
+                                <button className='right-side-coach-button' onClick={() => handleCloseCoachWindow()}>
+                                    <IoClose />
+                                </button>
+                            </>
                         )
                     }
                 </div>
