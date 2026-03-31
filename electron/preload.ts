@@ -91,6 +91,26 @@ try {
     permissions: {
       check: () => ipcRenderer.invoke('permissions-check'),
       requestAll: () => ipcRenderer.invoke('permissions-request-all')
+    },
+    
+    autoUpdater: {
+        onUpdateCheckComplete: (callback: () => void) => {
+            ipcRenderer.on('update-check-complete', () => callback());
+            return () => ipcRenderer.removeAllListeners('update-check-complete');
+        },
+        onUpdateAvailable: (callback: (data: { version: string }) => void) => {
+            ipcRenderer.on('update-available', (_event: Event, data: { version: string }) => callback(data));
+            return () => ipcRenderer.removeAllListeners('update-available');
+        },
+        onDownloadProgress: (callback: (data: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => {
+            ipcRenderer.on('download-progress', (_event: Event, data: any) => callback(data));
+            return () => ipcRenderer.removeAllListeners('download-progress');
+        },
+        onUpdateDownloaded: (callback: (data: { version: string }) => void) => {
+            ipcRenderer.on('update-downloaded', (_event: Event, data: { version: string }) => callback(data));
+            return () => ipcRenderer.removeAllListeners('update-downloaded');
+        },
+        installUpdate: () => ipcRenderer.send('install-update'),
     }
   });
 

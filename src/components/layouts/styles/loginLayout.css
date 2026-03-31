@@ -49,8 +49,12 @@
     margin-bottom: 30px;
   }
 
+  .toggle-text-container {
+      display: flex;
+      flex-direction: column;
+  }
+  
   .toggleText {
-    margin-top: 20px;
     text-align: center;
     color: #52617a;
     cursor: pointer;
@@ -60,8 +64,4 @@
   
   .toggleText:hover {
     color: #4a85e5;
-  }
-  
-  .forgotPasswordText {
-    margin-top: 10px;
   }

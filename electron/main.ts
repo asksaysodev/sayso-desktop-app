@@ -53,10 +53,16 @@ if (app.isPackaged) {
   updater.on('update-available', (info: { version: string }) => {
     log.info('Update available:', info.version);
     log.info('Downloading update...');
+    if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+      splashWindowInstance.webContents.send('update-available', { version: info.version });
+    }
   });
 
   updater.on('update-not-available', (info: { version: string }) => {
     log.info('Update not available. Current version:', info.version);
+    if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+      splashWindowInstance.webContents.send('update-check-complete');
+    }
   });
 
   updater.on('error', (err: Error) => {
@@ -70,26 +76,21 @@ if (app.isPackaged) {
     const total = progressObj.total || 0;
     const speed = progressObj.bytesPerSecond || 0;
     log.info(`Download progress: ${percent}% (${transferred}/${total} bytes) - Speed: ${speed} bytes/sec`);
+    if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+      splashWindowInstance.webContents.send('download-progress', {
+        percent: progressObj.percent ?? 0,
+        bytesPerSecond: speed,
+        transferred,
+        total,
+      });
+    }
   });
 
   updater.on('update-downloaded', (info: { version: string }) => {
     log.info('Update downloaded:', info.version);
-
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Update Ready',
-      message: `Version ${info.version} has been downloaded`,
-      detail: 'The update will be installed when you quit and restart the app.',
-      buttons: ['Restart Now', 'Later']
-    }).then((result: { response: number }) => {
-      if (result.response === 0) {
-        // User clicked "Restart Now"
-        setImmediate(() => {
-          app.removeAllListeners('window-all-closed');
-          updater.quitAndInstall(false, true);
-        });
-      }
-    });
+    if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+      splashWindowInstance.webContents.send('update-downloaded', { version: info.version });
+    }
   });
 
   // Assign to module-level variable for use elsewhere
@@ -2055,6 +2056,16 @@ ipcMain.on('get-coach-window-state', (event: Electron.IpcMainInvokeEvent) => {
 // Handler for getting coach window state (async version for invoke)
 ipcMain.handle('get-coach-window-open-state', () => {
   return isCoachWindowOpen();
+});
+
+// Handler for the renderer to trigger update installation (after user clicks "Restart Now")
+ipcMain.on('install-update', () => {
+  if (autoUpdater) {
+    setImmediate(() => {
+      app.removeAllListeners('window-all-closed');
+      autoUpdater!.quitAndInstall(false, true);
+    });
+  }
 });
 
 // Handler for the splash window to signal successful login — closes the splash window
