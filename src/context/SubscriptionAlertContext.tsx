@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { useQuery } from "@tanstack/react-query";
-import getActivePlan from "@/views/Subscription/services/getActivePlan";
+import getActivePlan from "@/services/getActivePlan";
 
 interface SubscriptionAlert {
     title: string;

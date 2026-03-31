@@ -54,7 +54,7 @@
       flex-direction: column;
   }
   
-  .toggleText {
+  .login-layout-toggle-text {
     text-align: center;
     color: #52617a;
     cursor: pointer;
@@ -62,6 +62,6 @@
     font-size: 14px;
   }
   
-  .toggleText:hover {
+  .login-layout-toggle-text:hover {
     color: #4a85e5;
   }

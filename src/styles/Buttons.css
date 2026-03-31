@@ -101,6 +101,7 @@
 .login-primary-button.secondary{
     background-color: white;
     color: var(--sayso-indigo);
+    border: none !important;
     font-weight: 600;
     opacity: 0.8;
 }

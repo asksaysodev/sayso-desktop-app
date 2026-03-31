@@ -1,6 +1,6 @@
 import { AdminStore } from "@/types/store/adminStore";
 import { LeadType } from "@/types/coach";
-import { SignalVersion, Tool } from "@/views/Admin/types";
+import { SignalVersion, Tool } from "@/types/admin";
 import { create } from "zustand";
 
 export const useAdminStore = create<AdminStore>((set, get) => ({

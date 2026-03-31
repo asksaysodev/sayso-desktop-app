@@ -9,13 +9,15 @@ interface Props {
 const UPDATE_CHECK_TIMEOUT_MS = 15000;
 
 export default function UpdateGate({ children }: Props) {
-    const [updateCheckDone, setUpdateCheckDone] = useState(false);
+    const [updateCheckDone, setUpdateCheckDone] = useState(import.meta.env.DEV);
     const [updateAvailable, setUpdateAvailable] = useState(false);
     const [updateVersion, setUpdateVersion] = useState<string | null>(null);
     const [downloadProgress, setDownloadProgress] = useState(0);
     const [updateDownloaded, setUpdateDownloaded] = useState(false);
 
     useEffect(() => {
+        if (import.meta.env.DEV) return;
+
         const timeout = setTimeout(() => {
             setUpdateCheckDone(true);
         }, UPDATE_CHECK_TIMEOUT_MS);

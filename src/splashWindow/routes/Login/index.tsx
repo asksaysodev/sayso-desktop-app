@@ -35,10 +35,10 @@ const Login = () => {
             />
         </form>
         <div className='toggle-text-container'>
-            <p className="toggleText" onClick={handleSignUp}>
+            <p className="login-layout-toggle-text" onClick={handleSignUp}>
                 {"Don't have an account? Sign Up"}
             </p>
-            <p className="toggleText forgotPasswordText" onClick={handleForgotPassword}>
+            <p className="login-layout-toggle-text" onClick={handleForgotPassword}>
                 Forgot password? Click here
             </p>
         </div>

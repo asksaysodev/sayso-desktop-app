@@ -1,4 +1,4 @@
-import { SignalVersion, Tool } from "@/views/Admin/types";
+import { SignalVersion, Tool } from "@/types/admin";
 import { LeadType } from "@/types/coach";
 
 export interface AdminStore {

@@ -17,7 +17,7 @@ export default function Updating({ version, progress, downloaded, onDismiss }: P
     if (downloaded) {
         return (
             <LoginLayout
-                title="Update ready"
+                title="Update Ready"
                 description={`Version ${version} has been downloaded and is ready to install.`}
             >
                 <div className="updating-actions">

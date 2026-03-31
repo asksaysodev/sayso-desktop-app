@@ -2,7 +2,7 @@ import { useCallback } from "react"
 
 import apiClient from "../../config/axios"
 import { CoachInsight, Prospect } from "@/types/coach";
-import { Signal } from "@/views/Admin/types";
+import { Signal } from "@/types/admin";
 
 export default function useCoach() {
 
