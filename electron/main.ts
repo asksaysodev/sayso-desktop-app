@@ -924,6 +924,7 @@ const isDev = !app.isPackaged;
 
 // Keep track of window instances
 let dashboardWindowInstance: BrowserWindowType | null = null;
+let splashWindowInstance: BrowserWindowType | null = null;
 
 // --- Dashboard Window (Standard Window) ---
 const createDashboardWindow = () => {
@@ -1124,6 +1125,55 @@ const createDashboardWindow = () => {
     }
   });
 
+};
+
+// --- Splash Window (Auth / Loading Screen) ---
+const createSplashWindow = (logout: boolean = false) => {
+  if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+    splashWindowInstance.focus();
+    return;
+  }
+
+  const preloadScriptPath = path.join(__dirname, 'preload.js');
+
+const splashWindow = new BrowserWindow({
+    show: false,
+    width: 380,
+    height: 560,
+    center: true,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    roundedCorners: true,
+    titleBarStyle: 'hiddenInset',
+    webPreferences: {
+        preload: preloadScriptPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true,
+    },
+});
+
+  splashWindowInstance = splashWindow;
+
+  const query = logout ? '?logout=true' : '';
+  const splashUrl = isDev
+    ? `http://localhost:5173/splash-window.html${query}`
+    : `file://${path.join(__dirname, '../dist/splash-window.html')}${query}`;
+
+  splashWindow.once('ready-to-show', () => {
+    splashWindow.show();
+  });
+
+  splashWindow.loadURL(splashUrl);
+
+  if (isDev) {
+    splashWindow.webContents.openDevTools();
+  }
+
+  splashWindow.on('closed', () => {
+    splashWindowInstance = null;
+  });
 };
 
 // Handler for opening URLs externally
@@ -1747,8 +1797,8 @@ app.whenReady().then(() => {
     }
   });
   
-  // ONLY create the dashboard window initially
-  createDashboardWindow(); 
+  // Open the splash window on startup (handles auth check + login)
+  createSplashWindow();
   registerTrayIconMenu();
   setupGlobalShortcut();
   
@@ -1758,15 +1808,12 @@ app.whenReady().then(() => {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) {
-      // Recreate dashboard if no windows exist
-      createDashboardWindow();
+      createSplashWindow();
       setupGlobalShortcut();
+    } else if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+      splashWindowInstance.restore();
+      splashWindowInstance.focus();
     }
-     // If dashboard exists but is minimized/hidden, restore and focus.
-     else if (dashboardWindowInstance) {
-        dashboardWindowInstance.restore();
-        dashboardWindowInstance.focus();
-     }
   });
 });
 
@@ -1969,11 +2016,16 @@ ipcMain.handle('get-coach-settings-window-open-state', () => {
     return isCoachSettingsWindowOpen();
 })
 
-// Handler for opening coach window
+// Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow
 ipcMain.on('open-coach-window', () => {
   if (isDev) {
     console.log('IPC: Received open-coach-window request');
     console.log('IPC: Current global.coachWindow state:', !!global.coachWindow);
+  }
+  const micStatus = systemPreferences.getMediaAccessStatus('microphone');
+  if (micStatus !== 'granted') {
+    createSplashWindow();
+    return;
   }
   createCoachWindow();
 });
@@ -2005,30 +2057,33 @@ ipcMain.handle('get-coach-window-open-state', () => {
   return isCoachWindowOpen();
 });
 
-// Handler for showing the main window from the tray menu (e.g. Log In)
-ipcMain.on('tray-show-window', () => {
-  if (!dashboardWindowInstance || dashboardWindowInstance.isDestroyed()) {
-    createDashboardWindow();
-  } else {
-    if (dashboardWindowInstance.isMinimized()) dashboardWindowInstance.restore();
-    dashboardWindowInstance.show();
-    dashboardWindowInstance.focus();
+// Handler for the splash window to signal successful login — closes the splash window
+ipcMain.on('splash-login-success', () => {
+  if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+    splashWindowInstance.close();
   }
 });
 
-// Handler for triggering logout from the tray menu
+// Handler for showing the splash window from the tray menu (e.g. Log In)
+ipcMain.on('tray-show-window', () => {
+  if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
+    createSplashWindow();
+  } else {
+    if (splashWindowInstance.isMinimized()) splashWindowInstance.restore();
+    splashWindowInstance.show();
+    splashWindowInstance.focus();
+  }
+});
+
+// Handler for triggering logout from the tray menu — opens splash window with sign-out flag
 ipcMain.on('tray-logout', () => {
   hideTrayMenu();
-  if (!dashboardWindowInstance || dashboardWindowInstance.isDestroyed()) {
-    createDashboardWindow();
-    dashboardWindowInstance!.webContents.once('did-finish-load', () => {
-      dashboardWindowInstance?.webContents.send('trigger-logout');
-    });
+  if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
+    createSplashWindow(true);
   } else {
-    if (dashboardWindowInstance.isMinimized()) dashboardWindowInstance.restore();
-    dashboardWindowInstance.show();
-    dashboardWindowInstance.focus();
-    dashboardWindowInstance.webContents.send('trigger-logout');
+    if (splashWindowInstance.isMinimized()) splashWindowInstance.restore();
+    splashWindowInstance.show();
+    splashWindowInstance.focus();
   }
 });
 

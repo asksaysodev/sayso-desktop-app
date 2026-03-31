@@ -4,26 +4,21 @@
     align-items: center;
     height: 100vh;
     width: 100%;
-    background-color: var(--sayso-white);
+    background-color: #FFF;
     /* padding: 20px; */
     box-sizing: border-box;
     text-align: left;
   }
 
   .loginLayoutForm {
-    background: #ffffff;
-    padding: 32px 50px;
-    border-radius: 16px;
-    /* box-shadow: 0 4px 15px rgba(100, 120, 150, 0.08); */
-    border: 1px solid var(--sayso-border);
+    padding: 32px 28px;
     width: 100%;
-    max-width: 450px;
     box-sizing: border-box;
   }
 
   .loginLayoutForm h2 {
     color: #2a3f5f;
-    margin-top: 36px;
+    margin-top: 20px;
     margin-bottom: 8px;
     font-size: 18px;
     font-weight: 600;
@@ -60,6 +55,7 @@
     color: #52617a;
     cursor: pointer;
     transition: color 0.2s ease;
+    font-size: 14px;
   }
   
   .toggleText:hover {

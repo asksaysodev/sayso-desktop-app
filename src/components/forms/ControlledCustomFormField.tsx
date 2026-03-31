@@ -25,12 +25,12 @@ export default function ControlledCustomFormField({ name, control, rules, label,
             rules={rules}
             render={(fieldOptions) => (
                 <div>
-                    <div className="grid gap-3">
+                    <div className="grid gap-1">
                         {label && <Label className={labelCn} htmlFor={name} style={{ color: labelColor }}>{label}</Label>}
                         {children(fieldOptions)}
                     </div>
                     {fieldOptions.fieldState.error && (
-                        <span className="text-sm" style={{ color: 'var(--sayso-error)' }}>
+                        <span className="text-xs" style={{ color: 'var(--sayso-error)' }}>
                         {fieldOptions.fieldState.error?.message}
                         </span>
                     )}
