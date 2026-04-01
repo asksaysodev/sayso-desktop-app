@@ -1,0 +1,32 @@
+.updating-progress {
+    margin: 28px 0 16px;
+}
+
+.updating-progress-bar {
+    height: 6px;
+    background-color: var(--sayso-white);
+    border-radius: 99px;
+    overflow: hidden;
+    border: 1px solid var(--sayso-border);
+}
+
+.updating-progress-fill {
+    height: 100%;
+    background-color: var(--sayso-blue);
+    border-radius: 99px;
+    transition: width 0.3s ease;
+}
+
+.updating-progress-label {
+    font-size: 13px;
+    color: var(--sayso-lightgray);
+    text-align: center;
+    margin-top: 10px;
+}
+
+.updating-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 50px;
+}

@@ -131,6 +131,21 @@ export interface PermissionsStatus {
   screen: boolean;
 }
 
+export interface AutoUpdaterDownloadProgress {
+  percent: number;
+  bytesPerSecond: number;
+  transferred: number;
+  total: number;
+}
+
+export interface AutoUpdaterAPI {
+  onUpdateCheckComplete: (callback: () => void) => () => void;
+  onUpdateAvailable: (callback: (data: { version: string }) => void) => () => void;
+  onDownloadProgress: (callback: (data: AutoUpdaterDownloadProgress) => void) => () => void;
+  onUpdateDownloaded: (callback: (data: { version: string }) => void) => () => void;
+  installUpdate: () => void;
+}
+
 export interface ElectronBridge {
   ipcRenderer: ElectronIpcRenderer;
   openExternal: (url: string) => void;
@@ -140,6 +155,7 @@ export interface ElectronBridge {
   uploadFile: (options: UploadFileOptions) => Promise<{ success: boolean; error?: string }>;
   uploadBothFiles: (options: UploadBothFilesOptions) => Promise<{ success: boolean; error?: string }>;
   permissions: PermissionsAPI;
+  autoUpdater: AutoUpdaterAPI;
 }
 
 export interface ElectronAPIBridge {

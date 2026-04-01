@@ -56,25 +56,25 @@ const TrayMenuApp = () => {
     ipcRenderer.send('set-tray-menu-height', height);
   }, [disableToggleCoach, userAuthenticated]);
 
-  const handleToggleCoach = () => {
-    const ipcRenderer = window.electron?.ipcRenderer;
+    const handleToggleCoach = () => {
+        const ipcRenderer = window.electron?.ipcRenderer;
+    
+        if (ipcRenderer) {
+            if (isCoachOpen) {
+                ipcRenderer.send('close-coach-window'); 
+            } else {
+                ipcRenderer.send('open-coach-window');
+            }
+        }
+    };
 
-    if (ipcRenderer) {
-      if (isCoachOpen) {
-        ipcRenderer.send('close-coach-window'); 
-      } else {
-        ipcRenderer.send('open-coach-window');
-      }
-    }
-  };
-
-  const handleQuit = () => {
-    const ipcRenderer = window.electron?.ipcRenderer;
-
-    if (ipcRenderer) {
-      ipcRenderer.send('quit-app');
-    }
-  };
+    const handleQuit = () => {
+        const ipcRenderer = window.electron?.ipcRenderer;
+    
+        if (ipcRenderer) {
+        ipcRenderer.send('quit-app');
+        }
+    };
     
     const handlePressAccountSettings = async () => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -82,6 +82,7 @@ const TrayMenuApp = () => {
         if (session?.access_token) url.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}`;
         window.electron?.openExternal(url.toString());
     }
+    
     const handleAuthPress = () => {
         const ipc = window.electron?.ipcRenderer;
         if (!ipc) return;
@@ -114,7 +115,7 @@ const TrayMenuApp = () => {
                 />
               </div>
               <span className="tray-menu-item-label">
-                {isCoachOpen ? 'Close coach' : 'Start coach'}
+                {isCoachOpen ? 'Close Coach' : 'Start Coach'}
               </span>
             </button>
             <div className="tray-menu-separator" />
@@ -128,7 +129,7 @@ const TrayMenuApp = () => {
                     onClick={handlePressAccountSettings}
                 >
                     <span className="tray-menu-item-label">
-                        Account settings
+                        Account Settings
                     </span>
                 </button>
                 
@@ -146,7 +147,7 @@ const TrayMenuApp = () => {
             onClick={handleAuthPress}
           >
             <span className="tray-menu-item-label bottom-item">
-              {userAuthenticated ? 'Log out' : 'Log in'}
+              {userAuthenticated ? 'Log Out' : 'Log In'}
             </span>
           </button>
         </div>

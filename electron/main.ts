@@ -53,10 +53,16 @@ if (app.isPackaged) {
   updater.on('update-available', (info: { version: string }) => {
     log.info('Update available:', info.version);
     log.info('Downloading update...');
+    if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+      splashWindowInstance.webContents.send('update-available', { version: info.version });
+    }
   });
 
   updater.on('update-not-available', (info: { version: string }) => {
     log.info('Update not available. Current version:', info.version);
+    if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+      splashWindowInstance.webContents.send('update-check-complete');
+    }
   });
 
   updater.on('error', (err: Error) => {
@@ -70,26 +76,21 @@ if (app.isPackaged) {
     const total = progressObj.total || 0;
     const speed = progressObj.bytesPerSecond || 0;
     log.info(`Download progress: ${percent}% (${transferred}/${total} bytes) - Speed: ${speed} bytes/sec`);
+    if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+      splashWindowInstance.webContents.send('download-progress', {
+        percent: progressObj.percent ?? 0,
+        bytesPerSecond: speed,
+        transferred,
+        total,
+      });
+    }
   });
 
   updater.on('update-downloaded', (info: { version: string }) => {
     log.info('Update downloaded:', info.version);
-
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Update Ready',
-      message: `Version ${info.version} has been downloaded`,
-      detail: 'The update will be installed when you quit and restart the app.',
-      buttons: ['Restart Now', 'Later']
-    }).then((result: { response: number }) => {
-      if (result.response === 0) {
-        // User clicked "Restart Now"
-        setImmediate(() => {
-          app.removeAllListeners('window-all-closed');
-          updater.quitAndInstall(false, true);
-        });
-      }
-    });
+    if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+      splashWindowInstance.webContents.send('update-downloaded', { version: info.version });
+    }
   });
 
   // Assign to module-level variable for use elsewhere
@@ -923,207 +924,55 @@ if (require('electron-squirrel-startup')) {
 const isDev = !app.isPackaged;
 
 // Keep track of window instances
-let dashboardWindowInstance: BrowserWindowType | null = null;
+let splashWindowInstance: BrowserWindowType | null = null;
 
-// --- Dashboard Window (Standard Window) ---
-const createDashboardWindow = () => {
-  if (dashboardWindowInstance) {
-      dashboardWindowInstance.focus();
-      return;
+// --- Splash Window (Auth / Loading Screen) ---
+const createSplashWindow = (logout: boolean = false) => {
+  if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+    splashWindowInstance.focus();
+    return;
   }
+
   const preloadScriptPath = path.join(__dirname, 'preload.js');
-  if (isDev) {
-    console.log(`[MAIN]: Dashboard preload path calculated as: ${preloadScriptPath}`);
-    if (fs.existsSync(preloadScriptPath)) {
-      console.log(`[MAIN]: Preload script FOUND at: ${preloadScriptPath}`);
-    }
-  }
-  if (!fs.existsSync(preloadScriptPath)) {
-    console.error(`[MAIN]: Preload script NOT FOUND at: ${preloadScriptPath}`);
-  }
-  const indexHtmlPath = path.join(process.resourcesPath, 'dist', 'index.html');
-  const allowVibrancy: boolean = process.platform === 'darwin' && process.arch !== 'x64'; 
-  const dashboardWindow = new BrowserWindow({
+
+const splashWindow = new BrowserWindow({
     show: false,
-    width: 1400,
-    height: 900,
-    icon: path.join(__dirname, '../public/assets/icon.icns'),
-    // Prevent fullscreen and maximize, but allow manual resizing
+    width: 380,
+    height: 560,
+    center: true,
+    resizable: false,
     maximizable: false,
     fullscreenable: false,
     roundedCorners: true,
-    vibrancy: allowVibrancy ? 'under-window': undefined,
-    visualEffectState: allowVibrancy ? 'active' : undefined,
     titleBarStyle: 'hiddenInset',
-    // titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#ffffff',
-      symbolColor: '#000000',
-      height: 30
-    },
     webPreferences: {
-      preload: preloadScriptPath,
-      contextIsolation: true,
-      nodeIntegration: false,
-      webSecurity: true,
-      // Enhanced media permissions for packaged app
-      enableBlinkFeatures: 'MediaDevices,MediaStream,WebRTC',
-      // permissions: ['media', 'microphone'], 'permissions' does not exist in type 'WebPreferences'.
-      // Add these for better camera support
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      additionalArguments: [`--indexHtmlPath=${indexHtmlPath}`]
+        preload: preloadScriptPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true,
     },
-  });
-  dashboardWindowInstance = dashboardWindow;
-  global.mainWindow = dashboardWindow;
-  const dashboardUrl = isDev 
-    ? 'http://localhost:5173/#/' 
-    : `file://${path.join(__dirname, '../dist/index.html')}#/`;
-  dashboardWindow.once('ready-to-show', () => {
-    dashboardWindow.show();
+});
+
+  splashWindowInstance = splashWindow;
+
+  const query = logout ? '?logout=true' : '';
+  const splashUrl = isDev
+    ? `http://localhost:5173/splash-window.html${query}`
+    : `file://${path.join(__dirname, '../dist/splash-window.html')}${query}`;
+
+  splashWindow.once('ready-to-show', () => {
+    splashWindow.show();
   });
 
-  dashboardWindow.loadURL(dashboardUrl);
+  splashWindow.loadURL(splashUrl);
+
   if (isDev) {
-    dashboardWindow.webContents.openDevTools();
+    splashWindow.webContents.openDevTools();
   }
-  dashboardWindow.on('closed', () => {
-      dashboardWindowInstance = null;
+
+  splashWindow.on('closed', () => {
+    splashWindowInstance = null;
   });
-
-  // Enhanced media permissions handler for packaged app
-  dashboardWindow.webContents.session.setPermissionRequestHandler((webContents: WebContents, permission: string, callback: (allowed: boolean) => void) => {
-    const allowedPermissions = ['media', 'microphone', 'display-capture'];
-    if (isDev) {
-      console.log(`[MAIN] Permission requested: ${permission}`);
-    }
-    
-    if (allowedPermissions.includes(permission)) {
-      if (isDev) {
-        console.log(`[MAIN] Granting permission for: ${permission}`);
-      }
-      // Grant permission immediately for media access
-      callback(true);
-    } else {
-      if (isDev) {
-        console.log(`[MAIN] Denying permission for: ${permission}`);
-      }
-      callback(false);
-    }
-  });
-
-  // Enhanced device permission handler
-  dashboardWindow.webContents.session.setDevicePermissionHandler((details): boolean => {
-    const { deviceType, origin, device } = details;
-    if (isDev) {
-      const deviceId = 'deviceId' in device ? device.deviceId : 'unknown';
-      console.log(`[MAIN] Device permission requested for: ${deviceType} from ${origin} (${deviceId})`);
-    }
-    // Always allow device access for camera/microphone
-    return true;
-  });
-
-  // Initialize media devices with better error handling
-  dashboardWindow.webContents.on('did-finish-load', () => {
-    if (isDev) {
-      console.log('[MAIN] Window loaded, initializing media devices...');
-    }
-    dashboardWindow.webContents.executeJavaScript(`
-      (function() {
-        ${isDev ? "console.log('[MAIN] Initializing media devices in renderer...');" : ''}
-        
-        // Check if mediaDevices is available
-        if (!navigator.mediaDevices) {
-          console.error('[MAIN] navigator.mediaDevices is not available');
-          return;
-        }
-        
-        // Do NOT auto-request permissions here. We only show macOS dialogs
-        // after the user confirms our custom modal (via permissions.requestAll).
-        ${isDev ? "console.log('[MAIN] Skipping automatic getUserMedia to avoid prompting macOS dialogs early.');" : ''}
-        
-        // Enumerate devices
-        navigator.mediaDevices.enumerateDevices()
-          .then(devices => {
-            ${isDev ? "console.log('[MAIN] Available media devices:', devices.map(d => ({ kind: d.kind, deviceId: d.deviceId, label: d.label })));" : ''}
-          })
-          .catch(err => {
-            console.error('[MAIN] Error enumerating devices:', err);
-          });
-      })();
-    `);
-  });
-
-  // Handle device change events
-  dashboardWindow.webContents.on('media-devices-changed' as any, () => {
-    if (isDev) {
-      console.log('[MAIN] Media devices changed, reinitializing...');
-    }
-    dashboardWindow.webContents.executeJavaScript(`
-      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-        navigator.mediaDevices.enumerateDevices()
-          .then(devices => {
-            ${isDev ? "console.log('[MAIN] Updated media devices:', devices.map(d => ({ kind: d.kind, deviceId: d.deviceId, label: d.label })));" : ''}
-          })
-          .catch(err => console.error('[MAIN] Error enumerating devices:', err));
-      }
-    `);
-  });
-
-  // Enhanced CSP for better camera support
-  dashboardWindow.webContents.session.webRequest.onHeadersReceived((details: Electron.OnHeadersReceivedListenerDetails, callback: (response: Electron.HeadersReceivedResponse) => void) => {
-    const cspHeader = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; " +
-      "script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; " +
-      "style-src * 'unsafe-inline' data: blob:; " +
-      "img-src * data: blob:; " +
-      "connect-src * data: blob:; " +
-      "font-src * data: blob:; " +
-      "media-src * data: blob:; " +
-      "frame-src * data: blob:; " +
-      "worker-src * data: blob:; " +
-      "child-src * data: blob:;";
-
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "Content-Security-Policy": [cspHeader]
-      }
-    });
-  });
-
-  dashboardWindow.webContents.setWindowOpenHandler(({ url }: { url: string }) => {
-    if (isDev) {
-      console.log('[Electron][setWindowOpenHandler] Attempt to open URL:', url);
-    }
-    // If the url is a file:// index.html with a hash, route it in the main window
-    if (url.startsWith('file://') && url.includes('index.html#/post-call/')) {
-      if (isDev) {
-        console.log('[Electron][setWindowOpenHandler] Intercepted leaveUrl, loading in main window:', url);
-      }
-      dashboardWindow.loadURL(url);
-      return { action: 'deny' }; // Prevent new window
-    }
-    return { action: 'allow' };
-  });
-
-  dashboardWindow.webContents.on('will-navigate', (event: Event, url: string) => {
-    if (isDev) {
-      console.log('[Electron][will-navigate] Navigation attempt to:', url);
-    }
-
-    // Patch for malformed protocol
-    if (url.startsWith('https://file///')) {
-      event.preventDefault();
-      // Fix to 'file:///' (with colon and three slashes)
-      const fixedUrl = url.replace('https://file///', 'file:///');
-      if (isDev) {
-        console.log('[Electron][will-navigate] Fixed protocol, loading:', fixedUrl);
-      }
-      dashboardWindow.loadURL(fixedUrl);
-    }
-  });
-
 };
 
 // Handler for opening URLs externally
@@ -1447,17 +1296,11 @@ audioQueue.on('queued', (item: AudioQueueItem) => {
   if (isDev) {
     console.log(`[Audio Queue] Queued new audio chunk: ${item.filePath} (${item.speaker})`);
   }
-  if (dashboardWindowInstance) {
-    dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
-  }
 });
 
 audioQueue.on('processing', (item: AudioQueueItem) => {
   if (isDev) {
     console.log(`[Audio Queue] Processing audio chunk: ${item.filePath} (${item.speaker})`);
-  }
-  if (dashboardWindowInstance) {
-    dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
   }
 });
 
@@ -1465,34 +1308,22 @@ audioQueue.on('completed', (item: AudioQueueItem) => {
   if (isDev) {
     console.log(`[Audio Queue] Completed processing audio chunk: ${item.filePath} (${item.speaker})`);
   }
-  if (dashboardWindowInstance) {
-    dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
-  }
 });
 
 audioQueue.on('failed', (item: AudioQueueItem) => {
   console.error(`[Audio Queue] Failed to process audio chunk after ${item.retries} retries: ${item.filePath} (${item.speaker})`);
   Sentry.captureMessage(`Audio queue failed: ${item.filePath} (${item.speaker}) after ${item.retries} retries`, 'error');
-  if (dashboardWindowInstance) {
-    dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
-  }
 });
 
 audioQueue.on('retrying', (item: AudioQueueItem) => {
   if (isDev) {
     console.log(`[Audio Queue] Retrying audio chunk (attempt ${item.retries}): ${item.filePath} (${item.speaker})`);
   }
-  if (dashboardWindowInstance) {
-    dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
-  }
 });
 
 audioQueue.on('queueEmpty', (): void => {
   if (isDev) {
     console.log('[Audio Queue] Queue is now empty');
-  }
-  if (dashboardWindowInstance) {
-    dashboardWindowInstance.webContents.send('audio-queue-update', audioQueue.getStatus());
   }
 });
 
@@ -1505,9 +1336,6 @@ ipcMain.handle('get-audio-queue-status', () => {
 ipcMain.handle('reload-page', () => {
   if (isDev) {
     console.log('[MAIN] Reloading page...');
-  }
-  if (dashboardWindowInstance) {
-    dashboardWindowInstance.reload();
   }
   return { status: "Page reloaded" };
 });
@@ -1530,68 +1358,12 @@ app.on('open-url', (event: Event, url: string) => {
   const urlObj = new URL(url);
   const params = new URLSearchParams(urlObj.search);
   
-  if (urlObj.hash) {
-    const hashParams = new URLSearchParams(urlObj.hash.substring(1));
-    const accessToken = hashParams.get('access_token');
-    const type = hashParams.get('type');
-    
-    if (accessToken && type === 'recovery') {
-      if (dashboardWindowInstance) {
-        const queryString = Array.from(hashParams.entries())
-          .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
-          .join('&');
-        
-        const resetPasswordUrl = isDev 
-          ? `http://localhost:5173/#/reset-password?${queryString}`
-          : `file://${path.join(__dirname, '../dist/index.html')}#/reset-password?${queryString}`;
-        
-        dashboardWindowInstance.loadURL(resetPasswordUrl);
-        
-        if (dashboardWindowInstance.isMinimized()) {
-          dashboardWindowInstance.restore();
-        }
-        dashboardWindowInstance.focus();
-      }
-      return;
-    }
-  }
-
-  // Handle checkout callback
-  if (urlObj.pathname === '/checkout') {
-    const success = params.get('success');
-    if (isDev) {
-      console.log('Checkout callback received, success:', success);
-    }
-    
-    // Navigate to checkout route with query params
-    if (dashboardWindowInstance) {
-      const checkoutUrl = isDev 
-        ? `http://localhost:5173/#/checkout?success=${success}`
-        : `file://${path.join(__dirname, '../dist/index.html')}#/checkout?success=${success}`;
-      
-      dashboardWindowInstance.loadURL(checkoutUrl);
-      
-      // Focus the window
-      if (dashboardWindowInstance.isMinimized()) {
-        dashboardWindowInstance.restore();
-      }
-      dashboardWindowInstance.focus();
-    }
-  }
 });
 
 // Handle second instance (when app is already running and opened via protocol)
 app.on('second-instance', (event: Event, commandLine: string[], workingDirectory: string) => {
   if (isDev) {
     console.log('Second instance detected, command line:', commandLine);
-  }
-  
-  // Focus the existing window
-  if (dashboardWindowInstance) {
-    if (dashboardWindowInstance.isMinimized()) {
-      dashboardWindowInstance.restore();
-    }
-    dashboardWindowInstance.focus();
   }
   
   // Check if there's a protocol URL in the command line
@@ -1747,8 +1519,8 @@ app.whenReady().then(() => {
     }
   });
   
-  // ONLY create the dashboard window initially
-  createDashboardWindow(); 
+  // Open the splash window on startup (handles auth check + login)
+  createSplashWindow();
   registerTrayIconMenu();
   setupGlobalShortcut();
   
@@ -1758,15 +1530,12 @@ app.whenReady().then(() => {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) {
-      // Recreate dashboard if no windows exist
-      createDashboardWindow();
+      createSplashWindow();
       setupGlobalShortcut();
+    } else if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+      splashWindowInstance.restore();
+      splashWindowInstance.focus();
     }
-     // If dashboard exists but is minimized/hidden, restore and focus.
-     else if (dashboardWindowInstance) {
-        dashboardWindowInstance.restore();
-        dashboardWindowInstance.focus();
-     }
   });
 });
 
@@ -1969,11 +1738,16 @@ ipcMain.handle('get-coach-settings-window-open-state', () => {
     return isCoachSettingsWindowOpen();
 })
 
-// Handler for opening coach window
+// Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow
 ipcMain.on('open-coach-window', () => {
   if (isDev) {
     console.log('IPC: Received open-coach-window request');
     console.log('IPC: Current global.coachWindow state:', !!global.coachWindow);
+  }
+  const micStatus = systemPreferences.getMediaAccessStatus('microphone');
+  if (micStatus !== 'granted') {
+    createSplashWindow();
+    return;
   }
   createCoachWindow();
 });
@@ -2005,30 +1779,47 @@ ipcMain.handle('get-coach-window-open-state', () => {
   return isCoachWindowOpen();
 });
 
-// Handler for showing the main window from the tray menu (e.g. Log In)
-ipcMain.on('tray-show-window', () => {
-  if (!dashboardWindowInstance || dashboardWindowInstance.isDestroyed()) {
-    createDashboardWindow();
-  } else {
-    if (dashboardWindowInstance.isMinimized()) dashboardWindowInstance.restore();
-    dashboardWindowInstance.show();
-    dashboardWindowInstance.focus();
+// Handler for the renderer to trigger update installation (after user clicks "Restart Now")
+ipcMain.on('install-update', () => {
+  if (autoUpdater) {
+    setImmediate(() => {
+      app.removeAllListeners('window-all-closed');
+      autoUpdater!.quitAndInstall(false, true);
+    });
   }
 });
 
-// Handler for triggering logout from the tray menu
+// Handler for the splash window to signal successful login — closes the splash window
+ipcMain.on('splash-login-success', () => {
+  if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+    splashWindowInstance.close();
+  }
+});
+
+// Handler for showing the splash window from the tray menu (e.g. Log In)
+ipcMain.on('tray-show-window', () => {
+  if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
+    createSplashWindow();
+  } else {
+    if (splashWindowInstance.isMinimized()) splashWindowInstance.restore();
+    splashWindowInstance.show();
+    splashWindowInstance.focus();
+  }
+});
+
+// Handler for triggering logout from the tray menu — opens splash window with sign-out flag
 ipcMain.on('tray-logout', () => {
   hideTrayMenu();
-  if (!dashboardWindowInstance || dashboardWindowInstance.isDestroyed()) {
-    createDashboardWindow();
-    dashboardWindowInstance!.webContents.once('did-finish-load', () => {
-      dashboardWindowInstance?.webContents.send('trigger-logout');
-    });
+  if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
+    createSplashWindow(true);
   } else {
-    if (dashboardWindowInstance.isMinimized()) dashboardWindowInstance.restore();
-    dashboardWindowInstance.show();
-    dashboardWindowInstance.focus();
-    dashboardWindowInstance.webContents.send('trigger-logout');
+    const logoutUrl = isDev
+      ? 'http://localhost:5173/splash-window.html?logout=true'
+      : `file://${path.join(__dirname, '../dist/splash-window.html')}?logout=true`;
+    if (splashWindowInstance.isMinimized()) splashWindowInstance.restore();
+    splashWindowInstance.show();
+    splashWindowInstance.focus();
+    splashWindowInstance.loadURL(logoutUrl);
   }
 });
 
@@ -2135,15 +1926,6 @@ const createCoachWindow = () => {
 
   coachWindow.loadURL(coachUrl);
   
-  // Ensure main window maintains its properties after coach window creation
-  if (dashboardWindowInstance && !dashboardWindowInstance.isDestroyed()) {
-    // Restore main window's frame and visibility properties
-    dashboardWindowInstance.setVisibleOnAllWorkspaces(false);
-    if (isDev) {
-      console.log('Main window visibility properties restored');
-    }
-  }
-  
   if (isDev) {
     // coachWindow.webContents.openDevTools();
   }
@@ -2158,20 +1940,11 @@ const createCoachWindow = () => {
     
     global.coachWindow = null;
     
-    // Notify the main window that the coach window has closed
-    if (dashboardWindowInstance) {
-      dashboardWindowInstance.webContents.send('coach-window-closed');
-    }
-    
     updateTrayMenu();
   });
 
   if (isDev) {
     console.log('Coach window created successfully at position:', { x: windowConfig.x, y: windowConfig.y });
-  }
-
-  if (dashboardWindowInstance) {
-    dashboardWindowInstance.webContents.send('coach-window-opened');
   }
 
   updateTrayMenu();

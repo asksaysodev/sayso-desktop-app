@@ -9,13 +9,10 @@ try {
         return ipcRenderer.invoke(channel, ...args);
       },
       on: (channel: string, callback: (data: unknown) => void) => {
-        console.log('🔌 PRELOAD: Setting up listener for channel:', channel);
         ipcRenderer.on(channel, (event: Event, ...args: unknown[]) => {
-          console.log('📨 PRELOAD: Received data on channel:', channel, args);
           callback(args[0]);
         });
         return () => {
-          console.log('🧹 PRELOAD: Cleaning up listener for channel:', channel);
           ipcRenderer.removeAllListeners(channel);
         };
       },
@@ -26,7 +23,6 @@ try {
         ipcRenderer.removeAllListeners(channel);
       },
       off: (channel: string, callback: (...args: unknown[]) => void) => {
-        console.log('🧹 PRELOAD: Removing listener for channel:', channel);
         ipcRenderer.removeListener(channel, callback);
       }
     },
@@ -91,6 +87,26 @@ try {
     permissions: {
       check: () => ipcRenderer.invoke('permissions-check'),
       requestAll: () => ipcRenderer.invoke('permissions-request-all')
+    },
+    
+    autoUpdater: {
+        onUpdateCheckComplete: (callback: () => void) => {
+            ipcRenderer.on('update-check-complete', () => callback());
+            return () => ipcRenderer.removeAllListeners('update-check-complete');
+        },
+        onUpdateAvailable: (callback: (data: { version: string }) => void) => {
+            ipcRenderer.on('update-available', (_event: Event, data: { version: string }) => callback(data));
+            return () => ipcRenderer.removeAllListeners('update-available');
+        },
+        onDownloadProgress: (callback: (data: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => {
+            ipcRenderer.on('download-progress', (_event: Event, data: any) => callback(data));
+            return () => ipcRenderer.removeAllListeners('download-progress');
+        },
+        onUpdateDownloaded: (callback: (data: { version: string }) => void) => {
+            ipcRenderer.on('update-downloaded', (_event: Event, data: { version: string }) => callback(data));
+            return () => ipcRenderer.removeAllListeners('update-downloaded');
+        },
+        installUpdate: () => ipcRenderer.send('install-update'),
     }
   });
 

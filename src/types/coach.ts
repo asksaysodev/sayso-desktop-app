@@ -2,7 +2,7 @@
  * Sales Coach type definitions
  */
 
-import { InsightRating } from "@/views/Dashboard/types";
+export type InsightRating = null | 'up' | 'down';
 
 // Signal types
 export type SignalType =

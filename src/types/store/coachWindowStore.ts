@@ -1,4 +1,4 @@
-import { Signal } from "@/views/Admin/types";
+import { Signal } from "@/types/admin";
 import { LeadType, Prospect } from "@/types/coach";
 
 export type CoachFeature = 'cue' | 'recall';
