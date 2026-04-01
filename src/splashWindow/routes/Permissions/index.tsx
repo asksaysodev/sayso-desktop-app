@@ -12,14 +12,12 @@ export default function Permissions() {
     const [state, setState] = useState<PermissionsState>('idle');
 
     async function handleAllow() {
-        console.log(state,'state')
         if (state === 'needs-system-settings') {
             return;
         }
 
         setState('loading');
         const result = await window.electron?.permissions?.requestAll();
-        console.log(result,'res')
         if (result?.mic && result?.screen) {
             localStorage.setItem('coachPermissionsGranted', 'true');
             navigate('/', { replace: true });

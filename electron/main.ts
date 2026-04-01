@@ -1813,9 +1813,13 @@ ipcMain.on('tray-logout', () => {
   if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
     createSplashWindow(true);
   } else {
+    const logoutUrl = isDev
+      ? 'http://localhost:5173/splash-window.html?logout=true'
+      : `file://${path.join(__dirname, '../dist/splash-window.html')}?logout=true`;
     if (splashWindowInstance.isMinimized()) splashWindowInstance.restore();
     splashWindowInstance.show();
     splashWindowInstance.focus();
+    splashWindowInstance.loadURL(logoutUrl);
   }
 });
 
