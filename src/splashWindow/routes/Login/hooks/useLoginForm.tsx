@@ -10,20 +10,15 @@ import { LoginFormData } from '../types';
 import { getAAL } from '@/services/mfaServices';
 
 const INITIAL_VALUES: LoginFormData = {
-  name: '',
-  lastname: '',
-  company: '',
   email: '',
   password: '',
-  repeatPassword: ''
 };
 
 export default function useLoginForm() {
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [isBtnLoading, setIsBtnLoading] = useState(false);
   const navigate = useNavigate();
-  const { signIn, signUp, checkIfNeedsMFA } = useAuth();
+  const { signIn, checkIfNeedsMFA } = useAuth();
 
   const customResolver = (values: LoginFormData) => {
     const errors = validateLoginFields(values);
@@ -39,9 +34,7 @@ export default function useLoginForm() {
 
   const {
     control,
-    reset,
     handleSubmit: rhfHandleSubmit,
-    trigger
   } = useForm<LoginFormData>({
     resolver: customResolver,
     mode: 'onSubmit',
@@ -98,7 +91,6 @@ const performAuthentication = async (data: LoginFormData) => {
   return {
     control,
     error,
-    isLoading,
     isBtnLoading,
     handleSubmit,
   }

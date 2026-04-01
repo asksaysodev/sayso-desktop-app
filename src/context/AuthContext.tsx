@@ -3,13 +3,12 @@ import { supabase } from '../config/supabase'
 import { useAccounts } from '../hooks/useAccounts'
 import { useLocation } from 'react-router-dom'
 import * as Sentry from "@sentry/electron/renderer"
-import { Account, AuthResult, SignInData, SignUpData, User } from '@/types/user'
+import { Account, AuthResult, SignInData, User } from '@/types/user'
 import { AALLevel, MFAServiceError } from '@/types/supabaseMFA'
 import { getAAL, listFactors, verifyTOTPCode } from '@/services/mfaServices'
 import type { Factor } from '@supabase/supabase-js'
 
 interface AuthContextValue {
-  signUp: (data: SignUpData) => Promise<AuthResult>;
   signIn: (data: SignInData) => Promise<AuthResult>;
   handleSignOut: () => Promise<void>;
   user: User | null;
@@ -260,33 +259,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [user])
 
-  const signUp = async (data: SignUpData) => {
-    const result = await supabase.auth.signUp(data)
-    if (!result.error) {
-      const { email, options } = data
-      const { name, lastname, company } = options?.data || {}
-      const creationPromise: any = createAccount({ email, name, lastname, company })
-        .catch((err) => {
-          console.error('Error creating account in DB:', err)
-          Sentry.captureException(err)
-          throw err
-        })
-        accountCreationRef.current = creationPromise;
-      try {
-          await creationPromise;
-      } finally {
-          accountCreationRef.current = null;
-      }
-    }
-    return result
-  }
-
   const signIn = async (data: SignInData): Promise<AuthResult> => {
     return await supabase.auth.signInWithPassword(data) as AuthResult
   }
 
   const values = {
-    signUp,
     signIn,
     handleSignOut,
     user,

@@ -9,13 +9,10 @@ try {
         return ipcRenderer.invoke(channel, ...args);
       },
       on: (channel: string, callback: (data: unknown) => void) => {
-        console.log('🔌 PRELOAD: Setting up listener for channel:', channel);
         ipcRenderer.on(channel, (event: Event, ...args: unknown[]) => {
-          console.log('📨 PRELOAD: Received data on channel:', channel, args);
           callback(args[0]);
         });
         return () => {
-          console.log('🧹 PRELOAD: Cleaning up listener for channel:', channel);
           ipcRenderer.removeAllListeners(channel);
         };
       },
@@ -26,7 +23,6 @@ try {
         ipcRenderer.removeAllListeners(channel);
       },
       off: (channel: string, callback: (...args: unknown[]) => void) => {
-        console.log('🧹 PRELOAD: Removing listener for channel:', channel);
         ipcRenderer.removeListener(channel, callback);
       }
     },

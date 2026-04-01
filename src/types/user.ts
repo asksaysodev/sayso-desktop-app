@@ -126,7 +126,6 @@ export interface UpdateAccountData {
 }
 
 export interface AuthContextValue {
-  signUp: (data: SignUpData) => Promise<AuthResult>;
   signIn: (data: SignInData) => Promise<AuthResult>;
   handleSignOut: () => Promise<void>;
   user: User | null;
@@ -135,18 +134,6 @@ export interface AuthContextValue {
   userLoading: boolean;
   loading: boolean;
   updateGlobalUser: (accountEmail: string) => Promise<void>;
-}
-
-export interface SignUpData {
-  email: string;
-  password: string;
-  options?: {
-    data?: {
-      name?: string;
-      lastname?: string;
-      company?: string;
-    };
-  };
 }
 
 export interface SignInData {

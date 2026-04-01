@@ -1,4 +1,3 @@
-import LoginLoader from './components/LoginLoader';
 import LoginInFormInputs from './components/LoginInFormInputs';
 import useLoginForm from './hooks/useLoginForm';
 
@@ -17,14 +16,9 @@ const Login = () => {
   const {
     control,
     error,
-    isLoading,
     isBtnLoading,
     handleSubmit,
   } = useLoginForm();
-
-  if (isLoading) {
-    return <LoginLoader />
-  }
 
   return (
     <LoginLayout title={'Welcome Back!'} error={error}>
