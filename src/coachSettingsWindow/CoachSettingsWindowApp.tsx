@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import { useSessionExpiry } from "@/hooks/useSessionExpiry";
 import { LuBolt, LuBookText, LuHeadphones, LuPause } from "react-icons/lu";
 import CueSettings from "./components/CueSettings";
 import AutoStopSettings from "./components/AutoStopSettings";
@@ -101,6 +102,9 @@ function CoachSettingsContent() {
 }
 
 function CoachSettingsWindowApp() {
+    const closeWindow = useCallback(() => window.electron.ipcRenderer.send('close-coach-settings-window'), []);
+    useSessionExpiry(closeWindow);
+
     return (
         <CoachSettingsProvider>
             <div className="coach-settings-container">

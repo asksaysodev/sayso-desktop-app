@@ -900,7 +900,7 @@ async function ensureCueUserMicDeliversJsChunks(
 
 const audioQueue = require('./audioQueue');
 const { AudioStreamer } = require('./streaming/audioStreamer');
-const { getAuthToken } = require('./utils/authTokens');
+const { getAuthToken, refreshAuthTokens } = require('./utils/authTokens');
 
 // Add command line switches for better camera support
 app.commandLine.appendSwitch('enable-features', 'WebRTC,MediaDevices,MediaStream');
@@ -1697,6 +1697,51 @@ ipcMain.handle('get-auth-tokens', () => {
     accessToken: global.authAccessToken ?? null,
     refreshToken: global.authRefreshToken ?? null,
   };
+});
+
+/**
+ * Handler for refreshing auth tokens — single point of truth for all windows.
+ * Queues concurrent requests so only one actual refresh call goes to Supabase,
+ * then broadcasts the new tokens to all open windows.
+ */
+let isRefreshingTokens = false;
+let pendingRefreshResolvers: Array<(result: { accessToken?: string; refreshToken?: string; error?: string }) => void> = [];
+
+ipcMain.handle('refresh-auth-tokens', async () => {
+  if (!global.authRefreshToken) {
+    return { error: 'No refresh token available' };
+  }
+
+  if (isRefreshingTokens) {
+    return new Promise(resolve => pendingRefreshResolvers.push(resolve));
+  }
+
+  isRefreshingTokens = true;
+
+  try {
+    const { accessToken, refreshToken } = await refreshAuthTokens(global.authRefreshToken);
+
+    global.authAccessToken = accessToken;
+    global.authRefreshToken = refreshToken;
+
+    // Broadcast to all windows so their local Supabase clients stay in sync
+    BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('auth-tokens-refreshed', { accessToken, refreshToken });
+      }
+    });
+
+    const result = { accessToken, refreshToken };
+    pendingRefreshResolvers.forEach(resolve => resolve(result));
+    return result;
+  } catch (error: any) {
+    const result = { error: error.message ?? 'Token refresh failed' };
+    pendingRefreshResolvers.forEach(resolve => resolve(result));
+    return result;
+  } finally {
+    isRefreshingTokens = false;
+    pendingRefreshResolvers = [];
+  }
 });
 
 /**

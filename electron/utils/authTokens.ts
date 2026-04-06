@@ -1,64 +1,49 @@
-import { createClient } from '@supabase/supabase-js';
 import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
 
-// Create Supabase client in Electron (reads from same storage as React)
 async function getAuthToken() {
   try {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
-    
-    // Read session from Electron's localStorage equivalent
-    // Supabase stores session in localStorage, which Electron can access
-    if (!supabaseUrl || !supabaseAnonKey) return null;
+    const storagePath = path.join(app.getPath('userData'), 'supabase-session.json');
+    if (!fs.existsSync(storagePath)) return null;
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        storage: {
-          getItem: (key: string) => {
-            // Read from Electron's storage location
-            // This should match where React stores it
-            const storagePath = path.join(app.getPath('userData'), 'supabase-session.json');
-            if (fs.existsSync(storagePath)) {
-              const data = JSON.parse(fs.readFileSync(storagePath, 'utf8'));
-              return data[key] || null;
-            }
-            return null;
-          },
-          setItem: (key: string, value: string) => {
-            // Write to Electron's storage
-            const storagePath = path.join(app.getPath('userData'), 'supabase-session.json');
-            const data = fs.existsSync(storagePath) 
-              ? JSON.parse(fs.readFileSync(storagePath, 'utf8'))
-              : {};
-            data[key] = value;
-            fs.writeFileSync(storagePath, JSON.stringify(data));
-          },
-          removeItem: (key: string) => {
-            const storagePath = path.join(app.getPath('userData'), 'supabase-session.json');
-            if (fs.existsSync(storagePath)) {
-              const data = JSON.parse(fs.readFileSync(storagePath, 'utf8'));
-              delete data[key];
-              fs.writeFileSync(storagePath, JSON.stringify(data));
-            }
-          }
-        }
-      }
-    });
-    
-    const { data: { session }, error } = await supabase.auth.getSession();
-    
-    if (error || !session?.access_token) {
-      throw new Error('No active session found');
-    }
-    
-    return session.access_token;
+    const data = JSON.parse(fs.readFileSync(storagePath, 'utf8'));
+    const sessionKey = Object.keys(data).find(k => k.includes('auth'));
+    if (!sessionKey) return null;
+
+    const session = JSON.parse(data[sessionKey]);
+    return session?.access_token ?? null;
   } catch (error) {
     console.error('[getAuthToken] Error getting token:', error);
-    throw error;
+    return null;
   }
 }
 
-module.exports = { getAuthToken };
+async function refreshAuthTokens(currentRefreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) throw new Error('Missing Supabase config');
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': supabaseAnonKey,
+    },
+    body: JSON.stringify({ refresh_token: currentRefreshToken }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({})) as { error_description?: string };
+    throw new Error(errorData.error_description || `Token refresh failed: ${response.status}`);
+  }
+
+  const data = await response.json() as { access_token: string; refresh_token: string };
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+  };
+}
+
+module.exports = { getAuthToken, refreshAuthTokens };

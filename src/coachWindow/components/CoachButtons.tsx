@@ -64,6 +64,7 @@ export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayout
 
         } catch (error) {
             console.error('Error in handleCoach:', error);
+            Sentry.captureException(error);
         }
     }
 

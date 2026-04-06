@@ -17,19 +17,24 @@ const apiClient = axios.create({
 	timeout: 10000,
 });
 
-// Request interceptor to add auth token
+// Keep local Supabase client in sync when main process broadcasts a token refresh
+// triggered by another window. This prevents the auto-refresh timers in each window
+// from competing with each other using stale tokens.
+window.electron?.ipcRenderer?.on('auth-tokens-refreshed', (data: { accessToken: string; refreshToken: string }) => {
+	supabase.auth.setSession({ access_token: data.accessToken, refresh_token: data.refreshToken }).catch(() => {});
+});
+
+// Request interceptor — get token from main process (single source of truth)
 apiClient.interceptors.request.use(
 	async (config) => {
 		const customConfig = config as CustomAxiosRequestConfig;
 
-		// Get the current session
-		const { data: { session } } = await supabase.auth.getSession();
+		const { accessToken } = await window.electron.ipcRenderer.invoke('get-auth-tokens') as { accessToken: string | null };
 
-		if (session?.access_token) {
-			customConfig.headers.Authorization = `Bearer ${session.access_token}`;
+		if (accessToken) {
+			customConfig.headers.Authorization = `Bearer ${accessToken}`;
 		}
 
-		// Add retry tracking
 		customConfig._retryCount = customConfig._retryCount || 0;
 
 		Sentry.addBreadcrumb({
@@ -63,7 +68,7 @@ const processQueue = (error: unknown, token: string | null = null): void => {
 			prom.resolve(token);
 		}
 	});
-  
+
 	failedQueue = [];
 };
 
@@ -116,7 +121,8 @@ apiClient.interceptors.response.use(
 			}
 		});
 
-		// Handle 401 Unauthorized errors
+		// Handle 401 Unauthorized — refresh via main process (single point of truth,
+		// prevents concurrent refreshes across multiple windows)
 		if (error.response?.status === 401 && !originalRequest._retry) {
 			if (isRefreshing) {
 				return new Promise(function(resolve, reject) {
@@ -133,28 +139,32 @@ apiClient.interceptors.response.use(
 			isRefreshing = true;
 
 			try {
-				const { data, error: refreshError } = await supabase.auth.refreshSession();
-        
-				if (refreshError || !data.session) {
-					throw refreshError || new Error('No session returned after refresh');
+				const { accessToken, refreshToken, error: refreshError } =
+					await window.electron.ipcRenderer.invoke('refresh-auth-tokens') as {
+						accessToken?: string;
+						refreshToken?: string;
+						error?: string;
+					};
+
+				if (refreshError || !accessToken) {
+					throw new Error(refreshError || 'No session returned after refresh');
 				}
 
-				const newToken = data.session.access_token;
-        
-				// Update the header for the original request
-				originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
-        
-				// Process any queued requests
-				processQueue(null, newToken);
-        
+				// Keep local Supabase client in sync (for direct supabase.auth.* calls)
+				if (refreshToken) {
+					await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+				}
+
+				originalRequest.headers['Authorization'] = `Bearer ${accessToken}`;
+				processQueue(null, accessToken);
 				return apiClient(originalRequest);
 			} catch (refreshError) {
 				processQueue(refreshError, null);
-        
-				// Dispatch session expired event so AuthContext can handle it
+
+				// Dispatch session expired event so each window can handle it appropriately
 				const event = new CustomEvent('auth:session-expired');
 				window.dispatchEvent(event);
-        
+
 				return Promise.reject(refreshError);
 			} finally {
 				isRefreshing = false;
@@ -183,7 +193,6 @@ apiClient.interceptors.response.use(
 				}
 			});
 
-			// Wait before retrying (exponential backoff)
 			await new Promise(resolve => setTimeout(resolve, 1000 * originalRequest._retryCount));
 
 			return apiClient(originalRequest);
