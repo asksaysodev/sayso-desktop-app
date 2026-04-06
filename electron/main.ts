@@ -900,7 +900,7 @@ async function ensureCueUserMicDeliversJsChunks(
 
 const audioQueue = require('./audioQueue');
 const { AudioStreamer } = require('./streaming/audioStreamer');
-const { getAuthToken, refreshAuthTokens } = require('./utils/authTokens');
+const { refreshAuthTokens } = require('./utils/authTokens');
 
 // Add command line switches for better camera support
 app.commandLine.appendSwitch('enable-features', 'WebRTC,MediaDevices,MediaStream');

@@ -84,7 +84,7 @@ export default function CoachWindowMain() {
 
     const handleSessionExpired = useCallback(() => {
         useCoachWindowStore.setState({ error: 'Your session has expired. Please re-login from the main window.' });
-        if (isCoachActive) handleStopCue().catch(() => {});
+        if (isCoachActive) handleStopCue().catch((err) => Sentry.captureException(err));
     }, [isCoachActive, handleStopCue]);
     useSessionExpiry(handleSessionExpired);
 

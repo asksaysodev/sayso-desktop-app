@@ -1,24 +1,3 @@
-import { app } from 'electron';
-import path from 'path';
-import fs from 'fs';
-
-async function getAuthToken() {
-  try {
-    const storagePath = path.join(app.getPath('userData'), 'supabase-session.json');
-    if (!fs.existsSync(storagePath)) return null;
-
-    const data = JSON.parse(fs.readFileSync(storagePath, 'utf8'));
-    const sessionKey = Object.keys(data).find(k => k.includes('auth'));
-    if (!sessionKey) return null;
-
-    const session = JSON.parse(data[sessionKey]);
-    return session?.access_token ?? null;
-  } catch (error) {
-    console.error('[getAuthToken] Error getting token:', error);
-    return null;
-  }
-}
-
 async function refreshAuthTokens(currentRefreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
@@ -46,4 +25,4 @@ async function refreshAuthTokens(currentRefreshToken: string): Promise<{ accessT
   };
 }
 
-module.exports = { getAuthToken, refreshAuthTokens };
+module.exports = { refreshAuthTokens };
