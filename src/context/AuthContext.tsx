@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, useRef } from 'react'
+import { createContext, useContext, useCallback, useEffect, useState, useRef } from 'react'
+import { useSessionExpiry } from '@/hooks/useSessionExpiry'
 import { supabase } from '../config/supabase'
 import { useAccounts } from '../hooks/useAccounts'
 import { useLocation } from 'react-router-dom'
@@ -157,18 +158,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [authToken]);
 
   // Handle session expiration
-  useEffect(() => {
-    const handleSessionExpired = () => {
-      console.log('🔐 AuthContext: Session expired event received');
-      resetUser();
-    };
-
-    window.addEventListener('auth:session-expired', handleSessionExpired);
-
-    return () => {
-      window.removeEventListener('auth:session-expired', handleSessionExpired);
-    };
-  }, []);
+  const handleSessionExpired = useCallback(() => {
+    console.log('🔐 AuthContext: Session expired event received');
+    resetUser();
+  }, [resetUser]);
+  useSessionExpiry(handleSessionExpired);
 
   // Handle logout triggered from tray menu
   useEffect(() => {

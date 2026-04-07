@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo, MouseEventHandler } from 'react';
+import { useSessionExpiry } from '@/hooks/useSessionExpiry';
 
 import { MdDragIndicator } from 'react-icons/md';
 import { IoClose } from 'react-icons/io5';
@@ -80,6 +81,12 @@ export default function CoachWindowMain() {
     const handleCloseCoachWindow = () => {
         closeCoachWindow()
     }
+
+    const handleSessionExpired = useCallback(() => {
+        useCoachWindowStore.setState({ error: 'Your session has expired. Please re-login from the main window.' });
+        if (isCoachActive) handleStopCue().catch((err) => Sentry.captureException(err));
+    }, [isCoachActive, handleStopCue]);
+    useSessionExpiry(handleSessionExpired);
 
     // Manual window drag handlers
     const handleDragStart = async (e: MouseEvent) => {
