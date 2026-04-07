@@ -1356,14 +1356,13 @@ app.on('open-url', (event: Event, url: string) => {
   event.preventDefault();
   
   const urlObj = new URL(url);
-  // const params = new URLSearchParams(urlObj.search);
 
   if (urlObj.hostname === 'launch-coach') {
-    app.whenReady().then(() => {
-      if (!isCoachWindowOpen()) {
-        createCoachWindow();
-      }
-    });
+    if (!isCoachWindowOpen()) {
+      createCoachWindow();
+    } else {
+      global.coachWindow?.focus();
+    }
   }
 });
 
