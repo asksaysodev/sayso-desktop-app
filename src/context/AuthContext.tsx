@@ -161,7 +161,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const handleSessionExpired = useCallback(() => {
     console.log('🔐 AuthContext: Session expired event received');
     resetUser();
-  }, []);
+  }, [resetUser]);
   useSessionExpiry(handleSessionExpired);
 
   // Handle logout triggered from tray menu

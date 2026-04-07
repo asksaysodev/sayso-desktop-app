@@ -24,12 +24,18 @@ window.electron?.ipcRenderer?.on('auth-tokens-refreshed', (data: { accessToken: 
 	supabase.auth.setSession({ access_token: data.accessToken, refresh_token: data.refreshToken }).catch(() => {});
 });
 
+// Convert main-process session-expiry broadcast to a DOM event consumed by useSessionExpiry.
+// Centralising dispatch here prevents duplicate events when multiple windows trigger a failed refresh.
+window.electron?.ipcRenderer?.on('auth-session-expired', () => {
+	window.dispatchEvent(new CustomEvent('auth:session-expired'));
+});
+
 // Request interceptor — get token from main process (single source of truth)
 apiClient.interceptors.request.use(
 	async (config) => {
 		const customConfig = config as CustomAxiosRequestConfig;
 
-		const { accessToken } = await window.electron.ipcRenderer.invoke('get-auth-tokens') as { accessToken: string | null };
+		const { accessToken } = await window.electron?.ipcRenderer?.invoke('get-auth-tokens') as { accessToken: string | null } ?? { accessToken: null };
 
 		if (accessToken) {
 			customConfig.headers.Authorization = `Bearer ${accessToken}`;
@@ -160,11 +166,6 @@ apiClient.interceptors.response.use(
 				return apiClient(originalRequest);
 			} catch (refreshError) {
 				processQueue(refreshError, null);
-
-				// Dispatch session expired event so each window can handle it appropriately
-				const event = new CustomEvent('auth:session-expired');
-				window.dispatchEvent(event);
-
 				return Promise.reject(refreshError);
 			} finally {
 				isRefreshing = false;

@@ -1735,8 +1735,16 @@ ipcMain.handle('refresh-auth-tokens', async () => {
     pendingRefreshResolvers.forEach(resolve => resolve(result));
     return result;
   } catch (error: any) {
+    Sentry.captureException(error);
     const result = { error: error.message ?? 'Token refresh failed' };
     pendingRefreshResolvers.forEach(resolve => resolve(result));
+    // Broadcast session expiry from main process (single source of truth) so only
+    // one event fires per window regardless of how many windows triggered the refresh
+    BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('auth-session-expired');
+      }
+    });
     return result;
   } finally {
     isRefreshingTokens = false;
