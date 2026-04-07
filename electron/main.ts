@@ -1356,8 +1356,14 @@ app.on('open-url', (event: Event, url: string) => {
   event.preventDefault();
   
   const urlObj = new URL(url);
-  const params = new URLSearchParams(urlObj.search);
-  
+
+  if (urlObj.hostname === 'launch-coach') {
+    if (!isCoachWindowOpen()) {
+      createCoachWindow();
+    } else {
+      global.coachWindow?.focus();
+    }
+  }
 });
 
 // Handle second instance (when app is already running and opened via protocol)
