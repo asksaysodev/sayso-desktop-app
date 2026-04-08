@@ -105,7 +105,15 @@ body {
     width: 1px;
     height: 28px;
     background-color: rgba(255, 255, 255, 0.4);
-    margin: 0 20px;
+    margin: 0 0px 0px 20px;
+}
+
+.coach-window .inner-content-centered {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+    align-items: center;
+    gap: 14px;
 }
 
 .coach-window .coach-smart-capture-toggle-container{
@@ -114,8 +122,6 @@ body {
     justify-content: center;
     gap: 8px;
     padding: 4px 0;
-    /* cursor: pointer;
-    -webkit-app-region: no-drag; */
 }
 .coach-window .coach-smart-capture-toggle-container{
     pointer-events: none;
@@ -196,19 +202,20 @@ body {
 }
 
 .coach-window-select-prospect-modal{
-    width: -webkit-fill-available;
     max-height: 200px;
     top: 48px;
     z-index: 1000;
-    margin-top: 12px;
+    margin-top: 6px;
     position: absolute;
     -webkit-app-region: no-drag;
-    padding: 12px;
-    border-radius: 16px;
-    background-color: white;
-	border: 1px solid var(--sayso-border);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1);
-	display: flex;
+    padding: 6px;
+    border-radius: 12px;
+    background: rgba(10, 32, 58, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    display: flex;
     flex-direction: column;
     align-items: start;
     justify-content: start;
@@ -229,53 +236,57 @@ body {
     flex-direction: column;
     align-items: start;
     justify-content: start;
-    padding: 8px 0;
+    padding: 4px 0;
     margin: 0;
     list-style: none;
     overflow-y: auto;
     overflow-x: hidden;
 
-    /* Custom scrollbar styling */
     scrollbar-width: thin;
-    scrollbar-color: #eeeeee transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 
-    /* Webkit scrollbar styling for Chrome/Safari */
     &::-webkit-scrollbar {
-        width: 6px;
+        width: 4px;
     }
 
     &::-webkit-scrollbar-track {
         background: transparent;
     }
-    
+
     &::-webkit-scrollbar-thumb {
-        background: #cbd5e0;
+        background: rgba(255, 255, 255, 0.2);
         border-radius: 3px;
     }
 
     &::-webkit-scrollbar-thumb:hover {
-        background: #a0aec0;
+        background: rgba(255, 255, 255, 0.35);
     }
 }
 
 .coach-window-select-prospect-modal-content ul .ul-divider{
     width: 100%;
     height: 1px;
-    background-color: var(--sayso-border);
-    margin: 12px 0;
-    opacity: 0.6;
+    background-color: rgba(255, 255, 255, 0.08);
+    margin: 4px 0;
     display: block;
     -webkit-app-region: no-drag;
 }
 
 .coach-window-select-prospect-modal-content li{
-    width: 100%;
+    width: -webkit-fill-available;
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: start;
     -webkit-app-region: no-drag;
     cursor: pointer;
+    padding: 6px 8px;
+    border-radius: 8px;
+    transition: background 0.1s ease;
+}
+
+.coach-window-select-prospect-modal-content li:hover {
+    background: rgba(255, 255, 255, 0.07);
 }
 
 .coach-window-select-prospect-modal-content .prospect-initials-container{
@@ -293,7 +304,7 @@ body {
 }
 
 .coach-window-select-prospect-modal-content .prospect-info-container{
-    width: calc(100% - 40px)    ;
+    width: calc(100% - 40px);
     display: flex;
     flex-direction: column;
     align-items: start;
@@ -301,12 +312,17 @@ body {
     margin-left: 12px;
 }
 
+.coach-window-select-prospect-modal-content .prospect-info-container.no-initials{
+    width: 100%;
+    margin-left: 0;
+}
+
 .coach-window-select-prospect-modal-content .prospect-info-container h4{
     margin: 0;
     padding: 0;
-    font-size: 16px;
+    font-size: var(--cw-fs-dropdown-item);
     font-weight: 400;
-    color: black;
+    color: #fff;
     margin-bottom: 2px;
 }
 
@@ -315,7 +331,7 @@ body {
     padding: 0;
     font-size: 14px;
     font-weight: 400;
-    color: var(--sayso-lightgray);
+    color: rgba(255, 255, 255, 0.5);
 }
 
 
@@ -352,7 +368,7 @@ body {
     font-size: 14px;
     font-weight: 400;
     width: 100%;
-    color: var(--sayso-lightgray);
+    color: rgba(255, 255, 255, 0.5);
     text-align: center;
     margin: 20px 0;
     padding: 0;
@@ -410,13 +426,13 @@ body {
     opacity: 0.8 !important;
 }
 .coach-window .coach-buttons-container{
-    width: 100%;
+    /*width: 100%;*/
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 12px;
-    padding: 0 14px;
-    padding-right: 0;
+    /*padding: 0 14px;
+    padding-right: 0;*/
 }
 
 .coach-window .coach-buttons-container .coach-button{
@@ -431,7 +447,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
+    font-size: var(--cw-fs-icon-sm);
     position: relative;
 }
 
@@ -492,7 +508,7 @@ body {
 
     background-color: var(--sayso-blue);
     color: white;
-    font-size: 14px;
+    font-size: var(--cw-fs-launch-btn);
     cursor: pointer;
     -webkit-app-region: no-drag;
     border-radius: 100px;
@@ -547,7 +563,7 @@ body {
     width: 90px;
     background-color: var(--sayso-darkgray);
     color: white;
-    font-size: 14px;
+    font-size: var(--cw-fs-launch-btn);
     -webkit-app-region: no-drag;
     cursor: default;
     border-radius: 100px;
@@ -563,13 +579,13 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-left: 12px;
-    font-size: 18px;
+    /*margin-left: 12px;*/
+    font-size: var(--cw-fs-icon);
     cursor: pointer;
     -webkit-app-region: no-drag;
     opacity: 0.8;
     border: none;
-    margin-left: auto;
+    /*margin-left: auto;*/
 
 }
 
@@ -698,32 +714,41 @@ body {
 }
 
 .cue-error-close-button svg {
-    font-size: 16px;
+    font-size: var(--cw-fs-icon-sm);
 }
-
-/* ── Font Size Tokens ─────────────────────────────────────────────────────────
-   Not applied yet. To activate a size, set data-font-size on <html>:
-   document.documentElement.dataset.fontSize = 'm'  (or 'l', remove attr for s)
-   Baselines (S) reflect current hardcoded values.
-   ──────────────────────────────────────────────────────────────────────────── */
 
 /* S — default */
 :root {
-    --cw-fs-prospect-select: 14px;
-    --cw-fs-insight:         13.5px;
-    --cw-fs-icon:            18px;   /* maybe — confirm before applying */
+    --cw-fs-prospect-select:  14px;
+    --cw-fs-launch-btn:       14px;
+    --cw-fs-insight:          13.5px;
+    --cw-fs-icon:             18px;
+    --cw-fs-icon-sm:          16px;
+    --cw-fs-dialog-title:     18px;
+    --cw-fs-dialog-subtitle:  14px;
+    --cw-fs-dropdown-item:    16px;
 }
 
-/* M — 1.2× */
+/* M */
 :root[data-font-size="m"] {
-    --cw-fs-prospect-select: 16.8px;
-    --cw-fs-insight:         16.2px;
-    --cw-fs-icon:            21.6px;
+    --cw-fs-prospect-select:  16.8px;
+    --cw-fs-launch-btn:       16.8px;
+    --cw-fs-insight:          16.2px;
+    --cw-fs-icon:             21.6px;
+    --cw-fs-icon-sm:          19.2px;
+    --cw-fs-dialog-title:     21.6px;
+    --cw-fs-dialog-subtitle:  16.8px;
+    --cw-fs-dropdown-item:    19.2px;
 }
 
-/* L — 1.4× */
+/* L */
 :root[data-font-size="l"] {
-    --cw-fs-prospect-select: 19.6px;
-    --cw-fs-insight:         18.9px;
-    --cw-fs-icon:            25.2px;
+    --cw-fs-prospect-select:  19.6px;
+    --cw-fs-launch-btn:       19.6px;
+    --cw-fs-insight:          18.9px;
+    --cw-fs-icon:             25.2px;
+    --cw-fs-icon-sm:          22.4px;
+    --cw-fs-dialog-title:     25.2px;
+    --cw-fs-dialog-subtitle:  19.6px;
+    --cw-fs-dropdown-item:    22.4px;
 }

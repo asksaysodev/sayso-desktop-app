@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, Fragment } from 'react';
 import { IoChevronDown, IoChevronUp } from 'react-icons/io5';
 import { SlMagnifier } from 'react-icons/sl';
 
@@ -61,10 +61,21 @@ export default function Dropdown({
     searchKeys = ['label', 'name', 'description'],
     isLoading = false,
     error = null,
-    emptyMessage = 'No items found'
+    emptyMessage = 'No items found',
 }: Props) {
     const [searchInput, setSearchInput] = useState('');
     const [displayedItems, setDisplayedItems] = useState(items);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const [dropdownStyle, setDropdownStyle] = useState<{ left: number; width: number } | null>(null);
+
+    useLayoutEffect(() => {
+        if (isOpen && triggerRef.current) {
+            setDropdownStyle({
+                left: triggerRef.current.offsetLeft,
+                width: triggerRef.current.offsetWidth,
+            });
+        }
+    }, [isOpen]);
 
     useEffect(() => {
         if (!searchInput) {
@@ -102,6 +113,7 @@ export default function Dropdown({
         <>
             {value ? (
                 <button
+                    ref={triggerRef}
                     className={`coach-window-selected-prospect-button ${disabled ? 'disabled' : ''}`}
                     onClick={handleToggle}
                     data-open={isOpen}
@@ -121,6 +133,7 @@ export default function Dropdown({
                 </button>
             ) : (
                 <button
+                    ref={triggerRef}
                     className='coach-window-select-prospect-button'
                     onClick={handleToggle}
                     data-open={isOpen}
@@ -135,7 +148,11 @@ export default function Dropdown({
 
             {/* Dropdown Modal */}
             {isOpen && (
-                <div className='coach-window-select-prospect-modal' data-open={isOpen}>
+                <div
+                    className='coach-window-select-prospect-modal'
+                    data-open={isOpen}
+                    style={dropdownStyle ? { left: dropdownStyle.left, width: dropdownStyle.width } : undefined}
+                >
                     <div className='coach-window-select-prospect-modal-content'>
                         {searchable && (
                             <div className='searchbar-container'>
@@ -164,10 +181,7 @@ export default function Dropdown({
                                     return (
                                         <Fragment key={itemId}>
                                             <li onClick={() => handleSelect(item)}>
-                                                <div className='prospect-initials-container'>
-                                                    <p>{getInitials(item)}</p>
-                                                </div>
-                                                <div className='prospect-info-container'>
+                                                <div className={`prospect-info-container no-initials`}>
                                                     <h4>{getLabel(item)}</h4>
                                                     {description && <p>{description}</p>}
                                                 </div>

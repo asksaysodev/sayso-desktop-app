@@ -14,12 +14,27 @@ import SelectProspectDropdown from './SelectProspectDropdown';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
 import SessionStoppedDialog from './SessionStoppedDialog';
+import useFontSize from '../hooks/useFontSize';
 
 const WINDOW_WIDTH_SIZES = {
-    BASE: 320,
-    READY_TO_LAUNCH: 400,
-    ACTIVE_SESSION: 440,
-    MAX_WIDTH: 900
+    s: {
+        BASE: 380,
+        READY_TO_LAUNCH: 400,
+        ACTIVE_SESSION: 440,
+        MAX_WIDTH: 900
+    },
+    m: {
+        BASE: 400,
+        READY_TO_LAUNCH: 440,
+        ACTIVE_SESSION: 460,
+        MAX_WIDTH: 900
+    },
+    l: {
+        BASE: 420,
+        READY_TO_LAUNCH: 448,
+        ACTIVE_SESSION: 500,
+        MAX_WIDTH: 900
+    },
 }
 
 const WINDOW_HEIGHT_SIZES = {
@@ -27,20 +42,6 @@ const WINDOW_HEIGHT_SIZES = {
     DROPDOWN_OPEN: 220,
     ERROR: 110,
 }
-
-// cue
-// const defaultConfig = {
-//     /** Display duration of the toast */
-//     displayDuration: 6000,
-//     /** Time between toasts - allows exit animation (300ms) to complete with buffer */
-//     transitionDelay: 500,
-//     /** Time until the toast expires */
-//     expirationTime: 30000,
-//     /** Animation duration of the toast */
-//     animationDuration: 300,
-//     /** Time until the toast is considered too old to display */
-//     maxAgeBeforeDisplay: 90000, // 90s
-// };
 
 type DragStartRef = { mouseX: number, mouseY: number, winX: number, winY: number };
 
@@ -66,8 +67,6 @@ export default function CoachWindowMain() {
     const leadType = useCoachWindowStore(state => state.cue.leadType);
     const currentInsight = useCoachWindowStore(state => state.cue.currentInsight);
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
-    const isCueDisplaying = useCoachWindowStore(state => state.cue.isInsightDisplaying);
-    const showNext = useCoachWindowStore(state => state.cue_showNext);
     const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
     const isInsightsLayoutOpen = useCoachWindowStore(state => state.cue.isInsightsLayoutOpen);
     const setIsInsightsLayoutOpen = useCoachWindowStore(state => state.cue_setIsInsightsLayoutOpen);
@@ -77,6 +76,7 @@ export default function CoachWindowMain() {
     const setHasReceivedFirstInsight = useCoachWindowStore(state => state.cue_setHasReceivedFirstInsight);
     const incrementUnseenInsightsCount = useCoachWindowStore(state => state.cue_incrementUnseenInsightsCount);
     const handleStopCue = useCoachWindowStore(state => state.cue_handleStopCue);
+    const currentfs = useFontSize();
 
     const handleCloseCoachWindow = () => {
         closeCoachWindow()
@@ -136,11 +136,13 @@ export default function CoachWindowMain() {
         const totalHeight = WINDOW_HEIGHT_SIZES.BASE + actualHeight + 6;
         return totalHeight; 
     }
-
+    
     function getWidthByCurrentState() {
-        if (isCoachActive && coachFeature === 'cue') return WINDOW_WIDTH_SIZES.ACTIVE_SESSION;
-        if (leadType !== null) return WINDOW_WIDTH_SIZES.READY_TO_LAUNCH;
-        return WINDOW_WIDTH_SIZES.BASE;
+        const fsWidthOptions = WINDOW_WIDTH_SIZES[currentfs];
+        console.log({fsWidthOptions,currentfs},'ala')
+        if (isCoachActive && coachFeature === 'cue') return fsWidthOptions.ACTIVE_SESSION;
+        if (leadType !== null) return fsWidthOptions.READY_TO_LAUNCH;
+        return fsWidthOptions.BASE;
     }
 
     function getHeightByCurrentState() {
@@ -176,24 +178,13 @@ export default function CoachWindowMain() {
         const updateWindowSize = () => {
             if (containerRef.current && window.electronAPI && !isResizing) {
                 isResizing = true;
-
+                const fsWidthOptions = WINDOW_WIDTH_SIZES[currentfs];
                 const windowWidth = Math.max(
-                    WINDOW_WIDTH_SIZES.BASE, 
-                    Math.min(WINDOW_WIDTH_SIZES.MAX_WIDTH, getWidthByCurrentState())
+                    fsWidthOptions.BASE, 
+                    Math.min(fsWidthOptions.MAX_WIDTH, getWidthByCurrentState())
                 );
-                
+                console.log(windowWidth,'windowWidth')
                 const windowHeight = getHeightByCurrentState();
-
-                console.log('🔍 [updateWindowSize]', {
-                    currentInsight: currentInsight !== null ? 'exists' : 'null',
-                    insightsQueueLength: insightsQueue.length,
-                    windowWidth,
-                    windowHeight,
-                    isDropdownOpen,
-                    isInsightsLayoutOpen,
-                    containerOffsetHeight: containerRef.current.offsetHeight
-                });
-
                 window.electronAPI.resizeWindow(windowWidth, windowHeight);
 
                 setTimeout(() => {
@@ -227,7 +218,7 @@ export default function CoachWindowMain() {
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs]);
 
     /**
      * Handling auto opening of insights layout and unseen insights count for the notification dot
@@ -373,22 +364,24 @@ export default function CoachWindowMain() {
                         <div className="coach-window-divider"></div>
                     </div>
                     
-                    {
-                        DropdownComponent[coachFeature] && (
-                            DropdownComponent[coachFeature]
-                        )
-                    }
-
-                    {
-                        (selectedProspect || leadType) && (
-                            <CoachButtons 
-                                isInsightsLayoutOpen={isInsightsLayoutOpen}
-                                setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
-                                setIsDropdownOpen={setIsDropdownOpen}
-                                isDropdownOpen={isDropdownOpen}
-                            />
-                        )
-                    }
+                    <div className='inner-content-centered'>
+                        {
+                            DropdownComponent[coachFeature] && (
+                                DropdownComponent[coachFeature]
+                            )
+                        }
+    
+                        {
+                            (selectedProspect || leadType) && (
+                                <CoachButtons 
+                                    isInsightsLayoutOpen={isInsightsLayoutOpen}
+                                    setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
+                                    setIsDropdownOpen={setIsDropdownOpen}
+                                    isDropdownOpen={isDropdownOpen}
+                                />
+                            )
+                        }
+                    </div>
 
                     {
                         !isCoachActive && (

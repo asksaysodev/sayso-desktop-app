@@ -32,7 +32,8 @@ function CoachSettingsContent() {
     const { coachSettingsIsLoading, coachSettings } = useCoachSettingsContext();
 
     useEffect(() => {
-        const size = coachSettings?.font_size ?? 's';
+        if (!coachSettings) return;
+        const size = coachSettings.font_size;
         if (size === 's') {
             delete document.documentElement.dataset.fontSize;
         } else {
