@@ -154,7 +154,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
                 return;
             }
 
-            console.log('⏳ [CoachWindowStore] Electron not ready, retrying...');
+            console.log('[CoachWindowStore] Electron not ready, retrying...');
             if (openWindowCheckInterval) clearInterval(openWindowCheckInterval);
             if (openWindowTimeoutId) clearTimeout(openWindowTimeoutId);
 
@@ -367,10 +367,9 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
             const response = await apiClient.post('/cue/session/new', payload);
             return response.data;
         } catch (error: any) {
-            console.error('Error creating new cue session:', error);
-            console.log('123123', error.response?.data.error);
-            set({ error: error.response?.data?.error });
-            throw error;
+            const msg = error.response?.data?.error ?? error.message ?? 'Failed to start session. Please try again.';
+			set({ error: msg });
+			throw error;
         }
     },
 
