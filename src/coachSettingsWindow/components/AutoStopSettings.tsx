@@ -27,7 +27,7 @@ export default function AutoStopSettings() {
             <div id="auto-stop-time-delay" className="cue-setting-item">
                 <div className="cue-setting-left">
                     <span className="cue-setting-label">Time Delay</span>
-                    <p className="cue-setting-description">How long after the call starts before Sayso automatically stops the session.</p>
+                    <p className="cue-setting-description">How long after the call starts before Sayso automatically stops the session</p>
                 </div>
                 <div className="cue-setting-right">
                     <div className="cue-range-row">

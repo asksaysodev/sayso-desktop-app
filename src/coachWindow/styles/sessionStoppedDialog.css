@@ -17,7 +17,7 @@
 }
 
 .session-stopped-dialog .session-stopped-dialog-title {
-    font-size: 18px;
+    font-size: var(--cw-fs-dialog-title);
     font-weight: 700;
     color: #FFF;
     padding: 0;
@@ -27,7 +27,7 @@
 }
 
 .session-stopped-dialog .session-stopped-dialog-description {
-    font-size: 14px;
+    font-size: var(--cw-fs-dialog-subtitle);
     font-weight: 400;
     color: rgba(255, 255, 255, 0.8);
     padding: 0;
@@ -40,4 +40,5 @@
     font-weight: 600 !important;
     border-radius: 12px !important;
     padding: 14px 20px !important;
+    font-size: var(--cw-fs-launch-btn) !important;
 }

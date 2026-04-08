@@ -124,7 +124,7 @@ export default function AudioSettings() {
             <div id="audio-input-device" className="cue-setting-item">
                 <div className="cue-setting-left">
                     <span className="cue-setting-label">Input Device</span>
-                    <p className="cue-setting-description">The microphone used during your call.</p>
+                    <p className="cue-setting-description">The microphone used during your call</p>
                 </div>
                 <div className="cue-setting-right">
                     {devices.length === 0 ? (

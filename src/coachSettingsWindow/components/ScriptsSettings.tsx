@@ -29,7 +29,7 @@ export default function ScriptsSettings() {
             <div id="scripts-active" className="cue-setting-item">
                 <div className="cue-setting-left">
                     <span className="cue-setting-label">Active</span>
-                    <p className="cue-setting-description">Enable or disable script guidance during your call.</p>
+                    <p className="cue-setting-description">Enable or disable script guidance during your call</p>
                 </div>
                 <div className="cue-setting-right">
                     <button
@@ -45,7 +45,7 @@ export default function ScriptsSettings() {
             <div id="scripts-script" className="cue-setting-item">
                 <div className="cue-setting-left">
                     <span className="cue-setting-label">Script</span>
-                    <p className="cue-setting-description">Choose which script to use during your call.</p>
+                    <p className="cue-setting-description">Choose which script to use during your call</p>
                 </div>
                 <div className="cue-setting-right">
                     <div className="settings-dropdown" ref={dropdownRef}>

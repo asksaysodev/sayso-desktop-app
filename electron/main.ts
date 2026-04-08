@@ -169,6 +169,9 @@ function setupLogging() {
   }
 }
 
+// ===== FONT SIZE CACHE =====
+let cachedFontSize: string = 's';
+
 // ===== HELPER FUNCTIONS =====
 function isCoachWindowOpen() {
   return global.coachWindow && !global.coachWindow.isDestroyed();
@@ -1848,6 +1851,13 @@ ipcMain.on('install-update', () => {
   }
 });
 
+ipcMain.on('set-font-size', (_event, size: string) => {
+  cachedFontSize = size;
+  if (isCoachWindowOpen()) {
+    global.coachWindow!.webContents.send('font-size-changed', size);
+  }
+});
+
 // Handler for the splash window to signal successful login — closes the splash window
 ipcMain.on('splash-login-success', () => {
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
@@ -1980,8 +1990,8 @@ const createCoachWindow = () => {
 
   // dev vs prod URL for the coach window (use the HTML that bootstraps src/coachWindow/index.jsx)
   const coachUrl = isDev
-    ? 'http://localhost:5173/coach-window.html'
-    : `file://${path.join(__dirname, '../dist/coach-window.html')}`;
+    ? `http://localhost:5173/coach-window.html?fontSize=${cachedFontSize}`
+    : `file://${path.join(__dirname, '../dist/coach-window.html')}?fontSize=${cachedFontSize}`;
 
   coachWindow.loadURL(coachUrl);
   
