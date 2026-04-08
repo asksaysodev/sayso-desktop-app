@@ -2,6 +2,7 @@ import { LuLoader } from "react-icons/lu";
 import CoachActiveButtons from "./CoachActiveButtons";
 import { useCoachWindowStore } from "../../store/coachWindowStore";
 import { Prospect } from "@/types/coach";
+import * as Sentry from "@sentry/electron/renderer";
 
 interface Props {
     isInsightsLayoutOpen: boolean;

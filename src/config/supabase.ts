@@ -48,6 +48,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     storageKey: 'sayso-auth',
     // Use robust storage that handles errors gracefully
-    storage: robustStorage
+    storage: robustStorage,
+    autoRefreshToken: false
   }
 }); 
