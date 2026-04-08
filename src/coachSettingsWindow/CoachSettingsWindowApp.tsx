@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useSessionExpiry } from "@/hooks/useSessionExpiry";
-import { LuBolt, LuPause, LuALargeSmall } from "react-icons/lu";
+import { LuBolt, LuPause, LuPersonStanding } from "react-icons/lu";
 import CueSettings from "./components/CueSettings";
 import AutoStopSettings from "./components/AutoStopSettings";
 import ScriptsSettings from "./components/ScriptsSettings";
@@ -23,7 +23,7 @@ interface SidebarOption {
 const SIDEBAR_OPTIONS: SidebarOption[] = [
     { key: 'cue', label: 'Cue', icon: <LuBolt /> },
     { key: 'auto-stop', label: 'Auto Stop', icon: <LuPause /> },
-    { key: 'accessibility', label: 'Accessibility', icon: <LuALargeSmall /> },
+    { key: 'accessibility', label: 'Accessibility', icon: <LuPersonStanding /> },
     // { key: 'audio', label: 'Audio', icon: <LuHeadphones /> },
     // { key: 'scripts', label: 'Scripts', icon: <LuBookText /> },
 ];
