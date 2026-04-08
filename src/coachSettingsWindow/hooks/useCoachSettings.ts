@@ -5,7 +5,7 @@ import postBufferTime from "../services/cue/postBufferTime";
 import getCoachSettings from "../services/cue/getCoachSettings";
 import updateCueMode from "../services/cue/updateCueInsightMode";
 import postAutoStopTimeDelay from "../services/cue/postAutoStopTimeDelay";
-import updateFontSize from "../services/accessibility/udpateFontSize";
+import updateFontSize from "../services/accessibility/updateFontSize";
 
 export default function useCoachSettings() {
     const queryClient = useQueryClient();

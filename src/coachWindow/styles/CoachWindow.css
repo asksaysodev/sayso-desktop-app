@@ -426,13 +426,10 @@ body {
     opacity: 0.8 !important;
 }
 .coach-window .coach-buttons-container{
-    /*width: 100%;*/
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 12px;
-    /*padding: 0 14px;
-    padding-right: 0;*/
 }
 
 .coach-window .coach-buttons-container .coach-button{
@@ -579,14 +576,11 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    /*margin-left: 12px;*/
     font-size: var(--cw-fs-icon);
     cursor: pointer;
     -webkit-app-region: no-drag;
     opacity: 0.8;
     border: none;
-    /*margin-left: auto;*/
-
 }
 
 .coach-window .right-side-coach-button:hover{

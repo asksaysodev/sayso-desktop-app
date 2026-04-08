@@ -1,4 +1,3 @@
-import { useState } from "react";
 import SettingsContentLayout from "./SettingsContentLayout";
 import { AccessibilityFontSizeType } from "../types";
 import useCoachSettingsContext from "../context/CoachSettingsContext";
@@ -11,10 +10,9 @@ const FS_OPTIONS: { key: AccessibilityFontSizeType; label: string; previewSize: 
 
 export default function AccessibilitySettings() {
     const { coachSettings, mutateUpdateFontSize } = useCoachSettingsContext();
-    const [selected, setSelected] = useState<AccessibilityFontSizeType>(coachSettings?.font_size ?? 's');
+    const selected = coachSettings?.font_size ?? 's';
 
     const handleFontSizeChange = (size: AccessibilityFontSizeType) => {
-        setSelected(size);
         mutateUpdateFontSize(size);
     }
     

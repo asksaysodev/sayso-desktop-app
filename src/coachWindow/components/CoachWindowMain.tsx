@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo, MouseEventHandler } from 'react';
+import { useEffect, useRef, useState, useCallback, MouseEventHandler } from 'react';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
 
 import { MdDragIndicator } from 'react-icons/md';
@@ -9,7 +9,6 @@ import * as Sentry from "@sentry/electron/renderer";
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 
 import CoachButtons from './CoachButtons';
-import InsightWrapper from './InsightWrapper';
 import SelectProspectDropdown from './SelectProspectDropdown';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
@@ -139,7 +138,6 @@ export default function CoachWindowMain() {
     
     function getWidthByCurrentState() {
         const fsWidthOptions = WINDOW_WIDTH_SIZES[currentfs];
-        console.log({fsWidthOptions,currentfs},'ala')
         if (isCoachActive && coachFeature === 'cue') return fsWidthOptions.ACTIVE_SESSION;
         if (leadType !== null) return fsWidthOptions.READY_TO_LAUNCH;
         return fsWidthOptions.BASE;
@@ -183,7 +181,6 @@ export default function CoachWindowMain() {
                     fsWidthOptions.BASE, 
                     Math.min(fsWidthOptions.MAX_WIDTH, getWidthByCurrentState())
                 );
-                console.log(windowWidth,'windowWidth')
                 const windowHeight = getHeightByCurrentState();
                 window.electronAPI.resizeWindow(windowWidth, windowHeight);
 
@@ -246,12 +243,6 @@ export default function CoachWindowMain() {
 		}
 
 		const unsubscribe = window.electron.cue.onInsight((insightData) => {
-			console.log('🎯 [New Insight Received]', {
-				message: insightData.message?.substring(0, 50) + '...',
-				priority: insightData.priority,
-				appointmentBooked: insightData.appointmentBooked
-			});
-
 			const addInsight = useCoachWindowStore.getState().cue_addInsight;
 
 			addInsight({
@@ -292,7 +283,6 @@ export default function CoachWindowMain() {
         }
 
         const unsubscribe = window.electron.cue.onAutoStop(async () => {
-            console.log('🔴 [Auto Stop Received], stopping cue');
             setIsInsightsLayoutOpen(false);
             try {
                 await handleStopCue();
