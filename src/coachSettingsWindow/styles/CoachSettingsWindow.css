@@ -510,12 +510,6 @@ body {
     color: rgba(255, 255, 255, 0.9);
 }
 
-/* ── Font Size Tokens ─────────────────────────────────────────────────────────
-   Not applied yet. To activate a size, set data-font-size on <html>:
-   document.documentElement.dataset.fontSize = 'M'  (or 'L', remove attr for S)
-   Baselines (S) reflect current hardcoded values.
-   ──────────────────────────────────────────────────────────────────────────── */
-
 /* S — default */
 :root {
     --csw-fs-sidebar-option:      14px;
@@ -524,7 +518,7 @@ body {
     --csw-fs-section-description: 12px;
 }
 
-/* M — 1.2× */
+/* M */
 :root[data-font-size="m"] {
     --csw-fs-sidebar-option:      16.8px;
     --csw-fs-view-title:          26.4px;
@@ -532,7 +526,7 @@ body {
     --csw-fs-section-description: 14.4px;
 }
 
-/* L — 1.4× */
+/* L */
 :root[data-font-size="l"] {
     --csw-fs-sidebar-option:      19.6px;
     --csw-fs-view-title:          30.8px;
