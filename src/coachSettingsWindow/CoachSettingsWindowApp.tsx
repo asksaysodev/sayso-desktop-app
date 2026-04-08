@@ -102,7 +102,11 @@ function CoachSettingsContent() {
 }
 
 function CoachSettingsWindowApp() {
-    const closeWindow = useCallback(() => window.electron.ipcRenderer.send('close-coach-settings-window'), []);
+    const closeWindow = useCallback(() => {
+        if (window.electron?.ipcRenderer) {
+            window.electron.ipcRenderer.send('close-coach-settings-window')
+        }
+    }, []);
     useSessionExpiry(closeWindow);
 
     return (
