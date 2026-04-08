@@ -36,7 +36,7 @@ export default function CueSettings() {
             <div id="cue-mode" className="cue-setting-item">
                 <div className="cue-setting-left">
                     <span className="cue-setting-label">Mode</span>
-                    <p className="cue-setting-description">Choose how insights are displayed during your call.</p>
+                    <p className="cue-setting-description">Choose how insights are displayed during your call</p>
                 </div>
                 <div className="cue-setting-right">
                     <div className="cue-mode-toggle">
@@ -59,7 +59,7 @@ export default function CueSettings() {
             <div id="cue-buffer-time" className="cue-setting-item">
                 <div className="cue-setting-left">
                     <span className="cue-setting-label">Buffer Time</span>
-                    <p className="cue-setting-description">How long to wait after the call starts before Sayso begins showing insights.</p>
+                    <p className="cue-setting-description">How long to wait after the call starts before Sayso begins showing insights</p>
                 </div>
                 <div className="cue-setting-right">
                     <div className="cue-range-row">

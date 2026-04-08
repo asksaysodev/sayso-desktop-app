@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useSessionExpiry } from "@/hooks/useSessionExpiry";
-import { LuBolt, LuBookText, LuHeadphones, LuPause } from "react-icons/lu";
+import { LuBolt, LuPause, LuALargeSmall } from "react-icons/lu";
 import CueSettings from "./components/CueSettings";
 import AutoStopSettings from "./components/AutoStopSettings";
 import ScriptsSettings from "./components/ScriptsSettings";
@@ -10,8 +10,9 @@ import { searchSettings, SettingsRegistryEntry } from "./settingsRegistry";
 import CoachSettingsSearchBar from "./components/CoachSettingsSearchBar";
 import { CoachSettingsProvider } from "./context/CoachSettingsContext";
 import useCoachSettingsContext from "./context/CoachSettingsContext";
+import AccessibilitySettings from "./components/AccessibilitySettings";
 
-export type SidebarOptionType = 'cue' | 'auto-stop' | 'audio' | 'scripts';
+export type SidebarOptionType = 'cue' | 'auto-stop' | 'audio' | 'scripts' | 'accessibility';
 
 interface SidebarOption {
     key: SidebarOptionType;
@@ -22,12 +23,23 @@ interface SidebarOption {
 const SIDEBAR_OPTIONS: SidebarOption[] = [
     { key: 'cue', label: 'Cue', icon: <LuBolt /> },
     { key: 'auto-stop', label: 'Auto Stop', icon: <LuPause /> },
+    { key: 'accessibility', label: 'Accessibility', icon: <LuALargeSmall /> },
     // { key: 'audio', label: 'Audio', icon: <LuHeadphones /> },
     // { key: 'scripts', label: 'Scripts', icon: <LuBookText /> },
 ];
 
 function CoachSettingsContent() {
-    const { coachSettingsIsLoading } = useCoachSettingsContext();
+    const { coachSettingsIsLoading, coachSettings } = useCoachSettingsContext();
+
+    useEffect(() => {
+        const size = coachSettings?.font_size ?? 's';
+        if (size === 's') {
+            delete document.documentElement.dataset.fontSize;
+        } else {
+            document.documentElement.dataset.fontSize = size;
+        }
+        window.electron?.ipcRenderer?.send('set-font-size', size);
+    }, [coachSettings?.font_size]);
     const [active, setActive] = useState<SidebarOptionType>('cue');
     const [searchValue, setSearchValue] = useState('');
     const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -56,6 +68,7 @@ function CoachSettingsContent() {
             case "auto-stop": return <AutoStopSettings />
             case "audio": return <AudioSettings />
             case "scripts": return <ScriptsSettings />
+            case "accessibility": return <AccessibilitySettings />
         }
     };
 
@@ -102,7 +115,11 @@ function CoachSettingsContent() {
 }
 
 function CoachSettingsWindowApp() {
-    const closeWindow = useCallback(() => window.electron.ipcRenderer.send('close-coach-settings-window'), []);
+    const closeWindow = useCallback(() => {
+        if (window?.electron?.ipcRenderer) {
+            window.electron.ipcRenderer.send('close-coach-settings-window')
+        }
+    }, []);
     useSessionExpiry(closeWindow);
 
     return (

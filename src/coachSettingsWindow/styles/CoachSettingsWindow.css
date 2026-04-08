@@ -84,7 +84,7 @@ body {
     border-radius: 10px;
     cursor: pointer;
     color: rgba(255, 255, 255, 0.65);
-    font-size: 14px;
+    font-size: var(--csw-fs-sidebar-option);
     font-weight: 500;
     user-select: none;
     transition: background-color 0.15s ease, color 0.15s ease;
@@ -128,7 +128,7 @@ body {
 
 .settings-content-title {
     margin: 0;
-    font-size: 22px;
+    font-size: var(--csw-fs-view-title);
     font-weight: 700;
     color: #fff;
     line-height: 34px; /* matches search bar height so they align on the same baseline */
@@ -173,13 +173,13 @@ body {
 }
 
 .cue-setting-label {
-    font-size: 14px;
+    font-size: var(--csw-fs-section-title);
     font-weight: 600;
     color: #fff;
 }
 
 .cue-setting-description {
-    font-size: 12px;
+    font-size: var(--csw-fs-section-description);
     font-weight: 400;
     color: rgba(255, 255, 255, 0.45);
     line-height: 1.5;
@@ -441,3 +441,101 @@ body {
     color: rgba(255, 80, 80, 0.85);
 }
 
+/* Accessibility Settings */
+
+.accessibility-setting-item {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px 14px;
+}
+.accessibility-setting-label {
+    font-size: var(--csw-fs-section-title);
+    font-weight: 600;
+    color: #fff;
+}
+
+.accessibility-setting-description {
+    font-size: var(--csw-fs-section-description);
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.45);
+    line-height: 1.5;
+    margin: 0;
+}
+
+/* ── Flat Cards ── */
+
+.fs-flat-cards-container {
+    display: flex;
+    gap: 10px;
+}
+
+.fs-flat-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 84px;
+    height: 84px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fs-flat-card:hover {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.25);
+    color: #fff;
+}
+
+.fs-flat-card.active {
+    background: rgba(35, 103, 238, 0.15);
+    border-color: #2367EE;
+    box-shadow: 0 0 0 1px rgba(35, 103, 238, 0.35);
+    color: #fff;
+}
+
+.fs-flat-card-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.5);
+    line-height: 1;
+}
+
+.fs-flat-card.active .fs-flat-card-label {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+/* ── Font Size Tokens ─────────────────────────────────────────────────────────
+   Not applied yet. To activate a size, set data-font-size on <html>:
+   document.documentElement.dataset.fontSize = 'M'  (or 'L', remove attr for S)
+   Baselines (S) reflect current hardcoded values.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* S — default */
+:root {
+    --csw-fs-sidebar-option:      14px;
+    --csw-fs-view-title:          22px;
+    --csw-fs-section-title:       14px;
+    --csw-fs-section-description: 12px;
+}
+
+/* M — 1.2× */
+:root[data-font-size="m"] {
+    --csw-fs-sidebar-option:      16.8px;
+    --csw-fs-view-title:          26.4px;
+    --csw-fs-section-title:       16.8px;
+    --csw-fs-section-description: 14.4px;
+}
+
+/* L — 1.4× */
+:root[data-font-size="l"] {
+    --csw-fs-sidebar-option:      19.6px;
+    --csw-fs-view-title:          30.8px;
+    --csw-fs-section-title:       19.6px;
+    --csw-fs-section-description: 16.8px;
+}

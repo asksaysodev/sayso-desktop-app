@@ -5,6 +5,7 @@ import postBufferTime from "../services/cue/postBufferTime";
 import getCoachSettings from "../services/cue/getCoachSettings";
 import updateCueMode from "../services/cue/updateCueInsightMode";
 import postAutoStopTimeDelay from "../services/cue/postAutoStopTimeDelay";
+import updateFontSize from "../services/accessibility/udpateFontSize";
 
 export default function useCoachSettings() {
     const queryClient = useQueryClient();
@@ -52,6 +53,17 @@ export default function useCoachSettings() {
         }
     })
     
+    const { mutate: mutateUpdateFontSize } = useMutation({
+        mutationKey: ['update-font-size'],
+        mutationFn: updateFontSize,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['sales-coach-settings'] });
+        },
+        onError: (error) => {
+            Sentry.captureException(error);
+        }
+    })
+    
     useEffect(()=>{
         if (coachSettingsError !== null) {
             Sentry.captureException(coachSettingsError)
@@ -65,6 +77,8 @@ export default function useCoachSettings() {
         
         mutateBufferTime,
         mutateCueMode,
-        mutateAutoStopTimeDelay
+        mutateAutoStopTimeDelay,
+        
+        mutateUpdateFontSize
     }
 }

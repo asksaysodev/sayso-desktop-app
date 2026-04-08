@@ -13,14 +13,14 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
     {
         id: 'cue-mode',
         label: 'Mode',
-        description: 'Choose how insights are displayed during your call.',
+        description: 'Choose how insights are displayed during your call',
         keywords: ['mode', 'display', 'insights', 'full', 'condensed', 'cue'],
         section: 'cue',
     },
     {
         id: 'cue-buffer-time',
         label: 'Buffer Time',
-        description: 'How long to wait after the call starts before Sayso begins showing insights.',
+        description: 'How long to wait after the call starts before Sayso begins showing insights',
         keywords: ['buffer', 'time', 'delay', 'wait', 'start', 'insights', 'cue'],
         section: 'cue',
     },
@@ -28,7 +28,7 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
     {
         id: 'auto-stop-time-delay',
         label: 'Time Delay',
-        description: 'How long after the call starts before Sayso automatically stops the session.',
+        description: 'How long after the call starts before Sayso automatically stops the session',
         keywords: ['time', 'delay', 'auto', 'stop', 'session', 'end', 'timer', 'pause'],
         section: 'auto-stop',
     },
@@ -62,6 +62,15 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
     //     keywords: ['script', 'select', 'choose', 'call', 'guidance'],
     //     section: 'scripts',
     // },
+
+    // Accessibility
+    {
+        id: 'accessibility-settings',
+        label: 'Accessibility',
+        description: 'Choose the font size to use',
+        keywords: ['accessibility', 'font', 'size', 'adjust', 'scale', 'small','medium', 'large'],
+        section: 'accessibility',
+    }
 ];
 
 export function searchSettings(query: string): SettingsRegistryEntry[] {

@@ -191,6 +191,7 @@ body {
     justify-content: center;
     gap: 10px;
     padding: 4px 0;
+    font-size: var(--cw-fs-prospect-select);
     -webkit-app-region: no-drag;
 }
 
@@ -698,4 +699,31 @@ body {
 
 .cue-error-close-button svg {
     font-size: 16px;
+}
+
+/* ── Font Size Tokens ─────────────────────────────────────────────────────────
+   Not applied yet. To activate a size, set data-font-size on <html>:
+   document.documentElement.dataset.fontSize = 'm'  (or 'l', remove attr for s)
+   Baselines (S) reflect current hardcoded values.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* S — default */
+:root {
+    --cw-fs-prospect-select: 14px;
+    --cw-fs-insight:         13.5px;
+    --cw-fs-icon:            18px;   /* maybe — confirm before applying */
+}
+
+/* M — 1.2× */
+:root[data-font-size="m"] {
+    --cw-fs-prospect-select: 16.8px;
+    --cw-fs-insight:         16.2px;
+    --cw-fs-icon:            21.6px;
+}
+
+/* L — 1.4× */
+:root[data-font-size="l"] {
+    --cw-fs-prospect-select: 19.6px;
+    --cw-fs-insight:         18.9px;
+    --cw-fs-icon:            25.2px;
 }
