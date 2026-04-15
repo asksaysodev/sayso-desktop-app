@@ -210,4 +210,30 @@ echo "📦 Created DMGs:"
 ls -la "${RELEASE_DIR}"/*.dmg 2>/dev/null || echo "No DMGs found"
 
 echo "🔄 Updating latest-mac.yml with new hashes..."
-node scripts/update-latest-yaml.js 
+node scripts/update-latest-yaml.js
+
+# Create GitHub Release with only the 5 final notarized files
+echo "🚀 Creating GitHub Release v${APP_VERSION}..."
+
+RELEASE_FILES=(
+  "${RELEASE_DIR}/Sayso-${APP_VERSION}-mac.zip"
+  "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64-mac.zip"
+  "${RELEASE_DIR}/Sayso-${APP_VERSION}.dmg"
+  "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64.dmg"
+  "${RELEASE_DIR}/latest-mac.yml"
+)
+
+# Verify all release files exist before uploading
+for f in "${RELEASE_FILES[@]}"; do
+  if [ ! -f "$f" ]; then
+    echo "❌ Missing release file: $f"
+    exit 1
+  fi
+done
+
+gh release create "v${APP_VERSION}" \
+  --title "v${APP_VERSION}" \
+  --notes "Release v${APP_VERSION}" \
+  "${RELEASE_FILES[@]}"
+
+echo "✅ GitHub Release v${APP_VERSION} created with notarized files!" 
