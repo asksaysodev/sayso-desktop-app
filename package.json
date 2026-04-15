@@ -17,7 +17,7 @@
     "rebuild-native": "cd electron/native-audio && npx node-gyp rebuild --target=36.9.1 --arch=arm64 --dist-url=https://electronjs.org/headers && cd ../..",
     "rebuild-native-x64": "cd electron/native-audio && npx node-gyp rebuild --target=36.9.1 --arch=x64 --dist-url=https://electronjs.org/headers && cd ../..",
     "rebuild-native-both": "node scripts/rebuild-native-both-archs.js",
-    "package": "npm run rebuild-native-both && npm run build:electron && npm run build && electron-builder --publish always",
+    "package": "npm run rebuild-native-both && npm run build:electron && npm run build && electron-builder --publish never",
     "export": "chmod +x rebuild-and-package.sh && ./rebuild-and-package.sh",
     "fresh-export": "npm run clean && npm run export",
     "test": "echo \"Error: no test specified\" && exit 1",
