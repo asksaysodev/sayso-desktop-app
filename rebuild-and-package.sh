@@ -233,7 +233,8 @@ done
 
 gh release create "v${APP_VERSION}" \
   --title "v${APP_VERSION}" \
+  --draft \
   --notes "Release v${APP_VERSION}" \
   "${RELEASE_FILES[@]}"
 
-echo "✅ GitHub Release v${APP_VERSION} created with notarized files!" 
+echo "✅ GitHub Release draft v${APP_VERSION} created with notarized files — publish manually when ready!" 
