@@ -3,7 +3,7 @@ import SettingsContentLayout from "./SettingsContentLayout";
 import useCoachSettingsContext from "../context/CoachSettingsContext";
 import useDebounce from "@/hooks/useDebounce";
 
-export default function AutoStopSettings() {
+export default function GeneralSettings() {
     const [timeDelay, setTimeDelay] = useState<number | undefined>(undefined);
     const { coachSettings, mutateAutoStopTimeDelay } = useCoachSettingsContext();
     const debouncedTimeDelay = useDebounce(timeDelay, 1500);
@@ -23,10 +23,10 @@ export default function AutoStopSettings() {
     }, [debouncedTimeDelay]);
     
     return (
-        <SettingsContentLayout title="Auto Stop">
+        <SettingsContentLayout title="General">
             <div id="auto-stop-time-delay" className="cue-setting-item">
                 <div className="cue-setting-left">
-                    <span className="cue-setting-label">Time Delay</span>
+                    <span className="cue-setting-label">Auto Stop</span>
                     <p className="cue-setting-description">How long after the call starts before Sayso automatically stops the session</p>
                 </div>
                 <div className="cue-setting-right">

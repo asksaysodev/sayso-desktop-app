@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useSessionExpiry } from "@/hooks/useSessionExpiry";
-import { LuBolt, LuPause, LuPersonStanding } from "react-icons/lu";
+import { LuPersonStanding, LuSettings, LuZap } from "react-icons/lu";
 import CueSettings from "./components/CueSettings";
-import AutoStopSettings from "./components/AutoStopSettings";
 import ScriptsSettings from "./components/ScriptsSettings";
 import AudioSettings from "./components/AudioSettings";
 import TopDragBar from "@/components/TopDragBar";
@@ -11,8 +10,9 @@ import CoachSettingsSearchBar from "./components/CoachSettingsSearchBar";
 import { CoachSettingsProvider } from "./context/CoachSettingsContext";
 import useCoachSettingsContext from "./context/CoachSettingsContext";
 import AccessibilitySettings from "./components/AccessibilitySettings";
+import GeneralSettings from "./components/GeneralSettings";
 
-export type SidebarOptionType = 'cue' | 'auto-stop' | 'audio' | 'scripts' | 'accessibility';
+export type SidebarOptionType = 'cue' | 'auto-stop' | 'audio' | 'scripts' | 'accessibility' | 'general';
 
 interface SidebarOption {
     key: SidebarOptionType;
@@ -21,8 +21,8 @@ interface SidebarOption {
 }
 
 const SIDEBAR_OPTIONS: SidebarOption[] = [
-    { key: 'cue', label: 'Cue', icon: <LuBolt /> },
-    { key: 'auto-stop', label: 'Auto Stop', icon: <LuPause /> },
+	{ key: 'general', label: 'General', icon: <LuSettings /> },
+	{ key: 'cue', label: 'Cue', icon: <LuZap /> },
     { key: 'accessibility', label: 'Accessibility', icon: <LuPersonStanding /> },
     // { key: 'audio', label: 'Audio', icon: <LuHeadphones /> },
     // { key: 'scripts', label: 'Scripts', icon: <LuBookText /> },
@@ -41,7 +41,7 @@ function CoachSettingsContent() {
         }
         window.electron?.ipcRenderer?.send('set-font-size', size);
     }, [coachSettings?.font_size]);
-    const [active, setActive] = useState<SidebarOptionType>('cue');
+    const [active, setActive] = useState<SidebarOptionType>('general');
     const [searchValue, setSearchValue] = useState('');
     const [highlightId, setHighlightId] = useState<string | null>(null);
 
@@ -66,10 +66,10 @@ function CoachSettingsContent() {
     const renderContent = () => {
         switch (active) {
             case "cue": return <CueSettings />
-            case "auto-stop": return <AutoStopSettings />
             case "audio": return <AudioSettings />
             case "scripts": return <ScriptsSettings />
             case "accessibility": return <AccessibilitySettings />
+            case "general": return <GeneralSettings />
         }
     };
 
