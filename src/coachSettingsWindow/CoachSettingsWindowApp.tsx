@@ -41,7 +41,7 @@ function CoachSettingsContent() {
         }
         window.electron?.ipcRenderer?.send('set-font-size', size);
     }, [coachSettings?.font_size]);
-    const [active, setActive] = useState<SidebarOptionType>('cue');
+    const [active, setActive] = useState<SidebarOptionType>('general');
     const [searchValue, setSearchValue] = useState('');
     const [highlightId, setHighlightId] = useState<string | null>(null);
 
