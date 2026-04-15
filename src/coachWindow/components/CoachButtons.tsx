@@ -102,7 +102,7 @@ export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayout
                                     </g>
                                 </g>
                             </svg>
-                            <p className={`${isCoachLoading ? 'hidden' : ''}`}>Launch</p>
+                            <p className={`${isCoachLoading ? 'hidden' : ''}`}>Start</p>
                         </button>
                     </>
                 )

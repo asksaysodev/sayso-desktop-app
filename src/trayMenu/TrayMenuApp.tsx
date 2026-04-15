@@ -115,7 +115,7 @@ const TrayMenuApp = () => {
                 />
               </div>
               <span className="tray-menu-item-label">
-                {isCoachOpen ? 'Close Coach' : 'Start Coach'}
+                {isCoachOpen ? 'Close Coach' : 'Launch Coach'}
               </span>
             </button>
             <div className="tray-menu-separator" />
