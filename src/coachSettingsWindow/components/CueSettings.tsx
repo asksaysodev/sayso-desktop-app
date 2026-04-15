@@ -35,7 +35,7 @@ export default function CueSettings() {
         <SettingsContentLayout title="Cue">
             <div id="cue-mode" className="cue-setting-item">
                 <div className="cue-setting-left">
-                    <span className="cue-setting-label">Mode</span>
+                    <span className="cue-setting-label">Prompt Style</span>
                     <p className="cue-setting-description">Choose how insights are displayed during your call</p>
                 </div>
                 <div className="cue-setting-right">
