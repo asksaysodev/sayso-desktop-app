@@ -1,6 +1,7 @@
 import SettingsContentLayout from "./SettingsContentLayout";
 import { AccessibilityFontSizeType } from "../types";
 import useCoachSettingsContext from "../context/CoachSettingsContext";
+import { useState } from "react";
 
 const FS_OPTIONS: { key: AccessibilityFontSizeType; label: string; previewSize: number }[] = [
     { key: 's', label: 'Small',  previewSize: 13.5 },
@@ -8,14 +9,33 @@ const FS_OPTIONS: { key: AccessibilityFontSizeType; label: string; previewSize: 
     { key: 'l', label: 'Large',  previewSize: 18.9 },
 ];
 
+function applyFontSize(size: AccessibilityFontSizeType) {
+    if (size === 's') delete document.documentElement.dataset.fontSize;
+    else document.documentElement.dataset.fontSize = size;
+    window.electron?.ipcRenderer?.send('set-font-size', size);
+}
+
 export default function AccessibilitySettings() {
+    const [optimisticFontSize, setOptimisticFontSize] = useState<AccessibilityFontSizeType | null>(null);
+    const [saveError, setSaveError] = useState(false);
     const { coachSettings, mutateUpdateFontSize } = useCoachSettingsContext();
-    const selected = coachSettings?.font_size ?? 's';
+    const selected = optimisticFontSize ?? coachSettings?.font_size ?? 's';
 
     const handleFontSizeChange = (size: AccessibilityFontSizeType) => {
-        mutateUpdateFontSize(size);
+        const prev = selected;
+        setOptimisticFontSize(size);
+        setSaveError(false);
+        applyFontSize(size);
+        mutateUpdateFontSize(size, {
+            onSuccess: () => setOptimisticFontSize(null),
+            onError: () => {
+                setOptimisticFontSize(null);
+                setSaveError(true);
+                applyFontSize(prev);
+            },
+        });
     }
-    
+
     return (
         <SettingsContentLayout title="Accessibility">
             <div id="accessibility-settings" className="accessibility-setting-item">
@@ -36,6 +56,7 @@ export default function AccessibilitySettings() {
                         </button>
                     ))}
                 </div>
+                {saveError && <p style={{ color: 'red', fontSize: 12, marginTop: 4 }}>Failed to save. Please try again.</p>}
             </div>
         </SettingsContentLayout>
     );
