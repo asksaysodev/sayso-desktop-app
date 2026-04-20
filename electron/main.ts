@@ -20,6 +20,7 @@ import { nativeImage } from 'electron/common';
 import * as Sentry from '@sentry/electron/main';
 import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
+import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 
 Sentry.init(sentryConfig);
 
@@ -1386,7 +1387,7 @@ app.on('second-instance', (event: Event, commandLine: string[], workingDirectory
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   setupLogging();
 
   // Run auto-updater check FIRST, before any potential native module crashes
@@ -1528,8 +1529,25 @@ app.whenReady().then(() => {
     }
   });
   
-  // Open the splash window on startup (handles auth check + login)
-  createSplashWindow();
+  // On auto-launch, attempt silent auth — skip splash if token is still valid
+  const { wasOpenedAtLogin } = app.getLoginItemSettings();
+  if (wasOpenedAtLogin) {
+    const storedToken = loadRefreshToken();
+    if (storedToken) {
+      try {
+        const { accessToken, refreshToken } = await refreshAuthTokens(storedToken);
+        global.authAccessToken = accessToken;
+        global.authRefreshToken = refreshToken;
+        saveRefreshToken(refreshToken);
+      } catch {
+        createSplashWindow();
+      }
+    } else {
+      createSplashWindow();
+    }
+  } else {
+    createSplashWindow();
+  }
   registerTrayIconMenu();
   setupGlobalShortcut();
   
@@ -1690,12 +1708,25 @@ ipcMain.on('get-user-auth', (event: Electron.IpcMainInvokeEvent) => {
   });
 });
 
+ipcMain.handle('get-launch-at-login', () => {
+  return app.getLoginItemSettings().openAtLogin;
+});
+
+ipcMain.handle('set-launch-at-login', (_event: Electron.IpcMainInvokeEvent, enabled: boolean) => {
+  app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
+});
+
 /**
  * Handler for storing auth tokens (kept in sync with AuthContext on sign-in and token refresh)
  */
 ipcMain.on('update-auth-tokens', (_event: Electron.IpcMainEvent, { accessToken, refreshToken }: { accessToken: string | null; refreshToken: string | null }) => {
   global.authAccessToken = accessToken;
   global.authRefreshToken = refreshToken;
+  if (refreshToken) {
+      saveRefreshToken(refreshToken);
+  } else {
+      clearRefreshToken()
+  }
 });
 
 /**
@@ -1824,11 +1855,6 @@ ipcMain.on('close-coach-window', () => {
     global.coachWindow.close();
     global.coachWindow = null;
 
-    if (global.coachSettingsWindow && !global.coachSettingsWindow.isDestroyed()) {
-      global.coachSettingsWindow.close();
-      global.coachSettingsWindow = null;
-    }
-
   } else {
     if (isDev) {
       console.log('No valid coach window to close');
@@ -1885,6 +1911,7 @@ ipcMain.on('tray-show-window', () => {
 // Handler for triggering logout from the tray menu — opens splash window with sign-out flag
 ipcMain.on('tray-logout', () => {
   hideTrayMenu();
+  clearRefreshToken();
   if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
     createSplashWindow(true);
   } else {
