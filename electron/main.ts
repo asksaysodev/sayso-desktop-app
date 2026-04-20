@@ -1823,6 +1823,12 @@ ipcMain.on('close-coach-window', () => {
     }
     global.coachWindow.close();
     global.coachWindow = null;
+
+    if (global.coachSettingsWindow && !global.coachSettingsWindow.isDestroyed()) {
+      global.coachSettingsWindow.close();
+      global.coachSettingsWindow = null;
+    }
+
   } else {
     if (isDev) {
       console.log('No valid coach window to close');
