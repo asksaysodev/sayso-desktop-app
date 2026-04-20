@@ -1951,6 +1951,9 @@ const createCoachSettingsWindow = () => {
     
     coachSettingsWindow.on('closed', () => {
         global.coachSettingsWindow = null;
+        if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+          global.coachWindow.webContents.send('coach-settings-window-state', { isOpen: false });
+        }
     })
 }
 
