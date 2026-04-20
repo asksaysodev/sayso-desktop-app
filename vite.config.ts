@@ -56,7 +56,7 @@ export default defineConfig({
       input: {
         'coach-window': resolve(__dirname, 'coach-window.html'),
         'tray-menu': resolve(__dirname, 'tray-menu.html'),
-        'coach-settings-window': resolve(__dirname, 'coach-settings-window.html'),
+        'app-settings-window': resolve(__dirname, 'app-settings-window.html'),
         'splash-window': resolve(__dirname, 'splash-window.html'),
       },
       output: {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { AccessibilityFontSizeType } from "@/coachSettingsWindow/types";
+import { AccessibilityFontSizeType } from "@/appSettingsWindow/types";
 
 function getDocumentFontSize(): AccessibilityFontSizeType {
     return (document.documentElement.dataset.fontSize ?? 's') as AccessibilityFontSizeType;

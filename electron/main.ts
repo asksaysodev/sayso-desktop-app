@@ -177,8 +177,8 @@ let cachedFontSize: string = 's';
 function isCoachWindowOpen() {
   return global.coachWindow && !global.coachWindow.isDestroyed();
 }
-function isCoachSettingsWindowOpen() {
-  return global.coachSettingsWindow && !global.coachSettingsWindow.isDestroyed();
+function isAppSettingsWindowOpen() {
+  return global.appSettingsWindow && !global.appSettingsWindow.isDestroyed();
 }
 
 // ===== CUSTOM TRAY MENU WINDOW =====
@@ -1811,24 +1811,24 @@ ipcMain.on('update-user-auth', (event: Electron.IpcMainInvokeEvent, { userAuthen
   }
 })
 // Handle for opening Coach settings window
-ipcMain.on('open-coach-settings-window', () => {
-    createCoachSettingsWindow();
+ipcMain.on('open-app-settings-window', () => {
+    createAppSettingsWindow();
 })
-ipcMain.on('close-coach-settings-window', () => {
-    if (global.coachSettingsWindow && !global.coachSettingsWindow.isDestroyed()) {
-        global.coachSettingsWindow.close();
-        global.coachSettingsWindow = null;
+ipcMain.on('close-app-settings-window', () => {
+    if (global.appSettingsWindow && !global.appSettingsWindow.isDestroyed()) {
+        global.appSettingsWindow.close();
+        global.appSettingsWindow = null;
     } else {
-        global.coachSettingsWindow = null;
+        global.appSettingsWindow = null;
     }
 })
-ipcMain.on('get-coach-settings-window-state', (event: Electron.IpcMainInvokeEvent) => {
-    event.sender.send('coach-settings-window-state', {
-        isOpen: isCoachSettingsWindowOpen()
+ipcMain.on('get-app-settings-window-state', (event: Electron.IpcMainInvokeEvent) => {
+    event.sender.send('app-settings-window-state', {
+        isOpen: isAppSettingsWindowOpen()
     })
 })
-ipcMain.handle('get-coach-settings-window-open-state', () => {
-    return isCoachSettingsWindowOpen();
+ipcMain.handle('get-app-settings-window-open-state', () => {
+    return isAppSettingsWindowOpen();
 })
 
 // Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow
@@ -1939,21 +1939,21 @@ ipcMain.on('quit-app', () => {
 });
 
 // --- Coach Settings Window ---
-const createCoachSettingsWindow = () => {
-    if (global.coachSettingsWindow && !global.coachSettingsWindow.isDestroyed()) {
+const createAppSettingsWindow = () => {
+    if (global.appSettingsWindow && !global.appSettingsWindow.isDestroyed()) {
         if (isDev) {
             console.log('Coach window already exists and is not destroyed, returning...');
         }
         return;
     }
     
-    if (global.coachSettingsWindow && global.coachSettingsWindow.isDestroyed()) {
-        global.coachSettingsWindow = null;
+    if (global.appSettingsWindow && global.appSettingsWindow.isDestroyed()) {
+        global.appSettingsWindow = null;
     }
     
     const preloadScriptPath = path.join(__dirname, 'preload.js');
-    const windowConfig = WindowManager.getCoachSettingsWindowConfig();
-    const coachSettingsWindow = new BrowserWindow({
+    const windowConfig = WindowManager.getAppSettingsWindowConfig();
+    const appSettingsWindow = new BrowserWindow({
         ...windowConfig,
         icon: path.join(__dirname, '../public/assets/icon.icns'),
         titleBarStyle: 'hiddenInset',
@@ -1973,19 +1973,19 @@ const createCoachSettingsWindow = () => {
         },
     });
     
-    global.coachSettingsWindow = coachSettingsWindow;
+    global.appSettingsWindow = appSettingsWindow;
     
     // dev vs prod URL for the coach window (use the HTML that bootstraps src/coachWindow/index.jsx)
-    const coachSettingsUrl = isDev
-      ? 'http://localhost:5173/coach-settings-window.html'
-      : `file://${path.join(__dirname, '../dist/coach-settings-window.html')}`;
+    const appSettingsUrl = isDev
+      ? 'http://localhost:5173/app-settings-window.html'
+      : `file://${path.join(__dirname, '../dist/app-settings-window.html')}`;
   
-    coachSettingsWindow.loadURL(coachSettingsUrl);
+    appSettingsWindow.loadURL(appSettingsUrl);
     
-    coachSettingsWindow.on('closed', () => {
-        global.coachSettingsWindow = null;
+    appSettingsWindow.on('closed', () => {
+        global.appSettingsWindow = null;
         if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-          global.coachWindow.webContents.send('coach-settings-window-state', { isOpen: false });
+          global.coachWindow.webContents.send('app-settings-window-state', { isOpen: false });
         }
     })
 }

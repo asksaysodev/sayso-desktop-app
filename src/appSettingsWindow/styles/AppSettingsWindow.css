@@ -5,7 +5,7 @@ body {
     background: rgba(255, 255, 255, 0.025);
 }
 
-.coach-settings-container {
+.app-settings-container {
     display: flex;
     height: 100%;
     width: 100%;
@@ -16,7 +16,7 @@ body {
 
 /* ── Sidebar ── */
 
-.coach-settings-sidebar {
+.app-settings-sidebar {
     display: flex;
     flex-direction: column;
     width: 220px;
@@ -112,7 +112,7 @@ body {
 
 /* ── Content area ── */
 
-.coach-settings-active-content-container {
+.app-settings-active-content-container {
     display: flex;
     flex: 1;
     overflow-y: auto;

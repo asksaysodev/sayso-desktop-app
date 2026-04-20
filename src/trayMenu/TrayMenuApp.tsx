@@ -93,22 +93,22 @@ const TrayMenuApp = () => {
             ipc.send('tray-show-window');
         }
     }
-    const [isCoachSettingsWindowOpen, setIsCoachSettingsWindowOpen] = useState(false);
+    const [isAppSettingsWindowOpen, setIsAppSettingsWindowOpen] = useState(false);
     
     useEffect(() => {
       const ipcRenderer = window.electron?.ipcRenderer;
       
       if (!ipcRenderer) return;
   
-      const handleCoachSettingsWindowState = (state: unknown) => {
-        setIsCoachSettingsWindowOpen((state as { isOpen: boolean }).isOpen);
+      const handleAppSettingsWindowState = (state: unknown) => {
+        setIsAppSettingsWindowOpen((state as { isOpen: boolean }).isOpen);
       };
   
-      ipcRenderer.on('coach-settings-window-state', handleCoachSettingsWindowState);
-      ipcRenderer.send('get-coach-settings-window-state');
+      ipcRenderer.on('app-settings-window-state', handleAppSettingsWindowState);
+      ipcRenderer.send('get-app-settings-window-state');
 
       return () => {
-        ipcRenderer.off('coach-settings-window-state', handleCoachSettingsWindowState);
+        ipcRenderer.off('app-settings-window-state', handleAppSettingsWindowState);
       };
     }, []);
     
@@ -116,12 +116,12 @@ const TrayMenuApp = () => {
         const ipcRenderer = window.electron?.ipcRenderer;
 
         if (ipcRenderer) {
-            if (isCoachSettingsWindowOpen) {
-                ipcRenderer.send('close-coach-settings-window');
-                setIsCoachSettingsWindowOpen(false);
+            if (isAppSettingsWindowOpen) {
+                ipcRenderer.send('close-app-settings-window');
+                setIsAppSettingsWindowOpen(false);
             } else {
-                ipcRenderer.send('open-coach-settings-window');
-                setIsCoachSettingsWindowOpen(true);
+                ipcRenderer.send('open-app-settings-window');
+                setIsAppSettingsWindowOpen(true);
             }
         }
     }

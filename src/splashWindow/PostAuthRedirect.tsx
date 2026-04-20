@@ -2,7 +2,7 @@ import SaysoLoader from "@/components/SaysoLoader";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import getCoachSettings from "@/coachSettingsWindow/services/cue/getCoachSettings";
+import getCoachSettings from "@/appSettingsWindow/services/cue/getCoachSettings";
 
 export default function PostAuthRedirect() {
     const { loading, user, globalUser } = useAuth();

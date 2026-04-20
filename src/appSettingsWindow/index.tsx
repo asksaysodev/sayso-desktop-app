@@ -1,6 +1,6 @@
 import ReactDOM from 'react-dom/client';
-import CoachSettingsWindowApp from './CoachSettingsWindowApp';
-import './styles/CoachSettingsWindow.css';
+import AppSettingsWindowApp from './AppSettingsWindowApp';
+import './styles/AppSettingsWindow.css';
 import '@/styles/Colors.css';
 import * as Sentry from "@sentry/electron/renderer";
 import { sentryConfig } from '@/config/sentry';
@@ -17,9 +17,9 @@ const queryClient = new QueryClient({
     }
 });
 
-const root = ReactDOM.createRoot(document.getElementById('coach-settings-window-root') as HTMLElement);
+const root = ReactDOM.createRoot(document.getElementById('app-settings-window-root') as HTMLElement);
 root.render(
     <QueryClientProvider client={queryClient}>
-        <CoachSettingsWindowApp />
+        <AppSettingsWindowApp />
     </QueryClientProvider>
 );
