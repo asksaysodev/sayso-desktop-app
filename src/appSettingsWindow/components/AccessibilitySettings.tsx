@@ -1,7 +1,7 @@
 import SettingsContentLayout from "./SettingsContentLayout";
 import { AccessibilityFontSizeType } from "../types";
 import useCoachSettingsContext from "../context/CoachSettingsContext";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const FS_OPTIONS: { key: AccessibilityFontSizeType; label: string; previewSize: number }[] = [
     { key: 's', label: 'Small',  previewSize: 13.5 },
@@ -19,7 +19,13 @@ export default function AccessibilitySettings() {
     const [optimisticFontSize, setOptimisticFontSize] = useState<AccessibilityFontSizeType | null>(null);
     const [saveError, setSaveError] = useState(false);
     const { coachSettings, mutateUpdateFontSize } = useCoachSettingsContext();
-    const selected = optimisticFontSize ?? coachSettings?.font_size ?? 's';
+    const selected = useMemo(() => optimisticFontSize ?? coachSettings?.font_size ?? 's', [optimisticFontSize,coachSettings])
+
+    useEffect(() => {
+        if (optimisticFontSize && coachSettings?.font_size === optimisticFontSize) {
+            setOptimisticFontSize(null);
+        }
+    }, [coachSettings?.font_size, optimisticFontSize]);
 
     const handleFontSizeChange = (size: AccessibilityFontSizeType) => {
         const prev = selected;
@@ -27,7 +33,7 @@ export default function AccessibilitySettings() {
         setSaveError(false);
         applyFontSize(size);
         mutateUpdateFontSize(size, {
-            onSuccess: () => setOptimisticFontSize(null),
+            // onSuccess: () => setOptimisticFontSize(null),
             onError: () => {
                 setOptimisticFontSize(null);
                 setSaveError(true);
