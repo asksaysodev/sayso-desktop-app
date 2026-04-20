@@ -314,15 +314,15 @@ export default function CoachWindowMain() {
       
       if (!ipcRenderer) return;
   
-      const handleCoachSettingsWindowState = (state: { isOpen: boolean }) => {
-        setIsCoachSettingsWindowOpen(state.isOpen);
+      const handleCoachSettingsWindowState = (state: unknown) => {
+        setIsCoachSettingsWindowOpen((state as { isOpen: boolean }).isOpen);
       };
   
-      ipcRenderer.on('coach-settings-window-state', handleCoachSettingsWindowState); // $FixTS
+      ipcRenderer.on('coach-settings-window-state', handleCoachSettingsWindowState);
       ipcRenderer.send('get-coach-settings-window-state');
 
       return () => {
-        ipcRenderer.off('coach-settings-window-state', handleCoachSettingsWindowState); // $FixTS
+        ipcRenderer.off('coach-settings-window-state', handleCoachSettingsWindowState);
       };
     }, []);
     

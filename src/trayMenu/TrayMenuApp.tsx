@@ -3,6 +3,7 @@ import trayToggleOn from '/assets/tray-toggle-on.png';
 import trayToggleOff from '/assets/tray-toggle-off.png';
 import { Account } from '@/types/user';
 import { supabase } from '@/config/supabase';
+import { ExternalLink } from 'lucide-react';
 
 /**
  * Tray Menu App - Custom menu window for system tray
@@ -48,7 +49,7 @@ const TrayMenuApp = () => {
       if (disableToggleCoach && !userAuthenticated) {
           height = 82;
       } else if (!disableToggleCoach && userAuthenticated) {
-          height = 172;
+          height = 210;
       } else {
           height = 128;
       }
@@ -76,7 +77,7 @@ const TrayMenuApp = () => {
         }
     };
     
-    const handlePressAccountSettings = async () => {
+    const handlePressMyAccount = async () => {
         const { data: { session } } = await supabase.auth.getSession();
         const url = new URL('https://app.asksayso.com/settings');
         if (session?.access_token) url.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}`;
@@ -90,6 +91,38 @@ const TrayMenuApp = () => {
             ipc.send('tray-logout');
         } else {
             ipc.send('tray-show-window');
+        }
+    }
+    const [isCoachSettingsWindowOpen, setIsCoachSettingsWindowOpen] = useState(false);
+    
+    useEffect(() => {
+      const ipcRenderer = window.electron?.ipcRenderer;
+      
+      if (!ipcRenderer) return;
+  
+      const handleCoachSettingsWindowState = (state: unknown) => {
+        setIsCoachSettingsWindowOpen((state as { isOpen: boolean }).isOpen);
+      };
+  
+      ipcRenderer.on('coach-settings-window-state', handleCoachSettingsWindowState);
+      ipcRenderer.send('get-coach-settings-window-state');
+
+      return () => {
+        ipcRenderer.off('coach-settings-window-state', handleCoachSettingsWindowState);
+      };
+    }, []);
+    
+    const handlePressSettings = () => {
+        const ipcRenderer = window.electron?.ipcRenderer;
+
+        if (ipcRenderer) {
+            if (isCoachSettingsWindowOpen) {
+                ipcRenderer.send('close-coach-settings-window');
+                setIsCoachSettingsWindowOpen(false);
+            } else {
+                ipcRenderer.send('open-coach-settings-window');
+                setIsCoachSettingsWindowOpen(true);
+            }
         }
     }
     
@@ -126,10 +159,22 @@ const TrayMenuApp = () => {
             <>
                 <button
                     className="tray-menu-item"
-                    onClick={handlePressAccountSettings}
+                    onClick={handlePressMyAccount}
                 >
                     <span className="tray-menu-item-label">
-                        Account Settings
+                        My Account
+                    </span>
+                      <ExternalLink size={16} />
+                </button>
+                
+                <div className="tray-menu-separator" />
+                
+                <button
+                    className="tray-menu-item"
+                    onClick={handlePressSettings}
+                >
+                    <span className="tray-menu-item-label">
+                        Settings
                     </span>
                 </button>
                 
