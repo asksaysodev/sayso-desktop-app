@@ -4,6 +4,7 @@ import trayToggleOff from '/assets/tray-toggle-off.png';
 import { Account } from '@/types/user';
 import { supabase } from '@/config/supabase';
 import { ExternalLink } from 'lucide-react';
+import { useAppSettingsWindow } from '@/hooks/useAppSettingsWindow';
 
 /**
  * Tray Menu App - Custom menu window for system tray
@@ -12,6 +13,7 @@ import { ExternalLink } from 'lucide-react';
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
   const [userAuthenticated, setUserAuthenticated] = useState<Account | null>(null);
+  const { toggleAppSettingsWindow } = useAppSettingsWindow();
 
   const disableToggleCoach = useMemo(() => {
     return !userAuthenticated || userAuthenticated?.subscription_plan_id === null;
@@ -93,39 +95,6 @@ const TrayMenuApp = () => {
             ipc.send('tray-show-window');
         }
     }
-    const [isAppSettingsWindowOpen, setIsAppSettingsWindowOpen] = useState(false);
-    
-    useEffect(() => {
-      const ipcRenderer = window.electron?.ipcRenderer;
-      
-      if (!ipcRenderer) return;
-  
-      const handleAppSettingsWindowState = (state: unknown) => {
-        setIsAppSettingsWindowOpen((state as { isOpen: boolean }).isOpen);
-      };
-  
-      ipcRenderer.on('app-settings-window-state', handleAppSettingsWindowState);
-      ipcRenderer.send('get-app-settings-window-state');
-
-      return () => {
-        ipcRenderer.off('app-settings-window-state', handleAppSettingsWindowState);
-      };
-    }, []);
-    
-    const handlePressSettings = () => {
-        const ipcRenderer = window.electron?.ipcRenderer;
-
-        if (ipcRenderer) {
-            if (isAppSettingsWindowOpen) {
-                ipcRenderer.send('close-app-settings-window');
-                setIsAppSettingsWindowOpen(false);
-            } else {
-                ipcRenderer.send('open-app-settings-window');
-                setIsAppSettingsWindowOpen(true);
-            }
-        }
-    }
-    
   return (
     <div className="tray-menu">
       <div className="tray-menu-header">
@@ -171,7 +140,7 @@ const TrayMenuApp = () => {
                 
                 <button
                     className="tray-menu-item"
-                    onClick={handlePressSettings}
+                    onClick={toggleAppSettingsWindow}
                 >
                     <span className="tray-menu-item-label">
                         Settings

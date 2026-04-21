@@ -6,7 +6,7 @@ import SettingsToggle from "./SettingsToggle";
 
 export default function GeneralSettings() {
     const [timeDelay, setTimeDelay] = useState<number | undefined>(undefined);
-    const [launchAtLogin, setLaunchAtLogin] = useState<boolean>(false);
+    const [launchAtLogin, setLaunchAtLogin] = useState<boolean | null>(null);
     const { coachSettings, mutateAutoStopTimeDelay } = useCoachSettingsContext();
     const debouncedTimeDelay = useDebounce(timeDelay, 1500);
     const serverValue = useRef<number | undefined>(undefined);
@@ -36,6 +36,8 @@ export default function GeneralSettings() {
         setLaunchAtLogin(enabled);
         window.electron?.ipcRenderer?.invoke('set-launch-at-login', enabled);
     };
+
+    if (launchAtLogin === null) return null;
 
     return (
         <SettingsContentLayout title="General">

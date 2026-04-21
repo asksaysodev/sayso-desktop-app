@@ -6,7 +6,8 @@ const getAuthFilePath = () => path.join(app.getPath('userData'), 'auth.json');
 
 export function saveRefreshToken(token: string) {
     if (!token) return;
-    
+    if (!safeStorage.isEncryptionAvailable()) return;
+
     const tokenBuffer = safeStorage.encryptString(token);
     const tokenToBase64 = tokenBuffer.toString('base64');
     fs.writeFileSync(getAuthFilePath(), JSON.stringify({ refreshToken: tokenToBase64 }));

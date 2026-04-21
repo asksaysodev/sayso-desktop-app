@@ -1723,9 +1723,9 @@ ipcMain.on('update-auth-tokens', (_event: Electron.IpcMainEvent, { accessToken, 
   global.authAccessToken = accessToken;
   global.authRefreshToken = refreshToken;
   if (refreshToken) {
-      saveRefreshToken(refreshToken);
+    saveRefreshToken(refreshToken);
   } else {
-      clearRefreshToken()
+    clearRefreshToken();
   }
 });
 

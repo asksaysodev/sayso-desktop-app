@@ -33,7 +33,6 @@ export default function AccessibilitySettings() {
         setSaveError(false);
         applyFontSize(size);
         mutateUpdateFontSize(size, {
-            // onSuccess: () => setOptimisticFontSize(null),
             onError: () => {
                 setOptimisticFontSize(null);
                 setSaveError(true);
