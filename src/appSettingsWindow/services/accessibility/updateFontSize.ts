@@ -1,4 +1,4 @@
-import { AccessibilityFontSizeType } from "@/coachSettingsWindow/types";
+import { AccessibilityFontSizeType } from "@/appSettingsWindow/types";
 import apiClient from "@/config/axios";
 
 export default async function updateFontSize(size: AccessibilityFontSizeType): Promise<unknown> {

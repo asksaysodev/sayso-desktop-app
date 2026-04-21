@@ -3,6 +3,8 @@ import trayToggleOn from '/assets/tray-toggle-on.png';
 import trayToggleOff from '/assets/tray-toggle-off.png';
 import { Account } from '@/types/user';
 import { supabase } from '@/config/supabase';
+import { ExternalLink } from 'lucide-react';
+import { useAppSettingsWindow } from '@/hooks/useAppSettingsWindow';
 
 /**
  * Tray Menu App - Custom menu window for system tray
@@ -11,6 +13,7 @@ import { supabase } from '@/config/supabase';
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
   const [userAuthenticated, setUserAuthenticated] = useState<Account | null>(null);
+  const { toggleAppSettingsWindow } = useAppSettingsWindow();
 
   const disableToggleCoach = useMemo(() => {
     return !userAuthenticated || userAuthenticated?.subscription_plan_id === null;
@@ -48,7 +51,7 @@ const TrayMenuApp = () => {
       if (disableToggleCoach && !userAuthenticated) {
           height = 82;
       } else if (!disableToggleCoach && userAuthenticated) {
-          height = 172;
+          height = 210;
       } else {
           height = 128;
       }
@@ -76,7 +79,7 @@ const TrayMenuApp = () => {
         }
     };
     
-    const handlePressAccountSettings = async () => {
+    const handlePressMyAccount = async () => {
         const { data: { session } } = await supabase.auth.getSession();
         const url = new URL('https://app.asksayso.com/settings');
         if (session?.access_token) url.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}`;
@@ -92,7 +95,6 @@ const TrayMenuApp = () => {
             ipc.send('tray-show-window');
         }
     }
-    
   return (
     <div className="tray-menu">
       <div className="tray-menu-header">
@@ -126,10 +128,22 @@ const TrayMenuApp = () => {
             <>
                 <button
                     className="tray-menu-item"
-                    onClick={handlePressAccountSettings}
+                    onClick={handlePressMyAccount}
                 >
                     <span className="tray-menu-item-label">
-                        Account Settings
+                        My Account
+                    </span>
+                      <ExternalLink size={16} />
+                </button>
+                
+                <div className="tray-menu-separator" />
+                
+                <button
+                    className="tray-menu-item"
+                    onClick={toggleAppSettingsWindow}
+                >
+                    <span className="tray-menu-item-label">
+                        Settings
                     </span>
                 </button>
                 

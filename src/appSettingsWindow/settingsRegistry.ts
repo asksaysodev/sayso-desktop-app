@@ -1,4 +1,4 @@
-import { SidebarOptionType } from "./CoachSettingsWindowApp";
+import { SidebarOptionType } from "./AppSettingsWindowApp";
 
 export interface SettingsRegistryEntry {
     id: string;

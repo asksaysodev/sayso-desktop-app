@@ -80,7 +80,7 @@ class WindowManager {
     };
   }
   
-  static getCoachSettingsWindowConfig() {
+  static getAppSettingsWindowConfig() {
       return {
           width: 800,
           height: 600,

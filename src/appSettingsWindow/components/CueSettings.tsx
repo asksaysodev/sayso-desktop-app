@@ -3,6 +3,7 @@ import SettingsContentLayout from "./SettingsContentLayout";
 import { CueMode } from "../types";
 import useCoachSettingsContext from "../context/CoachSettingsContext";
 import useDebounce from "@/hooks/useDebounce";
+import SettingsToggle from "./SettingsToggle";
 
 export default function CueSettings() {
     const [mode, setMode] = useState<CueMode>('condensed');
@@ -39,20 +40,14 @@ export default function CueSettings() {
                     <p className="cue-setting-description">Choose how insights are displayed during your call</p>
                 </div>
                 <div className="cue-setting-right">
-                    <div className="cue-mode-toggle">
-                        <button
-                            className={`cue-mode-option ${mode === 'full' ? 'active' : ''}`}
-                            onClick={() => handleChangeCueMode('full')}
-                        >
-                            Full Insights
-                        </button>
-                        <button
-                            className={`cue-mode-option ${mode === 'condensed' ? 'active' : ''}`}
-                            onClick={() => handleChangeCueMode('condensed')}
-                        >
-                            Condensed
-                        </button>
-                    </div>
+                    <SettingsToggle
+                        options={[
+                            { value: 'full', label: 'Full Insights' },
+                            { value: 'condensed', label: 'Condensed' },
+                        ]}
+                        value={mode}
+                        onChange={handleChangeCueMode}
+                    />
                 </div>
             </div>
 

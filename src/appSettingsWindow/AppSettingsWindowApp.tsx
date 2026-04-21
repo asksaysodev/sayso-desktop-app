@@ -6,7 +6,7 @@ import ScriptsSettings from "./components/ScriptsSettings";
 import AudioSettings from "./components/AudioSettings";
 import TopDragBar from "@/components/TopDragBar";
 import { searchSettings, SettingsRegistryEntry } from "./settingsRegistry";
-import CoachSettingsSearchBar from "./components/CoachSettingsSearchBar";
+import AppSettingsSearchBar from "./components/AppSettingsSearchBar";
 import { CoachSettingsProvider } from "./context/CoachSettingsContext";
 import useCoachSettingsContext from "./context/CoachSettingsContext";
 import AccessibilitySettings from "./components/AccessibilitySettings";
@@ -28,7 +28,7 @@ const SIDEBAR_OPTIONS: SidebarOption[] = [
     // { key: 'scripts', label: 'Scripts', icon: <LuBookText /> },
 ];
 
-function CoachSettingsContent() {
+function AppSettingsContent() {
     const { coachSettingsIsLoading, coachSettings } = useCoachSettingsContext();
 
     useEffect(() => {
@@ -79,8 +79,8 @@ function CoachSettingsContent() {
         <>
             <TopDragBar />
 
-            <div className="coach-settings-sidebar">
-                <CoachSettingsSearchBar onChangeText={setSearchValue} value={searchValue} />
+            <div className="app-settings-sidebar">
+                <AppSettingsSearchBar onChangeText={setSearchValue} value={searchValue} />
                 {searchValue
                     ? searchResults.map((entry) => {
                         const sectionMeta = SIDEBAR_OPTIONS.find(o => o.key === entry.section)!;
@@ -108,28 +108,28 @@ function CoachSettingsContent() {
                 }
             </div>
 
-            <div className="coach-settings-active-content-container">
+            <div className="app-settings-active-content-container">
                 {renderContent()}
             </div>
         </>
     );
 }
 
-function CoachSettingsWindowApp() {
+function AppSettingsWindowApp() {
     const closeWindow = useCallback(() => {
         if (window?.electron?.ipcRenderer) {
-            window.electron.ipcRenderer.send('close-coach-settings-window')
+            window.electron.ipcRenderer.send('close-app-settings-window')
         }
     }, []);
     useSessionExpiry(closeWindow);
 
     return (
         <CoachSettingsProvider>
-            <div className="coach-settings-container">
-                <CoachSettingsContent />
+            <div className="app-settings-container">
+                <AppSettingsContent />
             </div>
         </CoachSettingsProvider>
     );
 }
 
-export default CoachSettingsWindowApp;
+export default AppSettingsWindowApp;
