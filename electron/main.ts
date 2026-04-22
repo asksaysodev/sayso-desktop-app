@@ -203,8 +203,7 @@ function createTrayMenuWindow() {
 
   // Create a frameless, always-on-top window
   trayMenuWindow = new BrowserWindow({
-    width: 264,
-    // height: 128,
+    width: 212,
     height: 172,
     show: false,
     frame: false,
