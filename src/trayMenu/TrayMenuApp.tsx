@@ -109,16 +109,12 @@ const TrayMenuApp = () => {
               onClick={handleToggleCoach}
               disabled={disableToggleCoach}
             >
-              <div className="tray-menu-item-icon">
-                <img
-                  src={isCoachOpen ? trayToggleOn : trayToggleOff}
-                  alt={isCoachOpen ? 'Close' : 'Open'}
-                  className="tray-menu-item-icon-img"
-                />
-              </div>
               <span className="tray-menu-item-label">
                 {isCoachOpen ? 'Close Coach' : 'Launch Coach'}
               </span>
+			  <span className="tray-menu-shortcut">
+				Ctrl + S
+			  </span>
             </button>
             <div className="tray-menu-separator" />
           </>
