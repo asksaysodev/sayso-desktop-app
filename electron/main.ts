@@ -188,6 +188,7 @@ let trayMenuWindow: BrowserWindowType | null = null;
 /**
  * Creates and positions the custom tray menu window near the tray icon
  */
+const TRAY_MENU_WIDTH = 238;
 function createTrayMenuWindow() {
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
     if (trayMenuWindow.isVisible()) {
@@ -203,8 +204,7 @@ function createTrayMenuWindow() {
 
   // Create a frameless, always-on-top window
   trayMenuWindow = new BrowserWindow({
-    width: 264,
-    // height: 128,
+    width: TRAY_MENU_WIDTH,
     height: 172,
     show: false,
     frame: false,
@@ -1928,7 +1928,7 @@ ipcMain.on('tray-logout', () => {
 // Handler for resizing the tray menu window (e.g. when items are shown/hidden)
 ipcMain.on('set-tray-menu-height', (_event: Electron.IpcMainEvent, height: number) => {
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
-    trayMenuWindow.setSize(264, height, false);
+    trayMenuWindow.setSize(TRAY_MENU_WIDTH, height, false);
     positionTrayMenu();
   }
 });
