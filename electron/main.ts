@@ -188,7 +188,7 @@ let trayMenuWindow: BrowserWindowType | null = null;
 /**
  * Creates and positions the custom tray menu window near the tray icon
  */
-const TRAY_MENU_WIDTH = 238;
+const TRAY_MENU_WIDTH = 230; 
 function createTrayMenuWindow() {
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
     if (trayMenuWindow.isVisible()) {
