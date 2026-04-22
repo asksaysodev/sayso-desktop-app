@@ -180,6 +180,15 @@ function isCoachWindowOpen() {
 function isAppSettingsWindowOpen() {
   return global.appSettingsWindow && !global.appSettingsWindow.isDestroyed();
 }
+function broadcastAppSettingsWindowState(isOpen: boolean) {
+  const payload = { isOpen };
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    global.coachWindow.webContents.send('app-settings-window-state', payload);
+  }
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.webContents.send('app-settings-window-state', payload);
+  }
+}
 
 // ===== CUSTOM TRAY MENU WINDOW =====
 let tray: TrayType | null = null;
@@ -1981,12 +1990,11 @@ const createAppSettingsWindow = () => {
       : `file://${path.join(__dirname, '../dist/app-settings-window.html')}`;
   
     appSettingsWindow.loadURL(appSettingsUrl);
-    
+    broadcastAppSettingsWindowState(true);
+
     appSettingsWindow.on('closed', () => {
         global.appSettingsWindow = null;
-        if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-          global.coachWindow.webContents.send('app-settings-window-state', { isOpen: false });
-        }
+        broadcastAppSettingsWindowState(false);
     })
 }
 
