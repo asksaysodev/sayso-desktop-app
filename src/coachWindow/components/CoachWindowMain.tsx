@@ -1,13 +1,10 @@
-import { useEffect, useRef, useState, useCallback, MouseEventHandler } from 'react';
+import { useEffect, useRef, useState, useCallback, MouseEventHandler, useMemo } from 'react';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
-
-
 import { MdDragIndicator } from 'react-icons/md';
 import { MdErrorOutline } from 'react-icons/md';
-import { LuSearch, LuX } from 'react-icons/lu';
+import { LuSearch, LuX, LuChevronDown, LuChevronUp } from 'react-icons/lu';
 import * as Sentry from "@sentry/electron/renderer";
 import { useCoachWindowStore } from '../../store/coachWindowStore';
-
 import CoachButtons from './CoachButtons';
 import SelectProspectDropdown from './SelectProspectDropdown';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
@@ -15,12 +12,13 @@ import InsightsVerticalLayout from './InsightsVerticalLayout';
 import SessionStoppedDialog from './SessionStoppedDialog';
 import RightSideButtons from './RightSideButtons';
 import useFontSize from '../hooks/useFontSize';
+import ZipCodeDropdown from './ZipCodeDropdown';
 
 const WINDOW_WIDTH_SIZES = {
     s: {
         BASE: 380,
         READY_TO_LAUNCH: 400,
-        ACTIVE_SESSION: 600,
+        ACTIVE_SESSION: 620,
         MAX_WIDTH: 900
     },
     m: {
@@ -46,10 +44,10 @@ const WINDOW_HEIGHT_SIZES = {
 type DragStartRef = { mouseX: number, mouseY: number, winX: number, winY: number };
 
 export default function CoachWindowMain() {
-
     //REFS
     const containerRef = useRef<HTMLDivElement | null>(null);
     const insightsLayoutRef = useRef<HTMLDivElement | null>(null);
+    const zipCodeDropdownRef = useRef<HTMLDivElement | null>(null);
     const errorContainerRef = useRef<HTMLDivElement | null>(null);
     const sessionStoppedDialogRef = useRef<HTMLDivElement | null>(null);
     const isDraggingRef = useRef(false);
@@ -76,7 +74,17 @@ export default function CoachWindowMain() {
     const incrementUnseenInsightsCount = useCoachWindowStore(state => state.cue_incrementUnseenInsightsCount);
     const handleStopCue = useCoachWindowStore(state => state.cue_handleStopCue);
     const currentfs = useFontSize();
+    const [zipCodeValue, setZipCodeValue] = useState<string>("")
+    const [isZipDropdownOpen, setIsZipDropdownOpen] = useState<boolean>(false);
 
+    const isZipCodeValid = useMemo(()=> {
+        return /^\d{5}$/.test(zipCodeValue);
+    },[zipCodeValue])
+
+    useEffect(() => {
+        if (isZipCodeValid) setIsZipDropdownOpen(true);
+    }, [isZipCodeValid]);
+    
     const handleSessionExpired = useCallback(() => {
         useCoachWindowStore.setState({ error: 'Your session has expired. Please re-login from the main window.' });
         if (isCoachActive) handleStopCue().catch((err) => Sentry.captureException(err));
@@ -147,23 +155,34 @@ export default function CoachWindowMain() {
 
         if (isDropdownOpen) {
             return WINDOW_HEIGHT_SIZES.DROPDOWN_OPEN;
-        } else if (isInsightsLayoutOpen) {
-            if (insightsLayoutRef.current) {
-                return getTotalHeightWithRef(insightsLayoutRef) + lpmamaTooltipHeight;
-            }
+        }
 
-            const queueLength = insightsQueue.length;
-            if (queueLength === 0) return 280;
-            if (queueLength === 1) return 140;
-            if (queueLength === 2) return 210;
-            if (queueLength === 3) return 280;
-            if (queueLength >= 4) return 350;
-
-            return 280;
-        } else if (showSessionAutoStopped) {
+        if (showSessionAutoStopped) {
             return getTotalHeightWithRef(sessionStoppedDialogRef) || WINDOW_HEIGHT_SIZES.BASE;
         }
-        return WINDOW_HEIGHT_SIZES.BASE;
+
+        let height = WINDOW_HEIGHT_SIZES.BASE;
+
+        const showZipDropdown = isZipDropdownOpen && isZipCodeValid && isCoachActive;
+        if (showZipDropdown && zipCodeDropdownRef.current) {
+            height += zipCodeDropdownRef.current.offsetHeight + 6;
+        }
+
+        if (isInsightsLayoutOpen) {
+            if (insightsLayoutRef.current) {
+                height += insightsLayoutRef.current.offsetHeight + 6 + lpmamaTooltipHeight;
+            } else {
+                const queueLength = insightsQueue.length;
+                let estimatedInsightsHeight = 280;
+                if (queueLength === 1) estimatedInsightsHeight = 140;
+                else if (queueLength === 2) estimatedInsightsHeight = 210;
+                else if (queueLength === 3) estimatedInsightsHeight = 280;
+                else if (queueLength >= 4) estimatedInsightsHeight = 350;
+                height += estimatedInsightsHeight - WINDOW_HEIGHT_SIZES.BASE;
+            }
+        }
+
+        return height;
     }
 
     useEffect(() => {
@@ -212,7 +231,7 @@ export default function CoachWindowMain() {
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen]);
 
     /**
      * Handling auto opening of insights layout and unseen insights count for the notification dot
@@ -320,7 +339,7 @@ export default function CoachWindowMain() {
         recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
         cue: <SelectLeadTypeDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
     };
-
+    
     return (
         <div className="coach-window" ref={containerRef}>
             <div className={`main-container coach-box-bubble`}>
@@ -342,10 +361,37 @@ export default function CoachWindowMain() {
                             )
                         }
                         
-                        {isCoachActive && <div className='zip-code-input-container'>
-                            <LuSearch className='zip-code-input-icon' />
-                            <input className='zip-code-input' placeholder='Zip Code' />
-                        </div>}
+                        {isCoachActive &&
+                            <div
+                                className={`zip-code-input-container ${isZipCodeValid ? 'active' : ''}`}
+                                onClick={() => {
+                                    if (isZipCodeValid) setIsZipDropdownOpen(true);
+                                }}
+                            >
+                                <LuSearch className='zip-code-input-icon' />
+                                <input
+                                    className='zip-code-input'
+                                    placeholder='Zip Code'
+                                    value={zipCodeValue}
+                                    onChange={(e) => setZipCodeValue(e.target.value)}
+                                    inputMode='numeric'
+                                    pattern='[0-9]'
+                                />
+                                {isZipCodeValid && (
+                                    <button
+                                        type='button'
+                                        className='zip-code-chevron-toggle'
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setIsZipDropdownOpen(prev => !prev);
+                                        }}
+                                        aria-label={isZipDropdownOpen ? 'Collapse zip details' : 'Expand zip details'}
+                                    >
+                                        {isZipDropdownOpen ? <LuChevronUp /> : <LuChevronDown />}
+                                    </button>
+                                )}
+                            </div>
+                        }
                         
                         {
                             (selectedProspect || leadType) && (
@@ -375,6 +421,13 @@ export default function CoachWindowMain() {
                 </div>
             )}
 
+            {isZipDropdownOpen && isZipCodeValid && isCoachActive && (
+                <ZipCodeDropdown
+                    ref={zipCodeDropdownRef}
+                    onClose={() => setIsZipDropdownOpen(false)}
+                />
+            )}
+            
             {isInsightsLayoutOpen && isCoachActive && (
                 <InsightsVerticalLayout
                     ref={insightsLayoutRef}

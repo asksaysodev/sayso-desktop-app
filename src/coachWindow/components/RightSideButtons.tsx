@@ -31,7 +31,7 @@ export default function RightSideButtons() {
         <div className='right-side-buttons-container'>
             {isCoachActive
                 ? <>
-                    <RightSideButton onClick={handleOpenInsightsLayout} disabled={disableButtons}>
+                    <RightSideButton onClick={handleOpenInsightsLayout} disabled={disableButtons} active={isInsightsLayoutOpen}>
                         {unseenInsightsCount > 0 && <span className="cue-eye-toggle-notification-badge"></span>}
                         <CircleCheckBig size={ICON_SIZE}/>
                     </RightSideButton>
