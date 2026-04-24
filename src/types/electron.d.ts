@@ -164,11 +164,17 @@ export interface ElectronBridge {
   autoUpdater: AutoUpdaterAPI;
 }
 
+export interface PlaybookWindowAPI {
+  getWindowPosition: () => Promise<[number, number]>;
+  setWindowPosition: (x: number, y: number) => void;
+}
+
 export interface ElectronAPIBridge {
   resizeWindow: (width: number, height: number) => void;
   closeCoachWindow: () => void;
   getWindowPosition: () => Promise<[number, number]>;
   setWindowPosition: (x: number, y: number) => void;
+  playbook: PlaybookWindowAPI;
 }
 
 export interface SaysoBridge {

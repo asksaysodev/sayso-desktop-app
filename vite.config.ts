@@ -58,6 +58,7 @@ export default defineConfig({
         'tray-menu': resolve(__dirname, 'tray-menu.html'),
         'app-settings-window': resolve(__dirname, 'app-settings-window.html'),
         'splash-window': resolve(__dirname, 'splash-window.html'),
+        'playbook-window': resolve(__dirname, 'playbook-window.html'),
       },
       output: {
         manualChunks: undefined, // Disable manual chunks for better Electron compatibility

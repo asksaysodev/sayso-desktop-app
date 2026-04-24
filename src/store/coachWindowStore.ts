@@ -415,6 +415,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
 
     cue_handleStopCue: async () => {
         set({ isCoachLoading: true });
+        window.electron?.ipcRenderer?.send('close-playbook-window');
 
         try {
    //          const sessionId = get().sessionData?.sessionId;
@@ -502,6 +503,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
         } catch (error) {
             console.error('Error resetting cue session:', error);
             set({ isCoachActive: false });
+            window.electron?.ipcRenderer?.send('close-playbook-window');
             throw error;
         } finally {
             set({

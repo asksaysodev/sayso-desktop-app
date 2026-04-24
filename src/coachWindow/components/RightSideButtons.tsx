@@ -1,4 +1,5 @@
 import { useAppSettingsWindow } from '@/hooks/useAppSettingsWindow';
+import { usePlaybookWindow } from '@/hooks/usePlaybookWindow';
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import RightSideButton from './RightSideButton';
 import { CircleCheckBig, List, Settings, X } from 'lucide-react';
@@ -8,6 +9,7 @@ const ICON_SIZE = 16;
 
 export default function RightSideButtons() {
     const { toggleAppSettingsWindow } = useAppSettingsWindow();
+    const { isPlaybookWindowOpen, togglePlaybookWindow } = usePlaybookWindow();
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
@@ -35,8 +37,7 @@ export default function RightSideButtons() {
                         {unseenInsightsCount > 0 && <span className="cue-eye-toggle-notification-badge"></span>}
                         <CircleCheckBig size={ICON_SIZE}/>
                     </RightSideButton>
-                    <RightSideButton onClick={() => { }} disabled> 
-                        {/*disabled untill we develop this feature*/}
+                    <RightSideButton onClick={togglePlaybookWindow} disabled={disableButtons} active={isPlaybookWindowOpen}>
                         <List size={ICON_SIZE}/>
                     </RightSideButton>
                 </>

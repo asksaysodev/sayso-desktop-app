@@ -26,6 +26,20 @@ const WINDOW_CONFIG = {
     DEFAULT_HEIGHT: 768,
     MIN_WIDTH: 800,
     MIN_HEIGHT: 600
+  },
+  PLAYBOOK: {
+    WIDTH: 520,
+    HEIGHT: 500,
+    GAP_X: 20,
+    FRAME: false,
+    TRANSPARENT: true,
+    ALWAYS_ON_TOP: true,
+    VISIBLE_ON_ALL_WORKSPACES: true,
+    RESIZABLE: false,
+    MAXIMIZABLE: false,
+    MINIMIZABLE: false,
+    FULLSCREENABLE: false,
+    HAS_SHADOW: false
   }
 };
 
