@@ -1,6 +1,9 @@
 import { Signal } from "@/types/admin";
 import { LeadType, Prospect } from "@/types/coach";
 
+export type LpmamField = 'location' | 'price' | 'motivation' | 'agent' | 'mortgage' | 'appointment';
+export type LpmamData = Record<LpmamField, string | null>;
+
 export type CoachFeature = 'cue' | 'recall';
 
 export interface SessionData {
@@ -33,6 +36,7 @@ export interface CueState {
     isInsightsLayoutOpen: boolean;
     hasReceivedFirstInsight: boolean;
     unseenInsightsCount: number;
+    lpmama: LpmamData;
 }
 
 export interface RecallState {
@@ -115,4 +119,5 @@ export interface CoachWindowStore {
     cue_setHasReceivedFirstInsight: (hasReceivedFirstInsight: boolean) => void;
     cue_incrementUnseenInsightsCount: () => void;
     cue_resetUnseenInsightsCount: () => void;
+    cue_updateSmartCapture: (data: { topic: string; content: string }[]) => void;
 }

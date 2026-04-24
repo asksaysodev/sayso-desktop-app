@@ -2,8 +2,10 @@ body {
     /* font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
       Arial, sans-serif; */
     font-family: Helvetica, Arial, sans-serif;
-  }
-
+}
+button {
+    padding: 0 !important
+}
 .coach-window {
     gap: 6px;
     /* width: 100%; */
@@ -29,7 +31,8 @@ body {
 }
 
 .coach-box-bubble {
-    background: rgba(2, 25, 47, 0.9);
+    /*background: rgba(2, 25, 47, 0.9);*/
+    background: var(--sayso-coach-bg);
     backdrop-filter: blur(200px); 
     -webkit-backdrop-filter: blur(200px);
     box-shadow: 
@@ -105,13 +108,12 @@ body {
     width: 1px;
     height: 28px;
     background-color: rgba(255, 255, 255, 0.4);
-    margin: 0 0px 0px 20px;
+    margin: 0 15px;
 }
 
 .coach-window .inner-content-centered {
     display: flex;
     width: 100%;
-    justify-content: center;
     align-items: center;
     gap: 14px;
 }
@@ -171,7 +173,7 @@ body {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 4px 16px;
+    padding: 4px 16px !important;
     cursor: pointer;
     -webkit-app-region: no-drag;
     background-color:var(--sayso-blue);
@@ -210,7 +212,7 @@ body {
     -webkit-app-region: no-drag;
     padding: 6px;
     border-radius: 12px;
-    background: rgba(10, 32, 58, 0.97);
+    background-color: var(--sayso-coach-bg);
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
     backdrop-filter: blur(20px);
@@ -416,8 +418,8 @@ body {
     border-bottom-right-radius: 100px;
     z-index: 999;
     -webkit-app-region: no-drag;
-    background-color: rgba(255, 255, 255, 0.234);
-    border: 1px solid var(--sayso-blue);
+    background-color: #515C6C;
+    border: 1px solid #515C6C;
     color: white;
 }
 
@@ -425,6 +427,39 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.234) !important;
     opacity: 0.8 !important;
 }
+
+.coach-window .zip-code-input-container {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #3C4A5C;
+    border-radius: 100px;
+    padding: 0 12px;
+    height: 32px;
+    -webkit-app-region: no-drag;
+    cursor: default;
+}
+
+.coach-window .zip-code-input-icon {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.coach-window .zip-code-input {
+    width: 80px;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #fff;
+    font-size: var(--cw-fs-base);
+    -webkit-app-region: no-drag;
+}
+
+.coach-window .zip-code-input::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
 .coach-window .coach-buttons-container{
     display: flex;
     align-items: center;
@@ -500,9 +535,8 @@ body {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 0 16px 0 14px;
+    padding: 0 16px 0 14px !important;
     position: relative;
-
     background-color: var(--sayso-blue);
     color: white;
     font-size: var(--cw-fs-launch-btn);
@@ -567,6 +601,11 @@ body {
     font-weight: 200;
 }
 
+.right-side-buttons-container {
+    display: flex;
+    gap: 8px;
+}
+
 .coach-window .right-side-coach-button{
     height: 32px;
     width: 32px;
@@ -581,11 +620,23 @@ body {
     -webkit-app-region: no-drag;
     opacity: 0.8;
     border: none;
+    background: #2B4A6D;
+    position: relative;
 }
 
 .coach-window .right-side-coach-button:hover{
     opacity: 1;
     background-color: var(--sayso-indigo);
+}
+
+.coach-window .right-side-coach-button:disabled{
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.coach-window .right-side-coach-button:disabled:hover{
+    opacity: 0.35;
+    background-color: #2B4A6D;
 }
 
 .coach-window .coach-window-insights-container{

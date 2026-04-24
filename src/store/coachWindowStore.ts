@@ -6,7 +6,7 @@ import { stopDualChannelRecording, startDualChannelRecording } from '../coachWin
 import { cue_startStreaming, cue_stopStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
 import apiClient from '../config/axios';
-import { CoachFeature, CoachWindowStore } from '@/types/store/coachWindowStore';
+import { CoachFeature, CoachWindowStore, LpmamData } from '@/types/store/coachWindowStore';
 import { Prospect } from '@/types/coach';
 
 export const CUE_CONFIG = {
@@ -27,6 +27,11 @@ const AUDIO_INITIAL_STATE = {
     isUploading: false,
 };
 
+const LPMAMA_INITIAL: LpmamData = {
+    location: null, price: null, motivation: null,
+    appointment: null, mortgage: null, agent: null,
+};
+
 const CUE_INITIAL_STATE = {
     isResettingCueSession: false,
     insightsQueue: [],
@@ -36,6 +41,7 @@ const CUE_INITIAL_STATE = {
     isInsightsLayoutOpen: false,
     hasReceivedFirstInsight: false,
     unseenInsightsCount: 0,
+    lpmama: { ...LPMAMA_INITIAL },
 };
 
 const RECALL_INITIAL_STATE = {
@@ -365,6 +371,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
                 }
             };
             const response = await apiClient.post('/cue/session/new', payload);
+            console.log('[Cue] Session started:', response.data);
             return response.data;
         } catch (error: any) {
             const msg = error.response?.data?.error ?? error.message ?? 'Failed to start session. Please try again.';
@@ -420,7 +427,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
 			if(!sessionData || !sessionData.session) {
 				throw new Error('Failed to stop cue session');
 			}
-			set({ sessionData, isCoachActive: false });
+            set({ sessionData, isCoachActive: false });
 
             get().cue_resetStates();
 
@@ -570,6 +577,18 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
         set((state) => ({
             cue: { ...state.cue, unseenInsightsCount: 0 }
         }));
+    },
+
+    cue_updateSmartCapture: (data) => {
+        set((state) => {
+            const updatedLpmama = { ...state.cue.lpmama };
+            data.forEach(({ topic, content }) => {
+                if (topic in updatedLpmama) {
+                    (updatedLpmama as Record<string, string | null>)[topic] = content;
+                }
+            });
+            return { cue: { ...state.cue, lpmama: updatedLpmama } };
+        });
     },
 }));
 

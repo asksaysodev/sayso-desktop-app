@@ -76,6 +76,10 @@ try {
       onLowUserAudio: (callback: (data: { sessionId: string }) => void) => {
         ipcRenderer.on('cue-low-user-audio', (_event: Event, data: { sessionId: string }) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-low-user-audio');
+      },
+      onSmartCapture: (callback: (data: any[]) => void) => {
+        ipcRenderer.on('cue-smart-capture', (_event: Event, data: any[]) => callback(data));
+        return () => ipcRenderer.removeAllListeners('cue-smart-capture');
       }
     },
     

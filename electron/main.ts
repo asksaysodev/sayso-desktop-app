@@ -722,6 +722,15 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
             }
           }
 
+          if (message && message.type === 'smart_capture' && message.data) {
+            if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+              global.coachWindow.webContents.send('cue-smart-capture', message.data);
+              if (isDev) {
+                console.log('[MAIN] Smart capture forwarded to coach window:', message.data);
+              }
+            }
+          }
+
           if (message && message.type === 'auto_stop') {
             if (global.coachWindow && !global.coachWindow.isDestroyed()) {
               global.coachWindow.webContents.send('cue-auto-stop');
