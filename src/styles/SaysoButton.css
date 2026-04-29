@@ -133,3 +133,27 @@
     outline: 2px solid var(--sayso-blue);
     outline-offset: 2px;
 }
+/* Variant: transparent-border */
+.sayso-button.variant-transparent-border {
+    background-color: transparent;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    color: #FFF;
+    border: none;
+}
+
+.sayso-button.variant-transparent-border:hover:not(:disabled) {
+    background-color: rgba(255,255,255,0.07);
+    filter: brightness(0.9);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.sayso-button.variant-transparent-border:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.sayso-button.variant-transparent-border:focus-visible {
+    outline: 2px solid var(--sayso-blue);
+    outline-offset: 2px;
+}

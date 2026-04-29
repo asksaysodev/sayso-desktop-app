@@ -9,6 +9,28 @@ export interface SettingsRegistryEntry {
 }
 
 export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
+    // General
+    {
+        id: 'general-tab',
+        label: 'General',
+        description: 'General app settings',
+        keywords: ['general', 'tab', 'app', 'settings'],
+        section: 'general',
+    },
+    {
+        id: 'launch-at-login',
+        label: 'Launch at Login',
+        description: 'Automatically start Sayso in the tray when your Mac starts',
+        keywords: ['launch', 'login', 'startup', 'autostart', 'auto start', 'start', 'mac', 'tray', 'general'],
+        section: 'general',
+    },
+    {
+        id: 'auto-stop-time-delay',
+        label: 'Auto Stop',
+        description: 'How long after the call starts before Sayso automatically stops the session',
+        keywords: ['auto stop', 'auto', 'stop', 'time', 'delay', 'session', 'end', 'timer', 'pause', 'general'],
+        section: 'general',
+    },
     // Cue
     {
         id: 'cue-mode',
@@ -23,14 +45,6 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
         description: 'How long to wait after the call starts before Sayso begins showing insights',
         keywords: ['buffer', 'time', 'delay', 'wait', 'start', 'insights', 'cue'],
         section: 'cue',
-    },
-    // Auto Stop
-    {
-        id: 'auto-stop-time-delay',
-        label: 'Time Delay',
-        description: 'How long after the call starts before Sayso automatically stops the session',
-        keywords: ['time', 'delay', 'auto', 'stop', 'session', 'end', 'timer', 'pause'],
-        section: 'auto-stop',
     },
     // Audio
     // {
@@ -70,7 +84,22 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
         description: 'Choose the font size to use',
         keywords: ['accessibility', 'font', 'size', 'adjust', 'scale', 'small','medium', 'large'],
         section: 'accessibility',
-    }
+    },
+    // Playbooks
+    {
+        id: 'playbooks-upload',
+        label: 'Upload',
+        description: 'Upload a new playbook (PDF, DOCX, TXT)',
+        keywords: ['playbook', 'playbooks', 'upload', 'add', 'new', 'file', 'drop', 'browse', 'pdf', 'docx', 'txt', 'alias', 'script', 'scripts'],
+        section: 'playbooks',
+    },
+    {
+        id: 'playbooks-scripts',
+        label: 'Scripts',
+        description: 'Browse, refresh, and delete your playbooks',
+        keywords: ['playbook', 'playbooks', 'scripts', 'list', 'manage', 'refresh', 'delete', 'remove'],
+        section: 'playbooks',
+    },
 ];
 
 export function searchSettings(query: string): SettingsRegistryEntry[] {

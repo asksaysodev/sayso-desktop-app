@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, MouseEventHandler, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback, MouseEventHandler, useMemo, SetStateAction } from 'react';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
 import { MdDragIndicator } from 'react-icons/md';
 import { MdErrorOutline } from 'react-icons/md';
@@ -12,27 +12,15 @@ import InsightsVerticalLayout from './InsightsVerticalLayout';
 import SessionStoppedDialog from './SessionStoppedDialog';
 import RightSideButtons from './RightSideButtons';
 import useFontSize from '../hooks/useFontSize';
+import usePulseMarketProperty from '../hooks/usePulseMarketProperty';
 import ZipCodeDropdown from './ZipCodeDropdown';
+import { usePlaybookPrefetch } from '@/playbookWindow/hooks/usePlaybookPrefetch';
+import Pulse from './Pulse';
 
 const WINDOW_WIDTH_SIZES = {
-    s: {
-        BASE: 380,
-        READY_TO_LAUNCH: 400,
-        ACTIVE_SESSION: 620,
-        MAX_WIDTH: 900
-    },
-    m: {
-        BASE: 400,
-        READY_TO_LAUNCH: 440,
-        ACTIVE_SESSION: 620,
-        MAX_WIDTH: 900
-    },
-    l: {
-        BASE: 420,
-        READY_TO_LAUNCH: 448,
-        ACTIVE_SESSION: 660,
-        MAX_WIDTH: 900
-    },
+    s: { BASE: 380, MAX_WIDTH: 900 },
+    m: { BASE: 400, MAX_WIDTH: 900 },
+    l: { BASE: 420, MAX_WIDTH: 900 },
 }
 
 const WINDOW_HEIGHT_SIZES = {
@@ -46,6 +34,7 @@ type DragStartRef = { mouseX: number, mouseY: number, winX: number, winY: number
 export default function CoachWindowMain() {
     //REFS
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const mainContainerRef = useRef<HTMLDivElement | null>(null);
     const insightsLayoutRef = useRef<HTMLDivElement | null>(null);
     const zipCodeDropdownRef = useRef<HTMLDivElement | null>(null);
     const errorContainerRef = useRef<HTMLDivElement | null>(null);
@@ -73,13 +62,25 @@ export default function CoachWindowMain() {
     const setHasReceivedFirstInsight = useCoachWindowStore(state => state.cue_setHasReceivedFirstInsight);
     const incrementUnseenInsightsCount = useCoachWindowStore(state => state.cue_incrementUnseenInsightsCount);
     const handleStopCue = useCoachWindowStore(state => state.cue_handleStopCue);
+    const isSmartCaptureEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('smart_capture'));
+    const isPulseEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('pulse'));
     const currentfs = useFontSize();
+    usePlaybookPrefetch();
     const [zipCodeValue, setZipCodeValue] = useState<string>("")
     const [isZipDropdownOpen, setIsZipDropdownOpen] = useState<boolean>(false);
 
     const isZipCodeValid = useMemo(()=> {
         return /^\d{5}$/.test(zipCodeValue);
     },[zipCodeValue])
+
+    const {
+        selectedPropertyType,
+        setSelectedPropertyType,
+        valuesFound,
+        pulseError,
+        isPending: isPulsePending,
+        fetch: fetchPulse,
+    } = usePulseMarketProperty(zipCodeValue);
 
     useEffect(() => {
         if (isZipCodeValid) setIsZipDropdownOpen(true);
@@ -142,9 +143,8 @@ export default function CoachWindowMain() {
     
     function getWidthByCurrentState() {
         const fsWidthOptions = WINDOW_WIDTH_SIZES[currentfs];
-        if (isCoachActive && coachFeature === 'cue') return fsWidthOptions.ACTIVE_SESSION;
-        if (leadType !== null) return fsWidthOptions.READY_TO_LAUNCH;
-        return fsWidthOptions.BASE;
+        const natural = mainContainerRef.current?.offsetWidth ?? fsWidthOptions.BASE;
+        return Math.min(fsWidthOptions.MAX_WIDTH, Math.max(fsWidthOptions.BASE, natural));
     }
 
     function getHeightByCurrentState() {
@@ -163,7 +163,7 @@ export default function CoachWindowMain() {
 
         let height = WINDOW_HEIGHT_SIZES.BASE;
 
-        const showZipDropdown = isZipDropdownOpen && isZipCodeValid && isCoachActive;
+        const showZipDropdown = isZipDropdownOpen && isZipCodeValid && isCoachActive && isPulseEnabled;
         if (showZipDropdown && zipCodeDropdownRef.current) {
             height += zipCodeDropdownRef.current.offsetHeight + 6;
         }
@@ -191,12 +191,7 @@ export default function CoachWindowMain() {
         const updateWindowSize = () => {
             if (containerRef.current && window.electronAPI && !isResizing) {
                 isResizing = true;
-                const fsWidthOptions = WINDOW_WIDTH_SIZES[currentfs];
-                const windowWidth = Math.max(
-                    fsWidthOptions.BASE, 
-                    Math.min(fsWidthOptions.MAX_WIDTH, getWidthByCurrentState())
-                );
-                // const windowHeight = 900;
+                const windowWidth = getWidthByCurrentState();
                 const windowHeight = getHeightByCurrentState();
                 window.electronAPI.resizeWindow(windowWidth, windowHeight);
 
@@ -225,13 +220,16 @@ export default function CoachWindowMain() {
         if (containerRef.current) {
             resizeObserver.observe(containerRef.current);
         }
+        if (mainContainerRef.current) {
+            resizeObserver.observe(mainContainerRef.current);
+        }
 
         return () => {
             clearTimeout(timeoutId);
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, valuesFound, pulseError, isPulsePending]);
 
     /**
      * Handling auto opening of insights layout and unseen insights count for the notification dot
@@ -279,6 +277,7 @@ export default function CoachWindowMain() {
 
     useEffect(() => {
         if (!isCoachActive || coachFeature !== 'cue') return;
+        if (!isSmartCaptureEnabled) return;
         if (!window.electron?.cue?.onSmartCapture) return;
 
         const unsubscribe = window.electron.cue.onSmartCapture((data) => {
@@ -289,7 +288,7 @@ export default function CoachWindowMain() {
         });
 
         return () => { unsubscribe(); };
-    }, [isCoachActive, coachFeature, isInsightsLayoutOpen, hasReceivedFirstInsight]);
+    }, [isCoachActive, coachFeature, isSmartCaptureEnabled, isInsightsLayoutOpen, hasReceivedFirstInsight]);
 
     useEffect(() => {
         if (!isCoachActive || coachFeature !== 'cue') return;
@@ -342,7 +341,7 @@ export default function CoachWindowMain() {
     
     return (
         <div className="coach-window" ref={containerRef}>
-            <div className={`main-container coach-box-bubble`}>
+            <div className={`main-container coach-box-bubble`} ref={mainContainerRef}>
                 <div className='main-toolbar'>
                     <div className="coach-window-drag-container">
                         <button
@@ -361,37 +360,15 @@ export default function CoachWindowMain() {
                             )
                         }
                         
-                        {isCoachActive &&
-                            <div
-                                className={`zip-code-input-container ${isZipCodeValid ? 'active' : ''}`}
-                                onClick={() => {
-                                    if (isZipCodeValid) setIsZipDropdownOpen(true);
-                                }}
-                            >
-                                <LuSearch className='zip-code-input-icon' />
-                                <input
-                                    className='zip-code-input'
-                                    placeholder='Zip Code'
-                                    value={zipCodeValue}
-                                    onChange={(e) => setZipCodeValue(e.target.value)}
-                                    inputMode='numeric'
-                                    pattern='[0-9]'
-                                />
-                                {isZipCodeValid && (
-                                    <button
-                                        type='button'
-                                        className='zip-code-chevron-toggle'
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setIsZipDropdownOpen(prev => !prev);
-                                        }}
-                                        aria-label={isZipDropdownOpen ? 'Collapse zip details' : 'Expand zip details'}
-                                    >
-                                        {isZipDropdownOpen ? <LuChevronUp /> : <LuChevronDown />}
-                                    </button>
-                                )}
-                            </div>
-                        }
+                        <Pulse 
+                            isCoachActive={isCoachActive} 
+                            isPulseEnabled={isPulseEnabled} 
+                            isZipCodeValid={isZipCodeValid} 
+                            setIsZipDropdownOpen={setIsZipDropdownOpen} 
+                            isZipDropdownOpen={isZipDropdownOpen}
+                            setZipCodeValue={setZipCodeValue}
+                            zipCodeValue={zipCodeValue} 
+                        />
                         
                         {
                             (selectedProspect || leadType) && (
@@ -421,10 +398,17 @@ export default function CoachWindowMain() {
                 </div>
             )}
 
-            {isZipDropdownOpen && isZipCodeValid && isCoachActive && (
+            {isZipDropdownOpen && isZipCodeValid && isCoachActive && isPulseEnabled && (
                 <ZipCodeDropdown
                     ref={zipCodeDropdownRef}
                     onClose={() => setIsZipDropdownOpen(false)}
+                    zipCodeValue={zipCodeValue}
+                    selectedPropertyType={selectedPropertyType}
+                    setSelectedPropertyType={setSelectedPropertyType}
+                    valuesFound={valuesFound}
+                    pulseError={pulseError}
+                    isPending={isPulsePending}
+                    onFetch={fetchPulse}
                 />
             )}
             

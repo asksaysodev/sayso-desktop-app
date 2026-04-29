@@ -1,0 +1,15 @@
+@keyframes ui-spinner-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.ui-spinner {
+    display: inline-block;
+    flex-shrink: 0;
+    animation: ui-spinner-spin 0.9s linear infinite;
+    transform-origin: center;
+}

@@ -16,6 +16,7 @@ interface Props {
 const InsightsVerticalLayout = forwardRef<HTMLDivElement, Props>(({ onLpmamaTooltipHeightChange }, ref) => {
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
     const removeInsight = useCoachWindowStore(state => state.cue_removeInsight);
+    const isSmartCaptureEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('smart_capture'));
 
     const [enteringItems, setEnteringItems] = useState(new Set());
     const [exitingItems, setExitingItems] = useState(new Set());
@@ -103,7 +104,7 @@ const InsightsVerticalLayout = forwardRef<HTMLDivElement, Props>(({ onLpmamaTool
                 </div>
             )}
 
-            <LpmamaRow onTooltipHeightChange={onLpmamaTooltipHeightChange} />
+            {isSmartCaptureEnabled && <LpmamaRow onTooltipHeightChange={onLpmamaTooltipHeightChange} />}
         </div>
     );
 });

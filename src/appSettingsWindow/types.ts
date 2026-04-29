@@ -25,6 +25,7 @@ export interface GetCoachSettingsResponse {
     cue_mode: CueMode;
     auto_stop_delay_minutes: number;
     font_size: AccessibilityFontSizeType;
+    default_playbook_id: string | null;
 }
 
 export type CueMode = 'condensed' | 'full';

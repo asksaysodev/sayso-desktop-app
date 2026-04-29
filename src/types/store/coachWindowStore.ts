@@ -6,11 +6,14 @@ export type LpmamData = Record<LpmamField, string | null>;
 
 export type CoachFeature = 'cue' | 'recall';
 
+export type EnabledFeature = 'cue' | 'smart_capture' | 'playbooks' | 'pulse';
+
 export interface SessionData {
     sessionId: string;
     prospectId?: string;
     timestamp?: number;
     session?: unknown;
+    enabled_features?: EnabledFeature[];
 }
 
 export interface CueInsight {
@@ -37,6 +40,7 @@ export interface CueState {
     hasReceivedFirstInsight: boolean;
     unseenInsightsCount: number;
     lpmama: LpmamData;
+    enabledFeatures: EnabledFeature[];
 }
 
 export interface RecallState {

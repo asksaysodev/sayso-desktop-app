@@ -2073,6 +2073,8 @@ const createCoachWindow = () => {
       global.playbookWindow!.close();
     }
 
+    global.playbooksCache = null;
+
     // Force cleanup of all audio capture when coach window closes
     await cleanupAllAudioCapture();
 
@@ -2205,4 +2207,16 @@ ipcMain.on('set-playbook-window-position', (_event: Electron.IpcMainInvokeEvent,
   if (isPlaybookWindowOpen()) {
     global.playbookWindow!.setPosition(Math.round(x), Math.round(y));
   }
+});
+
+// --- Playbooks data cache (prewarmed by coach window, consumed by playbook window) ---
+ipcMain.on('set-playbooks-cache', (_event, payload: { playbooks: unknown[] | null; error: string | null }) => {
+  global.playbooksCache = payload;
+  if (isPlaybookWindowOpen()) {
+    global.playbookWindow!.webContents.send('playbooks-updated', payload);
+  }
+});
+
+ipcMain.handle('get-playbooks-cache', () => {
+  return global.playbooksCache ?? { playbooks: null, error: null };
 });

@@ -3,9 +3,6 @@ import { usePlaybookWindow } from '@/hooks/usePlaybookWindow';
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import RightSideButton from './RightSideButton';
 import { CircleCheckBig, List, Settings, X } from 'lucide-react';
-import { LuEye, LuEyeClosed } from 'react-icons/lu';
-
-const ICON_SIZE = 16;
 
 export default function RightSideButtons() {
     const { toggleAppSettingsWindow } = useAppSettingsWindow();
@@ -19,6 +16,7 @@ export default function RightSideButtons() {
     const setIsInsightsLayoutOpen = useCoachWindowStore(state => state.cue_setIsInsightsLayoutOpen);
     const unseenInsightsCount = useCoachWindowStore(state => state.cue.unseenInsightsCount);
     const resetUnseenInsightsCount = useCoachWindowStore(state => state.cue_resetUnseenInsightsCount);
+    const isPlaybooksEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('playbooks'));
 
     const disableButtons = isCoachLoading || isResettingCueSession;
 
@@ -35,18 +33,20 @@ export default function RightSideButtons() {
                 ? <>
                     <RightSideButton onClick={handleOpenInsightsLayout} disabled={disableButtons} active={isInsightsLayoutOpen}>
                         {unseenInsightsCount > 0 && <span className="cue-eye-toggle-notification-badge"></span>}
-                        <CircleCheckBig size={ICON_SIZE}/>
+                        <CircleCheckBig size="1em"/>
                     </RightSideButton>
-                    <RightSideButton onClick={togglePlaybookWindow} disabled={disableButtons} active={isPlaybookWindowOpen}>
-                        <List size={ICON_SIZE}/>
-                    </RightSideButton>
+                    {isPlaybooksEnabled && (
+                        <RightSideButton onClick={togglePlaybookWindow} disabled={disableButtons} active={isPlaybookWindowOpen}>
+                            <List size="1em"/>
+                        </RightSideButton>
+                    )}
                 </>
                 : <>
                     <RightSideButton onClick={toggleAppSettingsWindow}>
-                        <Settings size={ICON_SIZE}/>
+                        <Settings size="1em"/>
                     </RightSideButton>
                     <RightSideButton onClick={closeCoachWindow}>
-                        <X size={ICON_SIZE}/>
+                        <X size="1em"/>
                     </RightSideButton>
                 </>
             }

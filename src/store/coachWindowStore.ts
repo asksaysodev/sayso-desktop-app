@@ -6,7 +6,7 @@ import { stopDualChannelRecording, startDualChannelRecording } from '../coachWin
 import { cue_startStreaming, cue_stopStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
 import apiClient from '../config/axios';
-import { CoachFeature, CoachWindowStore, LpmamData } from '@/types/store/coachWindowStore';
+import { CoachFeature, CoachWindowStore, EnabledFeature, LpmamData } from '@/types/store/coachWindowStore';
 import { Prospect } from '@/types/coach';
 
 export const CUE_CONFIG = {
@@ -42,6 +42,8 @@ const CUE_INITIAL_STATE = {
     hasReceivedFirstInsight: false,
     unseenInsightsCount: 0,
     lpmama: { ...LPMAMA_INITIAL },
+    // enabledFeatures: ['cue'] as EnabledFeature[],
+    enabledFeatures: ['cue', 'playbooks', 'pulse', 'smart_capture'] as EnabledFeature[],
 };
 
 const RECALL_INITIAL_STATE = {
@@ -384,27 +386,34 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
         set({ isCoachLoading: true });
 
         try {
-            // const currentLeadType = get().cue.leadType;
+            const currentLeadType = get().cue.leadType;
 
-            // if (get().isCoachActive) {
-            //     throw new Error('Cue is already active');
-            // }
-            // if (!currentLeadType) {
-            //     throw new Error('Scenario is required');
-            // }
-            // if (currentLeadType !== 'buyer' && currentLeadType !== 'seller') {
-            //     throw new Error('Scenario must be either "buyer" or "seller"');
-            // }
+            if (get().isCoachActive) {
+                throw new Error('Cue is already active');
+            }
+            if (!currentLeadType) {
+                throw new Error('Scenario is required');
+            }
+            if (currentLeadType !== 'buyer' && currentLeadType !== 'seller') {
+                throw new Error('Scenario must be either "buyer" or "seller"');
+            }
 
-            // const sessionData = await get().cue_createNewSession(currentLeadType);
+            const sessionData = await get().cue_createNewSession(currentLeadType);
+            
+            if (!sessionData || !sessionData.sessionId) {
+                throw new Error('Failed to create new cue session');
+            }
 
-            // if (!sessionData || !sessionData.sessionId) {
-            //     throw new Error('Failed to create new cue session');
-            // }
+            await cue_startStreaming(sessionData.sessionId);
 
-            // await cue_startStreaming(sessionData.sessionId);
-
-            set({ sessionData: {}, isCoachActive: true });
+            set({
+                sessionData,
+                isCoachActive: true,
+                cue: {
+                    ...get().cue,
+                    enabledFeatures: sessionData?.enabled_features ?? ['cue'],
+                },
+            });
         } catch (error) {
             console.error('Error starting cue:', error);
             throw error;
@@ -418,17 +427,17 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
         window.electron?.ipcRenderer?.send('close-playbook-window');
 
         try {
-   //          const sessionId = get().sessionData?.sessionId;
-   //          if(!sessionId) {
-   //              throw new Error('Session ID is required');
-   //          }
+            const sessionId = get().sessionData?.sessionId;
+            if(!sessionId) {
+                throw new Error('Session ID is required');
+            }
 
-			// await cue_stopStreaming();
-			// const sessionData = await get().cue_stopSession(sessionId);
-			// if(!sessionData || !sessionData.session) {
-			// 	throw new Error('Failed to stop cue session');
-			// }
-            set({ sessionData: {}, isCoachActive: false });
+			await cue_stopStreaming();
+			const sessionData = await get().cue_stopSession(sessionId);
+			if(!sessionData || !sessionData.session) {
+				throw new Error('Failed to stop cue session');
+			}
+            set({ sessionData, isCoachActive: false });
 
             get().cue_resetStates();
 
