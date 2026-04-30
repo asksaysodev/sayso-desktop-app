@@ -9,7 +9,7 @@ const PROPERTY_OPTIONS = [
     { key: 'sfr', value: 'SFR' },
     { key: 'multifamily', value: 'Multifamily' },
     { key: 'townhouse/condo', value: 'Townhouse/Condo' },
-    { key: 'manufactured', value: 'Manufactured' },
+    // { key: 'manufactured', value: 'Manufactured' },
 ]
 
 const TREND_CONFIG = {
@@ -24,7 +24,6 @@ function renderTrend(trend?: { direction: 'up' | 'down' | 'neutral'; changePerce
     return (
         <span className={`zc-trend ${className}`}>
             <Icon size={14} className='zc-trend-icon' />
-            <span className='zc-trend-percent'>{trend.changePercent}%</span>
         </span>
     );
 }
@@ -85,25 +84,24 @@ const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
 
         if (valuesFound) {
             return (
-                <div className='zc-values-found'>
-                    <div className='zc-location-block'>
-                        <span className='zc-location-zip'>{valuesFound.property.location.zipCode}</span>
-                        <span className='zc-location-city'>{valuesFound.property.location.city}, {valuesFound.property.location.state}</span>
-                    </div>
-                    <div className='zc-facts-grid'>
-                        {valuesFound.data.filter(item => item.display).map(({ key, value, label, trend }) => (
-                            <div key={key} className='zc-fact'>
-                                <span className='zc-fact-bullet'>•</span>
-                                <span className='zc-fact-text'>
-                                    <span className='zc-fact-label'>{label} </span>
-                                    <span className='zc-fact-value'>{value}</span>
-                                    {renderTrend(trend)}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                    <Minus size={16} className='zc-collapse-icon' onClick={onClose} />
-                </div>
+				<div className='zc-values-found'>
+					<div className='zc-location-block'>
+						<span className='zc-location-city'>{valuesFound.property.location.city}, {valuesFound.property.location.state}</span>
+					</div>
+					<div className='zc-facts-grid'>
+						{valuesFound.data.filter(item => item.display).map(({ key, value, label, trend }) => (
+							<div key={key} className='zc-fact'>
+								<span className='zc-fact-bullet'>•</span>
+								<span className='zc-fact-text'>
+									<span className='zc-fact-label'>{label}: </span>
+									<span className='zc-fact-value'>{value}</span>
+									{renderTrend(trend)}
+								</span>
+							</div>
+						))}
+					</div>
+					<Minus size={16} className='zc-collapse-icon' onClick={onClose} />
+				</div>
             );
         }
 
@@ -136,7 +134,7 @@ const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
                         className={`init-property-search-btn ${!selectedPropertyType ? 'disabled' : ''}`}
                         onClick={() => onFetch()}
                     >
-                        Done
+                        Search
                     </button>
                 </div>
             </>

@@ -67,7 +67,7 @@ export default function LpmamaRow({ onTooltipHeightChange }: Props) {
                     </div>
                 );
             })}
-            <div className='lpmama-dot' onClick={copyLpmamaContent}>
+            <div className='lpmama-dot lpmama-dot--copy' onClick={copyLpmamaContent}>
                 <Copy size={14} />
             </div>
         </div>

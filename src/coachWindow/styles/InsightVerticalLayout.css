@@ -271,6 +271,11 @@
     letter-spacing: 0;
 }
 
+.lpmama-dot--copy {
+	cursor: pointer;
+	margin-left: 10px;
+}
+
 .lpmama-dot--captured {
     background: var(--dot-color);
     border-color: var(--dot-color);
