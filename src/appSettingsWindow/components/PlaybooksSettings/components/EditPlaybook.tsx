@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { SquarePen, X } from 'lucide-react';
 import { Playbook } from '@/playbookWindow/types';
 import SaysoButton from '@/components/SaysoButton';
+import { getUpdateAliasErrorMessage } from '../constants';
 
 interface EditPlaybookProps {
     playbook: Playbook;
@@ -10,21 +11,21 @@ interface EditPlaybookProps {
 }
 
 export default function EditPlaybook({ playbook, onSave }: EditPlaybookProps) {
-    const initialAlias = playbook.alias ?? '';
     const [open, setOpen] = useState(false);
-    const [alias, setAlias] = useState(initialAlias);
+    const [alias, setAlias] = useState(playbook.alias ?? '');
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        if (open) {
-            setAlias(initialAlias);
+    const handleOpenChange = (next: boolean) => {
+        if (next) {
+            setAlias(playbook.alias ?? '');
             setError(null);
         }
-    }, [open, initialAlias]);
+        setOpen(next);
+    };
 
     const trimmed = alias.trim();
-    const isUnchanged = trimmed === initialAlias.trim();
+    const isUnchanged = trimmed === (playbook.alias ?? '').trim();
     const canSave = trimmed.length > 0 && !isUnchanged && !isSaving;
 
     const handleSave = async () => {
@@ -35,14 +36,14 @@ export default function EditPlaybook({ playbook, onSave }: EditPlaybookProps) {
             await onSave(trimmed);
             setOpen(false);
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'Failed to update playbook.');
+            setError(getUpdateAliasErrorMessage(e));
         } finally {
             setIsSaving(false);
         }
     };
 
     return (
-        <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
+        <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
             <DialogPrimitive.Trigger asChild>
                 <button
                     type="button"

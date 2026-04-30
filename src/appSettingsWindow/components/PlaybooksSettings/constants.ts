@@ -28,6 +28,16 @@ export function validateFile(file: File): string | null {
     return null;
 }
 
+export function getUpdateAliasErrorMessage(error: unknown): string {
+    const status = (error as { response?: { status?: number } })?.response?.status;
+    switch (status) {
+        case 400: return 'Please enter a valid alias.';
+        case 403: return "You don't have permission to edit this playbook.";
+        case 404: return 'This playbook no longer exists. Try refreshing the list.';
+        default:  return "Couldn't update the playbook. Please try again.";
+    }
+}
+
 export function getErrorMessage(error: unknown): string {
     if (typeof error === 'object' && error && 'response' in error) {
         const resp = (error as { response?: { data?: { error?: string } } }).response;
