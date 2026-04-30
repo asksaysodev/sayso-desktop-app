@@ -821,7 +821,7 @@ button {
     gap: 8px;
     align-items: center;
     justify-content: start;
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 10px 14px;
     transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
     border: 0.5px solid rgba(255, 255, 255, 0.15);
@@ -844,6 +844,7 @@ button {
     color: #c7c7c7;
     line-height: 24px;
     font-weight: 500;
+	font-size: 14px;
 }
 .zip-code-inner-box .zc-selectors-container {
     display: flex;
@@ -855,6 +856,7 @@ button {
     padding: 4px 12px;
     border-radius: 24px;
     background-color: #515C6C;
+	font-size: 16px;
 }
 .zip-code-inner-box .zc-selectors-container .property-type-pill.selected {
     background-color: #487AB3;
@@ -862,6 +864,7 @@ button {
 .zip-code-inner-box .zc-selectors-container .init-property-search-btn {
     margin-left: auto;
     background-color: #31455D;
+	background-color: var(--sayso-blue);
     color: #fff;
     padding: 4px 12px !important;
     border-radius: 24px;
@@ -929,18 +932,19 @@ button {
 
 .zip-code-inner-box .zc-values-found {
     display: flex;
-    align-items: center;
+	flex-direction: column;
+    align-items: start;
+
     width: 100%;
     position: relative;
 }
 
 .zip-code-inner-box .zc-location-block {
-    display: flex;
-    flex-direction: column;
     color: #fff;
     font-weight: 700;
-    width: 90px;
     flex-shrink: 0;
+	margin-bottom: 6px;
+	margin-left: 12px;
 }
 
 .zip-code-inner-box .zc-location-block .zc-location-zip {
@@ -952,8 +956,9 @@ button {
 .zip-code-inner-box .zc-facts-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
+	width: 100%;
     column-gap: 10px;
-    row-gap: 4px;
+    row-gap: 2px;
     flex: 1;
     padding: 0px 16px;
 }
@@ -981,14 +986,21 @@ button {
 }
 .zip-code-inner-box .zc-fact-value {
     color: #fff;
-    font-weight: 700;
+    font-weight: 500;
 }
+
+/* .zip-code-inner-box .zc-main-container {
+	display: flex;
+	flex-direction: column;
+
+} */
 
 .zip-code-inner-box .zc-trend {
     display: inline-flex;
     align-items: center;
     gap: 2px;
     margin-left: 4px;
+	margin-bottom: 4px;
     vertical-align: middle;
 }
 
