@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Playbook } from '@/playbookWindow/types';
 import renderBlock from '../helpers/renderBlock';
 
@@ -38,7 +39,10 @@ export default function PlaybookBody({ playbook }: Props) {
         );
     }
 
-    const sortedBlocks = [...playbook.blocks].sort((a, b) => a.index - b.index);
+    const sortedBlocks = useMemo(
+        () => [...playbook.blocks!].sort((a, b) => a.index - b.index),
+        [playbook.blocks],
+    );
 
     return (
         <div className="playbook-body">

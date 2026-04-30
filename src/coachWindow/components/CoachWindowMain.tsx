@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useCallback, MouseEventHandler, useMemo, SetStateAction } from 'react';
+import { useEffect, useRef, useState, useCallback, MouseEventHandler, useMemo } from 'react';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
 import { MdDragIndicator } from 'react-icons/md';
 import { MdErrorOutline } from 'react-icons/md';
-import { LuSearch, LuX, LuChevronDown, LuChevronUp } from 'react-icons/lu';
+import { LuX } from 'react-icons/lu';
 import * as Sentry from "@sentry/electron/renderer";
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import CoachButtons from './CoachButtons';
@@ -42,7 +42,6 @@ export default function CoachWindowMain() {
     const isDraggingRef = useRef(false);
     const dragStartRef = useRef<DragStartRef>({ mouseX: 0, mouseY: 0, winX: 0, winY: 0 });
     //STATE
-    const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
@@ -257,7 +256,6 @@ export default function CoachWindowMain() {
 		}
 
 		const unsubscribe = window.electron.cue.onInsight((insightData) => {
-			console.log('[Cue] Insight received:', insightData);
 			const addInsight = useCoachWindowStore.getState().cue_addInsight;
 
 			addInsight({
@@ -281,7 +279,6 @@ export default function CoachWindowMain() {
         if (!window.electron?.cue?.onSmartCapture) return;
 
         const unsubscribe = window.electron.cue.onSmartCapture((data) => {
-            console.log('[Cue] Smart capture received:', data);
             const updateSmartCapture = useCoachWindowStore.getState().cue_updateSmartCapture;
             updateSmartCapture(data);
             handleLayoutVisibility();

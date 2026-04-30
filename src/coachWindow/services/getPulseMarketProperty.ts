@@ -28,17 +28,20 @@ export interface PulseApiError {
 
 export default async function getPulseMarketProperty(zipCode: string, propertyType: string): Promise<MarketProperty> {
     try {
-        const response = await apiClient.get(`/pulse/market?zipCode=${zipCode}&propertyType=${propertyType}`);
+        const response = await apiClient.get('/pulse/market', { params: { zipCode, propertyType } });
 
         if (!response?.data) {
             throw { status: 500, message: 'Failed to fetch market data' } as PulseApiError;
         }
 
         return response.data;
-    } catch (err: any) {
-        if (err?.status && err?.message) throw err;
-        const status: number = err?.response?.status ?? 500;
-        const message: string = err?.response?.data?.error ?? 'Failed to fetch market data';
+    } catch (err: unknown) {
+        const e = err as Record<string, unknown>;
+        if (e?.status && e?.message) throw err;
+        const axiosErr = e?.response as Record<string, unknown> | undefined;
+        const status: number = (axiosErr?.status as number) ?? 500;
+        const data = axiosErr?.data as Record<string, unknown> | undefined;
+        const message: string = (data?.error as string) ?? 'Failed to fetch market data';
         throw { status, message } as PulseApiError;
     }
 }

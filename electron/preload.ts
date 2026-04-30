@@ -77,8 +77,8 @@ try {
         ipcRenderer.on('cue-low-user-audio', (_event: Event, data: { sessionId: string }) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-low-user-audio');
       },
-      onSmartCapture: (callback: (data: any[]) => void) => {
-        ipcRenderer.on('cue-smart-capture', (_event: Event, data: any[]) => callback(data));
+      onSmartCapture: (callback: (data: { topic: string; content: string }[]) => void) => {
+        ipcRenderer.on('cue-smart-capture', (_event: Event, data: { topic: string; content: string }[]) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-smart-capture');
       }
     },

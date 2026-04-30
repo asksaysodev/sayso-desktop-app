@@ -91,7 +91,7 @@ const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
                         <span className='zc-location-city'>{valuesFound.property.location.city}, {valuesFound.property.location.state}</span>
                     </div>
                     <div className='zc-facts-grid'>
-                        {valuesFound.data.map(({ key, value, label, trend }) => (
+                        {valuesFound.data.filter(item => item.display).map(({ key, value, label, trend }) => (
                             <div key={key} className='zc-fact'>
                                 <span className='zc-fact-bullet'>•</span>
                                 <span className='zc-fact-text'>
@@ -120,8 +120,12 @@ const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
                         return (
                             <div
                                 key={key}
+                                role="button"
+                                tabIndex={0}
                                 className={`property-type-pill ${isSelected ? 'selected' : ''}`}
                                 onClick={() => setSelectedPropertyType(key)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedPropertyType(key); }}
+                                aria-pressed={isSelected}
                             >
                                 <span>{value}</span>
                             </div>

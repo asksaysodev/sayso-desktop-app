@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { SquarePen, X } from 'lucide-react';
-import { Spinner } from '@/components/ui/spinner';
 import { Playbook } from '@/playbookWindow/types';
 import SaysoButton from '@/components/SaysoButton';
 
@@ -104,6 +103,7 @@ export default function EditPlaybook({ playbook, onSave }: EditPlaybookProps) {
                                 label={'Cancel'}
                                 variant='transparent-border'
                                 disabled={isSaving}
+                                onClick={() => {}}
                             />
                         </DialogPrimitive.Close>
                         

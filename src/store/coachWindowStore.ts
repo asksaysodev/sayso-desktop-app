@@ -42,8 +42,7 @@ const CUE_INITIAL_STATE = {
     hasReceivedFirstInsight: false,
     unseenInsightsCount: 0,
     lpmama: { ...LPMAMA_INITIAL },
-    // enabledFeatures: ['cue'] as EnabledFeature[],
-    enabledFeatures: ['cue', 'playbooks', 'pulse', 'smart_capture'] as EnabledFeature[],
+    enabledFeatures: ['cue'] as EnabledFeature[],
 };
 
 const RECALL_INITIAL_STATE = {
@@ -373,7 +372,6 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
                 }
             };
             const response = await apiClient.post('/cue/session/new', payload);
-            console.log('[Cue] Session started:', response.data);
             return response.data;
         } catch (error: any) {
             const msg = error.response?.data?.error ?? error.message ?? 'Failed to start session. Please try again.';

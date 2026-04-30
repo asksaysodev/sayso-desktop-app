@@ -874,14 +874,6 @@ button {
 .zip-code-inner-box .zc-selectors-container .init-property-search-btn.disabled {
     opacity: 0.4;
 }
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
-
-.animate-spin {
-    animation: spin 1s linear infinite;
-}
-
 .zip-code-inner-box .zc-loading-text {
     display: flex;
     width: 100%;
@@ -954,7 +946,7 @@ button {
 .zip-code-inner-box .zc-location-block .zc-location-zip {
     font-size: var(--cw-fs-zip-result);
     line-height: 24px;
-    height: 600;
+    font-weight: 600;
 }
 
 .zip-code-inner-box .zc-facts-grid {

@@ -27,9 +27,10 @@ export default function Pulse({ isCoachActive, isPulseEnabled, isZipCodeValid, s
                 className={`zip-code-input ${isZipCodeValid ? 'valid' : ''}`}
                 placeholder='Zip Code'
                 value={zipCodeValue}
-                onChange={(e) => setZipCodeValue(e.target.value)}
+                onChange={(e) => setZipCodeValue(e.target.value.replace(/\D/g, '').slice(0, 5))}
                 inputMode='numeric'
-                pattern='[0-9]'
+                pattern='[0-9]{5}'
+                maxLength={5}
             />
             {isZipCodeValid && (
                 <button

@@ -32,15 +32,12 @@ export default function LpmamaRow({ onTooltipHeightChange }: Props) {
         onTooltipHeightChange(tooltipRef.current.offsetHeight + TOOLTIP_OFFSET);
     }, [hoveredField, onTooltipHeightChange]);
 
-    const copyLpmamaContent =async()=> {
-        const textToCopy: string = Object.entries(lpmama).map(([key, value]) => {
-            const cleanKey = key.charAt(0).toUpperCase() + key.slice(1);
-            return `${cleanKey}: ${value}`;
-        }).join('\n');
+    const copyLpmamaContent = async () => {
+        const textToCopy = LPMAMA_CONFIG.map(({ field, label }) => `${label}: ${lpmama[field] ?? ''}`).join('\n');
         try {
             await navigator.clipboard.writeText(textToCopy);
-        } catch (err) {
-            console.error("Failed to copy text: ", err);
+        } catch {
+            // clipboard write failed — silently ignore
         }
     }
     

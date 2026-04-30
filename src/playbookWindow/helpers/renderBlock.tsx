@@ -19,5 +19,7 @@ export default function renderBlock(block: PlaybookBlock, isFirstItem: boolean =
                     ))}
                 </ul>
             );
+        default:
+            return null;
     }
 }
