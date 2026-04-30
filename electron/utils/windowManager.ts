@@ -80,6 +80,45 @@ class WindowManager {
     };
   }
   
+  /**
+   * Calculate playbook window position to the right of the coach window
+   * with a fixed gap. Clamps to the coach window's display work area so the
+   * playbook never lands off-screen.
+   */
+  static calculatePlaybookWindowPosition(coachBounds: { x: number; y: number; width: number; height: number }) {
+    const display = screen.getDisplayMatching(coachBounds);
+    const workArea = display.workArea;
+
+    const desiredX = coachBounds.x + coachBounds.width + WINDOW_CONFIG.PLAYBOOK.GAP_X;
+    const maxX = workArea.x + workArea.width - WINDOW_CONFIG.PLAYBOOK.WIDTH;
+    const x = Math.max(workArea.x, Math.min(desiredX, maxX));
+
+    const maxY = workArea.y + workArea.height - WINDOW_CONFIG.PLAYBOOK.HEIGHT;
+    const y = Math.max(workArea.y, Math.min(coachBounds.y, maxY));
+
+    return { x: Math.round(x), y: Math.round(y) };
+  }
+
+  static getPlaybookWindowConfig(coachBounds: { x: number; y: number; width: number; height: number }) {
+    const { x, y } = this.calculatePlaybookWindowPosition(coachBounds);
+
+    return {
+      width: WINDOW_CONFIG.PLAYBOOK.WIDTH,
+      height: WINDOW_CONFIG.PLAYBOOK.HEIGHT,
+      x,
+      y,
+      frame: WINDOW_CONFIG.PLAYBOOK.FRAME,
+      transparent: WINDOW_CONFIG.PLAYBOOK.TRANSPARENT,
+      alwaysOnTop: WINDOW_CONFIG.PLAYBOOK.ALWAYS_ON_TOP,
+      visibleOnAllWorkspaces: WINDOW_CONFIG.PLAYBOOK.VISIBLE_ON_ALL_WORKSPACES,
+      resizable: WINDOW_CONFIG.PLAYBOOK.RESIZABLE,
+      maximizable: WINDOW_CONFIG.PLAYBOOK.MAXIMIZABLE,
+      minimizable: WINDOW_CONFIG.PLAYBOOK.MINIMIZABLE,
+      fullscreenable: WINDOW_CONFIG.PLAYBOOK.FULLSCREENABLE,
+      hasShadow: WINDOW_CONFIG.PLAYBOOK.HAS_SHADOW
+    };
+  }
+
   static getAppSettingsWindowConfig() {
       return {
           width: 800,

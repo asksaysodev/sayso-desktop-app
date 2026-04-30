@@ -94,6 +94,11 @@ export interface CueLowUserAudioData {
   sessionId: string;
 }
 
+export interface CueSmartCaptureItem {
+  topic: string;
+  content: string;
+}
+
 export interface CueAPI {
   start: (params: CueParams) => Promise<CueResult>;
   stop: () => Promise<boolean>;
@@ -102,6 +107,7 @@ export interface CueAPI {
   onError: (callback: (data: CueErrorData) => void) => () => void;
   onAutoStop: (callback: (data: unknown) => void) => () => void;
   onLowUserAudio: (callback: (data: CueLowUserAudioData) => void) => () => void;
+  onSmartCapture: (callback: (data: CueSmartCaptureItem[]) => void) => () => void;
 }
 
 export interface UploadFileOptions {
@@ -158,11 +164,17 @@ export interface ElectronBridge {
   autoUpdater: AutoUpdaterAPI;
 }
 
+export interface PlaybookWindowAPI {
+  getWindowPosition: () => Promise<[number, number]>;
+  setWindowPosition: (x: number, y: number) => void;
+}
+
 export interface ElectronAPIBridge {
   resizeWindow: (width: number, height: number) => void;
   closeCoachWindow: () => void;
   getWindowPosition: () => Promise<[number, number]>;
   setWindowPosition: (x: number, y: number) => void;
+  playbook: PlaybookWindowAPI;
 }
 
 export interface SaysoBridge {

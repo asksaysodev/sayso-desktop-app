@@ -76,6 +76,10 @@ try {
       onLowUserAudio: (callback: (data: { sessionId: string }) => void) => {
         ipcRenderer.on('cue-low-user-audio', (_event: Event, data: { sessionId: string }) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-low-user-audio');
+      },
+      onSmartCapture: (callback: (data: { topic: string; content: string }[]) => void) => {
+        ipcRenderer.on('cue-smart-capture', (_event: Event, data: { topic: string; content: string }[]) => callback(data));
+        return () => ipcRenderer.removeAllListeners('cue-smart-capture');
       }
     },
     
@@ -114,7 +118,11 @@ try {
     resizeWindow: (width: number, height: number) => ipcRenderer.send('resize-coach-window', width, height),
     closeCoachWindow: () => ipcRenderer.send('close-coach-window'),
     getWindowPosition: () => ipcRenderer.invoke('get-window-position'),
-    setWindowPosition: (x: number, y: number) => ipcRenderer.send('set-window-position', x, y)
+    setWindowPosition: (x: number, y: number) => ipcRenderer.send('set-window-position', x, y),
+    playbook: {
+      getWindowPosition: () => ipcRenderer.invoke('get-playbook-window-position'),
+      setWindowPosition: (x: number, y: number) => ipcRenderer.send('set-playbook-window-position', x, y)
+    }
   });
 
   // Extract --indexHtmlPath from process.argv

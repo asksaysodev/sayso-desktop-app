@@ -9,28 +9,31 @@ interface CoachSettingsContextValue {
     mutateBufferTime: UseMutateFunction<PostBufferTimeResponse, Error, string | number, unknown>;
     mutateCueMode: UseMutateFunction<unknown, Error, CueMode, unknown>;
     mutateAutoStopTimeDelay: UseMutateFunction<PostAutoStopTimeDelayResponse, Error, number, unknown>;
-    mutateUpdateFontSize: UseMutateFunction<unknown, Error, AccessibilityFontSizeType, unknown>
+    mutateUpdateFontSize: UseMutateFunction<unknown, Error, AccessibilityFontSizeType, unknown>;
+    mutateDefaultPlaybook: UseMutateFunction<{ success: true; default_playbook_id: string }, Error, string, unknown>;
 };
 
 const CoachSettingsContext = createContext<CoachSettingsContextValue | null>(null);
 
 export const CoachSettingsProvider = ({ children }: { children: React.ReactNode }) => {
-    const { 
-        coachSettings, 
-        coachSettingsIsLoading, 
+    const {
+        coachSettings,
+        coachSettingsIsLoading,
         mutateBufferTime,
         mutateCueMode,
         mutateAutoStopTimeDelay,
-        mutateUpdateFontSize
+        mutateUpdateFontSize,
+        mutateDefaultPlaybook,
     } = useCoachSettings();
 
-    const values = { 
-        coachSettings, 
-        coachSettingsIsLoading, 
-        mutateBufferTime, 
-        mutateCueMode, 
+    const values = {
+        coachSettings,
+        coachSettingsIsLoading,
+        mutateBufferTime,
+        mutateCueMode,
         mutateAutoStopTimeDelay,
-        mutateUpdateFontSize
+        mutateUpdateFontSize,
+        mutateDefaultPlaybook,
     };
     
     return (

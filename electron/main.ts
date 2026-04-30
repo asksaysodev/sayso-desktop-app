@@ -180,6 +180,9 @@ function isCoachWindowOpen() {
 function isAppSettingsWindowOpen() {
   return global.appSettingsWindow && !global.appSettingsWindow.isDestroyed();
 }
+function isPlaybookWindowOpen() {
+  return global.playbookWindow && !global.playbookWindow.isDestroyed();
+}
 function broadcastAppSettingsWindowState(isOpen: boolean) {
   const payload = { isOpen };
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
@@ -187,6 +190,12 @@ function broadcastAppSettingsWindowState(isOpen: boolean) {
   }
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
     trayMenuWindow.webContents.send('app-settings-window-state', payload);
+  }
+}
+function broadcastPlaybookWindowState(isOpen: boolean) {
+  const payload = { isOpen };
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    global.coachWindow.webContents.send('playbook-window-state', payload);
   }
 }
 
@@ -718,6 +727,15 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
               global.coachWindow.webContents.send('cue-insight', message.data);
               if (isDev) {
                 console.log('[MAIN] Insight forwarded to coach window:', message.data);
+              }
+            }
+          }
+
+          if (message && message.type === 'smart_capture' && message.data) {
+            if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+              global.coachWindow.webContents.send('cue-smart-capture', message.data);
+              if (isDev) {
+                console.log('[MAIN] Smart capture forwarded to coach window:', message.data);
               }
             }
           }
@@ -1897,6 +1915,9 @@ ipcMain.on('set-font-size', (_event, size: string) => {
   if (isCoachWindowOpen()) {
     global.coachWindow!.webContents.send('font-size-changed', size);
   }
+  if (isPlaybookWindowOpen()) {
+    global.playbookWindow!.webContents.send('font-size-changed', size);
+  }
 });
 
 // Handler for the splash window to signal successful login — closes the splash window
@@ -2047,12 +2068,18 @@ const createCoachWindow = () => {
     if (isDev) {
       console.log('Coach window closed event fired, cleaning up reference');
     }
-    
+
+    if (isPlaybookWindowOpen()) {
+      global.playbookWindow!.close();
+    }
+
+    global.playbooksCache = null;
+
     // Force cleanup of all audio capture when coach window closes
     await cleanupAllAudioCapture();
-    
+
     global.coachWindow = null;
-    
+
     updateTrayMenu();
   });
 
@@ -2092,7 +2119,7 @@ ipcMain.on('demo-insight', (event: Electron.IpcMainInvokeEvent, insightData: Cue
   if (isDev) {
     console.log('[MAIN] Received demo-insight:', insightData);
   }
-  
+
   // Forward to coach window if it exists and is not destroyed
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
     global.coachWindow.webContents.send('cue-insight', insightData);
@@ -2104,4 +2131,92 @@ ipcMain.on('demo-insight', (event: Electron.IpcMainInvokeEvent, insightData: Cue
       console.warn('[MAIN] Coach window not available, cannot forward demo insight');
     }
   }
+});
+
+// --- Playbook Window (anchored to the coach window, only while coach is open) ---
+const createPlaybookWindow = () => {
+  if (!isCoachWindowOpen()) {
+    if (isDev) {
+      console.log('Playbook window: refused to open, coach window is not open');
+    }
+    return;
+  }
+
+  if (global.playbookWindow && !global.playbookWindow.isDestroyed()) {
+    return;
+  }
+
+  if (global.playbookWindow && global.playbookWindow.isDestroyed()) {
+    global.playbookWindow = null;
+  }
+
+  const preloadScriptPath = path.join(__dirname, 'preload.js');
+  const coachBounds = global.coachWindow!.getBounds();
+  const windowConfig = WindowManager.getPlaybookWindowConfig(coachBounds);
+
+  const playbookWindow = new BrowserWindow({
+    ...windowConfig,
+    icon: path.join(__dirname, '../public/assets/icon.icns'),
+    webPreferences: {
+      preload: preloadScriptPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false
+    }
+  });
+
+  global.playbookWindow = playbookWindow;
+
+  const playbookUrl = isDev
+    ? `http://localhost:5173/playbook-window.html?fontSize=${cachedFontSize}`
+    : `file://${path.join(__dirname, '../dist/playbook-window.html')}?fontSize=${cachedFontSize}`;
+
+  playbookWindow.loadURL(playbookUrl);
+  broadcastPlaybookWindowState(true);
+
+  playbookWindow.on('closed', () => {
+    global.playbookWindow = null;
+    broadcastPlaybookWindowState(false);
+  });
+};
+
+ipcMain.on('open-playbook-window', () => {
+  createPlaybookWindow();
+});
+
+ipcMain.on('close-playbook-window', () => {
+  if (isPlaybookWindowOpen()) {
+    global.playbookWindow!.close();
+  }
+});
+
+ipcMain.on('get-playbook-window-state', (event: Electron.IpcMainInvokeEvent) => {
+  event.sender.send('playbook-window-state', { isOpen: isPlaybookWindowOpen() });
+});
+
+ipcMain.handle('get-playbook-window-position', () => {
+  if (isPlaybookWindowOpen()) {
+    return global.playbookWindow!.getPosition();
+  }
+  return [0, 0];
+});
+
+ipcMain.on('set-playbook-window-position', (_event: Electron.IpcMainInvokeEvent, x: number, y: number) => {
+  if (isPlaybookWindowOpen()) {
+    global.playbookWindow!.setPosition(Math.round(x), Math.round(y));
+  }
+});
+
+// --- Playbooks data cache (prewarmed by coach window, consumed by playbook window) ---
+ipcMain.on('set-playbooks-cache', (_event, payload: { playbooks: unknown[] | null; error: string | null }) => {
+  global.playbooksCache = payload;
+  if (isPlaybookWindowOpen()) {
+    global.playbookWindow!.webContents.send('playbooks-updated', payload);
+  }
+});
+
+ipcMain.handle('get-playbooks-cache', () => {
+  return global.playbooksCache ?? { playbooks: null, error: null };
 });

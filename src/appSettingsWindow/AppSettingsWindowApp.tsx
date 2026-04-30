@@ -11,8 +11,10 @@ import { CoachSettingsProvider } from "./context/CoachSettingsContext";
 import useCoachSettingsContext from "./context/CoachSettingsContext";
 import AccessibilitySettings from "./components/AccessibilitySettings";
 import GeneralSettings from "./components/GeneralSettings";
+import { Book } from "lucide-react";
+import PlaybooksSettings from "./components/PlaybooksSettings";
 
-export type SidebarOptionType = 'cue' | 'auto-stop' | 'audio' | 'scripts' | 'accessibility' | 'general';
+export type SidebarOptionType = 'cue' | 'auto-stop' | 'audio' | 'scripts' | 'accessibility' | 'general' | 'playbooks';
 
 interface SidebarOption {
     key: SidebarOptionType;
@@ -24,6 +26,7 @@ const SIDEBAR_OPTIONS: SidebarOption[] = [
 	{ key: 'general', label: 'General', icon: <LuSettings /> },
 	{ key: 'cue', label: 'Cue', icon: <LuZap /> },
     { key: 'accessibility', label: 'Accessibility', icon: <LuPersonStanding /> },
+    { key: 'playbooks', label: 'Playbooks', icon: <Book /> },
     // { key: 'audio', label: 'Audio', icon: <LuHeadphones /> },
     // { key: 'scripts', label: 'Scripts', icon: <LuBookText /> },
 ];
@@ -70,6 +73,7 @@ function AppSettingsContent() {
             case "scripts": return <ScriptsSettings />
             case "accessibility": return <AccessibilitySettings />
             case "general": return <GeneralSettings />
+            case "playbooks": return <PlaybooksSettings />
         }
     };
 

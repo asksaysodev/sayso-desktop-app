@@ -1,40 +1,26 @@
-import { useEffect, useRef, useState, useCallback, MouseEventHandler } from 'react';
+import { useEffect, useRef, useState, useCallback, MouseEventHandler, useMemo } from 'react';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
-import { useAppSettingsWindow } from '@/hooks/useAppSettingsWindow';
-
 import { MdDragIndicator } from 'react-icons/md';
-import { IoClose } from 'react-icons/io5';
 import { MdErrorOutline } from 'react-icons/md';
-import { LuSettings, LuX } from 'react-icons/lu';
+import { LuX } from 'react-icons/lu';
 import * as Sentry from "@sentry/electron/renderer";
 import { useCoachWindowStore } from '../../store/coachWindowStore';
-
 import CoachButtons from './CoachButtons';
 import SelectProspectDropdown from './SelectProspectDropdown';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
 import SessionStoppedDialog from './SessionStoppedDialog';
+import RightSideButtons from './RightSideButtons';
 import useFontSize from '../hooks/useFontSize';
+import usePulseMarketProperty from '../hooks/usePulseMarketProperty';
+import ZipCodeDropdown from './ZipCodeDropdown';
+import { usePlaybookPrefetch } from '@/playbookWindow/hooks/usePlaybookPrefetch';
+import Pulse from './Pulse';
 
 const WINDOW_WIDTH_SIZES = {
-    s: {
-        BASE: 380,
-        READY_TO_LAUNCH: 400,
-        ACTIVE_SESSION: 440,
-        MAX_WIDTH: 900
-    },
-    m: {
-        BASE: 400,
-        READY_TO_LAUNCH: 440,
-        ACTIVE_SESSION: 460,
-        MAX_WIDTH: 900
-    },
-    l: {
-        BASE: 420,
-        READY_TO_LAUNCH: 448,
-        ACTIVE_SESSION: 500,
-        MAX_WIDTH: 900
-    },
+    s: { BASE: 380, MAX_WIDTH: 900 },
+    m: { BASE: 400, MAX_WIDTH: 900 },
+    l: { BASE: 420, MAX_WIDTH: 900 },
 }
 
 const WINDOW_HEIGHT_SIZES = {
@@ -46,28 +32,27 @@ const WINDOW_HEIGHT_SIZES = {
 type DragStartRef = { mouseX: number, mouseY: number, winX: number, winY: number };
 
 export default function CoachWindowMain() {
-
     //REFS
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const mainContainerRef = useRef<HTMLDivElement | null>(null);
     const insightsLayoutRef = useRef<HTMLDivElement | null>(null);
+    const zipCodeDropdownRef = useRef<HTMLDivElement | null>(null);
     const errorContainerRef = useRef<HTMLDivElement | null>(null);
     const sessionStoppedDialogRef = useRef<HTMLDivElement | null>(null);
     const isDraggingRef = useRef(false);
     const dragStartRef = useRef<DragStartRef>({ mouseX: 0, mouseY: 0, winX: 0, winY: 0 });
     //STATE
-    const [isSmartCaptureActive, setIsSmartCaptureActive] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
+    const [lpmamaTooltipHeight, setLpmamaTooltipHeight] = useState(0);
     //CONTEXT / HOOKS
-    const { isAppSettingsWindowOpen, toggleAppSettingsWindow } = useAppSettingsWindow();
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
     const selectedProspect = useCoachWindowStore(state => state.recall.selectedProspect);
     const leadType = useCoachWindowStore(state => state.cue.leadType);
     const currentInsight = useCoachWindowStore(state => state.cue.currentInsight);
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
-    const closeCoachWindow = useCoachWindowStore(state => state.closeCoachWindow);
     const isInsightsLayoutOpen = useCoachWindowStore(state => state.cue.isInsightsLayoutOpen);
     const setIsInsightsLayoutOpen = useCoachWindowStore(state => state.cue_setIsInsightsLayoutOpen);
     const coachWindowError = useCoachWindowStore(state => state.error);
@@ -76,12 +61,30 @@ export default function CoachWindowMain() {
     const setHasReceivedFirstInsight = useCoachWindowStore(state => state.cue_setHasReceivedFirstInsight);
     const incrementUnseenInsightsCount = useCoachWindowStore(state => state.cue_incrementUnseenInsightsCount);
     const handleStopCue = useCoachWindowStore(state => state.cue_handleStopCue);
+    const isSmartCaptureEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('smart_capture'));
+    const isPulseEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('pulse'));
     const currentfs = useFontSize();
+    usePlaybookPrefetch();
+    const [zipCodeValue, setZipCodeValue] = useState<string>("")
+    const [isZipDropdownOpen, setIsZipDropdownOpen] = useState<boolean>(false);
 
-    const handleCloseCoachWindow = () => {
-        closeCoachWindow()
-    }
+    const isZipCodeValid = useMemo(()=> {
+        return /^\d{5}$/.test(zipCodeValue);
+    },[zipCodeValue])
 
+    const {
+        selectedPropertyType,
+        setSelectedPropertyType,
+        valuesFound,
+        pulseError,
+        isPending: isPulsePending,
+        fetch: fetchPulse,
+    } = usePulseMarketProperty(zipCodeValue);
+
+    useEffect(() => {
+        if (isZipCodeValid) setIsZipDropdownOpen(true);
+    }, [isZipCodeValid]);
+    
     const handleSessionExpired = useCallback(() => {
         useCoachWindowStore.setState({ error: 'Your session has expired. Please re-login from the main window.' });
         if (isCoachActive) handleStopCue().catch((err) => Sentry.captureException(err));
@@ -139,9 +142,8 @@ export default function CoachWindowMain() {
     
     function getWidthByCurrentState() {
         const fsWidthOptions = WINDOW_WIDTH_SIZES[currentfs];
-        if (isCoachActive && coachFeature === 'cue') return fsWidthOptions.ACTIVE_SESSION;
-        if (leadType !== null) return fsWidthOptions.READY_TO_LAUNCH;
-        return fsWidthOptions.BASE;
+        const natural = mainContainerRef.current?.offsetWidth ?? fsWidthOptions.BASE;
+        return Math.min(fsWidthOptions.MAX_WIDTH, Math.max(fsWidthOptions.BASE, natural));
     }
 
     function getHeightByCurrentState() {
@@ -152,23 +154,34 @@ export default function CoachWindowMain() {
 
         if (isDropdownOpen) {
             return WINDOW_HEIGHT_SIZES.DROPDOWN_OPEN;
-        } else if (isInsightsLayoutOpen) {
-            if (insightsLayoutRef.current) {
-                return getTotalHeightWithRef(insightsLayoutRef);
-            }
-            
-            const queueLength = insightsQueue.length;
-            if (queueLength === 0) return 280;
-            if (queueLength === 1) return 140;
-            if (queueLength === 2) return 210;
-            if (queueLength === 3) return 280;
-            if (queueLength >= 4) return 350;
-            
-            return 280;
-        } else if (showSessionAutoStopped) {
+        }
+
+        if (showSessionAutoStopped) {
             return getTotalHeightWithRef(sessionStoppedDialogRef) || WINDOW_HEIGHT_SIZES.BASE;
         }
-        return WINDOW_HEIGHT_SIZES.BASE;
+
+        let height = WINDOW_HEIGHT_SIZES.BASE;
+
+        const showZipDropdown = isZipDropdownOpen && isZipCodeValid && isCoachActive && isPulseEnabled;
+        if (showZipDropdown && zipCodeDropdownRef.current) {
+            height += zipCodeDropdownRef.current.offsetHeight + 6;
+        }
+
+        if (isInsightsLayoutOpen) {
+            if (insightsLayoutRef.current) {
+                height += insightsLayoutRef.current.offsetHeight + 6 + lpmamaTooltipHeight;
+            } else {
+                const queueLength = insightsQueue.length;
+                let estimatedInsightsHeight = 280;
+                if (queueLength === 1) estimatedInsightsHeight = 140;
+                else if (queueLength === 2) estimatedInsightsHeight = 210;
+                else if (queueLength === 3) estimatedInsightsHeight = 280;
+                else if (queueLength >= 4) estimatedInsightsHeight = 350;
+                height += estimatedInsightsHeight - WINDOW_HEIGHT_SIZES.BASE;
+            }
+        }
+
+        return height;
     }
 
     useEffect(() => {
@@ -177,11 +190,7 @@ export default function CoachWindowMain() {
         const updateWindowSize = () => {
             if (containerRef.current && window.electronAPI && !isResizing) {
                 isResizing = true;
-                const fsWidthOptions = WINDOW_WIDTH_SIZES[currentfs];
-                const windowWidth = Math.max(
-                    fsWidthOptions.BASE, 
-                    Math.min(fsWidthOptions.MAX_WIDTH, getWidthByCurrentState())
-                );
+                const windowWidth = getWidthByCurrentState();
                 const windowHeight = getHeightByCurrentState();
                 window.electronAPI.resizeWindow(windowWidth, windowHeight);
 
@@ -210,13 +219,16 @@ export default function CoachWindowMain() {
         if (containerRef.current) {
             resizeObserver.observe(containerRef.current);
         }
+        if (mainContainerRef.current) {
+            resizeObserver.observe(mainContainerRef.current);
+        }
 
         return () => {
             clearTimeout(timeoutId);
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, valuesFound, pulseError, isPulsePending]);
 
     /**
      * Handling auto opening of insights layout and unseen insights count for the notification dot
@@ -260,6 +272,20 @@ export default function CoachWindowMain() {
 			unsubscribe();
 		};
     }, [isCoachActive, coachFeature, isInsightsLayoutOpen, hasReceivedFirstInsight]);
+
+    useEffect(() => {
+        if (!isCoachActive || coachFeature !== 'cue') return;
+        if (!isSmartCaptureEnabled) return;
+        if (!window.electron?.cue?.onSmartCapture) return;
+
+        const unsubscribe = window.electron.cue.onSmartCapture((data) => {
+            const updateSmartCapture = useCoachWindowStore.getState().cue_updateSmartCapture;
+            updateSmartCapture(data);
+            handleLayoutVisibility();
+        });
+
+        return () => { unsubscribe(); };
+    }, [isCoachActive, coachFeature, isSmartCaptureEnabled, isInsightsLayoutOpen, hasReceivedFirstInsight]);
 
     useEffect(() => {
         if (!isCoachActive || coachFeature !== 'cue') return;
@@ -309,10 +335,10 @@ export default function CoachWindowMain() {
         recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
         cue: <SelectLeadTypeDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
     };
-
+    
     return (
         <div className="coach-window" ref={containerRef}>
-            <div className={`main-container coach-box-bubble`}>
+            <div className={`main-container coach-box-bubble`} ref={mainContainerRef}>
                 <div className='main-toolbar'>
                     <div className="coach-window-drag-container">
                         <button
@@ -330,12 +356,20 @@ export default function CoachWindowMain() {
                                 DropdownComponent[coachFeature]
                             )
                         }
-    
+                        
+                        <Pulse 
+                            isCoachActive={isCoachActive} 
+                            isPulseEnabled={isPulseEnabled} 
+                            isZipCodeValid={isZipCodeValid} 
+                            setIsZipDropdownOpen={setIsZipDropdownOpen} 
+                            isZipDropdownOpen={isZipDropdownOpen}
+                            setZipCodeValue={setZipCodeValue}
+                            zipCodeValue={zipCodeValue} 
+                        />
+                        
                         {
                             (selectedProspect || leadType) && (
-                                <CoachButtons 
-                                    isInsightsLayoutOpen={isInsightsLayoutOpen}
-                                    setIsInsightsLayoutOpen={setIsInsightsLayoutOpen} 
+                                <CoachButtons
                                     setIsDropdownOpen={setIsDropdownOpen}
                                     isDropdownOpen={isDropdownOpen}
                                 />
@@ -343,18 +377,7 @@ export default function CoachWindowMain() {
                         }
                     </div>
 
-                    {
-                        !isCoachActive && (
-                            <>
-                                <button className='right-side-coach-button' onClick={toggleAppSettingsWindow}>
-                                    <LuSettings />
-                                </button>
-                                <button className='right-side-coach-button' onClick={() => handleCloseCoachWindow()}>
-                                    <IoClose />
-                                </button>
-                            </>
-                        )
-                    }
+                    <RightSideButtons />
                 </div>
             </div>
 
@@ -372,9 +395,24 @@ export default function CoachWindowMain() {
                 </div>
             )}
 
+            {isZipDropdownOpen && isZipCodeValid && isCoachActive && isPulseEnabled && (
+                <ZipCodeDropdown
+                    ref={zipCodeDropdownRef}
+                    onClose={() => setIsZipDropdownOpen(false)}
+                    zipCodeValue={zipCodeValue}
+                    selectedPropertyType={selectedPropertyType}
+                    setSelectedPropertyType={setSelectedPropertyType}
+                    valuesFound={valuesFound}
+                    pulseError={pulseError}
+                    isPending={isPulsePending}
+                    onFetch={fetchPulse}
+                />
+            )}
+            
             {isInsightsLayoutOpen && isCoachActive && (
-                <InsightsVerticalLayout 
+                <InsightsVerticalLayout
                     ref={insightsLayoutRef}
+                    onLpmamaTooltipHeightChange={setLpmamaTooltipHeight}
                 />
             )}
 

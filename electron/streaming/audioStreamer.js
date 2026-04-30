@@ -112,8 +112,8 @@ class AudioStreamer {
 
       // Listen for messages from prospect websocket (insights come through here)
       this.prospectWebSocket.on('message', (message) => {
-        // Check if it's an insight message
-        if (message && typeof message === 'object' && (message.type === 'insight' || message.type === 'auto_stop')) {
+        // Check if it's a message we care about forwarding
+        if (message && typeof message === 'object' && (message.type === 'insight' || message.type === 'auto_stop' || message.type === 'smart_capture')) {
           if (this.onMessage) {
             if (message.type === 'auto_stop') {
               this.autoStopping = true;

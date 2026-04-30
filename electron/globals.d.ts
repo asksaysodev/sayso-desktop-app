@@ -82,6 +82,8 @@ declare global {
     speaker?: string;
   }
   var coachWindow: BrowserWindow | null;
+  var playbookWindow: BrowserWindow | null;
+  var playbooksCache: { playbooks: unknown[] | null; error: string | null } | null;
   var appSettingsWindow: BrowserWindow | null;
   var mainWindow: BrowserWindow | null;
   var authUser: AuthUser | false | null;

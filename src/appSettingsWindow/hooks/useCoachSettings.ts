@@ -6,6 +6,10 @@ import getCoachSettings from "../services/cue/getCoachSettings";
 import updateCueMode from "../services/cue/updateCueInsightMode";
 import postAutoStopTimeDelay from "../services/cue/postAutoStopTimeDelay";
 import updateFontSize from "../services/accessibility/updateFontSize";
+import { setDefaultPlaybook } from "@/playbookWindow/services/playbookServices";
+import { GetCoachSettingsResponse } from "../types";
+import { Playbook } from "@/playbookWindow/types";
+import { PLAYBOOKS_QUERY_KEY } from "../components/PlaybooksSettings/constants";
 
 export default function useCoachSettings() {
     const queryClient = useQueryClient();
@@ -63,6 +67,46 @@ export default function useCoachSettings() {
             Sentry.captureException(error);
         }
     })
+
+    const { mutate: mutateDefaultPlaybook } = useMutation({
+        mutationKey: ['set-default-playbook'],
+        mutationFn: setDefaultPlaybook,
+        onMutate: async (newId: string) => {
+            await queryClient.cancelQueries({ queryKey: ['sales-coach-settings'] });
+            await queryClient.cancelQueries({ queryKey: PLAYBOOKS_QUERY_KEY });
+
+            const prevSettings = queryClient.getQueryData<GetCoachSettingsResponse>(['sales-coach-settings']);
+            const prevPlaybooks = queryClient.getQueryData<Playbook[]>(PLAYBOOKS_QUERY_KEY);
+
+            if (prevSettings) {
+                queryClient.setQueryData<GetCoachSettingsResponse>(['sales-coach-settings'], {
+                    ...prevSettings,
+                    default_playbook_id: newId,
+                });
+            }
+            if (prevPlaybooks) {
+                queryClient.setQueryData<Playbook[]>(
+                    PLAYBOOKS_QUERY_KEY,
+                    prevPlaybooks.map((p) => ({ ...p, is_default: p.id === newId })),
+                );
+            }
+
+            return { prevSettings, prevPlaybooks };
+        },
+        onError: (error, _id, context) => {
+            if (context?.prevSettings !== undefined) {
+                queryClient.setQueryData(['sales-coach-settings'], context.prevSettings);
+            }
+            if (context?.prevPlaybooks !== undefined) {
+                queryClient.setQueryData(PLAYBOOKS_QUERY_KEY, context.prevPlaybooks);
+            }
+            Sentry.captureException(error);
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey: ['sales-coach-settings'] });
+            queryClient.invalidateQueries({ queryKey: PLAYBOOKS_QUERY_KEY });
+        },
+    })
     
     useEffect(()=>{
         if (coachSettingsError !== null) {
@@ -74,11 +118,12 @@ export default function useCoachSettings() {
         coachSettings,
         coachSettingsIsError,
         coachSettingsIsLoading,
-        
+
         mutateBufferTime,
         mutateCueMode,
         mutateAutoStopTimeDelay,
-        
-        mutateUpdateFontSize
+
+        mutateUpdateFontSize,
+        mutateDefaultPlaybook,
     }
 }

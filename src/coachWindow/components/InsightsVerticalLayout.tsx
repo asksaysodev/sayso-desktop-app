@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, forwardRef } from 'react';
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import { LuX } from 'react-icons/lu';
+import LpmamaRow from './LpmamaRow';
 import '../styles/InsightVerticalLayout.css';
 
 const TIMING_CONFIG = {
@@ -8,9 +9,14 @@ const TIMING_CONFIG = {
     exitAnimationDuration: 250,
 };
 
-const InsightsVerticalLayout = forwardRef<HTMLDivElement>((props, ref) => {
+interface Props {
+    onLpmamaTooltipHeightChange: (height: number) => void;
+}
+
+const InsightsVerticalLayout = forwardRef<HTMLDivElement, Props>(({ onLpmamaTooltipHeightChange }, ref) => {
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
     const removeInsight = useCoachWindowStore(state => state.cue_removeInsight);
+    const isSmartCaptureEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('smart_capture'));
 
     const [enteringItems, setEnteringItems] = useState(new Set());
     const [exitingItems, setExitingItems] = useState(new Set());
@@ -31,7 +37,7 @@ const InsightsVerticalLayout = forwardRef<HTMLDivElement>((props, ref) => {
 
         if (newInsightIds.size > 0) {
             setEnteringItems(newInsightIds);
-            
+
             const timer = setTimeout(() => {
                 setEnteringItems(new Set());
             }, TIMING_CONFIG.entranceAnimationDuration);
@@ -58,16 +64,16 @@ const InsightsVerticalLayout = forwardRef<HTMLDivElement>((props, ref) => {
 
     return (
         <div ref={ref} className="insights-vertical-layout-container">
-            {allInsightsToDisplay.length > 0 
+            {allInsightsToDisplay.length > 0
             ? (
                 <ul className="insights-vertical-list">
                 {allInsightsToDisplay.map((insight, index) => {
                     const isFirstInsight = index === 0;
                     const insightId = insight.id;
-                    
+
                     const isEntering = enteringItems.has(insightId);
                     const isExiting = exitingItems.has(insightId);
-                    
+
                     return (
                         <li
                             key={insightId}
@@ -78,8 +84,8 @@ const InsightsVerticalLayout = forwardRef<HTMLDivElement>((props, ref) => {
                                 ${isExiting ? 'insights-vertical-layout-item--exiting' : ''}
                             `}
                         >
-                            <button 
-                                className="insights-vertical-layout-item__close-button" 
+                            <button
+                                className="insights-vertical-layout-item__close-button"
                                 onClick={() => handleRemoveInsight(insightId)}
                                 disabled={isExiting}
                             >
@@ -97,6 +103,8 @@ const InsightsVerticalLayout = forwardRef<HTMLDivElement>((props, ref) => {
                     <p>No insights to display</p>
                 </div>
             )}
+
+            {isSmartCaptureEnabled && <LpmamaRow onTooltipHeightChange={onLpmamaTooltipHeightChange} />}
         </div>
     );
 });

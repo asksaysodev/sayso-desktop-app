@@ -6,7 +6,7 @@ import { stopDualChannelRecording, startDualChannelRecording } from '../coachWin
 import { cue_startStreaming, cue_stopStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
 import apiClient from '../config/axios';
-import { CoachFeature, CoachWindowStore } from '@/types/store/coachWindowStore';
+import { CoachFeature, CoachWindowStore, EnabledFeature, LpmamData } from '@/types/store/coachWindowStore';
 import { Prospect } from '@/types/coach';
 
 export const CUE_CONFIG = {
@@ -27,6 +27,11 @@ const AUDIO_INITIAL_STATE = {
     isUploading: false,
 };
 
+const LPMAMA_INITIAL: LpmamData = {
+    location: null, price: null, motivation: null,
+    appointment: null, mortgage: null, agent: null,
+};
+
 const CUE_INITIAL_STATE = {
     isResettingCueSession: false,
     insightsQueue: [],
@@ -36,6 +41,8 @@ const CUE_INITIAL_STATE = {
     isInsightsLayoutOpen: false,
     hasReceivedFirstInsight: false,
     unseenInsightsCount: 0,
+    lpmama: { ...LPMAMA_INITIAL },
+    enabledFeatures: ['cue'] as EnabledFeature[],
 };
 
 const RECALL_INITIAL_STATE = {
@@ -390,14 +397,21 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
             }
 
             const sessionData = await get().cue_createNewSession(currentLeadType);
-
+            
             if (!sessionData || !sessionData.sessionId) {
                 throw new Error('Failed to create new cue session');
             }
 
             await cue_startStreaming(sessionData.sessionId);
 
-            set({ sessionData, isCoachActive: true });
+            set({
+                sessionData,
+                isCoachActive: true,
+                cue: {
+                    ...get().cue,
+                    enabledFeatures: sessionData?.enabled_features ?? ['cue'],
+                },
+            });
         } catch (error) {
             console.error('Error starting cue:', error);
             throw error;
@@ -408,6 +422,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
 
     cue_handleStopCue: async () => {
         set({ isCoachLoading: true });
+        window.electron?.ipcRenderer?.send('close-playbook-window');
 
         try {
             const sessionId = get().sessionData?.sessionId;
@@ -420,7 +435,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
 			if(!sessionData || !sessionData.session) {
 				throw new Error('Failed to stop cue session');
 			}
-			set({ sessionData, isCoachActive: false });
+            set({ sessionData, isCoachActive: false });
 
             get().cue_resetStates();
 
@@ -495,6 +510,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
         } catch (error) {
             console.error('Error resetting cue session:', error);
             set({ isCoachActive: false });
+            window.electron?.ipcRenderer?.send('close-playbook-window');
             throw error;
         } finally {
             set({
@@ -570,6 +586,18 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
         set((state) => ({
             cue: { ...state.cue, unseenInsightsCount: 0 }
         }));
+    },
+
+    cue_updateSmartCapture: (data) => {
+        set((state) => {
+            const updatedLpmama = { ...state.cue.lpmama };
+            data.forEach(({ topic, content }) => {
+                if (topic in updatedLpmama) {
+                    (updatedLpmama as Record<string, string | null>)[topic] = content;
+                }
+            });
+            return { cue: { ...state.cue, lpmama: updatedLpmama } };
+        });
     },
 }));
 

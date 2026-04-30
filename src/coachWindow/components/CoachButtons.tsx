@@ -5,13 +5,11 @@ import { Prospect } from "@/types/coach";
 import * as Sentry from "@sentry/electron/renderer";
 
 interface Props {
-    isInsightsLayoutOpen: boolean;
-    setIsInsightsLayoutOpen: (isOpen: boolean) => void;
     setIsDropdownOpen: (isOpen: boolean) => void;
     isDropdownOpen: boolean;
 }
 
-export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayoutOpen, setIsDropdownOpen, isDropdownOpen }: Props) {
+export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen }: Props) {
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
@@ -73,11 +71,9 @@ export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayout
         <div className="coach-buttons-container">
             {
                 isCoachActive ? (
-                    <CoachActiveButtons 
-                        coachFeature={coachFeature} 
+                    <CoachActiveButtons
+                        coachFeature={coachFeature}
                         handleCoach={handleCoach}
-                        isInsightsLayoutOpen={isInsightsLayoutOpen}
-                        setIsInsightsLayoutOpen={setIsInsightsLayoutOpen}
                     />
                 ) : (
                     <>
@@ -102,7 +98,7 @@ export default function CoachButtons({ isInsightsLayoutOpen, setIsInsightsLayout
                                     </g>
                                 </g>
                             </svg>
-                            <p className={`${isCoachLoading ? 'hidden' : ''}`}>Start</p>
+                            <p className={`${isCoachLoading ? 'hidden' : ''}`}>Launch</p>
                         </button>
                     </>
                 )
