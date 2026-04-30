@@ -47,6 +47,7 @@ export default function CoachWindowMain() {
     const [isDragging, setIsDragging] = useState(false);
     const [lpmamaTooltipHeight, setLpmamaTooltipHeight] = useState(0);
     //CONTEXT / HOOKS
+    const sessionData = useCoachWindowStore(state => state.sessionData);
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
     const selectedProspect = useCoachWindowStore(state => state.recall.selectedProspect);
@@ -335,6 +336,13 @@ export default function CoachWindowMain() {
         recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
         cue: <SelectLeadTypeDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
     };
+    
+    useEffect(() => {
+        if (!sessionData) {
+            setZipCodeValue('');
+            setIsZipDropdownOpen(false);
+        }
+    }, [sessionData])
     
     return (
         <div className="coach-window" ref={containerRef}>

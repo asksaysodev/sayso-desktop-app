@@ -460,7 +460,7 @@ button {
 }
 
 .coach-window .zip-code-input.valid {
-    width: 44px !important;
+    width: var(--cw-fs-zip-input-width) !important;
 }
 
 .coach-window .zip-code-input::placeholder {
@@ -1049,6 +1049,7 @@ button {
     --cw-fs-lpmama:           14px;
     --cw-fs-right-btn-size:   32px;
     --cw-base-width:          380px;
+    --cw-fs-zip-input-width:  44px;
 }
 
 /* M */
@@ -1071,6 +1072,7 @@ button {
     --cw-fs-lpmama:           16.8px;
     --cw-fs-right-btn-size:   38.4px;
     --cw-base-width:          400px;
+    --cw-fs-zip-input-width:  53px;
 }
 
 /* L */
@@ -1093,4 +1095,5 @@ button {
     --cw-fs-lpmama:           19.6px;
     --cw-fs-right-btn-size:   44.8px;
     --cw-base-width:          420px;
+    --cw-fs-zip-input-width:  62px;
 }

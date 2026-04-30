@@ -479,7 +479,8 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
             const currentLeadType = get().cue.leadType;
 
             const sessionId = get().sessionData?.sessionId;
-
+            const currentEnabledFeatures = get().sessionData?.enabled_features;
+            
             if (sessionId) {
                 await cue_stopStreaming();
                 await get().cue_stopSession(sessionId);
@@ -492,20 +493,25 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
                     ...CUE_INITIAL_STATE,
                     isResettingCueSession: true,
                     leadType: currentLeadType,
+                    enabledFeatures: currentEnabledFeatures ?? ['cue']
                 }
             })
 
-            const sessionData = await get().cue_createNewSession(currentLeadType);
+            const newSessionData = await get().cue_createNewSession(currentLeadType);
 
-            if (!sessionData || !sessionData.sessionId) {
+            if (!newSessionData || !newSessionData.sessionId) {
                 throw new Error('Failed to create new cue session');
             }
 
-            await cue_startStreaming(sessionData.sessionId);
+            await cue_startStreaming(newSessionData.sessionId);
 
             set({
-                sessionData,
-                isCoachActive: true
+                sessionData: newSessionData,
+                isCoachActive: true,
+                cue: {
+                    ...get().cue,
+                    enabledFeatures: newSessionData?.enabled_features ?? ['cue'],
+                }
             });
         } catch (error) {
             console.error('Error resetting cue session:', error);
