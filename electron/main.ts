@@ -1556,20 +1556,31 @@ app.whenReady().then(async () => {
     }
   });
   
-  // On auto-launch, attempt silent auth — skip splash if token is still valid
-  const { wasOpenedAtLogin } = app.getLoginItemSettings();
-  if (wasOpenedAtLogin) {
-    const storedToken = loadRefreshToken();
-    if (storedToken) {
+  // Always attempt silent auth first — skip splash if token is still valid.
+  // This unifies normal launches with the auto-launch path: only open the
+  // splash window when there is no stored token or the refresh fails.
+  const storedToken = loadRefreshToken();
+  if (storedToken) {
+    try {
+      const { accessToken, refreshToken } = await refreshAuthTokens(storedToken);
+      global.authAccessToken = accessToken;
+      global.authRefreshToken = refreshToken;
+      saveRefreshToken(refreshToken);
+
+      // Decode email from the JWT payload (no verify needed — we just refreshed it)
+      // then fetch the full account profile so the tray menu reflects logged-in state.
       try {
-        const { accessToken, refreshToken } = await refreshAuthTokens(storedToken);
-        global.authAccessToken = accessToken;
-        global.authRefreshToken = refreshToken;
-        saveRefreshToken(refreshToken);
-      } catch {
-        createSplashWindow();
+        const jwtPayload = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString('utf-8'));
+        const email = jwtPayload.email as string;
+        const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+        const profileRes = await axios.get(`${baseUrl}/accounts/${email}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        global.authUser = profileRes.data.data;
+      } catch (profileErr) {
+        console.warn('[MAIN] Silent auth succeeded but profile fetch failed — tray will show logged-out state', profileErr);
       }
-    } else {
+    } catch {
       createSplashWindow();
     }
   } else {
