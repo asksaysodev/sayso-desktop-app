@@ -345,7 +345,7 @@ export default function CoachWindowMain() {
     }, [sessionData])
     
     return (
-        <div className="coach-window" ref={containerRef}>
+        <div className={`coach-window${isDropdownOpen && coachFeature === 'cue' ? ' dropdown-open' : ''}`} ref={containerRef}>
             <div className={`main-container coach-box-bubble`} ref={mainContainerRef}>
                 <div className='main-toolbar'>
                     <div className="coach-window-drag-container">

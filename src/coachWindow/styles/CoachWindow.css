@@ -26,6 +26,11 @@ button {
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
+
+.coach-window.dropdown-open {
+    -webkit-app-region: no-drag;
+    cursor: default;
+}
 .coach-window::-webkit-scrollbar {
     display: none;
 }
