@@ -1136,16 +1136,23 @@ NAN_METHOD(StartSystemAudioCapture) {
         g_filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
         
         g_config = [[SCStreamConfiguration alloc] init];
-        g_config.capturesAudio = YES;
-        g_config.excludesCurrentProcessAudio = YES;
-        g_config.channelCount = 2;
-        
+
+        if (@available(macOS 13.0, *)) {
+            g_config.capturesAudio = YES;
+            g_config.channelCount = 2;
+        } else {
+            ScheduleSckStartSettle(pending, true, "System audio capture requires macOS 13 or later");
+            return;
+        }
+
+        if (@available(macOS 14.0, *)) {
+            g_config.excludesCurrentProcessAudio = YES;
+        }
+
         NSLog(@"🎤 [NATIVE] Stream configuration: Audio=YES, Channels=%ld (system will decide sample rate)", (long)g_config.channelCount);
-        
+
         g_config.minimumFrameInterval = CMTimeMake(1, 60);
         g_config.queueDepth = 10;
-        g_config.capturesAudio = YES;
-        g_config.excludesCurrentProcessAudio = YES;
         
         NSLog(@"🎤 [NATIVE] Stream configuration: Audio=%@, SampleRate=%ld, Channels=%ld",
               g_config.capturesAudio ? @"YES" : @"NO",
