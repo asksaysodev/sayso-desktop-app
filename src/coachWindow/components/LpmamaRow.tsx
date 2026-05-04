@@ -2,6 +2,7 @@ import { useState, useRef, useLayoutEffect } from 'react';
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import { LpmamField } from '@/types/store/coachWindowStore';
 import { Copy } from 'lucide-react';
+import { copyLpmamaContent } from '../helpers/copyLpmamaContent';
 
 const LPMAMA_CONFIG: { field: LpmamField; initial: string; label: string }[] = [
     { field: 'location',    initial: 'L', label: 'Location' },
@@ -32,15 +33,6 @@ export default function LpmamaRow({ onTooltipHeightChange }: Props) {
         onTooltipHeightChange(tooltipRef.current.offsetHeight + TOOLTIP_OFFSET);
     }, [hoveredField, onTooltipHeightChange]);
 
-    const copyLpmamaContent = async () => {
-        const textToCopy = LPMAMA_CONFIG.map(({ field, label }) => `${label}: ${lpmama[field] ?? ''}`).join('\n');
-        try {
-            await navigator.clipboard.writeText(textToCopy);
-        } catch {
-            // clipboard write failed — silently ignore
-        }
-    }
-    
     return (
         <div className="lpmama-row">
             {LPMAMA_CONFIG.map(({ field, initial, label }) => {
@@ -67,7 +59,7 @@ export default function LpmamaRow({ onTooltipHeightChange }: Props) {
                     </div>
                 );
             })}
-            <div className='lpmama-dot lpmama-dot--copy' onClick={copyLpmamaContent}>
+            <div className='lpmama-dot lpmama-dot--copy' onClick={() => copyLpmamaContent(lpmama)}>
                 <Copy size={14} />
             </div>
         </div>
