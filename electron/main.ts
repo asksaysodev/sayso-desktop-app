@@ -1571,14 +1571,17 @@ app.whenReady().then(async () => {
       // then fetch the full account profile so the tray menu reflects logged-in state.
       try {
         const jwtPayload = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString('utf-8'));
-        const email = jwtPayload.email as string;
+        const email = jwtPayload.email;
+        if (!email || typeof email !== 'string') throw new Error('No email claim in JWT payload');
         const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
         const profileRes = await axios.get(`${baseUrl}/accounts/${email}`, {
           headers: { Authorization: `Bearer ${accessToken}` },
+          timeout: 5000,
         });
         global.authUser = profileRes.data.data;
       } catch (profileErr) {
         console.warn('[MAIN] Silent auth succeeded but profile fetch failed — tray will show logged-out state', profileErr);
+        Sentry.captureException(profileErr);
       }
     } catch {
       createSplashWindow();
