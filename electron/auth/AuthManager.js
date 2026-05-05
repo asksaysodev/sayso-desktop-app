@@ -222,12 +222,16 @@ class AuthManager extends events_1.EventEmitter {
         this.user = payload
             ? { id: payload.sub, email: payload.email ?? '', subscription_plan_id: null }
             : null;
+        if (this.user) {
+            Sentry.setUser({ id: this.user.id, email: this.user.email });
+        }
     }
     _clearSession() {
         this.accessToken = null;
         this.refreshToken = null;
         this.expiresAt = null;
         this.user = null;
+        Sentry.setUser(null);
         if (this.refreshTimer) {
             clearTimeout(this.refreshTimer);
             this.refreshTimer = null;
@@ -240,7 +244,7 @@ class AuthManager extends events_1.EventEmitter {
     }
     _decodePayload(token) {
         try {
-            return JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString('utf-8'));
+            return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf-8'));
         }
         catch {
             return null;
