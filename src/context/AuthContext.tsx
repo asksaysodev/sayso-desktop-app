@@ -22,7 +22,6 @@ interface AuthContextValue {
   checkMFAStatus: () => Promise<boolean>;
   verifyMFA: (code: string) => Promise<{ success: boolean; error: MFAServiceError | null }>;
   clearMFARequired: () => void;
-  checkIfNeedsMFA: (currentLevel: AALLevel | null | undefined, nextLevel: AALLevel | null | undefined) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue>({} as AuthContextValue)
@@ -79,7 +78,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const checkMFAStatus = async (): Promise<boolean> => {
     if (mfaFactors.length === 0) return false
-    const needsMFA = checkIfNeedsMFA(currentAAL, mfaFactors.length > 0 ? 'aal2' : 'aal1')
+    const needsMFA = checkIfNeedsMFA(currentAAL, 'aal2')
     setMfaRequired(needsMFA)
     return needsMFA
   }
@@ -265,7 +264,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     checkMFAStatus,
     verifyMFA,
     clearMFARequired,
-    checkIfNeedsMFA,
   }
 
   return (
