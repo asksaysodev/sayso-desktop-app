@@ -21,8 +21,63 @@ import * as Sentry from '@sentry/electron/main';
 import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
+import { AuthManager } from './auth/AuthManager';
+import type { AuthState } from './auth/AuthManager';
 
 Sentry.init(sentryConfig);
+
+// ─── Auth: single source of truth ────────────────────────────────────────────
+// Owns all token state for the app's lifetime. Renderers ask main via IPC.
+export const authManager = new AuthManager();
+
+function broadcastToAllWindows(channel: string, data?: unknown): void {
+  BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
+    if (!win.isDestroyed()) win.webContents.send(channel, data);
+  });
+}
+
+authManager.on('signed-in', (state: AuthState) => {
+  console.log('[AuthManager] signed-in:', state.user?.email);
+  global.authAccessToken = state.accessToken;
+  broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated });
+});
+
+authManager.on('signed-out', () => {
+  console.log('[AuthManager] signed-out');
+  global.authAccessToken = null;
+  global.authRefreshToken = null;
+  broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false });
+  broadcastToAllWindows('auth-session-expired');   // backward-compat for unmigrated windows
+  broadcastToAllWindows('auth:session-expired');
+});
+
+authManager.on('token-refreshed', (state: AuthState) => {
+  console.log('[AuthManager] token-refreshed');
+  global.authAccessToken = state.accessToken;
+  broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated });
+  broadcastToAllWindows('auth:token-refreshed');
+  // Also broadcast old event so any remaining unmigrated axios listeners stay warm
+  broadcastToAllWindows('auth-tokens-refreshed', { accessToken: state.accessToken, refreshToken: '' });
+  // Keep the active audio WebSocket's token current so reconnects after a refresh
+  // don't fail with an expired JWT. updateToken() stores the value and the next
+  // _connect() call will embed it in the WebSocket URL query string.
+  if (state.accessToken) {
+    if (cueAudioStreamer) cueAudioStreamer.updateToken(state.accessToken);
+    if (audioStreamer)    audioStreamer.updateToken(state.accessToken);
+  }
+});
+
+authManager.on('session-expired', () => {
+  console.log('[AuthManager] session-expired');
+  global.authAccessToken = null;
+  global.authRefreshToken = null;
+  broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false });
+  broadcastToAllWindows('auth-session-expired');   // backward-compat
+  broadcastToAllWindows('auth:session-expired');
+  // Stop WebSocket reconnect loops — there is no valid token to reconnect with
+  if (cueAudioStreamer) { cueAudioStreamer.shouldReconnect = false; cueAudioStreamer.stop(false).catch(() => {}); }
+  if (audioStreamer)    { audioStreamer.shouldReconnect    = false; audioStreamer.stop(false).catch(() => {}); }
+});
 
 let autoUpdater: import('electron-updater').AppUpdater | null = null;
 
@@ -931,8 +986,6 @@ async function ensureCueUserMicDeliversJsChunks(
 
 const audioQueue = require('./audioQueue');
 const { AudioStreamer } = require('./streaming/audioStreamer');
-const { refreshAuthTokens } = require('./utils/authTokens');
-
 // Add command line switches for better camera support
 app.commandLine.appendSwitch('enable-features', 'WebRTC,MediaDevices,MediaStream');
 app.commandLine.appendSwitch('enable-media-stream');
@@ -1556,35 +1609,25 @@ app.whenReady().then(async () => {
     }
   });
   
-  // Always attempt silent auth first — skip splash if token is still valid.
-  // This unifies normal launches with the auto-launch path: only open the
-  // splash window when there is no stored token or the refresh fails.
-  const storedToken = loadRefreshToken();
-  if (storedToken) {
-    try {
-      const { accessToken, refreshToken } = await refreshAuthTokens(storedToken);
-      global.authAccessToken = accessToken;
-      global.authRefreshToken = refreshToken;
-      saveRefreshToken(refreshToken);
+  // Always attempt silent auth via AuthManager first.
+  // init() reads the persisted refresh token, exchanges it for a fresh access
+  // token, and schedules the proactive refresh timer. If it fails or there is
+  // no stored token it returns cleanly and we fall through to the splash.
+  await authManager.init();
 
-      // Decode email from the JWT payload (no verify needed — we just refreshed it)
-      // then fetch the full account profile so the tray menu reflects logged-in state.
-      try {
-        const jwtPayload = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString('utf-8'));
-        const email = jwtPayload.email;
-        if (!email || typeof email !== 'string') throw new Error('No email claim in JWT payload');
-        const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
-        const profileRes = await axios.get(`${baseUrl}/accounts/${email}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          timeout: 5000,
-        });
-        global.authUser = profileRes.data.data;
-      } catch (profileErr) {
-        console.warn('[MAIN] Silent auth succeeded but profile fetch failed — tray will show logged-out state', profileErr);
-        Sentry.captureException(profileErr);
-      }
-    } catch {
-      createSplashWindow();
+  const authState = authManager.getState();
+  if (authState.isAuthenticated) {
+    // Fetch the full account profile so the tray menu reflects logged-in state.
+    try {
+      const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+      const profileRes = await axios.get(`${baseUrl}/accounts/${authState.user?.email}`, {
+        headers: { Authorization: `Bearer ${authState.accessToken}` },
+        timeout: 5000,
+      });
+      global.authUser = profileRes.data.data;
+    } catch (profileErr) {
+      console.warn('[MAIN] Silent auth succeeded but profile fetch failed — tray will show logged-out state', profileErr);
+      Sentry.captureException(profileErr);
     }
   } else {
     createSplashWindow();
@@ -1757,81 +1800,31 @@ ipcMain.handle('set-launch-at-login', (_event: Electron.IpcMainInvokeEvent, enab
   app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
 });
 
-/**
- * Handler for storing auth tokens (kept in sync with AuthContext on sign-in and token refresh)
- */
-ipcMain.on('update-auth-tokens', (_event: Electron.IpcMainEvent, { accessToken, refreshToken }: { accessToken: string | null; refreshToken: string | null }) => {
-  global.authAccessToken = accessToken;
-  global.authRefreshToken = refreshToken;
-  if (refreshToken) {
-    saveRefreshToken(refreshToken);
-  } else {
-    clearRefreshToken();
-  }
+ipcMain.handle('auth:sign-in', async (_event, { email, password }: { email: string; password: string }) => {
+  return authManager.signIn(email, password);
+});
+
+ipcMain.handle('auth:verify-mfa', async (_event, { factorId, code }: { factorId: string; code: string }) => {
+  return authManager.verifyMFA(factorId, code);
+});
+
+ipcMain.handle('auth:sign-out', async () => {
+  await authManager.signOut();
 });
 
 /**
- * Handler for retrieving stored auth tokens (used by tray menu to build authenticated URLs)
+ * Returns a valid access token, proactively refreshing if within 60 s of expiry.
+ * All windows call this instead of caching a token themselves.
  */
-ipcMain.handle('get-auth-tokens', () => {
-  return {
-    accessToken: global.authAccessToken ?? null,
-    refreshToken: global.authRefreshToken ?? null,
-  };
+ipcMain.handle('auth:get-token', async () => {
+  return authManager.getAccessToken();
 });
 
-/**
- * Handler for refreshing auth tokens — single point of truth for all windows.
- * Queues concurrent requests so only one actual refresh call goes to Supabase,
- * then broadcasts the new tokens to all open windows.
- */
-let isRefreshingTokens = false;
-let pendingRefreshResolvers: Array<(result: { accessToken?: string; refreshToken?: string; error?: string }) => void> = [];
-
-ipcMain.handle('refresh-auth-tokens', async () => {
-  if (!global.authRefreshToken) {
-    return { error: 'No refresh token available' };
-  }
-
-  if (isRefreshingTokens) {
-    return new Promise(resolve => pendingRefreshResolvers.push(resolve));
-  }
-
-  isRefreshingTokens = true;
-
-  try {
-    const { accessToken, refreshToken } = await refreshAuthTokens(global.authRefreshToken);
-
-    global.authAccessToken = accessToken;
-    global.authRefreshToken = refreshToken;
-
-    // Broadcast to all windows so their local Supabase clients stay in sync
-    BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
-      if (!win.isDestroyed()) {
-        win.webContents.send('auth-tokens-refreshed', { accessToken, refreshToken });
-      }
-    });
-
-    const result = { accessToken, refreshToken };
-    pendingRefreshResolvers.forEach(resolve => resolve(result));
-    return result;
-  } catch (error: any) {
-    Sentry.captureException(error);
-    const result = { error: error.message ?? 'Token refresh failed' };
-    pendingRefreshResolvers.forEach(resolve => resolve(result));
-    // Broadcast session expiry from main process (single source of truth) so only
-    // one event fires per window regardless of how many windows triggered the refresh
-    BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
-      if (!win.isDestroyed()) {
-        win.webContents.send('auth-session-expired');
-      }
-    });
-    return result;
-  } finally {
-    isRefreshingTokens = false;
-    pendingRefreshResolvers = [];
-  }
+ipcMain.handle('auth:get-state', () => {
+  return authManager.getState();
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Handler for updating user auth state

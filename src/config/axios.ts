@@ -1,206 +1,111 @@
-import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { supabase } from './supabase';
+import axios from 'axios';
 import * as Sentry from "@sentry/electron/renderer";
 
-interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
-	_retryCount?: number;
-	_retry?: boolean;
-}
-interface QueuedRequest {
-	resolve: (token: string | null) => void;
-	reject: (error: unknown) => void;
-}
-
-// Create axios instance with base configuration
 const apiClient = axios.create({
 	baseURL: import.meta.env.VITE_BACKEND_BASE_URL,
-	timeout: 10000,
+	timeout: 15000,
 });
 
-// Keep local Supabase client in sync when main process broadcasts a token refresh
-// triggered by another window. This prevents the auto-refresh timers in each window
-// from competing with each other using stale tokens.
-window.electron?.ipcRenderer?.on('auth-tokens-refreshed', (data: { accessToken: string; refreshToken: string }) => {
-	supabase.auth.setSession({ access_token: data.accessToken, refresh_token: data.refreshToken }).catch(() => {});
-});
+// ─── Request interceptor ─────────────────────────────────────────────────────
+// Always fetch the token from main. main's AuthManager proactively refreshes
+// 60 s before expiry, so this almost always returns a fresh token with zero
+// round-trips. On the rare race where the token is stale, the 401 handler below
+// forces a refresh and retries once.
 
-// Convert main-process session-expiry broadcast to a DOM event consumed by useSessionExpiry.
-// Centralising dispatch here prevents duplicate events when multiple windows trigger a failed refresh.
-window.electron?.ipcRenderer?.on('auth-session-expired', () => {
-	window.dispatchEvent(new CustomEvent('auth:session-expired'));
-});
-
-// Request interceptor — get token from main process (single source of truth)
 apiClient.interceptors.request.use(
 	async (config) => {
-		const customConfig = config as CustomAxiosRequestConfig;
-
-		const { accessToken } = await window.electron?.ipcRenderer?.invoke('get-auth-tokens') as { accessToken: string | null } ?? { accessToken: null };
-
-		if (accessToken) {
-			customConfig.headers.Authorization = `Bearer ${accessToken}`;
+		const token: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
+		if (token) {
+			config.headers.Authorization = `Bearer ${token}`;
 		}
-
-		customConfig._retryCount = customConfig._retryCount || 0;
 
 		Sentry.addBreadcrumb({
 			category: 'api.request',
-			message: `${customConfig.method?.toUpperCase()} ${customConfig.url}`,
+			message: `${config.method?.toUpperCase()} ${config.url}`,
 			level: 'info',
-			data: {
-				method: customConfig.method,
-				url: customConfig.url,
-				baseURL: customConfig.baseURL,
-				retryCount: customConfig._retryCount
-			}
+			data: { method: config.method, url: config.url, baseURL: config.baseURL },
 		});
 
-		return customConfig;
+		return config;
 	},
-	(error) => {
-		return Promise.reject(error);
-	}
+	(error) => Promise.reject(error),
 );
 
-// Queue to hold requests while refreshing token
-let isRefreshing = false;
-let failedQueue: QueuedRequest[] = [];
+// ─── Response interceptor ────────────────────────────────────────────────────
+// On 401: ask main to return the freshest token (which triggers a refresh if
+// needed behind the mutex). Retry the original request exactly once.
+// On network error: retry up to 3 times with back-off.
 
-const processQueue = (error: unknown, token: string | null = null): void => {
-	failedQueue.forEach((prom) => {
-		if (error) {
-			prom.reject(error);
-		} else {
-			prom.resolve(token);
-		}
-	});
-
-	failedQueue = [];
-};
-
-// Response interceptor to handle 401 errors and retry logic
 apiClient.interceptors.response.use(
 	(response) => {
-		console.log('🌐 [API Response]', {
-			url: response.config.url,
-			status: response.status,
-			data: response.data
-		});
-
 		Sentry.addBreadcrumb({
 			category: 'api.response',
 			message: `${response.config.method?.toUpperCase()} ${response.config.url} - ${response.status}`,
 			level: 'info',
-			data: {
-				method: response.config.method,
-				url: response.config.url,
-				status: response.status,
-				statusText: response.statusText
-			}
+			data: { status: response.status, url: response.config.url },
 		});
-
 		return response;
 	},
 	async (error) => {
 		const originalRequest = error.config;
 
-		console.error('🌐 [API Error]', {
-			url: originalRequest?.url,
-			status: error.response?.status,
-			data: error.response?.data,
-			code: error.code,
-			retryCount: originalRequest?._retryCount
-		});
-
 		Sentry.addBreadcrumb({
 			category: 'api.error',
-			message: `${originalRequest?.method?.toUpperCase()} ${originalRequest?.url} - ${error.response?.status || error.code}`,
+			message: `${originalRequest?.method?.toUpperCase()} ${originalRequest?.url} - ${error.response?.status ?? error.code}`,
 			level: 'error',
 			data: {
-				method: originalRequest?.method,
 				url: originalRequest?.url,
 				status: error.response?.status,
-				statusText: error.response?.statusText,
 				code: error.code,
-				retryCount: originalRequest?._retryCount,
-				errorData: error.response?.data
-			}
+				errorData: error.response?.data,
+			},
 		});
 
-		// Handle 401 Unauthorized — refresh via main process (single point of truth,
-		// prevents concurrent refreshes across multiple windows)
-		if (error.response?.status === 401 && !originalRequest._retry) {
-			if (isRefreshing) {
-				return new Promise(function(resolve, reject) {
-					failedQueue.push({ resolve, reject });
-				}).then(token => {
-					originalRequest.headers['Authorization'] = 'Bearer ' + token;
-					return apiClient(originalRequest);
-				}).catch(err => {
-					return Promise.reject(err);
-				});
+		// ── 401: refresh once via main, then retry ──────────────────────────
+		if (error.response?.status === 401 && !originalRequest._retried) {
+			originalRequest._retried = true;
+
+			// auth:get-token internally calls AuthManager.getAccessToken() which
+			// will wait for any in-flight refresh and return a valid token, or
+			// null if the session is irrecoverably expired.
+			const token: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
+
+			if (!token) {
+				// Session is gone — dispatch so useSessionExpiry can react
+				window.dispatchEvent(new CustomEvent('auth:session-expired'));
+				return Promise.reject(error);
 			}
 
-			originalRequest._retry = true;
-			isRefreshing = true;
-
-			try {
-				const { accessToken, refreshToken, error: refreshError } =
-					await window.electron.ipcRenderer.invoke('refresh-auth-tokens') as {
-						accessToken?: string;
-						refreshToken?: string;
-						error?: string;
-					};
-
-				if (refreshError || !accessToken) {
-					throw new Error(refreshError || 'No session returned after refresh');
-				}
-
-				// Keep local Supabase client in sync (for direct supabase.auth.* calls)
-				if (refreshToken) {
-					await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-				}
-
-				originalRequest.headers['Authorization'] = `Bearer ${accessToken}`;
-				processQueue(null, accessToken);
-				return apiClient(originalRequest);
-			} catch (refreshError) {
-				processQueue(refreshError, null);
-				return Promise.reject(refreshError);
-			} finally {
-				isRefreshing = false;
-			}
+			originalRequest.headers['Authorization'] = `Bearer ${token}`;
+			return apiClient(originalRequest);
 		}
 
-		// Retry logic for network errors and empty responses
+		// ── Network errors: up to 3 retries with back-off ───────────────────
 		if (
 			(error.code === 'ERR_NETWORK' || error.code === 'ERR_EMPTY_RESPONSE') &&
 			originalRequest &&
-			originalRequest._retryCount < 3
+			(originalRequest._retryCount ?? 0) < 3
 		) {
-			originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
-
-			console.log(`🔄 [API Retry] Attempt ${originalRequest._retryCount}/3 for ${originalRequest.url}`);
-
-			Sentry.addBreadcrumb({
-				category: 'api.retry',
-				message: `Retrying ${originalRequest.method?.toUpperCase()} ${originalRequest.url} (Attempt ${originalRequest._retryCount}/3)`,
-				level: 'warning',
-				data: {
-					method: originalRequest.method,
-					url: originalRequest.url,
-					retryCount: originalRequest._retryCount,
-					reason: error.code
-				}
-			});
-
+			originalRequest._retryCount = (originalRequest._retryCount ?? 0) + 1;
 			await new Promise(resolve => setTimeout(resolve, 1000 * originalRequest._retryCount));
-
 			return apiClient(originalRequest);
 		}
 
 		return Promise.reject(error);
-	}
+	},
 );
+
+// ─── Auth event listeners ────────────────────────────────────────────────────
+// Main broadcasts these when auth state changes. The session-expired one is
+// consumed by useSessionExpiry to close secondary windows gracefully.
+
+window.electron?.ipcRenderer?.on('auth:session-expired', () => {
+	window.dispatchEvent(new CustomEvent('auth:session-expired'));
+});
+
+// Backward-compat: old event name still dispatched by main during transition
+window.electron?.ipcRenderer?.on('auth-session-expired', () => {
+	window.dispatchEvent(new CustomEvent('auth:session-expired'));
+});
 
 export default apiClient;

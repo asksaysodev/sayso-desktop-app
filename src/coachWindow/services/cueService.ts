@@ -1,24 +1,22 @@
-import { supabase } from "../../config/supabase";
-
 export const cue_startStreaming = async (sessionId: string) => {
     try {
         if(!sessionId) {
             throw new Error('Session ID is required');
         }
-        
+
         if (!window.electron?.cue) {
             throw new Error('Electron cue API not available');
         }
-        
-        const { data: { session }} = await supabase.auth.getSession();
-        
-        if(!session || !session.access_token) {
+
+        const token: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
+
+        if (!token) {
             throw new Error('No session found');
         }
 
-        const result = await window.electron.cue.start({ 
-            sessionId, 
-            token: session.access_token 
+        const result = await window.electron.cue.start({
+            sessionId,
+            token
         });
 
         if(!result || !result.success) {

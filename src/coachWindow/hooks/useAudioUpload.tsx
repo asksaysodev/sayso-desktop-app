@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { supabase } from '../../config/supabase';
 import * as Sentry from "@sentry/electron/renderer";
 
 export const useAudioUpload = () => {
@@ -21,40 +20,37 @@ export const useAudioUpload = () => {
   };
 
   const uploadFileViaIPC = async (filePath: string, type: string, parentId: string, fileName: string, metadata = {}) => {
-    // Get auth token from Supabase
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session?.access_token) {
+    const accessToken: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
+
+    if (!accessToken) {
       throw new Error('No authentication token available. Please log in.');
     }
-    
+
     if (!window.electron?.uploadFile) {
       throw new Error('Electron upload API not available');
     }
-    
+
     return await window.electron.uploadFile({
       filePath,
       type,
       parentId,
-      accessToken: session.access_token,
+      accessToken,
       fileName,
       data: metadata
     });
   };
 
   const uploadBothFilesViaIPC = async ({ user, prospect, sessionId }: { user: { file: string, actualStartMs: number }, prospect: { file: string, actualStartMs: number }, sessionId: string }) => {
-    // Get auth token from Supabase
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session?.access_token) {
+    const accessToken: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
+
+    if (!accessToken) {
       throw new Error('No authentication token available. Please log in.');
     }
-    
+
     if (!window.electron?.uploadBothFiles) {
       throw new Error('Electron upload API not available');
     }
 
-    // Validate input structure
     if (!user?.file || user?.actualStartMs === undefined) {
       throw new Error('User file and actualStartMs are required');
     }
@@ -66,7 +62,7 @@ export const useAudioUpload = () => {
     if (!sessionId) {
       throw new Error('sessionId is required');
     }
-    
+
     return await window.electron.uploadBothFiles({
       user: {
         file: user.file,
@@ -77,7 +73,7 @@ export const useAudioUpload = () => {
         actualStartMs: prospect.actualStartMs
       },
       sessionId,
-      accessToken: session.access_token
+      accessToken
     });
   };
 

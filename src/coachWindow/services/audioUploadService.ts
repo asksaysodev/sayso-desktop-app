@@ -1,5 +1,3 @@
-import { supabase } from '../../config/supabase';
-
 export const compressAudioFile = async (cafFilePath: string, outputPath: string) => {
     // Call Electron to compress via FFmpeg
     if (window.electron && window.electron.recording) {
@@ -15,33 +13,33 @@ export const compressAudioFile = async (cafFilePath: string, outputPath: string)
 };
 
 export const uploadFileViaIPC = async (filePath: string, type: string, parentId: string, fileName: string, metadata = {}) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session?.access_token) {
+    const accessToken: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
+
+    if (!accessToken) {
         throw new Error('No authentication token available. Please log in.');
     }
-    
+
     if (!window.electron?.uploadFile) {
         throw new Error('Electron upload API not available');
     }
-    
+
     return await window.electron.uploadFile({
         filePath,
         type,
         parentId,
-        accessToken: session.access_token,
+        accessToken,
         fileName,
         data: metadata
     });
 };
 
 export const uploadBothFilesViaIPC = async ({ user, prospect, sessionId }: { user: { file: string, actualStartMs: number }, prospect: { file: string, actualStartMs: number }, sessionId: string }) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session?.access_token) {
+    const accessToken: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
+
+    if (!accessToken) {
         throw new Error('No authentication token available. Please log in.');
     }
-    
+
     if (!window.electron?.uploadBothFiles) {
         throw new Error('Electron uploadBothFiles API not available');
     }
@@ -57,7 +55,7 @@ export const uploadBothFilesViaIPC = async ({ user, prospect, sessionId }: { use
     if (!sessionId) {
         throw new Error('sessionId is required');
     }
-    
+
     return await window.electron.uploadBothFiles({
         user: {
             file: user.file,
@@ -68,7 +66,7 @@ export const uploadBothFilesViaIPC = async ({ user, prospect, sessionId }: { use
             actualStartMs: prospect.actualStartMs
         },
         sessionId,
-        accessToken: session.access_token
+        accessToken
     });
 };
 

@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import trayToggleOn from '/assets/tray-toggle-on.png';
 import trayToggleOff from '/assets/tray-toggle-off.png';
 import { Account } from '@/types/user';
-import { supabase } from '@/config/supabase';
 import { ExternalLink } from 'lucide-react';
 import { useAppSettingsWindow } from '@/hooks/useAppSettingsWindow';
 
@@ -80,9 +79,9 @@ const TrayMenuApp = () => {
     };
     
     const handlePressMyAccount = async () => {
-        const { data: { session } } = await supabase.auth.getSession();
+        const token: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
         const url = new URL('https://app.asksayso.com/settings');
-        if (session?.access_token) url.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}`;
+        if (token) url.hash = `access_token=${token}`;
         window.electron?.openExternal(url.toString());
     }
     

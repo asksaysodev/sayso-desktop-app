@@ -1,6 +1,5 @@
 import SaysoLoader from "@/components/SaysoLoader";
 import { useEffect, useState } from "react";
-import { supabase } from '@/config/supabase';
 
 export default function LogoutGate({ children }: { children: React.ReactNode }) {
     const [ready, setReady] = useState(false);
@@ -8,7 +7,7 @@ export default function LogoutGate({ children }: { children: React.ReactNode }) 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         if (params.get('logout') === 'true') {
-            supabase.auth.signOut().finally(() => setReady(true));
+            window.electron?.ipcRenderer?.invoke('auth:sign-out').finally(() => setReady(true));
         } else {
             setReady(true);
         }

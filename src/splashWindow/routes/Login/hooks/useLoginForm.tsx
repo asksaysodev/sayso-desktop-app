@@ -7,7 +7,6 @@ import {
 } from '../helpers/formValidation';
 import * as Sentry from "@sentry/electron/renderer";
 import { LoginFormData } from '../types';
-import { getAAL } from '@/services/mfaServices';
 
 const INITIAL_VALUES: LoginFormData = {
   email: '',
@@ -18,7 +17,7 @@ export default function useLoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [isBtnLoading, setIsBtnLoading] = useState(false);
   const navigate = useNavigate();
-  const { signIn, checkIfNeedsMFA } = useAuth();
+  const { signIn } = useAuth();
 
   const customResolver = (values: LoginFormData) => {
     const errors = validateLoginFields(values);
@@ -47,27 +46,16 @@ const performAuthentication = async (data: LoginFormData) => {
         email: data.email,
         password: data.password
     });
-    
+    console.log(signInResult, "signInResult")
     if (signInResult?.error) throw signInResult.error;
-    
-    let aalResult = await getAAL();
-    
-    if (aalResult.error) {
-    aalResult = await getAAL();
-    }
-    
-    if (aalResult.error || !aalResult.data) {                                                                                                                                                  
-        navigate('/mfa-verify', { replace: true });                                                                                                                                              
-        return;                                                                                                                                                                                  
-    }       
-    
-    const needsMFA = checkIfNeedsMFA(aalResult.data.currentLevel, aalResult.data.nextLevel);
-    
-    if (needsMFA) {
+
+    // signIn returns user: null when MFA is still required (mfaRequired state is set to true)
+    if (!signInResult.data?.user) {
         navigate('/mfa-verify', { replace: true });
-    } else {
-        navigate('/', { replace: true });
+        return;
     }
+
+    navigate('/', { replace: true });
   };
 
   const onSubmit = async (data: LoginFormData) => {
