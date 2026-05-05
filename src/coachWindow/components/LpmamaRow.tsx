@@ -1,4 +1,4 @@
-import { useState, useRef, useLayoutEffect } from 'react';
+import { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import { LpmamField } from '@/types/store/coachWindowStore';
 import { Copy, Check } from 'lucide-react';
@@ -26,6 +26,10 @@ export default function LpmamaRow({ onTooltipHeightChange }: Props) {
     const tooltipRef = useRef<HTMLDivElement | null>(null);
     const [justCopied, setJustCopied] = useState(false);
     const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => () => {
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    }, []);
 
     useLayoutEffect(() => {
         if (!hoveredField || !tooltipRef.current) {

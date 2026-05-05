@@ -1,4 +1,5 @@
 .smart-capture-warning-dialog {
+    position: relative;
     padding: 24px;
     display: flex;
     flex-direction: column;
@@ -14,11 +15,32 @@
     cursor: default !important;
 }
 
+.smart-capture-warning-dialog .smart-capture-warning-dialog-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color 150ms ease;
+}
+
+.smart-capture-warning-dialog .smart-capture-warning-dialog-close:hover {
+    color: rgba(255, 255, 255, 0.85);
+}
+
 .smart-capture-warning-dialog .smart-capture-warning-dialog-title {
     font-size: var(--cw-fs-dialog-title);
     font-weight: 700;
     color: #FFF;
     padding: 0;
+    padding-right: 20px;
     margin: 0 0 12px 0;
     text-align: left;
     letter-spacing: -0.02em;

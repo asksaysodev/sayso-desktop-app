@@ -67,7 +67,6 @@ export default function CoachWindowMain() {
     const incrementUnseenInsightsCount = useCoachWindowStore(state => state.cue_incrementUnseenInsightsCount);
     const handleStopCue = useCoachWindowStore(state => state.cue_handleStopCue);
     const onPressResetSession = useCoachWindowStore(state => state.cue_onPressResetSession);
-    const lpmama = useCoachWindowStore(state => state.cue.lpmama);
     const isSmartCaptureEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('smart_capture'));
     const isPulseEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('pulse'));
     const currentfs = useFontSize();
@@ -104,28 +103,31 @@ export default function CoachWindowMain() {
     }, [handleStopCue, onPressResetSession]);
 
     const handleRequestStop = useCallback(() => {
+        const lpmama = useCoachWindowStore.getState().cue.lpmama;
         if (isSmartCaptureEnabled && hasCapturedLpmamaData(lpmama)) {
             setPendingSmartCaptureAction('stop');
             return;
         }
         executeSmartCaptureAction('stop');
-    }, [isSmartCaptureEnabled, lpmama, executeSmartCaptureAction]);
+    }, [isSmartCaptureEnabled, executeSmartCaptureAction]);
 
     const handleRequestReset = useCallback(() => {
+        const lpmama = useCoachWindowStore.getState().cue.lpmama;
         if (isSmartCaptureEnabled && hasCapturedLpmamaData(lpmama)) {
             setPendingSmartCaptureAction('reset');
             return;
         }
         executeSmartCaptureAction('reset');
-    }, [isSmartCaptureEnabled, lpmama, executeSmartCaptureAction]);
+    }, [isSmartCaptureEnabled, executeSmartCaptureAction]);
 
     const handleSmartCaptureCopyAndProceed = useCallback(async () => {
         const mode = pendingSmartCaptureAction;
         if (!mode) return;
+        const lpmama = useCoachWindowStore.getState().cue.lpmama;
         await copyLpmamaContent(lpmama);
         setPendingSmartCaptureAction(null);
         executeSmartCaptureAction(mode);
-    }, [pendingSmartCaptureAction, lpmama, executeSmartCaptureAction]);
+    }, [pendingSmartCaptureAction, executeSmartCaptureAction]);
 
     const handleSmartCaptureProceedAnyway = useCallback(() => {
         const mode = pendingSmartCaptureAction;
@@ -134,11 +136,24 @@ export default function CoachWindowMain() {
         executeSmartCaptureAction(mode);
     }, [pendingSmartCaptureAction, executeSmartCaptureAction]);
 
+    const handleSmartCaptureDismiss = useCallback(() => {
+        setPendingSmartCaptureAction(null);
+    }, []);
+
     useEffect(() => {
         if (!isCoachActive && pendingSmartCaptureAction) {
             setPendingSmartCaptureAction(null);
         }
     }, [isCoachActive, pendingSmartCaptureAction]);
+
+    useEffect(() => {
+        if (!pendingSmartCaptureAction) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setPendingSmartCaptureAction(null);
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [pendingSmartCaptureAction]);
 
     // Manual window drag handlers
     const handleDragStart = async (e: MouseEvent) => {
@@ -491,6 +506,7 @@ export default function CoachWindowMain() {
                     mode={pendingSmartCaptureAction}
                     onPrimary={handleSmartCaptureCopyAndProceed}
                     onSecondary={handleSmartCaptureProceedAnyway}
+                    onDismiss={handleSmartCaptureDismiss}
                 />
             )}
         </div>
