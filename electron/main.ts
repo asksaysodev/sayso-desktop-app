@@ -39,14 +39,14 @@ function broadcastToAllWindows(channel: string, data?: unknown): void {
 authManager.on('signed-in', (state: AuthState) => {
   console.log('[AuthManager] signed-in:', state.user?.email);
   global.authAccessToken = state.accessToken;
-  broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated });
+  broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated, accessToken: state.accessToken });
 });
 
 authManager.on('signed-out', () => {
   console.log('[AuthManager] signed-out');
   global.authAccessToken = null;
   global.authRefreshToken = null;
-  broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false });
+  broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat for unmigrated windows
   broadcastToAllWindows('auth:session-expired');
 });
@@ -54,7 +54,7 @@ authManager.on('signed-out', () => {
 authManager.on('token-refreshed', (state: AuthState) => {
   console.log('[AuthManager] token-refreshed');
   global.authAccessToken = state.accessToken;
-  broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated });
+  broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated, accessToken: state.accessToken });
   broadcastToAllWindows('auth:token-refreshed');
   // Also broadcast old event so any remaining unmigrated axios listeners stay warm
   broadcastToAllWindows('auth-tokens-refreshed', { accessToken: state.accessToken, refreshToken: '' });
@@ -71,7 +71,7 @@ authManager.on('session-expired', () => {
   console.log('[AuthManager] session-expired');
   global.authAccessToken = null;
   global.authRefreshToken = null;
-  broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false });
+  broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat
   broadcastToAllWindows('auth:session-expired');
   // Stop WebSocket reconnect loops — there is no valid token to reconnect with

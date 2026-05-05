@@ -46,7 +46,6 @@ const performAuthentication = async (data: LoginFormData) => {
         email: data.email,
         password: data.password
     });
-    console.log(signInResult, "signInResult")
     if (signInResult?.error) throw signInResult.error;
 
     // signIn returns user: null when MFA is still required (mfaRequired state is set to true)

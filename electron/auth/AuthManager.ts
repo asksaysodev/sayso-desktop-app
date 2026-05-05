@@ -258,6 +258,9 @@ export class AuthManager extends EventEmitter {
     this.user = payload
       ? { id: payload.sub, email: payload.email ?? '', subscription_plan_id: null }
       : null;
+    if (this.user) {
+      Sentry.setUser({ id: this.user.id, email: this.user.email });
+    }
   }
 
   private _clearSession(): void {
@@ -265,6 +268,7 @@ export class AuthManager extends EventEmitter {
     this.refreshToken = null;
     this.expiresAt = null;
     this.user = null;
+    Sentry.setUser(null);
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);
       this.refreshTimer = null;
@@ -279,7 +283,7 @@ export class AuthManager extends EventEmitter {
 
   private _decodePayload(token: string): JwtPayload | null {
     try {
-      return JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString('utf-8')) as JwtPayload;
+      return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf-8')) as JwtPayload;
     } catch {
       return null;
     }

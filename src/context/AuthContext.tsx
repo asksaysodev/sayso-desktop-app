@@ -156,16 +156,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // already ran in main). We just read that state instead of re-authenticating.
   useEffect(() => {
     const bootstrap = async () => {
-      const state = await window.electron?.ipcRenderer?.invoke('auth:get-state') as
-        { user: { id: string; email: string } | null; isAuthenticated: boolean; accessToken: string | null } | undefined
+      try {
+        const state = await window.electron?.ipcRenderer?.invoke('auth:get-state') as
+          { user: { id: string; email: string } | null; isAuthenticated: boolean; accessToken: string | null } | undefined
 
-      if (state?.isAuthenticated && state.user) {
-        setUser(state.user as User)
-        setAuthToken(state.accessToken ?? null)
-        Sentry.setUser({ id: state.user.id, email: state.user.email })
+        if (state?.isAuthenticated && state.user) {
+          setUser(state.user as User)
+          setAuthToken(state.accessToken ?? null)
+          Sentry.setUser({ id: state.user.id, email: state.user.email })
+        }
+      } catch (err) {
+        console.error('[AuthContext] Failed to bootstrap auth state:', err)
+        Sentry.captureException(err)
+      } finally {
+        setLoading(false)
       }
-
-      setLoading(false)
     }
 
     bootstrap()
@@ -179,9 +184,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const offState = ipcRenderer.on('auth:state', (data: any) => {
       if (data?.isAuthenticated && data.user) {
         setUser(data.user as User)
+        setAuthToken(data.accessToken ?? null)
         Sentry.setUser({ id: data.user.id, email: data.user.email })
       } else {
         setUser(null)
+        setAuthToken(null)
         Sentry.setUser(null)
       }
     })
