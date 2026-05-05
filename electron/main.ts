@@ -1011,8 +1011,12 @@ const isDev = !app.isPackaged;
 let splashWindowInstance: BrowserWindowType | null = null;
 
 // --- Splash Window (Auth / Loading Screen) ---
-const createSplashWindow = (logout: boolean = false) => {
+const createSplashWindow = (opts: { logout?: boolean; reason?: 'session-expired' } | boolean = {}) => {
+  // Support legacy boolean call sites (createSplashWindow(true))
+  const { logout = false, reason } = typeof opts === 'boolean' ? { logout: opts, reason: undefined } : opts;
+
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+    if (reason) splashWindowInstance.webContents.send('splash:show-reason', reason);
     splashWindowInstance.focus();
     return;
   }
@@ -1039,7 +1043,10 @@ const splashWindow = new BrowserWindow({
 
   splashWindowInstance = splashWindow;
 
-  const query = logout ? '?logout=true' : '';
+  const params = new URLSearchParams();
+  if (logout) params.set('logout', 'true');
+  if (reason) params.set('reason', reason);
+  const query = params.toString() ? `?${params.toString()}` : '';
   const splashUrl = isDev
     ? `http://localhost:5173/splash-window.html${query}`
     : `file://${path.join(__dirname, '../dist/splash-window.html')}${query}`;
@@ -1856,6 +1863,16 @@ ipcMain.on('close-app-settings-window', () => {
         global.appSettingsWindow = null;
     }
 })
+
+ipcMain.on('app-settings:session-expired-redirect', () => {
+    createSplashWindow({ reason: 'session-expired' });
+    if (global.appSettingsWindow && !global.appSettingsWindow.isDestroyed()) {
+        global.appSettingsWindow.close();
+        global.appSettingsWindow = null;
+    } else {
+        global.appSettingsWindow = null;
+    }
+})
 ipcMain.on('get-app-settings-window-state', (event: Electron.IpcMainInvokeEvent) => {
     event.sender.send('app-settings-window-state', {
         isOpen: isAppSettingsWindowOpen()
@@ -1950,7 +1967,7 @@ ipcMain.on('tray-logout', () => {
   hideTrayMenu();
   clearRefreshToken();
   if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
-    createSplashWindow(true);
+    createSplashWindow({ logout: true });
   } else {
     const logoutUrl = isDev
       ? 'http://localhost:5173/splash-window.html?logout=true'

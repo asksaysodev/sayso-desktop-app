@@ -32,6 +32,17 @@
     margin-bottom: 30px;
   }
 
+  .noticeMessage {
+    color: #856404;
+    background-color: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 6px;
+    padding: 10px;
+    margin-bottom: 15px;
+    text-align: center;
+    font-size: 13px;
+  }
+
   .errorMessage {
     color: #dc3545;
     background-color: #f8d7da;

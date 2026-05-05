@@ -120,12 +120,10 @@ function AppSettingsContent() {
 }
 
 function AppSettingsWindowApp() {
-    const closeWindow = useCallback(() => {
-        if (window?.electron?.ipcRenderer) {
-            window.electron.ipcRenderer.send('close-app-settings-window')
-        }
+    const handleSessionExpired = useCallback(() => {
+        window.electron?.ipcRenderer?.send('app-settings:session-expired-redirect');
     }, []);
-    useSessionExpiry(closeWindow);
+    useSessionExpiry(handleSessionExpired);
 
     return (
         <CoachSettingsProvider>
