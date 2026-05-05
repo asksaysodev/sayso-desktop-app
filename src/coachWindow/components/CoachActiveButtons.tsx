@@ -10,22 +10,22 @@ const ICON_SIZE = 15;
 interface Props {
     coachFeature: CoachFeature;
     handleCoach: () => void;
+    onRequestReset?: () => void;
 }
 
-export default function CoachActiveButtons({ coachFeature, handleCoach }: Props) {
+export default function CoachActiveButtons({ coachFeature, handleCoach, onRequestReset }: Props) {
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isResettingCueSession = useCoachWindowStore(state => state.cue.isResettingCueSession);
-    const cue_onPressResetSession = useCoachWindowStore(state => state.cue_onPressResetSession);
 
     const showTimer = coachFeature === 'recall' || coachFeature === 'cue';
     const disableButtons = isCoachLoading || isResettingCueSession;
 
     return (
         <>
-            {coachFeature === 'cue' && 
-                <button 
+            {coachFeature === 'cue' &&
+                <button
                 className={`coach-button reset ${isResettingCueSession ? 'loading' : ''}`}
-                onClick={cue_onPressResetSession} 
+                onClick={onRequestReset}
                 disabled={disableButtons}
                 >
                     {isResettingCueSession && (

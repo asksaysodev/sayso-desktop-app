@@ -6,7 +6,7 @@
     color: #FFF;
     justify-content: start;
     border-radius: 16px;
-    background: rgba(2, 25, 47, 0.9);
+    background: var(--sayso-coach-bg);
     backdrop-filter: blur(200px); 
     -webkit-backdrop-filter: blur(200px);
     box-shadow: 

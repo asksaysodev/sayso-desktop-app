@@ -1,16 +1,9 @@
-import { useState, useRef, useLayoutEffect } from 'react';
+import { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import { LpmamField } from '@/types/store/coachWindowStore';
-import { Copy } from 'lucide-react';
-
-const LPMAMA_CONFIG: { field: LpmamField; initial: string; label: string }[] = [
-    { field: 'location',    initial: 'L', label: 'Location' },
-    { field: 'price',       initial: 'P', label: 'Price' },
-    { field: 'motivation',  initial: 'M', label: 'Motivation' },
-    { field: 'agent',       initial: 'A', label: 'Agent' },
-    { field: 'mortgage',    initial: 'M', label: 'Mortgage' },
-    { field: 'appointment', initial: 'A', label: 'Appointment' },
-];
+import { Copy, Check } from 'lucide-react';
+import { copyLpmamaContent } from '../helpers/copyLpmamaContent';
+import { LPMAMA_CONFIG } from '../constants/lpmama';
 
 // Distance from row bottom to tooltip top — matches the CSS `top: calc(100% + 9px)` on .lpmama-tooltip
 const TOOLTIP_OFFSET = 9;
@@ -23,6 +16,12 @@ export default function LpmamaRow({ onTooltipHeightChange }: Props) {
     const lpmama = useCoachWindowStore(state => state.cue.lpmama);
     const [hoveredField, setHoveredField] = useState<LpmamField | null>(null);
     const tooltipRef = useRef<HTMLDivElement | null>(null);
+    const [justCopied, setJustCopied] = useState(false);
+    const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => () => {
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    }, []);
 
     useLayoutEffect(() => {
         if (!hoveredField || !tooltipRef.current) {
@@ -32,15 +31,13 @@ export default function LpmamaRow({ onTooltipHeightChange }: Props) {
         onTooltipHeightChange(tooltipRef.current.offsetHeight + TOOLTIP_OFFSET);
     }, [hoveredField, onTooltipHeightChange]);
 
-    const copyLpmamaContent = async () => {
-        const textToCopy = LPMAMA_CONFIG.map(({ field, label }) => `${label}: ${lpmama[field] ?? ''}`).join('\n');
-        try {
-            await navigator.clipboard.writeText(textToCopy);
-        } catch {
-            // clipboard write failed — silently ignore
-        }
-    }
-    
+    const handleCopy = async () => {
+        await copyLpmamaContent(lpmama);
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        setJustCopied(true);
+        copyTimerRef.current = setTimeout(() => setJustCopied(false), 1500);
+    };
+
     return (
         <div className="lpmama-row">
             {LPMAMA_CONFIG.map(({ field, initial, label }) => {
@@ -67,8 +64,8 @@ export default function LpmamaRow({ onTooltipHeightChange }: Props) {
                     </div>
                 );
             })}
-            <div className='lpmama-dot lpmama-dot--copy' onClick={copyLpmamaContent}>
-                <Copy size={14} />
+            <div className={`lpmama-dot lpmama-dot--copy${justCopied ? ' lpmama-dot--copied' : ''}`} onClick={handleCopy}>
+                {justCopied ? <Check size={14} /> : <Copy size={14} />}
             </div>
         </div>
     );
