@@ -16,19 +16,16 @@ interface Props {
 export default function CoachActiveButtons({ coachFeature, handleCoach, onRequestReset }: Props) {
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isResettingCueSession = useCoachWindowStore(state => state.cue.isResettingCueSession);
-    const cue_onPressResetSession = useCoachWindowStore(state => state.cue_onPressResetSession);
 
     const showTimer = coachFeature === 'recall' || coachFeature === 'cue';
     const disableButtons = isCoachLoading || isResettingCueSession;
-
-    const handleResetClick = onRequestReset ?? cue_onPressResetSession;
 
     return (
         <>
             {coachFeature === 'cue' &&
                 <button
                 className={`coach-button reset ${isResettingCueSession ? 'loading' : ''}`}
-                onClick={handleResetClick}
+                onClick={onRequestReset}
                 disabled={disableButtons}
                 >
                     {isResettingCueSession && (

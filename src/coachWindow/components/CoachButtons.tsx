@@ -39,7 +39,6 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen, onRequ
                 await cue_handleStartCue();
             },
             stop: async () => {
-				console.log('Stopping cue');
                 await cue_handleStopCue();
             },
             validate: () => true,

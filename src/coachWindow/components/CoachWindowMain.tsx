@@ -50,6 +50,7 @@ export default function CoachWindowMain() {
     const [isDragging, setIsDragging] = useState(false);
     const [lpmamaTooltipHeight, setLpmamaTooltipHeight] = useState(0);
     const [pendingSmartCaptureAction, setPendingSmartCaptureAction] = useState<SmartCaptureWarningMode | null>(null);
+    const [isSmartCaptureProcessing, setIsSmartCaptureProcessing] = useState(false);
     //CONTEXT / HOOKS
     const sessionData = useCoachWindowStore(state => state.sessionData);
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
@@ -123,8 +124,10 @@ export default function CoachWindowMain() {
     const handleSmartCaptureCopyAndProceed = useCallback(async () => {
         const mode = pendingSmartCaptureAction;
         if (!mode) return;
+        setIsSmartCaptureProcessing(true);
         const lpmama = useCoachWindowStore.getState().cue.lpmama;
         await copyLpmamaContent(lpmama);
+        setIsSmartCaptureProcessing(false);
         setPendingSmartCaptureAction(null);
         executeSmartCaptureAction(mode);
     }, [pendingSmartCaptureAction, executeSmartCaptureAction]);
@@ -149,11 +152,11 @@ export default function CoachWindowMain() {
     useEffect(() => {
         if (!pendingSmartCaptureAction) return;
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setPendingSmartCaptureAction(null);
+            if (e.key === 'Escape' && !isSmartCaptureProcessing) setPendingSmartCaptureAction(null);
         };
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [pendingSmartCaptureAction]);
+    }, [pendingSmartCaptureAction, isSmartCaptureProcessing]);
 
     // Manual window drag handlers
     const handleDragStart = async (e: MouseEvent) => {
@@ -507,6 +510,7 @@ export default function CoachWindowMain() {
                     onPrimary={handleSmartCaptureCopyAndProceed}
                     onSecondary={handleSmartCaptureProceedAnyway}
                     onDismiss={handleSmartCaptureDismiss}
+                    isProcessing={isSmartCaptureProcessing}
                 />
             )}
         </div>

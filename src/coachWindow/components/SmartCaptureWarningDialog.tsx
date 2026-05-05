@@ -10,6 +10,7 @@ interface Props {
     onPrimary: () => void;
     onSecondary: () => void;
     onDismiss: () => void;
+    isProcessing?: boolean;
 }
 
 const COPY: Record<SmartCaptureWarningMode, { description: string; primary: string; secondary: string }> = {
@@ -25,19 +26,19 @@ const COPY: Record<SmartCaptureWarningMode, { description: string; primary: stri
     },
 };
 
-const SmartCaptureWarningDialog = forwardRef<HTMLDivElement, Props>(({ mode, onPrimary, onSecondary, onDismiss }, ref) => {
+const SmartCaptureWarningDialog = forwardRef<HTMLDivElement, Props>(({ mode, onPrimary, onSecondary, onDismiss, isProcessing }, ref) => {
     const { description, primary, secondary } = COPY[mode];
 
     return (
         <div ref={ref} className="insights-vertical-layout-container smart-capture-warning-dialog">
-            <button className="smart-capture-warning-dialog-close" onClick={onDismiss} aria-label="Dismiss">
+            <button className="smart-capture-warning-dialog-close" onClick={onDismiss} aria-label="Dismiss" disabled={isProcessing}>
                 <LuX size={14} />
             </button>
             <p className="smart-capture-warning-dialog-title">Save your notes first?</p>
             <p className="smart-capture-warning-dialog-description">{description}</p>
             <div className="smart-capture-warning-dialog-actions">
-                <SaysoButton label={secondary} onClick={onSecondary} variant="outlined" />
-                <SaysoButton label={primary} onClick={onPrimary} />
+                <SaysoButton label={secondary} onClick={onSecondary} variant="outlined" disabled={isProcessing} />
+                <SaysoButton label={primary} onClick={onPrimary} loading={isProcessing} />
             </div>
         </div>
     );
