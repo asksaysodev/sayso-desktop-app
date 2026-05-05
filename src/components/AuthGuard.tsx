@@ -4,7 +4,6 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import SaysoLoader from './SaysoLoader';
 
 import { useAuth } from '../context/AuthContext';
-import { getAAL } from '@/services/mfaServices';
 
 import '../styles/AuthGuard.css';
 
@@ -13,28 +12,19 @@ interface Props {
 }
 
 const AuthGuard = ({ children }: Props) => {
-  const { globalUser, loading = true, userLoading, checkIfNeedsMFA } = useAuth();
+  const { globalUser, loading = true, userLoading, mfaRequired } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [isCheckingMFA, setIsCheckingMFA] = useState(true);
 
   useEffect(() => {
-    const checkMFAStatus = async () => {
+    const checkMFAStatus = () => {
       if (!globalUser) {
         setIsCheckingMFA(false);
         return;
       }
 
-      const aalResult = await getAAL();
-
-      if (aalResult.error || !aalResult.data) {
-        navigate('/mfa-verify', { replace: true });
-        return;
-      }
-
-      const needsMFA = checkIfNeedsMFA(aalResult.data.currentLevel, aalResult.data.nextLevel);
-
-      if (needsMFA) {
+      if (mfaRequired) {
         navigate('/mfa-verify', { replace: true });
       } else {
         setIsCheckingMFA(false);
@@ -44,7 +34,7 @@ const AuthGuard = ({ children }: Props) => {
     if (!loading && !userLoading) {
       checkMFAStatus();
     }
-  }, [globalUser, loading, userLoading, checkIfNeedsMFA, navigate]);
+  }, [globalUser, loading, userLoading, mfaRequired, navigate]);
 
   if (loading || userLoading || isCheckingMFA) {
     return <SaysoLoader />;

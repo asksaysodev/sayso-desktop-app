@@ -1,12 +1,10 @@
 import { createContext, useContext, useCallback, useEffect, useState, useRef } from 'react'
 import { useSessionExpiry } from '@/hooks/useSessionExpiry'
-import { supabase } from '../config/supabase'
+import * as Sentry from "@sentry/electron/renderer"
 import { useAccounts } from '../hooks/useAccounts'
 import { useLocation } from 'react-router-dom'
-import * as Sentry from "@sentry/electron/renderer"
 import { Account, AuthResult, SignInData, User } from '@/types/user'
 import { AALLevel, MFAServiceError } from '@/types/supabaseMFA'
-import { getAAL, listFactors, verifyTOTPCode } from '@/services/mfaServices'
 import type { Factor } from '@supabase/supabase-js'
 
 interface AuthContextValue {
@@ -24,7 +22,6 @@ interface AuthContextValue {
   checkMFAStatus: () => Promise<boolean>;
   verifyMFA: (code: string) => Promise<{ success: boolean; error: MFAServiceError | null }>;
   clearMFARequired: () => void;
-  checkIfNeedsMFA: (currentLevel: AALLevel | null | undefined, nextLevel: AALLevel | null | undefined) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue>({} as AuthContextValue)
@@ -35,28 +32,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [globalUser, setGlobalUser] = useState(null)
   const [authToken, setAuthToken] = useState<string | null>(null)
   const [userLoading, setUserLoading] = useState(true)
-  const prevUserRef = useRef<User | null>(null)
   const accountCreationRef = useRef<Promise<void> | null>(null)
-  const location = useLocation()
   const [mfaRequired, setMfaRequired] = useState(false)
   const [currentAAL, setCurrentAAL] = useState<AALLevel | null>(null)
   const [mfaFactors, setMfaFactors] = useState<Factor[]>([])
 
   const { createAccount, getAccount } = useAccounts()
 
-  // Wrapper function to handle localStorage updates
-  const updateGlobalUserState = (newGlobalUser: any) => { // $FixTS
-    const ipcRenderer = window.electron?.ipcRenderer;
+  const updateGlobalUserState = (newGlobalUser: any) => {
+    const ipcRenderer = window.electron?.ipcRenderer
     if (newGlobalUser === null) {
-      if (ipcRenderer) {
-        window.electron?.ipcRenderer?.send('update-user-auth', { userAuthenticated: null });
-      }
+      ipcRenderer?.send('update-user-auth', { userAuthenticated: null })
       localStorage.removeItem('sayso-global-user')
     } else {
-      if (ipcRenderer) {
-        ipcRenderer.send('update-user-auth', { userAuthenticated: newGlobalUser });
-      }
-
+      ipcRenderer?.send('update-user-auth', { userAuthenticated: newGlobalUser })
       localStorage.setItem('sayso-global-user', JSON.stringify(newGlobalUser))
     }
     setGlobalUser(newGlobalUser)
@@ -64,49 +53,33 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const updateGlobalUser = async (accountEmail: string): Promise<void> => {
     try {
-      const account = await getAccount(accountEmail);
-      updateGlobalUserState(account);
+      const account = await getAccount(accountEmail)
+      updateGlobalUserState(account)
     } catch (error) {
-      console.error('Error updating global user:', error);
-      Sentry.captureException(error);
+      console.error('Error updating global user:', error)
+      Sentry.captureException(error)
     }
   }
 
-  const resetUser = () => {
-    setUser(null);
-    updateGlobalUserState(null);
-    setAuthToken(null);
-    Sentry.setUser(null);
-    setMfaRequired(false);
-    setCurrentAAL(null);
-    setMfaFactors([]);
-  }
+  const resetUser = useCallback(() => {
+    setUser(null)
+    updateGlobalUserState(null)
+    setAuthToken(null)
+    Sentry.setUser(null)
+    setMfaRequired(false)
+    setCurrentAAL(null)
+    setMfaFactors([])
+  }, [])
 
-  /**
-   * Checks if MFA verification is required for the current session.
-   */
   const checkIfNeedsMFA = (currentLevel: AALLevel | null | undefined, nextLevel: AALLevel | null | undefined): boolean => {
-    if (!currentLevel || !nextLevel) return false;
-    return currentLevel === 'aal1' && nextLevel === 'aal2';
+    if (!currentLevel || !nextLevel) return false
+    return currentLevel === 'aal1' && nextLevel === 'aal2'
   }
 
   const checkMFAStatus = async (): Promise<boolean> => {
-    const [aalResult, factorsResult] = await Promise.all([
-      getAAL(),
-      listFactors()
-    ])
-
-    if (aalResult.error || !aalResult.data) {
-      return false
-    }
-
-    const { currentLevel, nextLevel } = aalResult.data
-    setCurrentAAL(currentLevel)
-    setMfaFactors(factorsResult.data)
-
-    const needsMFA = checkIfNeedsMFA(currentLevel, nextLevel)
+    if (mfaFactors.length === 0) return false
+    const needsMFA = checkIfNeedsMFA(currentAAL, 'aal2')
     setMfaRequired(needsMFA)
-
     return needsMFA
   }
 
@@ -115,108 +88,135 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return { success: false, error: { message: 'No MFA factors enrolled' } }
     }
 
-    const factor = mfaFactors[0]
-    const result = await verifyTOTPCode(factor.id, code)
+    const factorId = mfaFactors[0].id
+    const result = await window.electron?.ipcRenderer?.invoke('auth:verify-mfa', { factorId, code }) as
+      { success: boolean; error?: string } | undefined
 
-    if (result.success) {
+    if (result?.success) {
       setMfaRequired(false)
       setCurrentAAL('aal2')
+      // Fetch the fresh token so authToken state is up to date
+      const token: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null
+      setAuthToken(token)
     }
 
-    return result
+    return {
+      success: result?.success ?? false,
+      error: result?.error ? { message: result.error } : null,
+    }
   }
 
-  const clearMFARequired = () => {
-    setMfaRequired(false)
-  }
+  const clearMFARequired = () => setMfaRequired(false)
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-
-    resetUser();
-
-    if (window.electron?.ipcRenderer) {
-      window.electron.ipcRenderer.send('update-user-auth', { userAuthenticated: null });
-    }
+    await window.electron?.ipcRenderer?.invoke('auth:sign-out')
+    resetUser()
   }
 
-  // Keep auth tokens in main process in sync for tray menu use
-  useEffect(() => {
-    const ipcRenderer = window.electron?.ipcRenderer;
-    if (!ipcRenderer) return;
+  // ─── Sign-in ─────────────────────────────────────────────────────────────
+  const signIn = async (data: SignInData): Promise<AuthResult> => {
+    const result = await window.electron?.ipcRenderer?.invoke('auth:sign-in', {
+      email: data.email,
+      password: data.password,
+    }) as { success: boolean; mfaRequired?: boolean; mfaFactors?: any[]; error?: string } | undefined
 
-    if (authToken) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        ipcRenderer.send('update-auth-tokens', {
-          accessToken: session?.access_token ?? null,
-          refreshToken: session?.refresh_token ?? null,
-        });
-      });
-    } else {
-      ipcRenderer.send('update-auth-tokens', { accessToken: null, refreshToken: null });
-    }
-  }, [authToken]);
-
-  // Handle session expiration
-  const handleSessionExpired = useCallback(() => {
-    console.log('🔐 AuthContext: Session expired event received');
-    resetUser();
-  }, [resetUser]);
-  useSessionExpiry(handleSessionExpired);
-
-  // Handle logout triggered from tray menu
-  useEffect(() => {
-    const ipcRenderer = window.electron?.ipcRenderer;
-    if (!ipcRenderer) return;
-
-    ipcRenderer.on('trigger-logout', handleSignOut as any);
-    return () => {
-      ipcRenderer.off('trigger-logout', handleSignOut as any);
-    };
-  }, []);
-
-  useEffect(() => {
-    // Skip auth check for /zoom-success
-    if (location.pathname === '/zoom-success') {
-      setLoading(false)
-      return
+    if (!result?.success) {
+      // Shape into the AuthResult the rest of the app expects
+      return {
+        data: { user: null, session: null },
+        error: { message: result?.error ?? 'Sign in failed' } as any,
+      } as AuthResult
     }
 
-    // Check active sessions and sets the user
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user as User | null)
-      prevUserRef.current = session?.user as User | null
-      setLoading(false)
-    })
+    if (result.mfaRequired && result.mfaFactors) {
+      setMfaRequired(true)
+      setCurrentAAL('aal1')
+      setMfaFactors(result.mfaFactors as Factor[])
+      // Return a partial success — MFA still pending
+      return { data: { user: null, session: null }, error: null } as AuthResult
+    }
 
-    // Listen for changes on auth state (sign in, sign out, etc.)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    // Full auth — pull the token and user from main
+    const token: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null
+    const state = await window.electron?.ipcRenderer?.invoke('auth:get-state') as
+      { user: { id: string; email: string } | null; isAuthenticated: boolean } | undefined
 
-      // Only update state for actual auth events
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
-        // Prevent unnecessary state updates if the user hasn't actually changed
-        const newUser = session?.user as User | null
-        // For token refresh, we might just need to update the token even if user is same
-        if (event === 'TOKEN_REFRESHED' || JSON.stringify(newUser) !== JSON.stringify(prevUserRef.current)) {
-          setUser(newUser)
-          prevUserRef.current = newUser
-          setAuthToken(session?.access_token ?? null)
-          setLoading(false)
+    if (state?.user && token) {
+      setUser(state.user as User)
+      setAuthToken(token)
+      Sentry.setUser({ id: state.user.id, email: state.user.email })
+    }
+
+    return { data: { user: state?.user ?? null, session: null }, error: null } as AuthResult
+  }
+
+  // ─── Bootstrap: read auth state from main on mount ───────────────────────
+  // The splash window may open after a successful silent auth (authManager.init
+  // already ran in main). We just read that state instead of re-authenticating.
+  useEffect(() => {
+    const bootstrap = async () => {
+      try {
+        const state = await window.electron?.ipcRenderer?.invoke('auth:get-state') as
+          { user: { id: string; email: string } | null; isAuthenticated: boolean; accessToken: string | null } | undefined
+
+        if (state?.isAuthenticated && state.user) {
+          setUser(state.user as User)
+          setAuthToken(state.accessToken ?? null)
+          Sentry.setUser({ id: state.user.id, email: state.user.email })
         }
+      } catch (err) {
+        console.error('[AuthContext] Failed to bootstrap auth state:', err)
+        Sentry.captureException(err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    bootstrap()
+  }, [])
+
+  // ─── Auth state broadcasts from main ─────────────────────────────────────
+  useEffect(() => {
+    const ipcRenderer = window.electron?.ipcRenderer
+    if (!ipcRenderer) return
+
+    const offState = ipcRenderer.on('auth:state', (data: any) => {
+      if (data?.isAuthenticated && data.user) {
+        setUser(data.user as User)
+        setAuthToken(data.accessToken ?? null)
+        Sentry.setUser({ id: data.user.id, email: data.user.email })
+      } else {
+        setUser(null)
+        setAuthToken(null)
+        Sentry.setUser(null)
       }
     })
 
-    return () => subscription.unsubscribe()
-  }, [location])
+    return () => offState?.()
+  }, [])
 
+  // ─── Session expiry ───────────────────────────────────────────────────────
+  const handleSessionExpired = useCallback(() => {
+    console.log('🔐 AuthContext: Session expired event received')
+    resetUser()
+  }, [resetUser])
+  useSessionExpiry(handleSessionExpired)
+
+  // ─── Tray-triggered logout ────────────────────────────────────────────────
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout | undefined;
+    const ipcRenderer = window.electron?.ipcRenderer
+    if (!ipcRenderer) return
+    ipcRenderer.on('trigger-logout', handleSignOut as any)
+    return () => { ipcRenderer.off('trigger-logout', handleSignOut as any) }
+  }, [])
 
-    // Always set userLoading to true when user changes (even if user is null)
-    setUserLoading(true);
+  // ─── Load account profile whenever user changes ───────────────────────────
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout | undefined
+
+    setUserLoading(true)
 
     if (user) {
-      // Add a small delay to prevent rapid re-fetching
       timeoutId = setTimeout(async () => {
         try {
           if (accountCreationRef.current) {
@@ -232,32 +232,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             company_id: account?.company_id,
             subscription_monthly_minutes: account?.subscription_monthly_minutes,
             subscription_plan_id: account?.subscription_plan_id,
-            subscription_status: account?.subscription_status
-          });
+            subscription_status: account?.subscription_status,
+          })
           setUserLoading(false)
         } catch (error) {
           console.error('Error fetching account:', error)
           Sentry.captureException(error)
           setUserLoading(false)
         }
-      }, 300) // 300ms delay
+      }, 300)
     } else {
       updateGlobalUserState(null)
       setUserLoading(false)
     }
 
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
-    }
+    return () => { if (timeoutId) clearTimeout(timeoutId) }
   }, [user])
 
-  const signIn = async (data: SignInData): Promise<AuthResult> => {
-    return await supabase.auth.signInWithPassword(data) as AuthResult
-  }
-
-  const values = {
+  const values: AuthContextValue = {
     signIn,
     handleSignOut,
     user,
@@ -272,8 +264,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     checkMFAStatus,
     verifyMFA,
     clearMFARequired,
-    checkIfNeedsMFA,
-  } as AuthContextValue;
+  }
 
   return (
     <AuthContext.Provider value={values}>
@@ -282,6 +273,4 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   )
 }
 
-export const useAuth = () => {
-  return useContext(AuthContext)
-} 
+export const useAuth = () => useContext(AuthContext)

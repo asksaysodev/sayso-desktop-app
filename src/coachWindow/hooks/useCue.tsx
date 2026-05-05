@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 
 import apiClient from "../../config/axios";
-import { supabase } from "../../config/supabase";
 
 const PRIORITY_ORDER = {
     high: 3,
@@ -120,15 +119,15 @@ export default function useCue() {
                 throw new Error('Electron cue API not available');
             }
             
-            const { data: {session}} = await supabase.auth.getSession();
-            
-            if(!session || !session.access_token) {
+            const token: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
+
+            if (!token) {
                 throw new Error('No session found');
             }
 
-            const result = await window.electron.cue.start({  
-                sessionId, 
-                token: session.access_token 
+            const result = await window.electron.cue.start({
+                sessionId,
+                token
             });
 
             if(!result || !result.success) {
