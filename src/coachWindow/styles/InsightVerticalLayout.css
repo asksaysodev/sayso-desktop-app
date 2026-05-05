@@ -274,6 +274,13 @@
 .lpmama-dot--copy {
 	cursor: pointer;
 	margin-left: 10px;
+	transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.lpmama-dot--copied {
+    background-color: var(--sayso-success) !important;
+    border-color: var(--sayso-success) !important;
+    transform: scale(1.08);
 }
 
 .lpmama-dot--captured {

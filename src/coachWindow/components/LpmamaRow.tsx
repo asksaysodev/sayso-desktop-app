@@ -1,7 +1,7 @@
 import { useState, useRef, useLayoutEffect } from 'react';
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import { LpmamField } from '@/types/store/coachWindowStore';
-import { Copy } from 'lucide-react';
+import { Copy, Check } from 'lucide-react';
 import { copyLpmamaContent } from '../helpers/copyLpmamaContent';
 
 const LPMAMA_CONFIG: { field: LpmamField; initial: string; label: string }[] = [
@@ -24,6 +24,8 @@ export default function LpmamaRow({ onTooltipHeightChange }: Props) {
     const lpmama = useCoachWindowStore(state => state.cue.lpmama);
     const [hoveredField, setHoveredField] = useState<LpmamField | null>(null);
     const tooltipRef = useRef<HTMLDivElement | null>(null);
+    const [justCopied, setJustCopied] = useState(false);
+    const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useLayoutEffect(() => {
         if (!hoveredField || !tooltipRef.current) {
@@ -32,6 +34,13 @@ export default function LpmamaRow({ onTooltipHeightChange }: Props) {
         }
         onTooltipHeightChange(tooltipRef.current.offsetHeight + TOOLTIP_OFFSET);
     }, [hoveredField, onTooltipHeightChange]);
+
+    const handleCopy = async () => {
+        await copyLpmamaContent(lpmama);
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        setJustCopied(true);
+        copyTimerRef.current = setTimeout(() => setJustCopied(false), 1500);
+    };
 
     return (
         <div className="lpmama-row">
@@ -59,8 +68,8 @@ export default function LpmamaRow({ onTooltipHeightChange }: Props) {
                     </div>
                 );
             })}
-            <div className='lpmama-dot lpmama-dot--copy' onClick={() => copyLpmamaContent(lpmama)}>
-                <Copy size={14} />
+            <div className={`lpmama-dot lpmama-dot--copy${justCopied ? ' lpmama-dot--copied' : ''}`} onClick={handleCopy}>
+                {justCopied ? <Check size={14} /> : <Copy size={14} />}
             </div>
         </div>
     );
