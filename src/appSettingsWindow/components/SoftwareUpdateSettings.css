@@ -1,0 +1,105 @@
+.su-setting-item {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.su-status-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+}
+
+.su-status-label {
+    margin: 0;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.su-status-error {
+    color: #f87171;
+}
+
+.su-description {
+    margin: 0;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.su-version-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.su-version-arrow {
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 14px;
+}
+
+.su-version-pill {
+    border-radius: 6px;
+    padding: 2px 10px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.su-version-current {
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.su-version-new {
+    border: 1px solid rgba(35, 103, 238, 0.6);
+    background: rgba(35, 103, 238, 0.12);
+    color: #7aaeff;
+}
+
+.su-progress-track {
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.su-progress-fill {
+    height: 100%;
+    background: #2367EE;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.su-update-btn,
+.su-check-btn {
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s ease;
+    align-self: flex-start;
+}
+
+.su-update-btn {
+    background: #2367EE;
+    color: #fff;
+}
+
+.su-update-btn:hover {
+    opacity: 0.88;
+}
+
+.su-check-btn {
+    background: rgba(255, 255, 255, 0.09);
+    color: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.su-check-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+}

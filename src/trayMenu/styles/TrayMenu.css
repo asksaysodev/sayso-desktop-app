@@ -112,6 +112,14 @@ body {
   justify-content: center;
 }
 
+.tray-update-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #F59E0B;
+  flex-shrink: 0;
+}
+
 /* Dark theme support for macOS dark mode */
 @media (prefers-color-scheme: dark) {
   .tray-menu-header {

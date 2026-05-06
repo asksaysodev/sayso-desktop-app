@@ -81,6 +81,76 @@ authManager.on('session-expired', () => {
 
 let autoUpdater: import('electron-updater').AppUpdater | null = null;
 
+// ─── Update State Machine ─────────────────────────────────────────────────────
+type UpdatePhase = 'idle' | 'available' | 'downloading' | 'downloaded' | 'error';
+
+interface UpdateState {
+  phase: UpdatePhase;
+  currentVersion: string;
+  newVersion: string | null;
+  progressPercent: number;
+  errorMessage: string | null;
+}
+
+let updateState: UpdateState = {
+  phase: 'idle',
+  currentVersion: app.getVersion(),
+  newVersion: null,
+  progressPercent: 0,
+  errorMessage: null,
+};
+
+let updateDeferralTimer: ReturnType<typeof setTimeout> | null = null;
+
+function setUpdateState(partial: Partial<UpdateState>): void {
+  updateState = { ...updateState, ...partial };
+  broadcastUpdateState();
+}
+
+function broadcastUpdateState(): void {
+  const targets: Array<BrowserWindowType | null | undefined> = [
+    splashWindowInstance,
+    trayMenuWindow,
+    global.appSettingsWindow as BrowserWindowType | null,
+  ];
+  for (const win of targets) {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('update:state-changed', updateState);
+    }
+  }
+}
+
+function isCoachSessionActive(): boolean {
+  return cueAudioStreamer !== null;
+}
+
+function openSplashForUpdate(): void {
+  if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+    splashWindowInstance.webContents.send('update:state-changed', updateState);
+    splashWindowInstance.focus();
+  } else {
+    try {
+      createSplashWindow();
+    } catch (err) {
+      Sentry.captureException(err);
+    }
+  }
+}
+
+function scheduleUpdateDeferralRecheck(): void {
+  if (updateDeferralTimer) clearTimeout(updateDeferralTimer);
+  updateDeferralTimer = setTimeout(() => {
+    updateDeferralTimer = null;
+    if (updateState.phase !== 'available') return;
+    if (!isCoachSessionActive()) {
+      openSplashForUpdate();
+    } else {
+      scheduleUpdateDeferralRecheck();
+    }
+  }, 10 * 60 * 1000);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Global error handler to prevent app crashes from unhandled exc eptions
 // (e.g. native module failures on unsupported hardware)
 process.on('uncaughtException', (error) => {
@@ -98,8 +168,8 @@ if (app.isPackaged) {
   updater.logger.transports.file.level = 'info';
   log.info('Auto-updater initialized');
 
-  updater.autoDownload = true;
-  updater.autoInstallOnAppQuit = true;
+  updater.autoDownload = false;
+  updater.autoInstallOnAppQuit = false;
   updater.allowDowngrade = false;
 
   updater.on('checking-for-update', () => {
@@ -108,14 +178,19 @@ if (app.isPackaged) {
 
   updater.on('update-available', (info: { version: string }) => {
     log.info('Update available:', info.version);
-    log.info('Downloading update...');
-    if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
-      splashWindowInstance.webContents.send('update-available', { version: info.version });
+    setUpdateState({ phase: 'available', newVersion: info.version });
+
+    if (isCoachSessionActive()) {
+      // Don't interrupt an active call — defer splash; tray entry still shows via broadcastUpdateState
+      scheduleUpdateDeferralRecheck();
+    } else {
+      openSplashForUpdate();
     }
   });
 
   updater.on('update-not-available', (info: { version: string }) => {
     log.info('Update not available. Current version:', info.version);
+    // Signal splash to stop showing the loader (no update found)
     if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
       splashWindowInstance.webContents.send('update-check-complete');
     }
@@ -124,32 +199,33 @@ if (app.isPackaged) {
   updater.on('error', (err: Error) => {
     log.error('Error in auto-updater:', err);
     Sentry.captureException(err);
+    setUpdateState({ phase: 'error', errorMessage: err.message });
   });
 
   updater.on('download-progress', (progressObj: { percent?: number; transferred?: number; total?: number; bytesPerSecond?: number }) => {
-    const percent = progressObj.percent ? progressObj.percent.toFixed(2) : 0;
-    const transferred = progressObj.transferred || 0;
-    const total = progressObj.total || 0;
-    const speed = progressObj.bytesPerSecond || 0;
-    log.info(`Download progress: ${percent}% (${transferred}/${total} bytes) - Speed: ${speed} bytes/sec`);
-    if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
-      splashWindowInstance.webContents.send('download-progress', {
-        percent: progressObj.percent ?? 0,
-        bytesPerSecond: speed,
-        transferred,
-        total,
-      });
-    }
+    const percent = progressObj.percent ?? 0;
+    const speed = progressObj.bytesPerSecond ?? 0;
+    log.info(`Download progress: ${percent.toFixed(1)}% - Speed: ${speed} bytes/sec`);
+    setUpdateState({ phase: 'downloading', progressPercent: percent });
   });
 
   updater.on('update-downloaded', (info: { version: string }) => {
     log.info('Update downloaded:', info.version);
-    if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
-      splashWindowInstance.webContents.send('update-downloaded', { version: info.version });
-    }
+    setUpdateState({ phase: 'downloaded' });
+    setImmediate(() => {
+      try {
+        app.removeAllListeners('window-all-closed');
+        updater.quitAndInstall(false, true);
+      } catch (err) {
+        Sentry.captureException(err);
+        setUpdateState({
+          phase: 'error',
+          errorMessage: 'Failed to install update. Please restart the app manually.',
+        });
+      }
+    });
   });
 
-  // Assign to module-level variable for use elsewhere
   autoUpdater = updater;
 }
 
@@ -1935,15 +2011,44 @@ ipcMain.handle('get-coach-window-open-state', () => {
   return isCoachWindowOpen();
 });
 
-// Handler for the renderer to trigger update installation (after user clicks "Restart Now")
-ipcMain.on('install-update', () => {
-  if (autoUpdater) {
-    setImmediate(() => {
-      app.removeAllListeners('window-all-closed');
-      autoUpdater!.quitAndInstall(false, true);
-    });
+// ─── Update IPC handlers ──────────────────────────────────────────────────────
+ipcMain.handle('update:get-state', () => updateState);
+
+ipcMain.handle('app:get-version', () => app.getVersion());
+
+ipcMain.on('update:start-download', () => {
+  if (!autoUpdater || updateState.phase !== 'available') return;
+
+  // Close coach window before downloading
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    global.coachWindow.close();
+    global.coachWindow = null;
   }
+
+  autoUpdater.downloadUpdate().catch((err: Error) => {
+    console.error('[Updater] Download failed:', err);
+    Sentry.captureException(err);
+    setUpdateState({ phase: 'error', errorMessage: err.message });
+  });
 });
+
+ipcMain.on('update:dismiss', () => {
+  // State intentionally stays 'available' — tray entry persists so user can update later
+});
+
+ipcMain.on('update:check-for-updates', () => {
+  if (!autoUpdater) return;
+  if (updateState.phase === 'downloading' || updateState.phase === 'downloaded') return;
+  autoUpdater.checkForUpdates().catch((err: Error) => {
+    console.error('[Updater] Check failed:', err);
+    Sentry.captureException(err);
+  });
+});
+
+ipcMain.on('app-settings:open-update-tab', () => {
+  createAppSettingsWindow('software-update');
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 ipcMain.on('set-font-size', (_event, size: string) => {
   cachedFontSize = size;
@@ -2018,7 +2123,7 @@ ipcMain.on('quit-app', () => {
 });
 
 // --- Coach Settings Window ---
-const createOnboardingWindow = () => {
+const createOnboardingWindow = (tab?: string) => {
   if (onboardingWindowInstance && !onboardingWindowInstance.isDestroyed()) {
     onboardingWindowInstance.focus();
     return;
@@ -2084,15 +2189,19 @@ const createOnboardingWindow = () => {
 const createAppSettingsWindow = (tab?: string) => {
     if (global.appSettingsWindow && !global.appSettingsWindow.isDestroyed()) {
         if (isDev) {
-            console.log('Coach window already exists and is not destroyed, returning...');
+            console.log('Coach window already exists and is not destroyed, focusing...');
+        }
+        global.appSettingsWindow.focus();
+        if (tab) {
+            global.appSettingsWindow.webContents.send('app-settings:navigate-to-update');
         }
         return;
     }
-    
+
     if (global.appSettingsWindow && global.appSettingsWindow.isDestroyed()) {
         global.appSettingsWindow = null;
     }
-    
+
     const preloadScriptPath = path.join(__dirname, 'preload.js');
     const windowConfig = WindowManager.getAppSettingsWindowConfig();
     const appSettingsWindow = new BrowserWindow({
@@ -2114,15 +2223,17 @@ const createAppSettingsWindow = (tab?: string) => {
             experimentalFeatures: false
         },
     });
-    
+
     global.appSettingsWindow = appSettingsWindow;
-    
-    // dev vs prod URL for the coach window (use the HTML that bootstraps src/coachWindow/index.jsx)
+
+    const tabParam = tab ? `?tab=${tab}` : '';
     const appSettingsUrl = isDev
-      ? 'http://localhost:5173/app-settings-window.html'
-      : `file://${path.join(__dirname, '../dist/app-settings-window.html')}`;
-  
-    appSettingsWindow.loadURL(appSettingsUrl);
+      ? `http://localhost:5173/app-settings-window.html${tabParam}`
+      : `file://${path.join(__dirname, '../dist/app-settings-window.html')}${tabParam}`;
+
+    appSettingsWindow.loadURL(appSettingsUrl).catch((err: Error) => {
+        Sentry.captureException(err);
+    });
     broadcastAppSettingsWindowState(true);
 
     appSettingsWindow.on('closed', () => {

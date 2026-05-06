@@ -3,6 +3,8 @@
  * These types match the API exposed in electron/preload.js
  */
 
+import { UpdateState } from './update';
+
 export interface ElectronIpcRenderer {
   invoke: <T = unknown>(channel: string, ...args: unknown[]) => Promise<T>;
   on: (channel: string, callback: (data: unknown) => void) => () => void;
@@ -149,7 +151,22 @@ export interface AutoUpdaterAPI {
   onUpdateAvailable: (callback: (data: { version: string }) => void) => () => void;
   onDownloadProgress: (callback: (data: AutoUpdaterDownloadProgress) => void) => () => void;
   onUpdateDownloaded: (callback: (data: { version: string }) => void) => () => void;
-  installUpdate: () => void;
+}
+
+export interface UpdateAPI {
+  getState: () => Promise<UpdateState>;
+  onStateChanged: (callback: (state: UpdateState) => void) => () => void;
+  startDownload: () => void;
+  dismiss: () => void;
+  checkForUpdates: () => void;
+}
+
+export interface AppAPI {
+  getVersion: () => Promise<string>;
+}
+
+export interface AppSettingsAPI {
+  openUpdateTab: () => void;
 }
 
 export interface ElectronBridge {
@@ -162,6 +179,9 @@ export interface ElectronBridge {
   uploadBothFiles: (options: UploadBothFilesOptions) => Promise<{ success: boolean; error?: string }>;
   permissions: PermissionsAPI;
   autoUpdater: AutoUpdaterAPI;
+  update: UpdateAPI;
+  app: AppAPI;
+  appSettings: AppSettingsAPI;
 }
 
 export interface PlaybookWindowAPI {

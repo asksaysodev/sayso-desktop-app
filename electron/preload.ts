@@ -98,6 +98,7 @@ try {
             ipcRenderer.on('update-check-complete', () => callback());
             return () => ipcRenderer.removeAllListeners('update-check-complete');
         },
+        // Legacy listeners kept for backward-compat (UpdateGate now uses update.onStateChanged)
         onUpdateAvailable: (callback: (data: { version: string }) => void) => {
             ipcRenderer.on('update-available', (_event: Event, data: { version: string }) => callback(data));
             return () => ipcRenderer.removeAllListeners('update-available');
@@ -110,8 +111,26 @@ try {
             ipcRenderer.on('update-downloaded', (_event: Event, data: { version: string }) => callback(data));
             return () => ipcRenderer.removeAllListeners('update-downloaded');
         },
-        installUpdate: () => ipcRenderer.send('install-update'),
-    }
+    },
+
+    update: {
+        getState: () => ipcRenderer.invoke('update:get-state'),
+        onStateChanged: (callback: (state: any) => void) => {
+            ipcRenderer.on('update:state-changed', (_event: Event, data: any) => callback(data));
+            return () => ipcRenderer.removeAllListeners('update:state-changed');
+        },
+        startDownload: () => ipcRenderer.send('update:start-download'),
+        dismiss: () => ipcRenderer.send('update:dismiss'),
+        checkForUpdates: () => ipcRenderer.send('update:check-for-updates'),
+    },
+
+    app: {
+        getVersion: () => ipcRenderer.invoke('app:get-version'),
+    },
+
+    appSettings: {
+        openUpdateTab: () => ipcRenderer.send('app-settings:open-update-tab'),
+    },
   });
 
   contextBridge.exposeInMainWorld('electronAPI', {
