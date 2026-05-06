@@ -59,6 +59,7 @@ export default defineConfig({
         'app-settings-window': resolve(__dirname, 'app-settings-window.html'),
         'splash-window': resolve(__dirname, 'splash-window.html'),
         'playbook-window': resolve(__dirname, 'playbook-window.html'),
+        'onboarding-window': resolve(__dirname, 'onboarding-window.html'),
       },
       output: {
         manualChunks: undefined, // Disable manual chunks for better Electron compatibility

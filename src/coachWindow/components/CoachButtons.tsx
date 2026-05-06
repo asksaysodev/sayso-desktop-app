@@ -98,7 +98,7 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen }: Prop
                                     </g>
                                 </g>
                             </svg>
-                            <p className={`${isCoachLoading ? 'hidden' : ''}`}>Launch</p>
+                            <p className={`${isCoachLoading ? 'hidden' : ''}`}>Start</p>
                         </button>
                     </>
                 )
