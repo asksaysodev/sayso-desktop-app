@@ -40,6 +40,14 @@ export default function OnboardingWindowApp() {
     const currentStepRef = useRef(currentStep);
     useEffect(() => { currentStepRef.current = currentStep; }, [currentStep]);
 
+    useEffect(() => {
+        const ipc = window.electron?.ipcRenderer;
+        if (!ipc) return;
+        return ipc.on('onboarding:set-remind-later', () => {
+            localStorage.setItem('onboarding_remind_after', String(Date.now() + 24 * 60 * 60 * 1000));
+            ipc.send('onboarding:remind-later-ack');
+        });
+    }, []);
 
     const advanceFrom = (step: number) => {
         if (step === 0) {
