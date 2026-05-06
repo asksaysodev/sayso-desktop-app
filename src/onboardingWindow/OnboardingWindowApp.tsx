@@ -44,6 +44,7 @@ export default function OnboardingWindowApp() {
         const ipc = window.electron?.ipcRenderer;
         if (!ipc) return;
         return ipc.on('onboarding:set-remind-later', () => {
+            console.log('[onboarding renderer] set-remind-later received, setting key');
             localStorage.setItem('onboarding_remind_after', String(Date.now() + 24 * 60 * 60 * 1000));
             ipc.send('onboarding:remind-later-ack');
         });

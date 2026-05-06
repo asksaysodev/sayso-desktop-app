@@ -24,6 +24,7 @@ export default function SoftwareUpdateSettings() {
     const currentVersion = state?.currentVersion ?? '—';
     const newVersion = state?.newVersion;
     const phase = state?.phase ?? 'idle';
+
     const progress = state?.progressPercent ?? 0;
 
     const renderStatus = () => {

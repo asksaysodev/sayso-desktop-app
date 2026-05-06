@@ -162,7 +162,8 @@ const TrayMenuApp = () => {
               onClick={isUpdating ? undefined : handleOpenUpdateTab}
               disabled={isUpdating}
             >
-              {updatePhase === 'available' && <span className="tray-update-dot" />}
+              {/* {updatePhase === 'available' && <span className="tray-update-dot" />} */}
+			  <span className="tray-update-dot" />
               <span className="tray-menu-item-label">
                 {isUpdating ? 'Update in progress…' : 'Update Available'}
               </span>

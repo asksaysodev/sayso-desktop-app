@@ -335,6 +335,12 @@ let tray: TrayType | null = null;
 let trayMenuWindow: BrowserWindowType | null = null;
 let onboardingWindowInstance: BrowserWindowType | null = null;
 let onboardingClosedIntentionally = false;
+let isAppQuitting = false;
+
+// Ensure isAppQuitting is set before any window close events fire, regardless
+// of whether the process is terminated via Cmd+Q, SIGTERM, or SIGINT.
+process.on('SIGTERM', () => { isAppQuitting = true; app.quit(); });
+process.on('SIGINT',  () => { isAppQuitting = true; app.quit(); });
 
 function sendToOnboardingWindow(channel: string) {
   if (onboardingWindowInstance && !onboardingWindowInstance.isDestroyed()) {
@@ -1745,6 +1751,7 @@ app.whenReady().then(async () => {
 
 // Cleanup audio capture before app quits
 app.on('before-quit', async (event: Event) => {
+  isAppQuitting = true;
   if (isDev) {
     console.log('App quitting - cleaning up audio capture...');
   }
@@ -2163,7 +2170,8 @@ const createOnboardingWindow = (tab?: string) => {
   onboardingWindowInstance = onboardingWindow;
 
   onboardingWindow.on('close', async (e) => {
-    if (!onboardingClosedIntentionally) {
+    console.log('[onboarding] close event fired — intentionally:', onboardingClosedIntentionally, '| isAppQuitting:', isAppQuitting);
+    if (!onboardingClosedIntentionally && !isAppQuitting) {
       e.preventDefault();
       await Promise.race([
         new Promise<void>(resolve => {
