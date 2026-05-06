@@ -49,6 +49,7 @@ export interface Account {
   subscription_current_period_start?: string | null;
   account_type: AccountType;
   status: AccountStatus;
+  onboarding_status?: 'complete' | 'dismissed' | null;
 }
 export interface OrgMemberInvite {
     email: string;
@@ -123,6 +124,7 @@ export interface UpdateAccountData {
   subscription_plan_id?: string;
   subscription_status?: SubscriptionStatus;
   subscription_monthly_minutes?: number;
+  onboarding_status?: 'complete' | 'dismissed';
 }
 
 export interface AuthContextValue {

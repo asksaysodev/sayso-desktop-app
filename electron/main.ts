@@ -257,6 +257,14 @@ function broadcastPlaybookWindowState(isOpen: boolean) {
 // ===== CUSTOM TRAY MENU WINDOW =====
 let tray: TrayType | null = null;
 let trayMenuWindow: BrowserWindowType | null = null;
+let onboardingWindowInstance: BrowserWindowType | null = null;
+let onboardingClosedIntentionally = false;
+
+function sendToOnboardingWindow(channel: string) {
+  if (onboardingWindowInstance && !onboardingWindowInstance.isDestroyed()) {
+    onboardingWindowInstance.webContents.send(channel);
+  }
+}
 
 /**
  * Creates and positions the custom tray menu window near the tray icon
@@ -426,6 +434,7 @@ function registerTrayIconMenu() {
     tray.setToolTip('Sayso');
 
     tray.on('click', () => {
+      sendToOnboardingWindow('onboarding:tray-clicked');
       if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
         hideTrayMenu();
       } else {
@@ -465,6 +474,7 @@ const shortcuts = [
         global.coachWindow?.close();
       } else {
         createCoachWindow();
+        sendToOnboardingWindow('onboarding:coach-opened');
       }
     },
     keyCombination: 'Control+S'
@@ -854,9 +864,10 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
       console.log('[Cue] Started session', sessionId, '— stats reset; low-audio check in 4s if no user chunks');
     }
 
-    return { 
-      success: true, 
-      sessionId: sessionId 
+    sendToOnboardingWindow('onboarding:session-started');
+    return {
+      success: true,
+      sessionId: sessionId
     };
   } catch (error: any) {
     console.error('[MAIN] Error starting Cue:', error);
@@ -883,6 +894,7 @@ ipcMain.handle('stop-cue', async (_event: Electron.IpcMainInvokeEvent) => {
     const statsAtStop = { ...cueCaptureStats };
     try {
       await teardownCueStreamsAndNative();
+      sendToOnboardingWindow('onboarding:session-stopped');
       console.log(
         `[Cue] Session teardown complete — capture stats: userChunks=${statsAtStop.userChunks} prospectChunks=${statsAtStop.prospectChunks} userBytes=${statsAtStop.userBytes} prospectBytes=${statsAtStop.prospectBytes}`
       );
@@ -1641,9 +1653,7 @@ app.whenReady().then(async () => {
   }
   registerTrayIconMenu();
   setupGlobalShortcut();
-  
 
-  
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
@@ -1894,6 +1904,7 @@ ipcMain.on('open-coach-window', () => {
     return;
   }
   createCoachWindow();
+  sendToOnboardingWindow('onboarding:coach-opened');
 });
 ipcMain.on('close-coach-window', () => {
   if (isDev) {
@@ -1942,6 +1953,20 @@ ipcMain.on('set-font-size', (_event, size: string) => {
   if (isPlaybookWindowOpen()) {
     global.playbookWindow!.webContents.send('font-size-changed', size);
   }
+});
+
+ipcMain.on('open-onboarding-window', () => createOnboardingWindow());
+
+ipcMain.on('close-onboarding-window', (_event) => {
+  onboardingClosedIntentionally = true;
+  const win = BrowserWindow.fromWebContents(_event.sender);
+  if (win && !win.isDestroyed()) win.close();
+});
+
+ipcMain.on('complete-onboarding', (_event) => {
+  onboardingClosedIntentionally = true;
+  const win = BrowserWindow.fromWebContents(_event.sender);
+  if (win && !win.isDestroyed()) win.close();
 });
 
 // Handler for the splash window to signal successful login — closes the splash window
@@ -1993,6 +2018,57 @@ ipcMain.on('quit-app', () => {
 });
 
 // --- Coach Settings Window ---
+const createOnboardingWindow = () => {
+  const preloadScriptPath = path.join(__dirname, 'preload.js');
+  const onboardingWindow = new BrowserWindow({
+    width: 720,
+    height: 560,
+    titleBarStyle: 'hiddenInset',
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+	backgroundColor: '#2a3f5f',
+	roundedCorners: true,
+    webPreferences: {
+      preload: preloadScriptPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+    },
+  });
+
+  const onboardingUrl = isDev
+    ? 'http://localhost:5173/onboarding-window.html'
+    : `file://${path.join(__dirname, '../dist/onboarding-window.html')}`;
+
+  onboardingWindow.loadURL(onboardingUrl);
+
+  onboardingWindowInstance = onboardingWindow;
+
+  onboardingWindow.on('close', async (e) => {
+    if (!onboardingClosedIntentionally) {
+      e.preventDefault();
+      const ts = Date.now() + 24 * 60 * 60 * 1000;
+      try {
+        await onboardingWindow.webContents.executeJavaScript(
+          `localStorage.setItem('onboarding_remind_after', '${ts}')`
+        );
+      } catch (_) {}
+      onboardingClosedIntentionally = true;
+      onboardingWindow.close();
+      return;
+    }
+    onboardingClosedIntentionally = false;
+  });
+
+  onboardingWindow.on('closed', () => { onboardingWindowInstance = null; });
+
+  if (isDev) {
+    onboardingWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+};
+
 const createAppSettingsWindow = () => {
     if (global.appSettingsWindow && !global.appSettingsWindow.isDestroyed()) {
         if (isDev) {
