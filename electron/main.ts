@@ -2019,6 +2019,15 @@ ipcMain.on('quit-app', () => {
 
 // --- Coach Settings Window ---
 const createOnboardingWindow = () => {
+  if (onboardingWindowInstance && !onboardingWindowInstance.isDestroyed()) {
+    onboardingWindowInstance.focus();
+    return;
+  }
+
+  if (onboardingWindowInstance && onboardingWindowInstance.isDestroyed()) {
+    onboardingWindowInstance = null;
+  }
+
   const preloadScriptPath = path.join(__dirname, 'preload.js');
   const onboardingWindow = new BrowserWindow({
     width: 720,
