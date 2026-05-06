@@ -2167,7 +2167,7 @@ const createOnboardingWindow = (tab?: string) => {
       e.preventDefault();
       await Promise.race([
         new Promise<void>(resolve => {
-          ipcMain.once('onboarding:remind-later-ack', resolve);
+          ipcMain.once('onboarding:remind-later-ack', () => resolve());
           onboardingWindow.webContents.send('onboarding:set-remind-later');
         }),
         new Promise<void>(resolve => setTimeout(resolve, 500)),
