@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import * as Sentry from '@sentry/electron/renderer';
 import { UpdateState } from '@/types/update';
 import SettingsContentLayout from './SettingsContentLayout';
 import './SoftwareUpdateSettings.css';
@@ -7,7 +8,7 @@ export default function SoftwareUpdateSettings() {
     const [state, setState] = useState<UpdateState | null>(null);
 
     useEffect(() => {
-        window.electron?.update?.getState().then(setState);
+        window.electron?.update?.getState().then(setState).catch(Sentry.captureException);
         const cleanup = window.electron?.update?.onStateChanged(setState);
         return cleanup;
     }, []);

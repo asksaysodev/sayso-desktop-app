@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import * as Sentry from '@sentry/electron/renderer';
 import { Account } from '@/types/user';
 import { ExternalLink } from 'lucide-react';
 import { useAppSettingsWindow } from '@/hooks/useAppSettingsWindow';
@@ -48,7 +49,7 @@ const TrayMenuApp = () => {
     });
     window.electron?.update?.getState().then((state) => {
       setUpdatePhase(state.phase);
-    });
+    }).catch(Sentry.captureException);
     return cleanup;
   }, []);
 

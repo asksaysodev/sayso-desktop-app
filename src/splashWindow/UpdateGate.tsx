@@ -1,4 +1,5 @@
 import { useState, useEffect, ReactNode } from 'react';
+import * as Sentry from '@sentry/electron/renderer';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import SaysoLoader from '@/components/SaysoLoader';
@@ -30,7 +31,7 @@ export default function UpdateGate({ children }: Props) {
                 setUpdateCheckDone(true);
                 clearTimeout(timeout);
             }
-        });
+        }).catch(Sentry.captureException);
 
         const cleanupState = window.electron?.update?.onStateChanged((state) => {
             setUpdateState(state);

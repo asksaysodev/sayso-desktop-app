@@ -129,7 +129,11 @@ function openSplashForUpdate(): void {
     splashWindowInstance.webContents.send('update:state-changed', updateState);
     splashWindowInstance.focus();
   } else {
-    createSplashWindow();
+    try {
+      createSplashWindow();
+    } catch (err) {
+      Sentry.captureException(err);
+    }
   }
 }
 
@@ -209,8 +213,16 @@ if (app.isPackaged) {
     log.info('Update downloaded:', info.version);
     setUpdateState({ phase: 'downloaded' });
     setImmediate(() => {
-      app.removeAllListeners('window-all-closed');
-      updater.quitAndInstall(false, true);
+      try {
+        app.removeAllListeners('window-all-closed');
+        updater.quitAndInstall(false, true);
+      } catch (err) {
+        Sentry.captureException(err);
+        setUpdateState({
+          phase: 'error',
+          errorMessage: 'Failed to install update. Please restart the app manually.',
+        });
+      }
     });
   });
 
@@ -2131,7 +2143,9 @@ const createAppSettingsWindow = (tab?: string) => {
       ? `http://localhost:5173/app-settings-window.html${tabParam}`
       : `file://${path.join(__dirname, '../dist/app-settings-window.html')}${tabParam}`;
 
-    appSettingsWindow.loadURL(appSettingsUrl);
+    appSettingsWindow.loadURL(appSettingsUrl).catch((err: Error) => {
+        Sentry.captureException(err);
+    });
     broadcastAppSettingsWindowState(true);
 
     appSettingsWindow.on('closed', () => {
