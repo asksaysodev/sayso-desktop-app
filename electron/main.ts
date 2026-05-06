@@ -2028,6 +2028,8 @@ const createOnboardingWindow = () => {
     onboardingWindowInstance = null;
   }
 
+  onboardingClosedIntentionally = false;
+
   const preloadScriptPath = path.join(__dirname, 'preload.js');
   const onboardingWindow = new BrowserWindow({
     width: 720,
@@ -2058,12 +2060,13 @@ const createOnboardingWindow = () => {
   onboardingWindow.on('close', async (e) => {
     if (!onboardingClosedIntentionally) {
       e.preventDefault();
-      const ts = Date.now() + 24 * 60 * 60 * 1000;
-      try {
-        await onboardingWindow.webContents.executeJavaScript(
-          `localStorage.setItem('onboarding_remind_after', '${ts}')`
-        );
-      } catch (_) {}
+      await Promise.race([
+        new Promise<void>(resolve => {
+          ipcMain.once('onboarding:remind-later-ack', resolve);
+          onboardingWindow.webContents.send('onboarding:set-remind-later');
+        }),
+        new Promise<void>(resolve => setTimeout(resolve, 500)),
+      ]);
       onboardingClosedIntentionally = true;
       onboardingWindow.close();
       return;
