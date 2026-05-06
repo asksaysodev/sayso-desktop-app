@@ -2081,7 +2081,7 @@ const createOnboardingWindow = () => {
   }
 };
 
-const createAppSettingsWindow = () => {
+const createAppSettingsWindow = (tab?: string) => {
     if (global.appSettingsWindow && !global.appSettingsWindow.isDestroyed()) {
         if (isDev) {
             console.log('Coach window already exists and is not destroyed, returning...');
