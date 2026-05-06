@@ -10,12 +10,14 @@ import SelectProspectDropdown from './SelectProspectDropdown';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
 import SessionStoppedDialog from './SessionStoppedDialog';
+import SmartCaptureWarningDialog, { SmartCaptureWarningMode } from './SmartCaptureWarningDialog';
 import RightSideButtons from './RightSideButtons';
 import useFontSize from '../hooks/useFontSize';
 import usePulseMarketProperty from '../hooks/usePulseMarketProperty';
 import ZipCodeDropdown from './ZipCodeDropdown';
 import { usePlaybookPrefetch } from '@/playbookWindow/hooks/usePlaybookPrefetch';
 import Pulse from './Pulse';
+import { copyLpmamaContent, hasCapturedLpmamaData } from '../helpers/copyLpmamaContent';
 
 const WINDOW_WIDTH_SIZES = {
     s: { BASE: 380, MAX_WIDTH: 900 },
@@ -39,6 +41,7 @@ export default function CoachWindowMain() {
     const zipCodeDropdownRef = useRef<HTMLDivElement | null>(null);
     const errorContainerRef = useRef<HTMLDivElement | null>(null);
     const sessionStoppedDialogRef = useRef<HTMLDivElement | null>(null);
+    const smartCaptureWarningDialogRef = useRef<HTMLDivElement | null>(null);
     const isDraggingRef = useRef(false);
     const dragStartRef = useRef<DragStartRef>({ mouseX: 0, mouseY: 0, winX: 0, winY: 0 });
     //STATE
@@ -46,7 +49,10 @@ export default function CoachWindowMain() {
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [lpmamaTooltipHeight, setLpmamaTooltipHeight] = useState(0);
+    const [pendingSmartCaptureAction, setPendingSmartCaptureAction] = useState<SmartCaptureWarningMode | null>(null);
+    const [isSmartCaptureProcessing, setIsSmartCaptureProcessing] = useState(false);
     //CONTEXT / HOOKS
+    const sessionData = useCoachWindowStore(state => state.sessionData);
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
     const selectedProspect = useCoachWindowStore(state => state.recall.selectedProspect);
@@ -61,6 +67,7 @@ export default function CoachWindowMain() {
     const setHasReceivedFirstInsight = useCoachWindowStore(state => state.cue_setHasReceivedFirstInsight);
     const incrementUnseenInsightsCount = useCoachWindowStore(state => state.cue_incrementUnseenInsightsCount);
     const handleStopCue = useCoachWindowStore(state => state.cue_handleStopCue);
+    const onPressResetSession = useCoachWindowStore(state => state.cue_onPressResetSession);
     const isSmartCaptureEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('smart_capture'));
     const isPulseEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('pulse'));
     const currentfs = useFontSize();
@@ -90,6 +97,66 @@ export default function CoachWindowMain() {
         if (isCoachActive) handleStopCue().catch((err) => Sentry.captureException(err));
     }, [isCoachActive, handleStopCue]);
     useSessionExpiry(handleSessionExpired);
+
+    const executeSmartCaptureAction = useCallback((mode: SmartCaptureWarningMode) => {
+        const action = mode === 'reset' ? onPressResetSession : handleStopCue;
+        action().catch((err) => Sentry.captureException(err));
+    }, [handleStopCue, onPressResetSession]);
+
+    const handleRequestStop = useCallback(() => {
+        const lpmama = useCoachWindowStore.getState().cue.lpmama;
+        if (isSmartCaptureEnabled && hasCapturedLpmamaData(lpmama)) {
+            setPendingSmartCaptureAction('stop');
+            return;
+        }
+        executeSmartCaptureAction('stop');
+    }, [isSmartCaptureEnabled, executeSmartCaptureAction]);
+
+    const handleRequestReset = useCallback(() => {
+        const lpmama = useCoachWindowStore.getState().cue.lpmama;
+        if (isSmartCaptureEnabled && hasCapturedLpmamaData(lpmama)) {
+            setPendingSmartCaptureAction('reset');
+            return;
+        }
+        executeSmartCaptureAction('reset');
+    }, [isSmartCaptureEnabled, executeSmartCaptureAction]);
+
+    const handleSmartCaptureCopyAndProceed = useCallback(async () => {
+        const mode = pendingSmartCaptureAction;
+        if (!mode) return;
+        setIsSmartCaptureProcessing(true);
+        const lpmama = useCoachWindowStore.getState().cue.lpmama;
+        await copyLpmamaContent(lpmama);
+        setIsSmartCaptureProcessing(false);
+        setPendingSmartCaptureAction(null);
+        executeSmartCaptureAction(mode);
+    }, [pendingSmartCaptureAction, executeSmartCaptureAction]);
+
+    const handleSmartCaptureProceedAnyway = useCallback(() => {
+        const mode = pendingSmartCaptureAction;
+        if (!mode) return;
+        setPendingSmartCaptureAction(null);
+        executeSmartCaptureAction(mode);
+    }, [pendingSmartCaptureAction, executeSmartCaptureAction]);
+
+    const handleSmartCaptureDismiss = useCallback(() => {
+        setPendingSmartCaptureAction(null);
+    }, []);
+
+    useEffect(() => {
+        if (!isCoachActive && pendingSmartCaptureAction) {
+            setPendingSmartCaptureAction(null);
+        }
+    }, [isCoachActive, pendingSmartCaptureAction]);
+
+    useEffect(() => {
+        if (!pendingSmartCaptureAction) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && !isSmartCaptureProcessing) setPendingSmartCaptureAction(null);
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [pendingSmartCaptureAction, isSmartCaptureProcessing]);
 
     // Manual window drag handlers
     const handleDragStart = async (e: MouseEvent) => {
@@ -160,6 +227,10 @@ export default function CoachWindowMain() {
             return getTotalHeightWithRef(sessionStoppedDialogRef) || WINDOW_HEIGHT_SIZES.BASE;
         }
 
+        if (pendingSmartCaptureAction) {
+            return getTotalHeightWithRef(smartCaptureWarningDialogRef) || WINDOW_HEIGHT_SIZES.BASE;
+        }
+
         let height = WINDOW_HEIGHT_SIZES.BASE;
 
         const showZipDropdown = isZipDropdownOpen && isZipCodeValid && isCoachActive && isPulseEnabled;
@@ -228,7 +299,7 @@ export default function CoachWindowMain() {
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, valuesFound, pulseError, isPulsePending]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, valuesFound, pulseError, isPulsePending, pendingSmartCaptureAction]);
 
     /**
      * Handling auto opening of insights layout and unseen insights count for the notification dot
@@ -336,8 +407,15 @@ export default function CoachWindowMain() {
         cue: <SelectLeadTypeDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
     };
     
+    useEffect(() => {
+        if (!sessionData) {
+            setZipCodeValue('');
+            setIsZipDropdownOpen(false);
+        }
+    }, [sessionData])
+    
     return (
-        <div className="coach-window" ref={containerRef}>
+        <div className={`coach-window${isDropdownOpen && coachFeature === 'cue' ? ' dropdown-open' : ''}`} ref={containerRef}>
             <div className={`main-container coach-box-bubble`} ref={mainContainerRef}>
                 <div className='main-toolbar'>
                     <div className="coach-window-drag-container">
@@ -372,6 +450,8 @@ export default function CoachWindowMain() {
                                 <CoachButtons
                                     setIsDropdownOpen={setIsDropdownOpen}
                                     isDropdownOpen={isDropdownOpen}
+                                    onRequestStop={coachFeature === 'cue' ? handleRequestStop : undefined}
+                                    onRequestReset={coachFeature === 'cue' ? handleRequestReset : undefined}
                                 />
                             )
                         }
@@ -409,7 +489,7 @@ export default function CoachWindowMain() {
                 />
             )}
             
-            {isInsightsLayoutOpen && isCoachActive && (
+            {isInsightsLayoutOpen && isCoachActive && !pendingSmartCaptureAction && (
                 <InsightsVerticalLayout
                     ref={insightsLayoutRef}
                     onLpmamaTooltipHeightChange={setLpmamaTooltipHeight}
@@ -417,9 +497,20 @@ export default function CoachWindowMain() {
             )}
 
             {showSessionAutoStopped && leadType && (
-                <SessionStoppedDialog 
+                <SessionStoppedDialog
                     setShowSessionAutoStopped={setShowSessionAutoStopped}
                     ref={sessionStoppedDialogRef}
+                />
+            )}
+
+            {pendingSmartCaptureAction && (
+                <SmartCaptureWarningDialog
+                    ref={smartCaptureWarningDialogRef}
+                    mode={pendingSmartCaptureAction}
+                    onPrimary={handleSmartCaptureCopyAndProceed}
+                    onSecondary={handleSmartCaptureProceedAnyway}
+                    onDismiss={handleSmartCaptureDismiss}
+                    isProcessing={isSmartCaptureProcessing}
                 />
             )}
         </div>

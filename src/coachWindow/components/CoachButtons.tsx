@@ -7,9 +7,11 @@ import * as Sentry from "@sentry/electron/renderer";
 interface Props {
     setIsDropdownOpen: (isOpen: boolean) => void;
     isDropdownOpen: boolean;
+    onRequestStop?: () => void;
+    onRequestReset?: () => void;
 }
 
-export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen }: Props) {
+export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen, onRequestStop, onRequestReset }: Props) {
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
@@ -37,7 +39,6 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen }: Prop
                 await cue_handleStartCue();
             },
             stop: async () => {
-				console.log('Stopping cue');
                 await cue_handleStopCue();
             },
             validate: () => true,
@@ -52,6 +53,10 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen }: Prop
             if (!actions) return;
 
             if (isCoachActive) {
+                if (onRequestStop) {
+                    onRequestStop();
+                    return;
+                }
                 await actions.stop();
             } else {
                 if (isDropdownOpen) {
@@ -74,6 +79,7 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen }: Prop
                     <CoachActiveButtons
                         coachFeature={coachFeature}
                         handleCoach={handleCoach}
+                        onRequestReset={onRequestReset}
                     />
                 ) : (
                     <>
@@ -98,7 +104,7 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen }: Prop
                                     </g>
                                 </g>
                             </svg>
-                            <p className={`${isCoachLoading ? 'hidden' : ''}`}>Launch</p>
+                            <p className={`${isCoachLoading ? 'hidden' : ''}`}>Start</p>
                         </button>
                     </>
                 )

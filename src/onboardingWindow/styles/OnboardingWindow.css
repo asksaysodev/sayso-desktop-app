@@ -1,0 +1,827 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+.onboarding-window {
+    width: 100vw;
+    height: 100vh;
+	background: rgba(2, 25, 47, 0.97);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── AnimatedCursor ───────────────────────────────── */
+
+.animated-cursor {
+    position: absolute;
+    pointer-events: none;
+    z-index: 1000;
+    transition: left 0.7s cubic-bezier(0.4, 0, 0.2, 1),
+                top 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+    filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.4));
+}
+
+.cursor-ripple {
+    position: absolute;
+    top: 8px;
+    left: 6px;
+    pointer-events: none;
+}
+
+.ripple-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1.5px solid #2367EE;
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    animation: ripple-out 0.65s ease-out forwards;
+}
+
+.ripple-ring--1 { animation-delay: 0s; }
+.ripple-ring--2 { animation-delay: 0.13s; }
+.ripple-ring--3 { animation-delay: 0.26s; }
+
+@keyframes ripple-out {
+    0%   { transform: scale(1); opacity: 0.75; }
+    100% { transform: scale(4.5); opacity: 0; }
+}
+
+/* ── MenuBarMock ─────────────────────────────────── */
+
+.menu-bar-mock {
+    width: 100%;
+    height: 28px;
+    background: rgba(93, 91, 109, 0.16);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.menu-bar-mock--step1 {
+	height: 18px;
+	padding: 0 8px;
+}
+
+.menu-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.menu-bar-app-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.menu-bar-item {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.82);
+	opacity: 0.8;
+}
+
+.menu-bar-item-apple-logo {
+    opacity: 1;
+}
+
+.menu-bar-mock--step1 .menu-bar-item {
+	font-size: 10px;
+}
+
+.menu-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.menu-bar-icon {
+    color: rgba(255, 255, 255, 0.88);
+    flex-shrink: 0;
+}
+
+
+.menu-bar-sayso {
+    width: 22px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+
+.menu-bar-sayso--active {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.menu-bar-clock {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.88);
+    font-weight: 400;
+    white-space: nowrap;
+    letter-spacing: 0.01em;
+}
+
+.menu-bar-mock--step1 .menu-bar-clock {
+	font-size: 10px;
+}
+
+/* ── TrayMenuMock ────────────────────────────────── */
+
+.tray-menu-mock {
+    background: rgba(36, 48, 68, 0.6);
+    backdrop-filter: blur(40px);
+    -webkit-backdrop-filter: blur(40px);
+    border-radius: 12px;
+    border: 0.5px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    padding: 10px 12px;
+    width: 200px;
+}
+
+.tray-menu-mock--step1 {
+	width: 110px;
+	padding: 2px 4px;
+	border-radius: 6px;
+}
+
+.tmm-header {
+    padding: 2px 11px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 4px;
+}
+
+.tray-menu-mock--step1 .tmm-header {
+	padding: 1px 4px 2px;
+	margin-bottom: 2px;
+}
+
+.tmm-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: #fff;
+}
+
+.tray-menu-mock--step1 .tmm-title {
+	font-size: 8px;
+}
+
+.tmm-items {
+    display: flex;
+    flex-direction: column;
+}
+
+.tmm-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-radius: 7px;
+    font-size: 13px;
+    color: #e5e7eb;
+    cursor: default;
+    transition: background 0.1s;
+    font-weight: 400;
+}
+
+.tray-menu-mock--step1 .tmm-item {
+	font-size: 8px;
+}
+
+.tmm-item--highlighted {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.tmm-item-icon {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.tmm-item-label {
+    flex: 1;
+}
+
+.tmm-shortcut {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.4);
+    font-style: italic;
+}
+
+.tmm-separator {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 3px 0;
+}
+
+.tmm-bottom-row {
+    display: flex;
+    flex-direction: row;
+}
+
+.tmm-item--bottom {
+    flex: 1;
+    justify-content: center;
+}
+
+/* ── CoachWidgetMock ─────────────────────────────── */
+
+.coach-widget-mock {
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    height: 48px;
+    background: rgba(36, 48, 68, 0.97);
+    /* backdrop-filter: blur(40px); */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 24px;
+    padding: 2px 12px;
+    box-shadow: inset 0 1px 0 rgba(114, 126, 137, 0.55);
+    gap: 0;
+}
+
+.cwm-drag-area {
+    display: flex;
+    align-items: center;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 20px;
+}
+
+.cwm-divider {
+    width: 1px;
+    height: 26px;
+    background: rgba(255, 255, 255, 0.3);
+    margin: 0 12px 0 6px;
+    flex-shrink: 0;
+}
+
+.cwm-idle-content,
+.cwm-active-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.cwm-lead-type-btn {
+    height: 32px;
+    border: none;
+    background: #2367EE;
+    color: white;
+    border-radius: 100px;
+    padding: 0 14px;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    font-family: inherit;
+}
+
+.cwm-lead-type-btn--selected {
+    background: #515C6C;
+}
+
+.cwm-lead-type-btn--has-value {
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.92);
+}
+
+.cwm-launch-btn {
+    height: 32px;
+    border: none;
+    background: #2367EE;
+    color: white;
+    border-radius: 100px;
+    padding: 0 16px 0 14px;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: inherit;
+	/* margin-right: 36px; */
+}
+
+.cwm-active-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cwm-action-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.cwm-action-btn--reset { background: #f97316; }
+.cwm-action-btn--stop  { background: #DC2626; }
+
+.cwm-timer {
+    height: 32px;
+    min-width: 90px;
+    background: #18181B;
+    color: white;
+    border-radius: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 300;
+    padding: 0 14px;
+    letter-spacing: 0.03em;
+}
+
+/* ── CoachWidgetMock right actions + avatar ─────── */
+
+.cwm-right-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 42px;
+    flex-shrink: 0;
+}
+
+.cwm-action-btn--settings,
+.cwm-action-btn--close {
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.cwm-avatar {
+    width: 30px;
+    height: 30px;
+	margin-left: -12px;
+    border-radius: 50%;
+    background: #fff;
+    color: #1a2030;
+    font-size: 16px;
+    font-weight: 400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.cwm-search-pill {
+    height: 32px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 100px;
+    padding: 0 14px 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.cwm-action-btn--check,
+.cwm-action-btn--list {
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.75);
+}
+
+/* ── CoachWidgetMock dropdown ────────────────────── */
+
+.cwm-lead-type-wrapper {
+    position: relative;
+}
+
+.cwm-dropdown {
+    position: absolute;
+    top: calc(100% + 12px);
+    left: 0;
+    background: rgba(28, 38, 54, 0.98);
+    border-radius: 8px;
+    border: 0.5px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    padding: 4px;
+    min-width: 130px;
+    z-index: 100;
+    animation: tmm-fade-in 0.15s ease forwards;
+}
+
+.cwm-dropdown-item {
+    padding: 7px 12px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.82);
+    border-radius: 5px;
+    cursor: default;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.cwm-dropdown-item--highlighted {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.cwm-dropdown-separator {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 2px 8px;
+}
+
+/* ── Step 3 widget entrance ──────────────────────── */
+
+@keyframes widget-zoom-in {
+    from { transform: scale(0.5); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+}
+
+.step3-widget-wrap {
+    animation: widget-zoom-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* ── Layout ──────────────────────────────────────── */
+
+.onboarding-drag-bar {
+    height: 36px;
+    width: 100%;
+    flex-shrink: 0;
+    -webkit-app-region: drag;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 14px;
+	color: rgba(255, 255, 255, 0.6);
+	padding-top: 6px;
+}
+
+.onboarding-dots {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 24px;
+    flex-shrink: 0;
+    -webkit-app-region: no-drag;
+}
+
+.onboarding-dot {
+    border: none;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 100px;
+    height: 8px;
+    width: 8px;
+    padding: 0;
+    cursor: default;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.onboarding-dot--active {
+    background: #2367EE;
+    width: 24px;
+}
+
+.onboarding-dot--done {
+    background: rgba(35, 103, 238, 0.5);
+    cursor: pointer;
+}
+
+.onboarding-animation-area {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
+    margin-top: 12px;
+}
+
+.onboarding-animation-area--wallpaper {
+    background: #02192f url('/assets/mac-wallpaper.jpg') center / cover no-repeat;
+}
+
+.onboarding-animation-area--wallpaper::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        to bottom,
+        transparent 30%,
+        rgba(2, 25, 47, 0.97) 100%
+    );
+    pointer-events: none;
+    z-index: 1;
+}
+
+.persistent-menu-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 20;
+    animation: closeup-fade-in 0.35s ease forwards;
+}
+
+.onboarding-text {
+    padding: 12px 40px 20px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.onboarding-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+	/* color: #2aab13; */
+    margin-bottom: 8px;
+    line-height: 1.2;
+}
+
+.onboarding-subtitle {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.6);
+    line-height: 1.6;
+    max-width: 420px;
+    margin: 0 auto;
+	text-align: center;
+}
+
+.onboarding-footer {
+    height: 62px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    flex-shrink: 0;
+    -webkit-app-region: no-drag;
+}
+
+.onboarding-footer-center-container {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.onboarding-skip {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.518);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0;
+    font-family: inherit;
+    transition: color 0.15s;
+}
+
+.onboarding-skip:hover {
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.onboarding-counter {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.597);
+	margin-right: 24px;
+}
+
+.onboarding-next {
+    background: rgba(35, 103, 238, 0.85);
+    border: none;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s;
+}
+
+.onboarding-next:hover {
+    background: #2367EE;
+}
+
+/* ── Step scenes ─────────────────────────────────── */
+
+.step-scene {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    z-index: 2;
+}
+
+.step-scene--centered {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.step-tray-menu-anchor {
+    position: absolute;
+    top: 36px;
+    right: 85px;
+    animation: tmm-fade-in 0.2s ease;
+}
+
+/* Tray menu anchored inside .step-scene (position:relative, fills animation area ~720×364px) */
+/* MacBook 380px wide, ~243px tall, centered → lid top ≈ 61px                               */
+/* Screen area top ≈ 79px; menu bar bottom ≈ 107px → tray top: 107px                        */
+/* Sayso icon at ~82% of screen → x ≈ 477px; tray right edge near icon → right: 220px      */
+.step-tray-menu-anchor--macbook {
+    position: absolute;
+    top: 107px;
+    right: 220px;
+    animation: tmm-fade-in 0.2s ease;
+}
+
+.step-closeup-fade-in {
+    animation: closeup-fade-in 0.35s ease forwards;
+}
+
+@keyframes closeup-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+@keyframes tmm-fade-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── MacBookMock ─────────────────────────────────── */
+
+.macbook-zoom-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    transition: transform 0.65s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+    /* transform-origin toward the MacBook menu bar top-center where Sayso icon lives */
+    transform-origin: 65% 27%;
+    will-change: transform, opacity;
+}
+
+.macbook-zoom-wrapper--zooming {
+    transform: scale(2.5);
+    opacity: 0;
+}
+
+.macbook-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 380px;
+    filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+}
+
+.macbook-lid {
+    width: 380px;
+    background: #1a1a1c;
+    border-radius: 10px 10px 0 0;
+    border: 2px solid #3a3a3c;
+    border-bottom: none;
+    padding: 6px 6px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+.macbook-camera {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #3a3a3c;
+    margin-bottom: 4px;
+    flex-shrink: 0;
+}
+
+.macbook-screen-area {
+    width: 100%;
+    border-radius: 4px 4px 0 0;
+    overflow: hidden;
+    background: #02192f url('/assets/mac-wallpaper.jpg') center / cover no-repeat;
+    height: 210px;
+}
+
+.macbook-hinge {
+    width: 100%;
+    height: 4px;
+    background: linear-gradient(180deg, #2a2a2c 0%, #1c1c1e 100%);
+    border-left: 2px solid #3a3a3c;
+    border-right: 2px solid #3a3a3c;
+}
+
+.macbook-base {
+    width: 400px;
+    height: 11px;
+    background: linear-gradient(180deg, #2c2c2e 0%, #1c1c1e 100%);
+    border-radius: 0 0 6px 6px;
+    border: 2px solid #3a3a3c;
+    border-top: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.macbook-base-indent {
+    width: 72px;
+    height: 4px;
+    background: #111;
+    border-radius: 0 0 3px 3px;
+    position: absolute;
+    top: 0;
+}
+
+/* ── CompletionScreen ────────────────────────────── */
+
+.completion-screen {
+    justify-content: space-between;
+}
+
+.completion-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 40px;
+    gap: 14px;
+}
+
+/* Animated checkmark */
+.completion-checkmark {
+    margin-bottom: 4px;
+}
+
+.completion-checkmark-circle {
+    stroke-dasharray: 160;
+    stroke-dashoffset: 160;
+    animation: draw-circle 0.5s cubic-bezier(0.65, 0, 0.45, 1) 0.1s forwards;
+}
+
+.completion-checkmark-path {
+    stroke-dasharray: 36;
+    stroke-dashoffset: 36;
+    animation: draw-check 0.35s cubic-bezier(0.65, 0, 0.45, 1) 0.55s forwards;
+}
+
+@keyframes draw-circle {
+    to { stroke-dashoffset: 0; }
+}
+
+@keyframes draw-check {
+    to { stroke-dashoffset: 0; }
+}
+
+/* Action buttons */
+.completion-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.completion-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 9px 20px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    border: none;
+    transition: background 0.15s;
+}
+
+.completion-btn--secondary {
+    background: rgba(255, 255, 255, 0.07);
+    /* border: 1px solid rgba(255, 255, 255, 0.12); */
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.completion-btn--secondary:hover {
+    background: rgba(255, 255, 255, 0.11);
+}
+
+.completion-btn--primary {
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.completion-btn--primary:hover {
+    background: #2367EE;
+}
