@@ -39,7 +39,7 @@ Dismissing the splash doesn't reset the update state to `idle`. The tray "Update
 If `cueAudioStreamer !== null` (i.e. a coach session is active) when an update is detected:
 - The splash is **not shown** — we don't interrupt an active call
 - The tray "Update Available" entry appears immediately (user can act if they want)
-- Main schedules a 10-minute recheck loop; once the session ends, the splash opens automatically
+- Main schedules a 10-minute recheck loop; once the session ends, the splash opens automatically. I have to ask @Franco what he thinks about this.
 
 ### 7. Auto-restart on download complete
 The "Restart Now / Later" prompt has been removed. When `update-downloaded` fires, the app calls `quitAndInstall()` immediately. No user action required.

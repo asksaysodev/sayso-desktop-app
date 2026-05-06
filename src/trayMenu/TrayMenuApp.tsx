@@ -1,6 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import trayToggleOn from '/assets/tray-toggle-on.png';
-import trayToggleOff from '/assets/tray-toggle-off.png';
 import { Account } from '@/types/user';
 import { ExternalLink } from 'lucide-react';
 import { useAppSettingsWindow } from '@/hooks/useAppSettingsWindow';
@@ -16,8 +14,8 @@ const TrayMenuApp = () => {
     return !userAuthenticated || userAuthenticated?.subscription_plan_id === null;
   }, [userAuthenticated]);
 
-  const isUpdating = updatePhase === 'downloading' || updatePhase === 'downloaded';
-  const showUpdateRow = updatePhase === 'available' || isUpdating;
+  const isUpdating: boolean = updatePhase === 'downloading' || updatePhase === 'downloaded';
+  const showUpdateRow: boolean = updatePhase === 'available' || isUpdating;
 
   useEffect(() => {
     const ipcRenderer = window.electron?.ipcRenderer;
@@ -163,6 +161,7 @@ const TrayMenuApp = () => {
               onClick={isUpdating ? undefined : handleOpenUpdateTab}
               disabled={isUpdating}
             >
+              {updatePhase === 'available' && <span className="tray-update-dot" />}
               <span className="tray-menu-item-label">
                 {isUpdating ? 'Update in progress…' : 'Update Available'}
               </span>
