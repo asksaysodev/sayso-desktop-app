@@ -2026,12 +2026,12 @@ ipcMain.on('update:dismiss', () => {
 });
 
 ipcMain.on('update:check-for-updates', () => {
-  if (autoUpdater) {
-    autoUpdater.checkForUpdates().catch((err: Error) => {
-      console.error('[Updater] Check failed:', err);
-      Sentry.captureException(err);
-    });
-  }
+  if (!autoUpdater) return;
+  if (updateState.phase === 'downloading' || updateState.phase === 'downloaded') return;
+  autoUpdater.checkForUpdates().catch((err: Error) => {
+    console.error('[Updater] Check failed:', err);
+    Sentry.captureException(err);
+  });
 });
 
 ipcMain.on('app-settings:open-update-tab', () => {
