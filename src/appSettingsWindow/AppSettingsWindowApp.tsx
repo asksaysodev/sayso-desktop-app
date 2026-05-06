@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useSessionExpiry } from "@/hooks/useSessionExpiry";
 import { LuPersonStanding, LuSettings, LuZap } from "react-icons/lu";
+import { Download } from "lucide-react";
 import CueSettings from "./components/CueSettings";
 import ScriptsSettings from "./components/ScriptsSettings";
 import AudioSettings from "./components/AudioSettings";
@@ -13,8 +14,9 @@ import AccessibilitySettings from "./components/AccessibilitySettings";
 import GeneralSettings from "./components/GeneralSettings";
 import { Book } from "lucide-react";
 import PlaybooksSettings from "./components/PlaybooksSettings";
+import SoftwareUpdateSettings from "./components/SoftwareUpdateSettings";
 
-export type SidebarOptionType = 'cue' | 'auto-stop' | 'audio' | 'scripts' | 'accessibility' | 'general' | 'playbooks';
+export type SidebarOptionType = 'cue' | 'auto-stop' | 'audio' | 'scripts' | 'accessibility' | 'general' | 'playbooks' | 'software-update';
 
 interface SidebarOption {
     key: SidebarOptionType;
@@ -27,8 +29,7 @@ const SIDEBAR_OPTIONS: SidebarOption[] = [
 	{ key: 'cue', label: 'Cue', icon: <LuZap /> },
     { key: 'accessibility', label: 'Accessibility', icon: <LuPersonStanding /> },
     { key: 'playbooks', label: 'Playbooks', icon: <Book /> },
-    // { key: 'audio', label: 'Audio', icon: <LuHeadphones /> },
-    // { key: 'scripts', label: 'Scripts', icon: <LuBookText /> },
+    { key: 'software-update', label: 'Software Update', icon: <Download size={16} /> },
 ];
 
 function AppSettingsContent() {
@@ -44,9 +45,27 @@ function AppSettingsContent() {
         }
         window.electron?.ipcRenderer?.send('set-font-size', size);
     }, [coachSettings?.font_size]);
-    const [active, setActive] = useState<SidebarOptionType>('general');
+
+    // Read initial tab from URL param (e.g. ?tab=software-update when opened from tray)
+    const initialTab = (): SidebarOptionType => {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab') as SidebarOptionType | null;
+        if (tab && SIDEBAR_OPTIONS.some(o => o.key === tab)) return tab;
+        return 'general';
+    };
+
+    const [active, setActive] = useState<SidebarOptionType>(initialTab);
     const [searchValue, setSearchValue] = useState('');
     const [highlightId, setHighlightId] = useState<string | null>(null);
+
+    // Navigate to software-update tab when main process requests it (e.g. tray click while window is open)
+    useEffect(() => {
+        const ipc = window.electron?.ipcRenderer;
+        if (!ipc) return;
+        const handler = () => setActive('software-update');
+        ipc.on('app-settings:navigate-to-update', handler);
+        return () => ipc.off('app-settings:navigate-to-update', handler);
+    }, []);
 
     const searchResults: SettingsRegistryEntry[] = searchValue ? searchSettings(searchValue) : [];
 
@@ -74,6 +93,7 @@ function AppSettingsContent() {
             case "accessibility": return <AccessibilitySettings />
             case "general": return <GeneralSettings />
             case "playbooks": return <PlaybooksSettings />
+            case "software-update": return <SoftwareUpdateSettings />
         }
     };
 

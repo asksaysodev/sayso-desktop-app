@@ -100,6 +100,14 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
         keywords: ['playbook', 'playbooks', 'scripts', 'list', 'manage', 'refresh', 'delete', 'remove'],
         section: 'playbooks',
     },
+    // Software Update
+    {
+        id: 'software-update',
+        label: 'Software Update',
+        description: 'Check for and install Sayso updates',
+        keywords: ['update', 'software', 'version', 'install', 'upgrade', 'download', 'new version'],
+        section: 'software-update',
+    },
 ];
 
 export function searchSettings(query: string): SettingsRegistryEntry[] {

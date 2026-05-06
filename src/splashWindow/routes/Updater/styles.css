@@ -1,0 +1,129 @@
+.updater-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+    position: relative;
+    padding: 0 28px;
+    box-sizing: border-box;
+}
+
+.updater-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 260px;
+    height: 220px;
+    background: radial-gradient(circle, rgba(59, 130, 246, 0.05) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.updater-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+.updater-icon-circle {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #EFF6FF, #DBEAFE);
+    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+.updater-icon-circle svg {
+    color: #2563EB;
+}
+
+.updater-title {
+    line-height: 28px;
+    font-weight: 700;
+    font-size: 22px;
+    color: #0F172A;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+    text-align: center;
+}
+
+.updater-description {
+    line-height: 20px;
+    font-weight: 400;
+    font-size: 13.5px;
+    color: #475569;
+    text-align: center;
+    margin: 0 0 28px;
+    max-width: 280px;
+    text-wrap: balance;
+}
+
+.version-pills-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 10px;
+    padding: 16px 20px;
+}
+
+.vpc-arrow {
+    display: flex;
+    align-items: center;
+    color: #CBD5E1;
+}
+
+.vpc-pill {
+    font-size: 13px;
+    line-height: 18px;
+    letter-spacing: -0.01em;
+}
+
+.vpc-pill.current-version-pill {
+    color: #94A3B8;
+    font-weight: 500;
+    padding: 0;
+}
+
+.vpc-pill.newer-version-pill {
+    color: #2563EB;
+    background: #EFF6FF;
+    border: 1px solid #DBEAFE;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+}
+
+.updater-footer {
+    margin-top: 36px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.updater-ghost-btn {
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 7px 10px;
+    color: #64748B;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: color 0.15s ease;
+    font-family: inherit;
+}
+.updater-ghost-btn:hover {
+    color: #0F172A;
+}
