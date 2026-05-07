@@ -37,8 +37,8 @@ const SmartCaptureWarningDialog = forwardRef<HTMLDivElement, Props>(({ mode, onP
             <p className="smart-capture-warning-dialog-title">Save your notes first?</p>
             <p className="smart-capture-warning-dialog-description">{description}</p>
             <div className="smart-capture-warning-dialog-actions">
-                <SaysoButton label={secondary} onClick={onSecondary} variant="outlined" disabled={isProcessing} />
-                <SaysoButton label={primary} onClick={onPrimary} loading={isProcessing} />
+                <SaysoButton label={secondary} onClick={onSecondary} disabled={isProcessing} />
+                <SaysoButton label={primary} onClick={onPrimary} loading={isProcessing} variant="outlined"/>
             </div>
         </div>
     );
