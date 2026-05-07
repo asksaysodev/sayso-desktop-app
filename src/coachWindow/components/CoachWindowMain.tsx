@@ -86,7 +86,7 @@ export default function CoachWindowMain() {
         pulseError,
         isPending: isPulsePending,
         fetch: fetchPulse,
-    } = usePulseMarketProperty(zipCodeValue);
+    } = usePulseMarketProperty(zipCodeValue, sessionData?.sessionId ?? '');
 
     useEffect(() => {
         if (isZipCodeValid) setIsZipDropdownOpen(true);
