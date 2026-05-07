@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import getPulseMarketProperty, { MarketProperty, PulseApiError } from '../services/getPulseMarketProperty';
 
-export default function usePulseMarketProperty(zipCodeValue: string) {
+export default function usePulseMarketProperty(zipCodeValue: string, sessionId: string) {
     const [selectedPropertyType, setSelectedPropertyType] = useState('');
     const [valuesFound, setValuesFound] = useState<MarketProperty | null>(null);
     const [pulseError, setPulseError] = useState<PulseApiError | null>(null);
@@ -18,7 +18,7 @@ export default function usePulseMarketProperty(zipCodeValue: string) {
     const { mutate, isPending } = useMutation({
         mutationFn: () => {
             pendingZipRef.current = zipCodeValue;
-            return getPulseMarketProperty(zipCodeValue, selectedPropertyType);
+            return getPulseMarketProperty(zipCodeValue, selectedPropertyType, sessionId);
         },
         onSuccess: (data) => {
             if (pendingZipRef.current !== zipCodeValue) return;
