@@ -435,9 +435,9 @@ export default function CoachWindowMain() {
                             )
                         }
                         
-                        <Pulse 
-                            isCoachActive={isCoachActive} 
-                            isPulseEnabled={isPulseEnabled} 
+                        <Pulse
+                            isCoachActive={isCoachActive}
+                            isPulseEnabled={isPulseEnabled}
                             isZipCodeValid={isZipCodeValid} 
                             setIsZipDropdownOpen={setIsZipDropdownOpen} 
                             isZipDropdownOpen={isZipDropdownOpen}
@@ -475,7 +475,7 @@ export default function CoachWindowMain() {
                 </div>
             )}
 
-            {isZipDropdownOpen && isZipCodeValid && isCoachActive && isPulseEnabled && (
+            {isZipDropdownOpen && isZipCodeValid && isCoachActive && isPulseEnabled && !pendingSmartCaptureAction && (
                 <ZipCodeDropdown
                     ref={zipCodeDropdownRef}
                     onClose={() => setIsZipDropdownOpen(false)}
