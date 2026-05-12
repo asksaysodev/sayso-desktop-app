@@ -469,17 +469,23 @@ function positionTrayMenu() {
 
   const trayBounds = tray.getBounds();
   const windowBounds = trayMenuWindow.getBounds();
-  const primaryDisplay = electronScreen.getPrimaryDisplay();
-  const workArea = primaryDisplay.workArea;
+
+  // Use cursor position to identify which display the user clicked on.
+  // tray.getBounds() can return coordinates for the primary display on macOS
+  // even when the tray icon was clicked on a secondary display's menu bar.
+  const cursorPoint = electronScreen.getCursorScreenPoint();
+  const display = electronScreen.getDisplayNearestPoint(cursorPoint);
+  const workArea = display.workArea;
 
   let x, y;
 
   if (process.platform === 'darwin') {
-    // macOS: Position below menu bar, aligned with tray icon
-    x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
-    y = Math.round(trayBounds.y + trayBounds.height + 5);
-    
-    // Ensure window stays within screen bounds
+    // Center horizontally around the cursor (where the icon was clicked),
+    // and place just below this display's menu bar.
+    x = Math.round(cursorPoint.x - windowBounds.width / 2);
+    y = Math.round(workArea.y + 5);
+
+    // Clamp to this display's bounds
     if (x + windowBounds.width > workArea.x + workArea.width) {
       x = workArea.x + workArea.width - windowBounds.width - 5;
     }
