@@ -3,18 +3,16 @@ import { screen } from 'electron';
 import { WINDOW_CONFIG } from './windowConfig';
 
 class WindowManager {
-  /**
-   * Calculate coach window position (centered horizontally, offset from top)
-   * @param {number} windowWidth - Width of the window
-   * @returns {Object} Position coordinates {x, y}
-   */
-  static calculateCoachWindowPosition(windowWidth = WINDOW_CONFIG.COACH.DEFAULT_WIDTH) {
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const { width: screenWidth } = primaryDisplay.workAreaSize;
-    
+  static getActiveDisplay() {
+    const cursorPoint = screen.getCursorScreenPoint();
+    return screen.getDisplayNearestPoint(cursorPoint);
+  }
+
+  static calculateCoachWindowPosition() {
+    const { workArea } = WindowManager.getActiveDisplay();
     return {
-      x: Math.round((screenWidth - windowWidth) / 2),
-      y: WINDOW_CONFIG.COACH.OFFSET_Y
+      x: workArea.x + WINDOW_CONFIG.COACH.OFFSET_X,
+      y: workArea.y + WINDOW_CONFIG.COACH.OFFSET_Y,
     };
   }
 
@@ -59,13 +57,13 @@ class WindowManager {
    */
   static getCoachWindowConfig(customWidth = null) {
     const width = customWidth || WINDOW_CONFIG.COACH.DEFAULT_WIDTH;
-    const position = this.calculateCoachWindowPosition(width);
-    
+    const { x, y } = this.calculateCoachWindowPosition();
+
     return {
       width,
       height: WINDOW_CONFIG.COACH.DEFAULT_HEIGHT,
-      x: WINDOW_CONFIG.COACH.OFFSET_X,
-      y: WINDOW_CONFIG.COACH.OFFSET_Y,
+      x,
+      y,
       frame: WINDOW_CONFIG.COACH.FRAME,
       transparent: WINDOW_CONFIG.COACH.TRANSPARENT,
       alwaysOnTop: WINDOW_CONFIG.COACH.ALWAYS_ON_TOP,
@@ -120,10 +118,15 @@ class WindowManager {
   }
 
   static getAppSettingsWindowConfig() {
+      const width = 800;
+      const height = 600;
+      const { workArea } = WindowManager.getActiveDisplay();
+
       return {
-          width: 800,
-          height: 600,
-          // alwaysOnTop: true,
+          width,
+          height,
+          x: Math.round(workArea.x + (workArea.width - width) / 2),
+          y: Math.round(workArea.y + (workArea.height - height) / 2),
           visibleOnAllWorkspaces: true,
           resizable: false,
           minimizable: false,
