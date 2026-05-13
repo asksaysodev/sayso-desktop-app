@@ -441,7 +441,7 @@ button {
     background-color: #3C4A5C;
     border-radius: 100px;
     padding: 0 12px;
-    height: 32px;
+    height: var(--cw-fs-zip-input-height);
     -webkit-app-region: no-drag;
     cursor: default;
 }
@@ -455,7 +455,7 @@ button {
 }
 
 .coach-window .zip-code-input {
-    width: 66px;
+    width: var(--cw-fs-zip-input-placeholder-width);
     background: transparent;
     border: none;
     outline: none;
@@ -1054,7 +1054,9 @@ button {
     --cw-fs-lpmama:           14px;
     --cw-fs-right-btn-size:   32px;
     --cw-base-width:          380px;
-    --cw-fs-zip-input-width:  44px;
+    --cw-fs-zip-input-width:             44px;
+    --cw-fs-zip-input-height:            32px;
+    --cw-fs-zip-input-placeholder-width: 66px;
 }
 
 /* M */
@@ -1077,7 +1079,9 @@ button {
     --cw-fs-lpmama:           16.8px;
     --cw-fs-right-btn-size:   38.4px;
     --cw-base-width:          400px;
-    --cw-fs-zip-input-width:  53px;
+    --cw-fs-zip-input-width:             53px;
+    --cw-fs-zip-input-height:            38.4px;
+    --cw-fs-zip-input-placeholder-width: 79.2px;
 }
 
 /* L */
@@ -1100,5 +1104,7 @@ button {
     --cw-fs-lpmama:           19.6px;
     --cw-fs-right-btn-size:   44.8px;
     --cw-base-width:          420px;
-    --cw-fs-zip-input-width:  62px;
+    --cw-fs-zip-input-width:             62px;
+    --cw-fs-zip-input-height:            44.8px;
+    --cw-fs-zip-input-placeholder-width: 92.4px;
 }

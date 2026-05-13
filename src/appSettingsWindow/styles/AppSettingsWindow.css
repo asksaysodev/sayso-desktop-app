@@ -828,7 +828,12 @@ body {
     gap: 6px;
     align-items: center;
 }
-
+.playbooks-col-alias-icon {
+    width: 15px;
+    height: 15px;
+    padding: 0px;
+    margin: 0px;
+}
 .playbooks-col-alias-text {
     overflow: hidden;
     text-overflow: ellipsis;

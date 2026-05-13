@@ -2,6 +2,7 @@ import { Star, Trash2 } from 'lucide-react';
 import { Playbook } from '@/playbookWindow/types';
 import StatusPill from './StatusPill';
 import EditPlaybook from './EditPlaybook';
+import SaysoBolt from '/assets/sayso.svg';
 
 interface PlaybookRowProps {
     playbook: Playbook;
@@ -14,13 +15,21 @@ interface PlaybookRowProps {
 
 export default function PlaybookRow({ playbook, isDeleting, isDefault, onDelete, onUpdateAlias, onSetDefault }: PlaybookRowProps) {
     const isOptimistic = playbook.id.startsWith('temp-');
-    const canDelete = !isOptimistic && !isDeleting;
+    const canDelete = !isOptimistic && !isDeleting && playbook.type === 'custom';
     const canEdit = !isOptimistic && !isDeleting;
     const canSetDefault = !isOptimistic && !isDeleting && playbook.status === 'ready' && !isDefault;
 
     return (
         <div className={`playbooks-row ${isDeleting ? 'deleting' : ''}`}>
             <span className="playbooks-col-alias" title={playbook.alias ?? playbook.file_name}>
+                {playbook.type !== 'custom' && (
+                    <img 
+                        src={SaysoBolt}
+                        alt='sayso bolt'
+                        aria-hidden="true"
+                        className='playbooks-col-alias-icon'
+                    />
+                )}
                 <span className="playbooks-col-alias-text">{playbook.alias ?? playbook.file_name}</span>
                 {canEdit && <EditPlaybook playbook={playbook} onSave={onUpdateAlias} />}
             </span>
