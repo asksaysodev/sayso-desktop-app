@@ -333,6 +333,8 @@ function broadcastPlaybookWindowState(isOpen: boolean) {
 // ===== CUSTOM TRAY MENU WINDOW =====
 let tray: TrayType | null = null;
 let trayMenuWindow: BrowserWindowType | null = null;
+let trayMenuShownAt = 0;
+const TRAY_BLUR_GRACE_MS = 250;
 let onboardingWindowInstance: BrowserWindowType | null = null;
 let onboardingClosedIntentionally = false;
 let isAppQuitting = false;
@@ -403,6 +405,10 @@ function createTrayMenuWindow() {
     });
 
     trayMenuWindow.on('blur', () => {
+        // Ignore blur events that fire during/right after show — on macOS,
+        // Space transitions (opening the menu from a fullscreen Space) cause
+        // focus to flicker, which would otherwise hide the menu immediately.
+        if (Date.now() - trayMenuShownAt < TRAY_BLUR_GRACE_MS) return;
         hideTrayMenu();
     });
     
@@ -420,29 +426,25 @@ function createTrayMenuWindow() {
  * Shows the tray menu window positioned near the tray icon
  */
 function showTrayMenu() {
-  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) {
-    createTrayMenuWindow();
-    // Wait a bit for the window to be created before positioning
-    setTimeout(() => {
-      if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
-        trayMenuWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-        positionTrayMenu();
-        trayMenuWindow.show();
-        trayMenuWindow.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
-      }
-    }, 100);
-  } else {
+  const reveal = () => {
+    if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+    // Pin to all workspaces (incl. fullscreen) while visible so macOS doesn't
+    // slide the user to the window's "home" Space. Revoked on hide.
     trayMenuWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     positionTrayMenu();
+    trayMenuShownAt = Date.now();
     trayMenuWindow.show();
-    trayMenuWindow.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
-  }
-
-  // Send initial coach window state
-  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.focus();
     trayMenuWindow.webContents.send('coach-window-state', {
       isOpen: isCoachWindowOpen()
     });
+  };
+
+  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) {
+    createTrayMenuWindow();
+    setTimeout(reveal, 100);
+  } else {
+    reveal();
   }
 }
 
@@ -452,6 +454,9 @@ function showTrayMenu() {
 function hideTrayMenu() {
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
     trayMenuWindow.hide();
+    // Revoke the all-workspaces pin set during show so the window doesn't
+    // linger on other Spaces (incl. fullscreen) while hidden.
+    trayMenuWindow.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
   }
 }
 
@@ -464,17 +469,23 @@ function positionTrayMenu() {
 
   const trayBounds = tray.getBounds();
   const windowBounds = trayMenuWindow.getBounds();
-  const primaryDisplay = electronScreen.getPrimaryDisplay();
-  const workArea = primaryDisplay.workArea;
+
+  // Use cursor position to identify which display the user clicked on.
+  // tray.getBounds() can return coordinates for the primary display on macOS
+  // even when the tray icon was clicked on a secondary display's menu bar.
+  const cursorPoint = electronScreen.getCursorScreenPoint();
+  const display = electronScreen.getDisplayNearestPoint(cursorPoint);
+  const workArea = display.workArea;
 
   let x, y;
 
   if (process.platform === 'darwin') {
-    // macOS: Position below menu bar, aligned with tray icon
-    x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
-    y = Math.round(trayBounds.y + trayBounds.height + 5);
-    
-    // Ensure window stays within screen bounds
+    // Center horizontally around the cursor (where the icon was clicked),
+    // and place just below this display's menu bar.
+    x = Math.round(cursorPoint.x - windowBounds.width / 2);
+    y = Math.round(workArea.y + 5);
+
+    // Clamp to this display's bounds
     if (x + windowBounds.width > workArea.x + workArea.width) {
       x = workArea.x + workArea.width - windowBounds.width - 5;
     }
