@@ -304,6 +304,30 @@ function setupLogging() {
 // ===== FONT SIZE CACHE =====
 let cachedFontSize: string = 's';
 
+const VALID_FONT_SIZES = new Set(['s', 'm', 'l']);
+
+function applyFontSize(size: string) {
+  if (!VALID_FONT_SIZES.has(size)) return;
+  cachedFontSize = size;
+  if (isCoachWindowOpen()) {
+    global.coachWindow!.webContents.send('font-size-changed', size);
+  }
+  if (isPlaybookWindowOpen()) {
+    global.playbookWindow!.webContents.send('font-size-changed', size);
+  }
+}
+
+async function fetchAndCacheFontSize(baseUrl: string, accessToken: string): Promise<void> {
+  const res = await axios.get(`${baseUrl}/sales-coach/settings`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    timeout: 5000,
+  });
+  const size = res.data?.coachSettings?.font_size;
+  if (size && VALID_FONT_SIZES.has(size)) {
+    cachedFontSize = size;
+  }
+}
+
 // ===== HELPER FUNCTIONS =====
 function isCoachWindowOpen() {
   return global.coachWindow && !global.coachWindow.isDestroyed();
@@ -1729,17 +1753,25 @@ app.whenReady().then(async () => {
 
   const authState = authManager.getState();
   if (authState.isAuthenticated) {
-    // Fetch the full account profile so the tray menu reflects logged-in state.
-    try {
-      const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
-      const profileRes = await axios.get(`${baseUrl}/accounts/${authState.user?.email}`, {
-        headers: { Authorization: `Bearer ${authState.accessToken}` },
-        timeout: 5000,
-      });
-      global.authUser = profileRes.data.data;
-    } catch (profileErr) {
-      console.warn('[MAIN] Silent auth succeeded but profile fetch failed — tray will show logged-out state', profileErr);
-      Sentry.captureException(profileErr);
+    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+    const headers = { Authorization: `Bearer ${authState.accessToken}` };
+
+    // Fetch profile and font size in parallel so cachedFontSize is correct before any window opens.
+    const [profileResult, fontSizeResult] = await Promise.allSettled([
+      axios.get(`${baseUrl}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
+      fetchAndCacheFontSize(baseUrl, authState.accessToken!),
+    ]);
+
+    if (profileResult.status === 'fulfilled') {
+      global.authUser = profileResult.value.data.data;
+    } else {
+      console.warn('[MAIN] Silent auth succeeded but profile fetch failed — tray will show logged-out state', profileResult.reason);
+      Sentry.captureException(profileResult.reason);
+    }
+
+    if (fontSizeResult.status === 'rejected') {
+      console.warn('[MAIN] Silent auth: font_size fetch failed — falling back to default S', fontSizeResult.reason);
+      Sentry.captureException(fontSizeResult.reason);
     }
   } else {
     createSplashWindow();
@@ -2069,13 +2101,7 @@ ipcMain.on('app-settings:open-update-tab', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 ipcMain.on('set-font-size', (_event, size: string) => {
-  cachedFontSize = size;
-  if (isCoachWindowOpen()) {
-    global.coachWindow!.webContents.send('font-size-changed', size);
-  }
-  if (isPlaybookWindowOpen()) {
-    global.playbookWindow!.webContents.send('font-size-changed', size);
-  }
+  applyFontSize(size);
 });
 
 ipcMain.on('open-onboarding-window', () => createOnboardingWindow());
