@@ -10,8 +10,6 @@ body {
     height: 100%;
     width: 100%;
     background: rgba(2, 25, 47, 0.97);
-    backdrop-filter: blur(200px);
-    -webkit-backdrop-filter: blur(200px);
 }
 
 /* ── Sidebar ── */

@@ -7,8 +7,6 @@
     justify-content: start;
     border-radius: 16px;
     background: var(--sayso-coach-bg);
-    backdrop-filter: blur(200px); 
-    -webkit-backdrop-filter: blur(200px);
     box-shadow: 
         inset 0 1px 0 rgba(114, 126, 137, 0.6);
     width: -webkit-fill-available;

@@ -3,6 +3,17 @@ import type { Event } from 'electron';
 import { AudioCaptureOptions, CueParams, UploadBothFilesOptions, UploadFileOptions } from './globals';
 
 try {
+  if (document.documentElement) {
+    document.documentElement.dataset.arch = process.arch;
+    console.log(`[preload] data-arch="${process.arch}" set immediately (documentElement ready)`);
+  } else {
+    console.log('[preload] documentElement not ready, deferring to DOMContentLoaded');
+    document.addEventListener('DOMContentLoaded', () => {
+      document.documentElement.dataset.arch = process.arch;
+      console.log(`[preload] data-arch="${process.arch}" set via DOMContentLoaded`);
+    });
+  }
+
   contextBridge.exposeInMainWorld('electron', {
     ipcRenderer: {
       invoke: (channel: string, ...args: unknown[]) => {
