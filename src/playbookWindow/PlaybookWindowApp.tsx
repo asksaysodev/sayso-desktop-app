@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Spinner } from '@/components/ui/spinner';
 import { usePlaybooksCache } from './hooks/usePlaybooksCache';
+import { usePlaybookPrefetch } from './hooks/usePlaybookPrefetch';
 import PlaybookHeader from './components/PlaybookHeader';
 import PlaybookSelector from './components/PlaybookSelector';
 import PlaybookBody from './components/PlaybookBody';
 
 export default function PlaybookWindowApp() {
+    usePlaybookPrefetch();
     const { playbooks: rawPlaybooks, error, isLoading } = usePlaybooksCache();
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
