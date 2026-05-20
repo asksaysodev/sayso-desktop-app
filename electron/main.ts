@@ -54,6 +54,7 @@ authManager.on('signed-out', () => {
   global.authAccessToken = null;
   global.authRefreshToken = null;
   cachedEnabledFeatures = [];
+  global.playbooksCache = null;
   broadcastEnabledFeatures();
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat for unmigrated windows
@@ -81,6 +82,7 @@ authManager.on('session-expired', () => {
   global.authAccessToken = null;
   global.authRefreshToken = null;
   cachedEnabledFeatures = [];
+  global.playbooksCache = null;
   broadcastEnabledFeatures();
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat

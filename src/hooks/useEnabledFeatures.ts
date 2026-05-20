@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export function useEnabledFeatures() {
     const [enabledFeatures, setEnabledFeatures] = useState<string[]>([]);
@@ -19,7 +19,7 @@ export function useEnabledFeatures() {
         };
     }, []);
 
-    const hasFeature = (key: string) => enabledFeatures.includes(key);
+    const hasFeature = useCallback((key: string) => enabledFeatures.includes(key), [enabledFeatures]);
 
     return { enabledFeatures, hasFeature };
 }
