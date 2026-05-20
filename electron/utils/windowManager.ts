@@ -97,8 +97,17 @@ class WindowManager {
     return { x: Math.round(x), y: Math.round(y) };
   }
 
-  static getPlaybookWindowConfig(coachBounds: { x: number; y: number; width: number; height: number }) {
-    const { x, y } = this.calculatePlaybookWindowPosition(coachBounds);
+  static calculateStandalonePlaybookWindowPosition() {
+    const { workArea } = WindowManager.getActiveDisplay();
+    const x = workArea.x + workArea.width - WINDOW_CONFIG.PLAYBOOK.WIDTH - 20;
+    const y = workArea.y + 20;
+    return { x: Math.round(x), y: Math.round(y) };
+  }
+
+  static getPlaybookWindowConfig(coachBounds?: { x: number; y: number; width: number; height: number }) {
+    const { x, y } = coachBounds
+      ? this.calculatePlaybookWindowPosition(coachBounds)
+      : this.calculateStandalonePlaybookWindowPosition();
 
     return {
       width: WINDOW_CONFIG.PLAYBOOK.WIDTH,
