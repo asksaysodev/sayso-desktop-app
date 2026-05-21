@@ -40,12 +40,22 @@ authManager.on('signed-in', (state: AuthState) => {
   console.log('[AuthManager] signed-in:', state.user?.email);
   global.authAccessToken = state.accessToken;
   broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated, accessToken: state.accessToken });
+  if (state.accessToken) {
+    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+    fetchAndCacheEnabledFeatures(baseUrl, state.accessToken).catch((err) => {
+      console.warn('[AuthManager] signed-in: features fetch failed', err?.message);
+      Sentry.captureException(err);
+    });
+  }
 });
 
 authManager.on('signed-out', () => {
   console.log('[AuthManager] signed-out');
   global.authAccessToken = null;
   global.authRefreshToken = null;
+  cachedEnabledFeatures = [];
+  global.playbooksCache = null;
+  broadcastEnabledFeatures();
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat for unmigrated windows
   broadcastToAllWindows('auth:session-expired');
@@ -71,6 +81,9 @@ authManager.on('session-expired', () => {
   console.log('[AuthManager] session-expired');
   global.authAccessToken = null;
   global.authRefreshToken = null;
+  cachedEnabledFeatures = [];
+  global.playbooksCache = null;
+  broadcastEnabledFeatures();
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat
   broadcastToAllWindows('auth:session-expired');
@@ -301,6 +314,28 @@ function setupLogging() {
   }
 }
 
+// ===== ENABLED FEATURES CACHE =====
+let cachedEnabledFeatures: string[] = [];
+
+async function fetchAndCacheEnabledFeatures(baseUrl: string, accessToken: string): Promise<void> {
+  const res = await axios.get(`${baseUrl}/features/company`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    timeout: 5000,
+  });
+  const features = res.data?.features;
+  if (Array.isArray(features)) {
+    cachedEnabledFeatures = features.filter((f: { enabled: boolean }) => f.enabled).map((f: { key: string }) => f.key);
+    broadcastEnabledFeatures();
+  }
+}
+
+function broadcastEnabledFeatures(): void {
+  const payload = { enabledFeatures: cachedEnabledFeatures };
+  BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
+    if (!win.isDestroyed()) win.webContents.send('enabled-features-changed', payload);
+  });
+}
+
 // ===== FONT SIZE CACHE =====
 let cachedFontSize: string = 's';
 
@@ -351,6 +386,9 @@ function broadcastPlaybookWindowState(isOpen: boolean) {
   const payload = { isOpen };
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
     global.coachWindow.webContents.send('playbook-window-state', payload);
+  }
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.webContents.send('playbook-window-state', payload);
   }
 }
 
@@ -460,6 +498,12 @@ function showTrayMenu() {
     trayMenuWindow.focus();
     trayMenuWindow.webContents.send('coach-window-state', {
       isOpen: isCoachWindowOpen()
+    });
+    trayMenuWindow.webContents.send('playbook-window-state', {
+      isOpen: isPlaybookWindowOpen()
+    });
+    trayMenuWindow.webContents.send('enabled-features-changed', {
+      enabledFeatures: cachedEnabledFeatures
     });
   };
 
@@ -579,13 +623,13 @@ function updateTrayMenu() {
   }
 }
 
-// ===== GLOBAL SHORTCUTS ===== 
+// ===== GLOBAL SHORTCUTS =====
 const shortcuts = [
   {
     // Open coach window widget
     fn: () => {
       if (!global.authUser || global.authUser?.subscription_plan_id === null) return;
-      
+
       if (isCoachWindowOpen()) {
         global.coachWindow?.close();
       } else {
@@ -594,6 +638,20 @@ const shortcuts = [
       }
     },
     keyCombination: 'Control+S'
+  },
+  {
+    // Toggle playbook window
+    fn: () => {
+      if (!global.authUser || global.authUser?.subscription_plan_id === null) return;
+      if (!cachedEnabledFeatures.includes('playbooks')) return;
+
+      if (isPlaybookWindowOpen()) {
+        global.playbookWindow!.close();
+      } else {
+        createPlaybookWindow();
+      }
+    },
+    keyCombination: 'Control+B'
   }
 ];
 
@@ -1677,10 +1735,11 @@ app.whenReady().then(async () => {
     const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
     const headers = { Authorization: `Bearer ${authState.accessToken}` };
 
-    // Fetch profile and font size in parallel so cachedFontSize is correct before any window opens.
-    const [profileResult, fontSizeResult] = await Promise.allSettled([
+    // Fetch profile, font size, and enabled features in parallel before any window opens.
+    const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
       axios.get(`${baseUrl}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
       fetchAndCacheFontSize(baseUrl, authState.accessToken!),
+      fetchAndCacheEnabledFeatures(baseUrl, authState.accessToken!),
     ]);
 
     if (profileResult.status === 'fulfilled') {
@@ -1693,6 +1752,11 @@ app.whenReady().then(async () => {
     if (fontSizeResult.status === 'rejected') {
       console.warn('[MAIN] Silent auth: font_size fetch failed — falling back to default S', fontSizeResult.reason);
       Sentry.captureException(fontSizeResult.reason);
+    }
+
+    if (featuresResult.status === 'rejected') {
+      console.warn('[MAIN] Silent auth: features fetch failed — no features enabled by default', featuresResult.reason);
+      Sentry.captureException(featuresResult.reason);
     }
   } else {
     createSplashWindow();
@@ -1941,6 +2005,10 @@ ipcMain.on('get-coach-window-state', (event: Electron.IpcMainInvokeEvent) => {
 // Handler for getting coach window state (async version for invoke)
 ipcMain.handle('get-coach-window-open-state', () => {
   return isCoachWindowOpen();
+});
+
+ipcMain.on('get-enabled-features', (event: Electron.IpcMainInvokeEvent) => {
+  event.sender.send('enabled-features-changed', { enabledFeatures: cachedEnabledFeatures });
 });
 
 // ─── Update IPC handlers ──────────────────────────────────────────────────────
@@ -2219,12 +2287,6 @@ const createCoachWindow = () => {
       console.log('Coach window closed event fired, cleaning up reference');
     }
 
-    if (isPlaybookWindowOpen()) {
-      global.playbookWindow!.close();
-    }
-
-    global.playbooksCache = null;
-
     // Force cleanup of all audio capture when coach window closes
     await cleanupAllAudioCapture();
 
@@ -2280,15 +2342,8 @@ ipcMain.on('demo-insight', (event: Electron.IpcMainInvokeEvent, insightData: Cue
   }
 });
 
-// --- Playbook Window (anchored to the coach window, only while coach is open) ---
+// --- Playbook Window ---
 const createPlaybookWindow = () => {
-  if (!isCoachWindowOpen()) {
-    if (isDev) {
-      console.log('Playbook window: refused to open, coach window is not open');
-    }
-    return;
-  }
-
   if (global.playbookWindow && !global.playbookWindow.isDestroyed()) {
     return;
   }
@@ -2298,7 +2353,7 @@ const createPlaybookWindow = () => {
   }
 
   const preloadScriptPath = path.join(__dirname, 'preload.js');
-  const coachBounds = global.coachWindow!.getBounds();
+  const coachBounds = isCoachWindowOpen() ? global.coachWindow!.getBounds() : undefined;
   const windowConfig = WindowManager.getPlaybookWindowConfig(coachBounds);
 
   const playbookWindow = new BrowserWindow({

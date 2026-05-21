@@ -3,6 +3,8 @@ import * as Sentry from '@sentry/electron/renderer';
 import { Account } from '@/types/user';
 import { ExternalLink } from 'lucide-react';
 import { useAppSettingsWindow } from '@/hooks/useAppSettingsWindow';
+import { usePlaybookWindow } from '@/hooks/usePlaybookWindow';
+import { useEnabledFeatures } from '@/hooks/useEnabledFeatures';
 import { UpdatePhase } from '@/types/update';
 
 const TrayMenuApp = () => {
@@ -10,10 +12,16 @@ const TrayMenuApp = () => {
   const [userAuthenticated, setUserAuthenticated] = useState<Account | null>(null);
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('idle');
   const { toggleAppSettingsWindow } = useAppSettingsWindow();
+  const { isPlaybookWindowOpen, togglePlaybookWindow } = usePlaybookWindow();
+  const { hasFeature } = useEnabledFeatures();
 
   const disableToggleCoach = useMemo(() => {
     return !userAuthenticated || userAuthenticated?.subscription_plan_id === null;
   }, [userAuthenticated]);
+
+  const showPlaybooksRow = useMemo(() => {
+    return userAuthenticated && userAuthenticated?.subscription_plan_id !== null && hasFeature('playbooks');
+  }, [userAuthenticated, hasFeature]);
 
   const isUpdating: boolean = updatePhase === 'downloading' || updatePhase === 'downloaded';
   const showUpdateRow: boolean = updatePhase === 'available' || isUpdating;
@@ -57,18 +65,23 @@ const TrayMenuApp = () => {
     const ipcRenderer = window.electron?.ipcRenderer;
     if (!ipcRenderer) return;
 
+    // Base height: Quit/Log In bottom row (42) + bottom padding
+    // Each row is ~42px. Logged-out: just bottom row = 46px.
     let height: number;
-    if (disableToggleCoach && !userAuthenticated) {
-        height = 82;
-    } else if (!disableToggleCoach && userAuthenticated) {
-        height = 210;
+    if (!userAuthenticated) {
+      height = 46;
+    } else if (disableToggleCoach) {
+      // My Account + Settings + bottom row
+      height = 46 + 42 * 2;
     } else {
-        height = 128;
+      // Coach + My Account + Settings + bottom row
+      height = 46 + 42 * 3;
     }
+    if (showPlaybooksRow) height += 42;
     if (showUpdateRow) height += 42;
 
     ipcRenderer.send('set-tray-menu-height', height);
-  }, [disableToggleCoach, userAuthenticated, showUpdateRow]);
+  }, [disableToggleCoach, userAuthenticated, showPlaybooksRow, showUpdateRow]);
 
   const handleToggleCoach = () => {
     const ipcRenderer = window.electron?.ipcRenderer;
@@ -108,10 +121,6 @@ const TrayMenuApp = () => {
 
   return (
     <div className="tray-menu">
-      <div className="tray-menu-header">
-        <span className="tray-menu-title">Sayso</span>
-      </div>
-
       <div className="tray-menu-items">
         {!disableToggleCoach && (
           <>
@@ -125,6 +134,24 @@ const TrayMenuApp = () => {
               </span>
               <span className="tray-menu-shortcut">
                 Ctrl + S
+              </span>
+            </button>
+            <div className="tray-menu-separator" />
+          </>
+        )}
+
+        {showPlaybooksRow && (
+          <>
+            <button
+              className="tray-menu-item"
+              onClick={togglePlaybookWindow}
+              disabled={isUpdating}
+            >
+              <span className="tray-menu-item-label">
+                {isPlaybookWindowOpen ? 'Hide Playbooks' : 'Show Playbooks'}
+              </span>
+              <span className="tray-menu-shortcut">
+                Ctrl + B
               </span>
             </button>
             <div className="tray-menu-separator" />
