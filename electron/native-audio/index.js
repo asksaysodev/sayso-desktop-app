@@ -4,36 +4,16 @@ const fs = require('fs');
 // Try to load the native module with better error handling
 let nativeAudio;
 try {
-  console.log('🎤 [AUDIO MANAGER] Starting native module loader...');
-  console.log('🎤 [AUDIO MANAGER] __dirname:', __dirname);
-  
   const modulePath = path.join(__dirname, 'build', 'Release', 'native_audio.node');
-  console.log('🎤 [AUDIO MANAGER] Attempting to load native module from:', modulePath);
-  
-  // Check if directory exists
-  const dirPath = path.dirname(modulePath);
-  console.log('🎤 [AUDIO MANAGER] Checking directory:', dirPath);
-  console.log('🎤 [AUDIO MANAGER] Directory exists:', fs.existsSync(dirPath));
-  
-  if (fs.existsSync(dirPath)) {
-    const files = fs.readdirSync(dirPath);
-    console.log('🎤 [AUDIO MANAGER] Files in directory:', files);
-  }
-  
+
   if (!fs.existsSync(modulePath)) {
     throw new Error(`Native module not found at: ${modulePath}`);
   }
-  
-  console.log('🎤 [AUDIO MANAGER] Module file exists, attempting to require...');
+
   nativeAudio = require(modulePath);
   console.log('🎤 [AUDIO MANAGER] Native module loaded successfully');
-  console.log('🎤 [AUDIO MANAGER] Native module exports:', Object.keys(nativeAudio));
 } catch (error) {
-  console.error('🎤 [AUDIO MANAGER] Failed to load native module');
-  console.error('🎤 [AUDIO MANAGER] Error message:', error.message);
-  console.error('🎤 [AUDIO MANAGER] Error code:', error.code);
-  console.error('🎤 [AUDIO MANAGER] Error stack:', error.stack);
-  console.error('🎤 [AUDIO MANAGER] Full error:', error);
+  console.error('🎤 [AUDIO MANAGER] Failed to load native module:', error.message);
   throw error;
 }
 

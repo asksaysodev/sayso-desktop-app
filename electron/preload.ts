@@ -3,6 +3,14 @@ import type { Event } from 'electron';
 import { AudioCaptureOptions, CueParams, UploadBothFilesOptions, UploadFileOptions } from './globals';
 
 try {
+  if (document.documentElement) {
+    document.documentElement.dataset.arch = process.arch;
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.documentElement.dataset.arch = process.arch;
+    });
+  }
+
   contextBridge.exposeInMainWorld('electron', {
     ipcRenderer: {
       invoke: (channel: string, ...args: unknown[]) => {

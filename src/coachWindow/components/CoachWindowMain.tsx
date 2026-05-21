@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, MouseEventHandler, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
 import { MdDragIndicator } from 'react-icons/md';
 import { MdErrorOutline } from 'react-icons/md';
@@ -31,7 +31,6 @@ const WINDOW_HEIGHT_SIZES = {
     ERROR: 110,
 }
 
-type DragStartRef = { mouseX: number, mouseY: number, winX: number, winY: number };
 
 export default function CoachWindowMain() {
     //REFS
@@ -42,12 +41,9 @@ export default function CoachWindowMain() {
     const errorContainerRef = useRef<HTMLDivElement | null>(null);
     const sessionStoppedDialogRef = useRef<HTMLDivElement | null>(null);
     const smartCaptureWarningDialogRef = useRef<HTMLDivElement | null>(null);
-    const isDraggingRef = useRef(false);
-    const dragStartRef = useRef<DragStartRef>({ mouseX: 0, mouseY: 0, winX: 0, winY: 0 });
     //STATE
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
-    const [isDragging, setIsDragging] = useState(false);
     const [lpmamaTooltipHeight, setLpmamaTooltipHeight] = useState(0);
     const [pendingSmartCaptureAction, setPendingSmartCaptureAction] = useState<SmartCaptureWarningMode | null>(null);
     const [isSmartCaptureProcessing, setIsSmartCaptureProcessing] = useState(false);
@@ -158,46 +154,6 @@ export default function CoachWindowMain() {
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [pendingSmartCaptureAction, isSmartCaptureProcessing]);
 
-    // Manual window drag handlers
-    const handleDragStart = async (e: MouseEvent) => {
-        e.preventDefault();
-        isDraggingRef.current = true;
-        setIsDragging(true);
-
-        if(!window.electronAPI) return;
-
-        const [winX, winY] = await window.electronAPI.getWindowPosition();
-        dragStartRef.current = {
-            mouseX: e.screenX,
-            mouseY: e.screenY,
-            winX,
-            winY
-        };
-
-        document.addEventListener('mousemove', handleDragMove);
-        document.addEventListener('mouseup', handleDragEnd);
-    };
-
-    const handleDragMove = (e: MouseEvent) => {
-        if (!isDraggingRef.current) return;
-
-        const deltaX = e.screenX - dragStartRef.current.mouseX;
-        const deltaY = e.screenY - dragStartRef.current.mouseY;
-
-        const newX = dragStartRef.current.winX + deltaX;
-        const newY = dragStartRef.current.winY + deltaY;
-
-        if(!window.electronAPI) return;
-
-        window.electronAPI.setWindowPosition(newX, newY);
-    };
-
-    const handleDragEnd = () => {
-        isDraggingRef.current = false;
-        setIsDragging(false);
-        document.removeEventListener('mousemove', handleDragMove);
-        document.removeEventListener('mouseup', handleDragEnd);
-    };
 
     function getTotalHeightWithRef(ref: any) {
         if (!ref || !ref?.current) return 0;
@@ -419,12 +375,9 @@ export default function CoachWindowMain() {
             <div className={`main-container coach-box-bubble`} ref={mainContainerRef}>
                 <div className='main-toolbar'>
                     <div className="coach-window-drag-container">
-                        <button
-                            className='coach-window-drag-indicator'
-                            onMouseDown={handleDragStart as unknown as MouseEventHandler<HTMLButtonElement>}
-                        >
+                        <div className='coach-window-drag-indicator'>
                             <MdDragIndicator/>
-                        </button>
+                        </div>
                         <div className="coach-window-divider"></div>
                     </div>
                     

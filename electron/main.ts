@@ -451,7 +451,6 @@ function createTrayMenuWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      backgroundThrottling: false,
     },
   });
 
@@ -965,27 +964,18 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
             // Forward to coach window if it exists
             if (global.coachWindow && !global.coachWindow.isDestroyed()) {
               global.coachWindow.webContents.send('cue-insight', message.data);
-              if (isDev) {
-                console.log('[MAIN] Insight forwarded to coach window:', message.data);
-              }
             }
           }
 
           if (message && message.type === 'smart_capture' && message.data) {
             if (global.coachWindow && !global.coachWindow.isDestroyed()) {
               global.coachWindow.webContents.send('cue-smart-capture', message.data);
-              if (isDev) {
-                console.log('[MAIN] Smart capture forwarded to coach window:', message.data);
-              }
             }
           }
 
           if (message && message.type === 'auto_stop') {
             if (global.coachWindow && !global.coachWindow.isDestroyed()) {
               global.coachWindow.webContents.send('cue-auto-stop');
-              if (isDev) {
-                console.log('[MAIN] Auto stop forwarded to coach window');
-              }
               
               if (process.platform === 'darwin') {
                 app.setBadgeCount(app.getBadgeCount() + 1);
@@ -1255,27 +1245,12 @@ const splashWindow = new BrowserWindow({
 
 // Handler for opening URLs externally
 ipcMain.on('open-external', (event: Electron.IpcMainInvokeEvent, url: string) => {
-  if (isDev) {
-    console.log('[MAIN] [Electron][open-external] IPC event received!');
-    console.log('[MAIN] [Electron][open-external] URL:', url);
-    console.log('[MAIN] [Electron][open-external] Event sender window ID:', event.sender.id);
-  }
-  
   try {
     shell.openExternal(url);
-    if (isDev) {
-      console.log('[MAIN] [Electron][open-external] URL opened externally successfully');
-    }
-    
+
     // If it's a Slack OAuth URL, send reset-to-home
     if (url.includes('slack/auth')) {
-      if (isDev) {
-        console.log('[MAIN] [Electron][open-external] Slack auth detected, sending reset-to-home [TRIGGER #1]');
-      }
       BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
-        if (isDev) {
-          console.log('[MAIN] [Electron][open-external] Sending reset-to-home to window:', win.id);
-        }
         win.webContents.send('reset-to-home', { source: 'open-external-ipc', service: 'slack' });
       });
     }
@@ -1384,13 +1359,6 @@ ipcMain.handle('upload-file', async (event: Electron.IpcMainInvokeEvent, { fileP
     const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
     const fileStats = fs.statSync(filePath);
     
-    if (isDev) {
-      console.log('[Main Process] File stats:', {
-        size: fileStats.size,
-        path: filePath
-      });
-    }
-    
     // Create FormData with file stream
     const formData = new NodeFormData();
     const fileStream = fs.createReadStream(filePath);
@@ -1407,12 +1375,7 @@ ipcMain.handle('upload-file', async (event: Electron.IpcMainInvokeEvent, { fileP
       formData.append('data', dataString);
     }
     
-    // Upload to server
     const url = `${baseUrl}/audio/transcript/upload`;
-    if (isDev) {
-      console.log('[Main Process] Uploading to:', url);
-    }
-    
     const response = await axios.post(url, formData, {
       headers: {
         ...formData.getHeaders(),
@@ -1494,13 +1457,6 @@ ipcMain.handle('upload-both-files', async (event: Electron.IpcMainInvokeEvent, {
     const userFileStats = fs.statSync(user.file);
     const prospectFileStats = fs.statSync(prospect.file);
     
-    if (isDev) {
-      console.log('[Main Process] File stats:', {
-        userFile: { size: userFileStats.size, path: user.file },
-        prospectFile: { size: prospectFileStats.size, path: prospect.file }
-      });
-    }
-    
     // Create FormData with both file streams
     const formData = new NodeFormData();
     
@@ -1526,12 +1482,7 @@ ipcMain.handle('upload-both-files', async (event: Electron.IpcMainInvokeEvent, {
     };
     formData.append('data', JSON.stringify(metadata));
     
-    // Upload to server
     const url = `${baseUrl}/audio/transcript/upload`;
-    if (isDev) {
-      console.log('[Main Process] Uploading both files to:', url);
-    }
-    
     const response = await axios.post(url, formData, {
       headers: {
         ...formData.getHeaders(),
@@ -1570,39 +1521,9 @@ ipcMain.handle('upload-both-files', async (event: Electron.IpcMainInvokeEvent, {
 });
 
 // --- Audio Queue Event Handlers ---
-audioQueue.on('queued', (item: AudioQueueItem) => {
-  if (isDev) {
-    console.log(`[Audio Queue] Queued new audio chunk: ${item.filePath} (${item.speaker})`);
-  }
-});
-
-audioQueue.on('processing', (item: AudioQueueItem) => {
-  if (isDev) {
-    console.log(`[Audio Queue] Processing audio chunk: ${item.filePath} (${item.speaker})`);
-  }
-});
-
-audioQueue.on('completed', (item: AudioQueueItem) => {
-  if (isDev) {
-    console.log(`[Audio Queue] Completed processing audio chunk: ${item.filePath} (${item.speaker})`);
-  }
-});
-
 audioQueue.on('failed', (item: AudioQueueItem) => {
   console.error(`[Audio Queue] Failed to process audio chunk after ${item.retries} retries: ${item.filePath} (${item.speaker})`);
   Sentry.captureMessage(`Audio queue failed: ${item.filePath} (${item.speaker}) after ${item.retries} retries`, 'error');
-});
-
-audioQueue.on('retrying', (item: AudioQueueItem) => {
-  if (isDev) {
-    console.log(`[Audio Queue] Retrying audio chunk (attempt ${item.retries}): ${item.filePath} (${item.speaker})`);
-  }
-});
-
-audioQueue.on('queueEmpty', (): void => {
-  if (isDev) {
-    console.log('[Audio Queue] Queue is now empty');
-  }
 });
 
 // Add IPC handler for getting queue status
@@ -1886,49 +1807,29 @@ let isProcessingPostCall = false;
 // Intercept navigation in ALL windows
 app.on('web-contents-created', (event: Event, contents: WebContents) => {
   contents.on('will-navigate', (event: Event, url: string) => {
-    if (isDev) {
-      console.log('[Electron][DEBUG] will-navigate triggered:', {
-        url,
-        windowId: contents.id,
-        stack: new Error().stack
-      });
-    }
     if (url.includes('post-call')) {
       const now = Date.now();
-      // Enhanced duplicate prevention
       if ((url === lastLeaveUrl && now - lastLeaveUrlTime < 3000) || isProcessingPostCall) {
-        if (isDev) {
-          console.log('[Electron][DEBUG] Skipping duplicate leaveUrl open:', url);
-        }
         event.preventDefault();
         return;
       }
-      
+
       isProcessingPostCall = true;
       lastLeaveUrl = url;
       lastLeaveUrlTime = now;
-      
-      // Reset processing flag after a delay
+
       setTimeout(() => {
         isProcessingPostCall = false;
       }, 3000);
-      
+
       event.preventDefault();
       shell.openExternal(url);
-      // Extract meetingId and prospectId from query parameters
       const urlObj = new URL(url);
       const params = new URLSearchParams(urlObj.search);
       const meetingId = params.get('meetingId');
       const prospectId = params.get('prospectId');
-      const sessionId = params.get('sessionId'); // Added sessionId extraction
-      if (isDev) {
-        console.log('[Electron][DEBUG] will-navigate: Extracted params:', { meetingId, prospectId, sessionId });
-      }
-            // Send IPC to ALL windows
+      const sessionId = params.get('sessionId');
       BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
-        if (isDev) {
-          console.log('[Electron][DEBUG] will-navigate: Sending reset-to-home to window:', win.id, { meetingId, prospectId, sessionId });
-        }
         win.webContents.send('reset-to-home', { meetingId, prospectId, sessionId });
       });
     }
@@ -1979,9 +1880,6 @@ app.on('web-contents-created', (event: Event, contents: WebContents) => {
   });
 
   contents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details: Electron.OnBeforeRequestListenerDetails, callback: (response: { cancel?: boolean; redirectURL?: string }) => void) => {
-    if (isDev) {
-      console.log('[Electron][webRequest.onBeforeRequest] URL:', details.url);
-    }
     callback({});
   });
 });
@@ -2084,10 +1982,6 @@ ipcMain.handle('get-app-settings-window-open-state', () => {
 
 // Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow
 ipcMain.on('open-coach-window', () => {
-  if (isDev) {
-    console.log('IPC: Received open-coach-window request');
-    console.log('IPC: Current global.coachWindow state:', !!global.coachWindow);
-  }
   const micStatus = systemPreferences.getMediaAccessStatus('microphone');
   if (micStatus !== 'granted') {
     createSplashWindow();
@@ -2097,22 +1991,10 @@ ipcMain.on('open-coach-window', () => {
   sendToOnboardingWindow('onboarding:coach-opened');
 });
 ipcMain.on('close-coach-window', () => {
-  if (isDev) {
-    console.log('IPC: Received close-coach-window request');
-  }
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-    if (isDev) {
-      console.log('Closing coach window...');
-    }
     global.coachWindow.close();
-    global.coachWindow = null;
-
-  } else {
-    if (isDev) {
-      console.log('No valid coach window to close');
-    }
-    global.coachWindow = null;
   }
+  global.coachWindow = null;
 });
 // Handler for getting coach window state
 ipcMain.on('get-coach-window-state', (event: Electron.IpcMainInvokeEvent) => {
@@ -2422,9 +2304,6 @@ const createCoachWindow = () => {
 
 // Update the resize handler to use WindowManager
 ipcMain.on('resize-coach-window', (event: Electron.IpcMainInvokeEvent, width: number, height: number) => {
-  if (isDev) {
-    console.log(`IPC: Received resize-coach-window request: ${width}x${height}`);
-  }
   if (global.coachWindow) {
     WindowManager.resizeCoachWindow(global.coachWindow, width, height);
   }
