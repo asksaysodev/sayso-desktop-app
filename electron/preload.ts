@@ -5,12 +5,9 @@ import { AudioCaptureOptions, CueParams, UploadBothFilesOptions, UploadFileOptio
 try {
   if (document.documentElement) {
     document.documentElement.dataset.arch = process.arch;
-    console.log(`[preload] data-arch="${process.arch}" set immediately (documentElement ready)`);
   } else {
-    console.log('[preload] documentElement not ready, deferring to DOMContentLoaded');
     document.addEventListener('DOMContentLoaded', () => {
       document.documentElement.dataset.arch = process.arch;
-      console.log(`[preload] data-arch="${process.arch}" set via DOMContentLoaded`);
     });
   }
 

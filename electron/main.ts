@@ -1463,17 +1463,10 @@ ipcMain.handle('upload-both-files', async (event: Electron.IpcMainInvokeEvent, {
 });
 
 // --- Audio Queue Event Handlers ---
-audioQueue.on('queued', (_item: AudioQueueItem) => {});
-audioQueue.on('processing', (_item: AudioQueueItem) => {});
-audioQueue.on('completed', (_item: AudioQueueItem) => {});
-
 audioQueue.on('failed', (item: AudioQueueItem) => {
   console.error(`[Audio Queue] Failed to process audio chunk after ${item.retries} retries: ${item.filePath} (${item.speaker})`);
   Sentry.captureMessage(`Audio queue failed: ${item.filePath} (${item.speaker}) after ${item.retries} retries`, 'error');
 });
-
-audioQueue.on('retrying', (_item: AudioQueueItem) => {});
-audioQueue.on('queueEmpty', (): void => {});
 
 // Add IPC handler for getting queue status
 ipcMain.handle('get-audio-queue-status', () => {
