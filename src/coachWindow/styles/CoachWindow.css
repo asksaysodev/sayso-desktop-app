@@ -104,7 +104,7 @@ button {
     align-items: center;
     justify-content: center;
     cursor: grab;
-    -webkit-app-region: no-drag;
+    -webkit-app-region: drag;
 }
 
 .coach-window .coach-window-divider{

@@ -413,7 +413,6 @@ function createTrayMenuWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      backgroundThrottling: false,
     },
   });
 
