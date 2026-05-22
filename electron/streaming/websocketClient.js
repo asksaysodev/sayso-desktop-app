@@ -95,6 +95,7 @@ class WebSocketClient extends EventEmitter {
     }
     
     this.shouldReconnect = true;
+    this.reconnectAttempts = 0;
     return this._connect();
   }
 
@@ -132,7 +133,6 @@ class WebSocketClient extends EventEmitter {
         this.ws.on('open', () => {
           clearTimeout(timeout);
           this.state = 'connected';
-          this.reconnectAttempts = 0; // Reset on successful connection
           this.emit('connected');
           resolve();
         });
@@ -163,7 +163,7 @@ class WebSocketClient extends EventEmitter {
         // Connection closed
         this.ws.on('close', (code, reason) => {
           clearTimeout(timeout);
-          this._handleDisconnect();
+          this._handleDisconnect(code);
         });
         
       } catch (error) {
@@ -181,11 +181,17 @@ class WebSocketClient extends EventEmitter {
    * Handle disconnection and attempt reconnection if needed
    * @private
    */
-  _handleDisconnect() {
+  _handleDisconnect(closeCode = 1006) {
+	console.log(`[WSClient:${this.speaker}] _handleDisconnect code=${closeCode} attempts=${this.reconnectAttempts} shouldReconnect=${this.shouldReconnect}`);
     this.state = 'disconnected';
     this.ws = null;
     this.emit('disconnected');
-    
+
+    if (closeCode === 1000) {
+      this.shouldReconnect = false;
+      return;
+    }
+
     // Attempt reconnection if enabled and within retry limit
     if (this.shouldReconnect && this.reconnectAttempts < CONNECTION_CONFIG.reconnectAttempts) {
       const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000); // Exponential backoff, max 10s

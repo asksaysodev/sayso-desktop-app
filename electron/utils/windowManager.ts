@@ -42,7 +42,6 @@ class WindowManager {
 
     try {
       coachWindow.setSize(validatedWidth, validatedHeight);
-      console.log(`WindowManager: Coach window resized to ${validatedWidth}x${validatedHeight}`);
       return true;
     } catch (error) {
       console.error('WindowManager: Error resizing coach window:', error);

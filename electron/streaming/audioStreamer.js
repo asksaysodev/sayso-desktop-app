@@ -117,6 +117,21 @@ class AudioStreamer {
           if (this.onMessage) {
             if (message.type === 'auto_stop') {
               this.autoStopping = true;
+              // Cancel pending reconnect timers synchronously — before the IPC round-trip
+              if (this.userWebSocket) {
+                this.userWebSocket.shouldReconnect = false;
+                if (this.userWebSocket.reconnectTimer) {
+                  clearTimeout(this.userWebSocket.reconnectTimer);
+                  this.userWebSocket.reconnectTimer = null;
+                }
+              }
+              if (this.prospectWebSocket) {
+                this.prospectWebSocket.shouldReconnect = false;
+                if (this.prospectWebSocket.reconnectTimer) {
+                  clearTimeout(this.prospectWebSocket.reconnectTimer);
+                  this.prospectWebSocket.reconnectTimer = null;
+                }
+              }
             }
             this.onMessage(message);
           }
