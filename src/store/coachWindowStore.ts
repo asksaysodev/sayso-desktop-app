@@ -421,7 +421,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
     },
 
     cue_handleStopCue: async () => {
-        set({ isCoachLoading: true });
+        set({ isCoachLoading: true, isCoachActive: false });
 
         try {
             const sessionId = get().sessionData?.sessionId;
@@ -472,7 +472,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
     cue_onPressResetSession: async () => {
         if (get().cue.isResettingCueSession) return;
 
-        set({ cue: { ...get().cue, isResettingCueSession: true } });
+        set({ cue: { ...get().cue, isResettingCueSession: true, isInsightsLayoutOpen: false, enabledFeatures: ['cue'] as EnabledFeature[] } });
 
         try {
             const currentLeadType = get().cue.leadType;
