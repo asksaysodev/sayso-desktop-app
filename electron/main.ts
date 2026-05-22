@@ -13,7 +13,7 @@ import type {
   CueInsight 
 } from './globals';
 
-import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu, nativeTheme } from 'electron';
+import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu, nativeTheme, powerMonitor } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { nativeImage } from 'electron/common';
@@ -90,6 +90,11 @@ authManager.on('session-expired', () => {
   // Stop WebSocket reconnect loops — there is no valid token to reconnect with
   if (cueAudioStreamer) { cueAudioStreamer.shouldReconnect = false; cueAudioStreamer.stop(false).catch(() => {}); }
   if (audioStreamer)    { audioStreamer.shouldReconnect    = false; audioStreamer.stop(false).catch(() => {}); }
+  // Close secondary windows and route to the login screen so the user isn't
+  // left clicking around with broken auth
+  if (isCoachWindowOpen()) global.coachWindow!.close();
+  if (isPlaybookWindowOpen()) global.playbookWindow!.close();
+  createSplashWindow({ reason: 'session-expired' });
 });
 
 let autoUpdater: import('electron-updater').AppUpdater | null = null;
@@ -1730,6 +1735,22 @@ app.whenReady().then(async () => {
   // no stored token it returns cleanly and we fall through to the splash.
   await authManager.init();
 
+  // Re-validate auth on system wake and screen unlock so the first API call
+  // after a sleep/lock cycle never races a half-connected network.
+  powerMonitor.on('resume', () => {
+    console.log('[PowerMonitor] System resumed — forcing token refresh');
+    authManager.forceRefresh().catch((err) => {
+      console.warn('[PowerMonitor] Force refresh after resume failed:', err?.message);
+    });
+  });
+
+  powerMonitor.on('unlock-screen', () => {
+    console.log('[PowerMonitor] Screen unlocked — forcing token refresh');
+    authManager.forceRefresh().catch((err) => {
+      console.warn('[PowerMonitor] Force refresh after screen unlock failed:', err?.message);
+    });
+  });
+
   const authState = authManager.getState();
   if (authState.isAuthenticated) {
     const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
@@ -1923,6 +1944,15 @@ ipcMain.handle('auth:sign-out', async () => {
  */
 ipcMain.handle('auth:get-token', async () => {
   return authManager.getAccessToken();
+});
+
+/**
+ * Forces an immediate token refresh, bypassing the 60-second proactive window.
+ * Used by the axios 401 interceptor when the server rejects a token the client
+ * thought was still valid (post-sleep clock skew, key rotation, etc.).
+ */
+ipcMain.handle('auth:force-refresh-token', async () => {
+  return authManager.forceRefresh();
 });
 
 ipcMain.handle('auth:get-state', () => {

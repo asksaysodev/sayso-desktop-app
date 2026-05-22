@@ -61,17 +61,25 @@ apiClient.interceptors.response.use(
 			},
 		});
 
-		// ── 401: refresh once via main, then retry ──────────────────────────
+		// ── 401: force-refresh then retry once ─────────────────────────────
 		if (error.response?.status === 401 && !originalRequest._retried) {
 			originalRequest._retried = true;
 
-			// auth:get-token internally calls AuthManager.getAccessToken() which
-			// will wait for any in-flight refresh and return a valid token, or
-			// null if the session is irrecoverably expired.
-			const token: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
+			// Force an immediate refresh bypassing the 60-second proactive window.
+			// Handles the case where the server rejects a token the client believed
+			// was still valid (post-sleep, clock skew, key rotation, etc.).
+			// forceRefresh() throws on transient errors (Wi-Fi reconnecting) so we
+			// don't falsely treat a brief network blip as a permanent session expiry.
+			let token: string | null = null;
+			try {
+				token = await window.electron?.ipcRenderer?.invoke('auth:force-refresh-token') ?? null;
+			} catch {
+				// Transient failure (Wi-Fi down, network blip) — don't dispatch session-expired
+				return Promise.reject(error);
+			}
 
 			if (!token) {
-				// Session is gone — dispatch so useSessionExpiry can react
+				// null means invalid_grant — session is permanently gone
 				window.dispatchEvent(new CustomEvent('auth:session-expired'));
 				return Promise.reject(error);
 			}
