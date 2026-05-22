@@ -30,6 +30,10 @@ Sentry.init(sentryConfig);
 // Owns all token state for the app's lifetime. Renderers ask main via IPC.
 export const authManager = new AuthManager();
 
+// True when init() failed transiently at boot (offline at startup).
+// The token-refreshed handler checks this to run the deferred profile/features fetch.
+let startupOfflinePending = false;
+
 function broadcastToAllWindows(channel: string, data?: unknown): void {
   BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
     if (!win.isDestroyed()) win.webContents.send(channel, data);
@@ -61,7 +65,7 @@ authManager.on('signed-out', () => {
   broadcastToAllWindows('auth:session-expired');
 });
 
-authManager.on('token-refreshed', (state: AuthState) => {
+authManager.on('token-refreshed', async (state: AuthState) => {
   console.log('[AuthManager] token-refreshed');
   global.authAccessToken = state.accessToken;
   broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated, accessToken: state.accessToken });
@@ -74,6 +78,32 @@ authManager.on('token-refreshed', (state: AuthState) => {
   if (state.accessToken) {
     if (cueAudioStreamer) cueAudioStreamer.updateToken(state.accessToken);
     if (audioStreamer)    audioStreamer.updateToken(state.accessToken);
+  }
+
+  // Startup-offline recovery: the first successful refresh after init() failed
+  // transiently at boot. Run the deferred profile/features/font-size fetch now.
+  if (startupOfflinePending && state.isAuthenticated) {
+    startupOfflinePending = false;
+    console.log('[MAIN] Startup-offline recovery — fetching profile and features');
+    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+    const headers = { Authorization: `Bearer ${state.accessToken}` };
+    const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
+      axios.get(`${baseUrl}/accounts/${state.user?.email}`, { headers, timeout: 5000 }),
+      fetchAndCacheFontSize(baseUrl, state.accessToken!),
+      fetchAndCacheEnabledFeatures(baseUrl, state.accessToken!),
+    ]);
+    if (profileResult.status === 'fulfilled') {
+      global.authUser = profileResult.value.data.data;
+    } else {
+      console.warn('[MAIN] Startup-offline recovery: profile fetch failed', profileResult.reason);
+      Sentry.captureException(profileResult.reason);
+    }
+    if (fontSizeResult.status === 'rejected') {
+      console.warn('[MAIN] Startup-offline recovery: font_size fetch failed', fontSizeResult.reason);
+    }
+    if (featuresResult.status === 'rejected') {
+      console.warn('[MAIN] Startup-offline recovery: features fetch failed', featuresResult.reason);
+    }
   }
 });
 
@@ -1781,6 +1811,13 @@ app.whenReady().then(async () => {
       console.warn('[MAIN] Silent auth: features fetch failed — no features enabled by default', featuresResult.reason);
       Sentry.captureException(featuresResult.reason);
     }
+  } else if (authManager.isNetworkRetryPending()) {
+    // Offline at startup — session exists but network was down during init().
+    // Silent: no splash, tray boots in disabled state. The token-refreshed handler
+    // will run the deferred profile/features fetch when the network comes back.
+    global.networkState = 'reconnecting';
+    startupOfflinePending = true;
+    console.log('[MAIN] Started offline — silent tray mode, awaiting network recovery');
   } else {
     createSplashWindow();
   }

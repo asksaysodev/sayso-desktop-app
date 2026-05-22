@@ -249,6 +249,10 @@ export class AuthManager extends EventEmitter {
     };
   }
 
+  isNetworkRetryPending(): boolean {
+    return this.networkRetryTimer !== null;
+  }
+
   // ─── Private: refresh ──────────────────────────────────────────────────────
 
   private async _refresh(): Promise<void> {

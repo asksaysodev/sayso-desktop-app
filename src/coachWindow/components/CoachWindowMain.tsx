@@ -98,7 +98,11 @@ export default function CoachWindowMain() {
     useEffect(() => {
         const ipc = window.electron?.ipcRenderer;
         if (!ipc) return;
-        const handleNetworkState = (state: unknown) => setIsOffline((state as string) === 'reconnecting');
+        const handleNetworkState = (state: unknown) => {
+            const offline = (state as string) === 'reconnecting';
+            setIsOffline(offline);
+            if (!offline) useCoachWindowStore.getState().clearError();
+        };
         ipc.on('network:state-changed', handleNetworkState as any);
         ipc.invoke('network:get-state').then((s: unknown) => setIsOffline((s as string) === 'reconnecting')).catch(() => {});
         return () => { ipc.off('network:state-changed', handleNetworkState as any); };
