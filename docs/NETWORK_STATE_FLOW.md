@@ -36,7 +36,7 @@ A few specific concerns surfaced during review that shaped the final design:
 ### Signal source
 
 ```
-Renderer (src/config/axios.ts)
+Renderer (src/services/networkReporter.ts — side-effect module)
   window.addEventListener('online')  ─► ipc.send('network:report-status', 'online')
   window.addEventListener('offline') ─► ipc.send('network:report-status', 'offline')
   reportNetworkStatus(navigator.onLine)   // initial report on load
@@ -47,6 +47,8 @@ Main (electron/main.ts)
     ├─ broadcasts 'network:state-changed' to all windows
     └─ pauses or resumes AuthManager
 ```
+
+**Every renderer entry point must import `@/services/networkReporter`** — tray, splash, coach, playbook, app-settings, onboarding. The tray is the critical one because it's the only window open during startup-offline; without it, main has no way to learn that the network came back.
 
 ### `global.networkState`
 
@@ -118,7 +120,7 @@ User is already logged in. They open the app with no internet.
 
 | File                                             | What it owns                                                                 |
 | ------------------------------------------------ | ---------------------------------------------------------------------------- |
-| `src/config/axios.ts`                            | `window.addEventListener('online'/'offline')` → IPC to main.                 |
+| `src/services/networkReporter.ts`                | `window.addEventListener('online'/'offline')` → IPC to main. Imported from every renderer entry point. |
 | `electron/main.ts`                               | `ipcMain.on('network:report-status')`, `ipcMain.handle('network:get-state')`, gating in shortcuts and IPC handlers, the startup-offline branch in `app.whenReady()`. |
 | `electron/auth/AuthManager.ts`                   | `pauseRefresh()`, `forceRefresh()`, `isNetworkRetryPending()`, the `paused` flag, the retry-backoff logic. |
 | `src/trayMenu/TrayMenuApp.tsx`                   | Subscribes to `network:state-changed`, disables Coach / Playbooks / Settings / Update rows while reconnecting. |

@@ -105,18 +105,6 @@ apiClient.interceptors.response.use(
 	},
 );
 
-// ─── Network state reporting ─────────────────────────────────────────────────
-// Report OS-level network changes to main immediately so gating (shortcuts,
-// tray buttons) updates near-instantly without waiting for a token refresh fail.
-
-const reportNetworkStatus = (online: boolean) => {
-  window.electron?.ipcRenderer?.send('network:report-status', online ? 'online' : 'offline');
-};
-
-window.addEventListener('online',  () => reportNetworkStatus(true));
-window.addEventListener('offline', () => reportNetworkStatus(false));
-reportNetworkStatus(navigator.onLine); // initial state on load
-
 // ─── Auth event listeners ────────────────────────────────────────────────────
 // Main broadcasts these when auth state changes. The session-expired one is
 // consumed by useSessionExpiry to close secondary windows gracefully.
