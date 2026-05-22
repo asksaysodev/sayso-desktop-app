@@ -40,6 +40,16 @@ function broadcastToAllWindows(channel: string, data?: unknown): void {
   });
 }
 
+function setAuthUser(user: AuthUser | null): void {
+  global.authUser = user;
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.webContents.send('user-auth', { authUser: user });
+  }
+  if (global.mainWindow && !global.mainWindow.isDestroyed()) {
+    global.mainWindow.webContents.send('user-auth', { authUser: user });
+  }
+}
+
 authManager.on('signed-in', (state: AuthState) => {
   console.log('[AuthManager] signed-in:', state.user?.email);
   global.authAccessToken = state.accessToken;
@@ -93,7 +103,7 @@ authManager.on('token-refreshed', async (state: AuthState) => {
       fetchAndCacheEnabledFeatures(baseUrl, state.accessToken!),
     ]);
     if (profileResult.status === 'fulfilled') {
-      global.authUser = profileResult.value.data.data;
+      setAuthUser(profileResult.value.data.data);
     } else {
       console.warn('[MAIN] Startup-offline recovery: profile fetch failed', profileResult.reason);
       Sentry.captureException(profileResult.reason);
@@ -2039,20 +2049,8 @@ ipcMain.handle('network:get-state', () => global.networkState);
 /**
  * Handler for updating user auth state
  */
-ipcMain.on('update-user-auth', (event: Electron.IpcMainInvokeEvent, { userAuthenticated }: { userAuthenticated: AuthUser | null }) => {
-  global.authUser = userAuthenticated;
-  
-  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
-    trayMenuWindow.webContents.send('user-auth', {
-      authUser: global.authUser
-    });
-  }
-  
-  if (global.mainWindow && !global.mainWindow.isDestroyed()) {
-    global.mainWindow.webContents.send('user-auth', {
-      authUser: global.authUser
-    });
-  }
+ipcMain.on('update-user-auth', (_event: Electron.IpcMainInvokeEvent, { userAuthenticated }: { userAuthenticated: AuthUser | null }) => {
+  setAuthUser(userAuthenticated);
 })
 // Handle for opening Coach settings window
 ipcMain.on('open-app-settings-window', () => {
