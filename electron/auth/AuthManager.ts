@@ -285,14 +285,21 @@ export class AuthManager extends EventEmitter {
       const remaining = this.expiresAt ? this.expiresAt - Math.floor(Date.now() / 1000) : 0;
       console.log(`[AuthManager] Token refreshed — next expiry in ${remaining}s`);
     } catch (error: any) {
-      Sentry.captureException(error);
       if (error instanceof AuthError && error.kind === 'invalid_grant') {
         // Refresh token is permanently invalid — treat as a true logout
+        Sentry.captureException(error);
         console.error('[AuthManager] Refresh token rejected by server — ending session');
         this._handleExpired();
       } else {
         // Transient failure (network down, 5xx, etc.) — keep the session alive
-        // and schedule a retry so the user isn't logged out by a flaky network
+        // and schedule a retry so the user isn't logged out by a flaky network.
+        // Downgrade to breadcrumb: a Wi-Fi blip is not an app bug.
+        Sentry.addBreadcrumb({
+          category: 'auth.refresh',
+          level: 'warning',
+          message: error.message,
+          data: { kind: error.kind, status: error.status },
+        });
         console.warn('[AuthManager] Refresh failed (transient), will retry:', error.message);
         this._scheduleNetworkRetry();
       }

@@ -178,6 +178,18 @@ process.on('uncaughtException', (error) => {
   // so the auto-updater can still run or the user can see an error UI.
 });
 
+const TRANSIENT_NET_CODES = new Set([
+  'ERR_INTERNET_DISCONNECTED', 'ENOTFOUND', 'ECONNREFUSED',
+  'ETIMEDOUT', 'ENETUNREACH', 'ECONNRESET',
+]);
+const TRANSIENT_NET_MSG_RE = /net::ERR_(INTERNET_DISCONNECTED|NAME_NOT_RESOLVED|CONNECTION_REFUSED|TIMED_OUT)/;
+
+function isTransientNetError(err: any): boolean {
+  return TRANSIENT_NET_CODES.has(err?.code) ||
+    TRANSIENT_NET_CODES.has(err?.errno) ||
+    TRANSIENT_NET_MSG_RE.test(err?.message ?? '');
+}
+
 if (app.isPackaged) {
   const { autoUpdater: updater } = require('electron-updater');
   const log = require('electron-log');
@@ -216,7 +228,11 @@ if (app.isPackaged) {
 
   updater.on('error', (err: Error) => {
     log.error('Error in auto-updater:', err);
-    Sentry.captureException(err);
+    if (isTransientNetError(err)) {
+      Sentry.addBreadcrumb({ category: 'auto-updater', level: 'warning', message: err.message, data: { code: (err as any).code } });
+    } else {
+      Sentry.captureException(err);
+    }
     setUpdateState({ phase: 'error', errorMessage: err.message });
   });
 
@@ -1594,17 +1610,17 @@ app.whenReady().then(async () => {
   if (autoUpdater) {
     // Check immediately (with small delay to ensure network is ready)
     setTimeout(() => {
-      autoUpdater.checkForUpdates().catch(err => {
+      autoUpdater.checkForUpdates().catch((err: Error) => {
         console.error('Failed to check for updates:', err);
-        Sentry.captureException(err);
+        if (!isTransientNetError(err)) Sentry.captureException(err);
       });
     }, 1000); // 1 second delay
-    
+
     // Check every hour
     setInterval(() => {
-      autoUpdater.checkForUpdates().catch(err => {
+      autoUpdater.checkForUpdates().catch((err: Error) => {
         console.error('Failed to check for updates:', err);
-        Sentry.captureException(err);
+        if (!isTransientNetError(err)) Sentry.captureException(err);
       });
     }, 60 * 60 * 1000);
   }
@@ -2078,7 +2094,7 @@ ipcMain.on('update:check-for-updates', () => {
   if (updateState.phase === 'downloading' || updateState.phase === 'downloaded') return;
   autoUpdater.checkForUpdates().catch((err: Error) => {
     console.error('[Updater] Check failed:', err);
-    Sentry.captureException(err);
+    if (!isTransientNetError(err)) Sentry.captureException(err);
   });
 });
 
