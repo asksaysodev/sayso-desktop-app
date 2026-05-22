@@ -1948,11 +1948,18 @@ ipcMain.handle('auth:get-token', async () => {
 
 /**
  * Forces an immediate token refresh, bypassing the 60-second proactive window.
- * Used by the axios 401 interceptor when the server rejects a token the client
- * thought was still valid (post-sleep clock skew, key rotation, etc.).
+ * Returns a discriminated result so the renderer can distinguish permanent
+ * session expiry (invalid_grant) from a transient network failure — without
+ * relying on IPC error serialisation which strips typed error fields.
  */
 ipcMain.handle('auth:force-refresh-token', async () => {
-  return authManager.forceRefresh();
+  try {
+    const token = await authManager.forceRefresh();
+    if (token === null) return { ok: false, kind: 'invalid_grant' } as const;
+    return { ok: true, token } as const;
+  } catch {
+    return { ok: false, kind: 'transient' } as const;
+  }
 });
 
 ipcMain.handle('auth:get-state', () => {

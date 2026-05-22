@@ -308,14 +308,15 @@ class AuthManager extends events_1.EventEmitter {
     _scheduleNetworkRetry() {
         if (this.networkRetryTimer)
             return; // already pending
+        const attemptNumber = this.networkRetryCount + 1;
         const delay = RETRY_DELAYS_MS[Math.min(this.networkRetryCount, RETRY_DELAYS_MS.length - 1)];
-        this.networkRetryCount++;
-        console.log(`[AuthManager] Scheduling refresh retry #${this.networkRetryCount} in ${delay}ms`);
+        console.log(`[AuthManager] Scheduling refresh retry #${attemptNumber} in ${delay}ms`);
         this.networkRetryTimer = setTimeout(async () => {
             this.networkRetryTimer = null;
+            this.networkRetryCount = attemptNumber;
             if (!this.refreshToken)
                 return; // session was explicitly cleared
-            console.log(`[AuthManager] Retry #${this.networkRetryCount} firing...`);
+            console.log(`[AuthManager] Retry #${attemptNumber} firing...`);
             try {
                 await this._refresh();
             }
@@ -414,15 +415,24 @@ class AuthManager extends events_1.EventEmitter {
         return response.json();
     }
     async _get(path, accessToken) {
-        const response = await fetch(`${this.supabaseUrl}${path}`, {
-            headers: {
-                'apikey': this.supabaseAnonKey,
-                'Authorization': `Bearer ${accessToken}`,
-            },
-        });
+        let response;
+        try {
+            response = await fetch(`${this.supabaseUrl}${path}`, {
+                headers: {
+                    'apikey': this.supabaseAnonKey,
+                    'Authorization': `Bearer ${accessToken}`,
+                },
+            });
+        }
+        catch (fetchError) {
+            throw new AuthError('network', fetchError.message ?? 'Network error');
+        }
         if (!response.ok) {
             const err = await response.json().catch(() => ({}));
-            throw new Error(err.error_description ?? err.message ?? `Request failed: ${response.status}`);
+            if (TERMINAL_GRANT_ERRORS.has(err.error ?? '')) {
+                throw new AuthError('invalid_grant', err.error_description ?? err.message ?? err.error ?? `Auth rejected: ${response.status}`, response.status);
+            }
+            throw new AuthError('unknown', err.error_description ?? err.message ?? `Request failed: ${response.status}`, response.status);
         }
         return response.json();
     }
