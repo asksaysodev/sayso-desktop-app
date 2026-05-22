@@ -61,22 +61,32 @@ apiClient.interceptors.response.use(
 			},
 		});
 
-		// ── 401: refresh once via main, then retry ──────────────────────────
+		// ── 401: force-refresh then retry once ─────────────────────────────
 		if (error.response?.status === 401 && !originalRequest._retried) {
 			originalRequest._retried = true;
 
-			// auth:get-token internally calls AuthManager.getAccessToken() which
-			// will wait for any in-flight refresh and return a valid token, or
-			// null if the session is irrecoverably expired.
-			const token: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
+			// Force an immediate refresh bypassing the 60-second proactive window.
+			// The handler returns a discriminated result — never throws across IPC —
+			// so we don't depend on error serialisation preserving typed fields.
+			type ForceRefreshResult =
+				| { ok: true; token: string }
+				| { ok: false; kind: 'invalid_grant' | 'transient' };
 
-			if (!token) {
-				// Session is gone — dispatch so useSessionExpiry can react
-				window.dispatchEvent(new CustomEvent('auth:session-expired'));
+			const result = (await window.electron?.ipcRenderer?.invoke(
+				'auth:force-refresh-token',
+			)) as ForceRefreshResult | undefined;
+
+			if (!result || !result.ok) {
+				if (result?.kind === 'invalid_grant') {
+					// Session is permanently gone — let useSessionExpiry react
+					window.dispatchEvent(new CustomEvent('auth:session-expired'));
+				}
+				// transient failure OR no electron context → silently reject without
+				// firing session-expired (Wi-Fi blip should not log the user out)
 				return Promise.reject(error);
 			}
 
-			originalRequest.headers['Authorization'] = `Bearer ${token}`;
+			originalRequest.headers['Authorization'] = `Bearer ${result.token}`;
 			return apiClient(originalRequest);
 		}
 

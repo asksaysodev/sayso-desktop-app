@@ -37,6 +37,27 @@ exports.AuthManager = void 0;
 const events_1 = require("events");
 const Sentry = __importStar(require("@sentry/electron/main"));
 const tokenStore_1 = require("../utils/tokenStore");
+// Supabase error codes that mean the refresh token is permanently invalid.
+// Any other failure (network, 5xx, unknown) is treated as transient.
+const TERMINAL_GRANT_ERRORS = new Set([
+    'invalid_grant',
+    'refresh_token_not_found',
+    'refresh_token_already_used',
+    'user_not_found',
+    'user_banned',
+]);
+class AuthError extends Error {
+    kind;
+    status;
+    constructor(kind, message, status) {
+        super(message);
+        this.kind = kind;
+        this.status = status;
+        this.name = 'AuthError';
+    }
+}
+// Backoff delays (ms) for transient refresh failures: 1s, 3s, 10s, 30s, 60s cap
+const RETRY_DELAYS_MS = [1_000, 3_000, 10_000, 30_000, 60_000];
 class AuthManager extends events_1.EventEmitter {
     accessToken = null;
     refreshToken = null;
@@ -45,6 +66,9 @@ class AuthManager extends events_1.EventEmitter {
     refreshTimer = null;
     // Single in-flight refresh promise — all concurrent callers await the same one
     refreshPromise = null;
+    // Network-error retry state
+    networkRetryCount = 0;
+    networkRetryTimer = null;
     constructor() {
         super();
     }
@@ -57,8 +81,11 @@ class AuthManager extends events_1.EventEmitter {
     // ─── Public API ────────────────────────────────────────────────────────────
     /**
      * Call once at app startup. Reads the persisted refresh token from disk and
-     * exchanges it for a fresh access token. If it fails, clears the stored token
-     * so the user is prompted to sign in.
+     * exchanges it for a fresh access token.
+     *
+     * On network failure we keep the token on disk and schedule a retry — the user
+     * should NOT be logged out just because Wi-Fi wasn't ready at boot time.
+     * Only a definitive Supabase auth error (invalid_grant etc.) clears the token.
      */
     async init() {
         const stored = (0, tokenStore_1.loadRefreshToken)();
@@ -73,8 +100,18 @@ class AuthManager extends events_1.EventEmitter {
             console.log('[AuthManager] Session restored for', this.user?.email);
         }
         catch (error) {
-            console.warn('[AuthManager] Failed to restore session:', error.message);
-            (0, tokenStore_1.clearRefreshToken)();
+            if (error instanceof AuthError && error.kind === 'invalid_grant') {
+                // Refresh token is permanently invalid — clear it so the user signs in fresh
+                console.warn('[AuthManager] Refresh token invalid at init — clearing session');
+                (0, tokenStore_1.clearRefreshToken)();
+            }
+            else {
+                // Transient failure (offline at boot, slow Wi-Fi, etc.) — keep the token
+                // on disk and in memory; a retry will pick it up when the network is ready
+                console.warn('[AuthManager] Failed to restore session (transient), will retry:', error.message);
+                this.refreshToken = stored;
+                this._scheduleNetworkRetry();
+            }
         }
     }
     /**
@@ -137,6 +174,10 @@ class AuthManager extends events_1.EventEmitter {
     /**
      * Returns the current access token, proactively refreshing if it is within
      * 60 seconds of expiry. All concurrent callers share one in-flight refresh.
+     *
+     * On a transient network failure this returns whatever token we have (possibly
+     * stale) so the caller can still attempt the request — the axios 401 handler
+     * will call forceRefresh() which retries with proper backoff.
      */
     async getAccessToken() {
         if (!this.refreshToken)
@@ -144,9 +185,40 @@ class AuthManager extends events_1.EventEmitter {
         const now = Math.floor(Date.now() / 1000);
         const needsRefresh = !this.accessToken || !this.expiresAt || this.expiresAt - now < 60;
         if (needsRefresh) {
-            await this._refresh();
+            try {
+                await this._refresh();
+            }
+            catch (error) {
+                if (error instanceof AuthError && error.kind === 'invalid_grant') {
+                    return null; // session is definitively gone
+                }
+                // Transient failure — return whatever token we have; the response
+                // interceptor's force-refresh path will handle the resulting 401
+            }
         }
         return this.accessToken;
+    }
+    /**
+     * Forces an immediate token refresh regardless of expiry, bypassing the
+     * 60-second proactive window. Used by the powerMonitor resume/unlock handlers
+     * and by the axios 401 interceptor when the server rejects a token the client
+     * believed was still valid (clock skew, key rotation, etc.).
+     *
+     * Returns the new access token, or null if the session is expired.
+     */
+    async forceRefresh() {
+        if (!this.refreshToken)
+            return null; // session truly gone
+        try {
+            await this._refresh();
+            return this.accessToken;
+        }
+        catch (error) {
+            if (error instanceof AuthError && error.kind === 'invalid_grant') {
+                return null; // session permanently gone
+            }
+            throw error; // transient — propagate so caller doesn't treat as session-expired
+        }
     }
     getState() {
         return {
@@ -174,6 +246,12 @@ class AuthManager extends events_1.EventEmitter {
     async _doRefresh() {
         try {
             await this._exchangeRefreshToken(this.refreshToken);
+            // Success — reset retry state
+            this.networkRetryCount = 0;
+            if (this.networkRetryTimer) {
+                clearTimeout(this.networkRetryTimer);
+                this.networkRetryTimer = null;
+            }
             (0, tokenStore_1.saveRefreshToken)(this.refreshToken);
             this._scheduleRefresh();
             this.emit('token-refreshed', this.getState());
@@ -182,8 +260,17 @@ class AuthManager extends events_1.EventEmitter {
         }
         catch (error) {
             Sentry.captureException(error);
-            console.error('[AuthManager] Refresh failed:', error.message);
-            this._handleExpired();
+            if (error instanceof AuthError && error.kind === 'invalid_grant') {
+                // Refresh token is permanently invalid — treat as a true logout
+                console.error('[AuthManager] Refresh token rejected by server — ending session');
+                this._handleExpired();
+            }
+            else {
+                // Transient failure (network down, 5xx, etc.) — keep the session alive
+                // and schedule a retry so the user isn't logged out by a flaky network
+                console.warn('[AuthManager] Refresh failed (transient), will retry:', error.message);
+                this._scheduleNetworkRetry();
+            }
             throw error;
         }
     }
@@ -207,11 +294,37 @@ class AuthManager extends events_1.EventEmitter {
                 await this._refresh();
             }
             catch {
-                // _doRefresh already captures to Sentry and emits session-expired
+                // _doRefresh already captures to Sentry and schedules a network retry
+                // if transient, or calls _handleExpired if invalid_grant
             }
         }, delayMs);
         // Don't prevent the app from quitting just because the timer is pending
         this.refreshTimer.unref();
+    }
+    /**
+     * Schedules a retry after a transient refresh failure using exponential backoff.
+     * Does nothing if a retry is already pending.
+     */
+    _scheduleNetworkRetry() {
+        if (this.networkRetryTimer)
+            return; // already pending
+        const attemptNumber = this.networkRetryCount + 1;
+        const delay = RETRY_DELAYS_MS[Math.min(this.networkRetryCount, RETRY_DELAYS_MS.length - 1)];
+        console.log(`[AuthManager] Scheduling refresh retry #${attemptNumber} in ${delay}ms`);
+        this.networkRetryTimer = setTimeout(async () => {
+            this.networkRetryTimer = null;
+            this.networkRetryCount = attemptNumber;
+            if (!this.refreshToken)
+                return; // session was explicitly cleared
+            console.log(`[AuthManager] Retry #${attemptNumber} firing...`);
+            try {
+                await this._refresh();
+            }
+            catch {
+                // _doRefresh will reschedule if still transient, or end session if invalid_grant
+            }
+        }, delay);
+        this.networkRetryTimer.unref();
     }
     // ─── Private: helpers ──────────────────────────────────────────────────────
     _setTokens(accessToken, refreshToken) {
@@ -231,10 +344,15 @@ class AuthManager extends events_1.EventEmitter {
         this.refreshToken = null;
         this.expiresAt = null;
         this.user = null;
+        this.networkRetryCount = 0;
         Sentry.setUser(null);
         if (this.refreshTimer) {
             clearTimeout(this.refreshTimer);
             this.refreshTimer = null;
+        }
+        if (this.networkRetryTimer) {
+            clearTimeout(this.networkRetryTimer);
+            this.networkRetryTimer = null;
         }
     }
     _handleExpired() {
@@ -273,27 +391,48 @@ class AuthManager extends events_1.EventEmitter {
         };
         if (accessToken)
             headers['Authorization'] = `Bearer ${accessToken}`;
-        const response = await fetch(`${this.supabaseUrl}${path}`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-        });
+        let response;
+        try {
+            response = await fetch(`${this.supabaseUrl}${path}`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+            });
+        }
+        catch (fetchError) {
+            // fetch() itself threw — DNS failure, ENOTFOUND, offline, timeout, etc.
+            throw new AuthError('network', fetchError.message ?? 'Network error');
+        }
         if (!response.ok) {
             const err = await response.json().catch(() => ({}));
-            throw new Error(err.error_description ?? err.message ?? err.msg ?? `Request failed: ${response.status}`);
+            // Only treat known Supabase grant-rejection codes as terminal
+            if (TERMINAL_GRANT_ERRORS.has(err.error ?? '')) {
+                throw new AuthError('invalid_grant', err.error_description ?? err.message ?? err.error ?? `Auth rejected: ${response.status}`, response.status);
+            }
+            // 5xx or unrecognised 4xx — treat as transient
+            throw new AuthError('unknown', err.error_description ?? err.message ?? err.msg ?? `Request failed: ${response.status}`, response.status);
         }
         return response.json();
     }
     async _get(path, accessToken) {
-        const response = await fetch(`${this.supabaseUrl}${path}`, {
-            headers: {
-                'apikey': this.supabaseAnonKey,
-                'Authorization': `Bearer ${accessToken}`,
-            },
-        });
+        let response;
+        try {
+            response = await fetch(`${this.supabaseUrl}${path}`, {
+                headers: {
+                    'apikey': this.supabaseAnonKey,
+                    'Authorization': `Bearer ${accessToken}`,
+                },
+            });
+        }
+        catch (fetchError) {
+            throw new AuthError('network', fetchError.message ?? 'Network error');
+        }
         if (!response.ok) {
             const err = await response.json().catch(() => ({}));
-            throw new Error(err.error_description ?? err.message ?? `Request failed: ${response.status}`);
+            if (TERMINAL_GRANT_ERRORS.has(err.error ?? '')) {
+                throw new AuthError('invalid_grant', err.error_description ?? err.message ?? err.error ?? `Auth rejected: ${response.status}`, response.status);
+            }
+            throw new AuthError('unknown', err.error_description ?? err.message ?? `Request failed: ${response.status}`, response.status);
         }
         return response.json();
     }
