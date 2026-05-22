@@ -1815,10 +1815,12 @@ app.whenReady().then(async () => {
     }
   } else if (authManager.isNetworkRetryPending()) {
     // Offline at startup — session exists but network was down during init().
-    // Silent: no splash, tray boots in disabled state. The token-refreshed handler
-    // will run the deferred profile/features fetch when the network comes back.
+    // Silent: no splash, tray boots in disabled state. Pause auth retries until
+    // the renderer reports 'online'; the token-refreshed handler then runs the
+    // deferred profile/features fetch.
     global.networkState = 'reconnecting';
     startupOfflinePending = true;
+    authManager.pauseRefresh();
     console.log('[MAIN] Started offline — silent tray mode, awaiting network recovery');
   } else {
     createSplashWindow();
@@ -2020,12 +2022,12 @@ ipcMain.on('network:report-status', (_event, status: 'online' | 'offline') => {
   broadcastToAllWindows('network:state-changed', next);
 
   if (next === 'reconnecting') {
-    // OS says we're offline — stop hammering the auth server with retries.
-    // We'll try exactly once when the OS signals we're back online.
-    authManager.cancelNetworkRetry();
+    // OS says we're offline — pause both the proactive refresh timer and any
+    // pending backoff retry. forceRefresh() on the 'online' event lifts the pause.
+    authManager.pauseRefresh();
   } else {
     // OS says we're back online — trigger one immediate refresh instead of
-    // waiting for the next scheduled 60s retry tick.
+    // waiting for the next scheduled tick.
     authManager.forceRefresh().catch(() => {});
   }
 });

@@ -65,6 +65,10 @@ export class AuthManager extends EventEmitter {
   // Network-error retry state
   private networkRetryCount = 0;
   private networkRetryTimer: NodeJS.Timeout | null = null;
+  // True while the OS reports us offline. Blocks all auto-scheduled refresh work
+  // (proactive expiry timer, transient retry backoff) so we don't generate Sentry
+  // noise during an extended outage. Cleared by forceRefresh() / signIn().
+  private paused = false;
 
   constructor() {
     super();
@@ -230,6 +234,10 @@ export class AuthManager extends EventEmitter {
    */
   async forceRefresh(): Promise<string | null> {
     if (!this.refreshToken) return null; // session truly gone
+    // Caller (OS online event, powerMonitor, axios 401 retry) explicitly believes
+    // network is available — lift the offline pause so a transient failure here
+    // can still schedule its own backoff.
+    this.paused = false;
     try {
       await this._refresh();
       return this.accessToken;
@@ -254,15 +262,25 @@ export class AuthManager extends EventEmitter {
   }
 
   /**
-   * Cancels any pending network retry timer without clearing the session.
-   * Call this when the OS signals we're offline — no point retrying when
-   * we know there's no network. Pair with forceRefresh() on the 'online' event.
+   * Suspends all auto-scheduled refresh work. Call this when the OS signals
+   * we're offline. Clears both the proactive expiry timer and any pending
+   * transient-retry timer, and blocks future auto-schedules until forceRefresh()
+   * (typically driven by the OS 'online' event) flips paused back off.
+   *
+   * The session itself is preserved — tokens stay in memory and on disk.
    */
-  cancelNetworkRetry(): void {
+  pauseRefresh(): void {
+    if (!this.paused) {
+      this.paused = true;
+      console.log('[AuthManager] Refresh paused (OS offline)');
+    }
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
     if (this.networkRetryTimer) {
       clearTimeout(this.networkRetryTimer);
       this.networkRetryTimer = null;
-      console.log('[AuthManager] Network retry cancelled (OS offline)');
     }
   }
 
@@ -357,6 +375,7 @@ export class AuthManager extends EventEmitter {
    * Does nothing if a retry is already pending.
    */
   private _scheduleNetworkRetry(): void {
+    if (this.paused) return; // OS says we're offline — pointless to keep trying
     if (this.networkRetryTimer) return; // already pending
 
     const attemptNumber = this.networkRetryCount + 1;
@@ -400,6 +419,7 @@ export class AuthManager extends EventEmitter {
     this.expiresAt = null;
     this.user = null;
     this.networkRetryCount = 0;
+    this.paused = false;
     Sentry.setUser(null);
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);
