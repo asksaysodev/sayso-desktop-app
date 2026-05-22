@@ -30,10 +30,24 @@ Sentry.init(sentryConfig);
 // Owns all token state for the app's lifetime. Renderers ask main via IPC.
 export const authManager = new AuthManager();
 
+// True when init() failed transiently at boot (offline at startup).
+// The token-refreshed handler checks this to run the deferred profile/features fetch.
+let startupOfflinePending = false;
+
 function broadcastToAllWindows(channel: string, data?: unknown): void {
   BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
     if (!win.isDestroyed()) win.webContents.send(channel, data);
   });
+}
+
+function setAuthUser(user: AuthUser | null): void {
+  global.authUser = user;
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.webContents.send('user-auth', { authUser: user });
+  }
+  if (global.mainWindow && !global.mainWindow.isDestroyed()) {
+    global.mainWindow.webContents.send('user-auth', { authUser: user });
+  }
 }
 
 authManager.on('signed-in', (state: AuthState) => {
@@ -61,7 +75,7 @@ authManager.on('signed-out', () => {
   broadcastToAllWindows('auth:session-expired');
 });
 
-authManager.on('token-refreshed', (state: AuthState) => {
+authManager.on('token-refreshed', async (state: AuthState) => {
   console.log('[AuthManager] token-refreshed');
   global.authAccessToken = state.accessToken;
   broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated, accessToken: state.accessToken });
@@ -74,6 +88,32 @@ authManager.on('token-refreshed', (state: AuthState) => {
   if (state.accessToken) {
     if (cueAudioStreamer) cueAudioStreamer.updateToken(state.accessToken);
     if (audioStreamer)    audioStreamer.updateToken(state.accessToken);
+  }
+
+  // Startup-offline recovery: the first successful refresh after init() failed
+  // transiently at boot. Run the deferred profile/features/font-size fetch now.
+  if (startupOfflinePending && state.isAuthenticated) {
+    startupOfflinePending = false;
+    console.log('[MAIN] Startup-offline recovery — fetching profile and features');
+    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+    const headers = { Authorization: `Bearer ${state.accessToken}` };
+    const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
+      axios.get(`${baseUrl}/accounts/${state.user?.email}`, { headers, timeout: 5000 }),
+      fetchAndCacheFontSize(baseUrl, state.accessToken!),
+      fetchAndCacheEnabledFeatures(baseUrl, state.accessToken!),
+    ]);
+    if (profileResult.status === 'fulfilled') {
+      setAuthUser(profileResult.value.data.data);
+    } else {
+      console.warn('[MAIN] Startup-offline recovery: profile fetch failed', profileResult.reason);
+      Sentry.captureException(profileResult.reason);
+    }
+    if (fontSizeResult.status === 'rejected') {
+      console.warn('[MAIN] Startup-offline recovery: font_size fetch failed', fontSizeResult.reason);
+    }
+    if (featuresResult.status === 'rejected') {
+      console.warn('[MAIN] Startup-offline recovery: features fetch failed', featuresResult.reason);
+    }
   }
 });
 
@@ -633,6 +673,7 @@ const shortcuts = [
   {
     // Open coach window widget
     fn: () => {
+      if (global.networkState === 'reconnecting') return;
       if (!global.authUser || global.authUser?.subscription_plan_id === null) return;
 
       if (isCoachWindowOpen()) {
@@ -647,6 +688,7 @@ const shortcuts = [
   {
     // Toggle playbook window
     fn: () => {
+      if (global.networkState === 'reconnecting') return;
       if (!global.authUser || global.authUser?.subscription_plan_id === null) return;
       if (!cachedEnabledFeatures.includes('playbooks')) return;
 
@@ -1739,6 +1781,7 @@ app.whenReady().then(async () => {
   // after a sleep/lock cycle never races a half-connected network.
   powerMonitor.on('resume', () => {
     console.log('[PowerMonitor] System resumed — forcing token refresh');
+    if (global.networkState === 'reconnecting') return;
     authManager.forceRefresh().catch((err) => {
       console.warn('[PowerMonitor] Force refresh after resume failed:', err?.message);
     });
@@ -1746,6 +1789,7 @@ app.whenReady().then(async () => {
 
   powerMonitor.on('unlock-screen', () => {
     console.log('[PowerMonitor] Screen unlocked — forcing token refresh');
+    if (global.networkState === 'reconnecting') return;
     authManager.forceRefresh().catch((err) => {
       console.warn('[PowerMonitor] Force refresh after screen unlock failed:', err?.message);
     });
@@ -1779,6 +1823,15 @@ app.whenReady().then(async () => {
       console.warn('[MAIN] Silent auth: features fetch failed — no features enabled by default', featuresResult.reason);
       Sentry.captureException(featuresResult.reason);
     }
+  } else if (authManager.isNetworkRetryPending()) {
+    // Offline at startup — session exists but network was down during init().
+    // Silent: no splash, tray boots in disabled state. Pause auth retries until
+    // the renderer reports 'online'; the token-refreshed handler then runs the
+    // deferred profile/features fetch.
+    global.networkState = 'reconnecting';
+    startupOfflinePending = true;
+    authManager.pauseRefresh();
+    console.log('[MAIN] Started offline — silent tray mode, awaiting network recovery');
   } else {
     createSplashWindow();
   }
@@ -1966,25 +2019,40 @@ ipcMain.handle('auth:get-state', () => {
   return authManager.getState();
 });
 
+// ─── Network state (renderer-driven) ────────────────────────────────────────
+// Renderers report online/offline via OS events (window.addEventListener).
+// Main mirrors the state globally and broadcasts so all windows stay in sync.
+global.networkState = 'online';
+
+ipcMain.on('network:report-status', (_event, status: 'online' | 'offline') => {
+  const next = status === 'offline' ? 'reconnecting' : 'online';
+  if (global.networkState === next) return;
+  console.log('[Network] state changed:', next);
+  global.networkState = next;
+  broadcastToAllWindows('network:state-changed', next);
+
+  if (next === 'reconnecting') {
+    // OS says we're offline — pause both the proactive refresh timer and any
+    // pending backoff retry. forceRefresh() on the 'online' event lifts the pause.
+    authManager.pauseRefresh();
+  } else {
+    // OS says we're back online — trigger one immediate refresh instead of
+    // waiting for the next scheduled tick.
+    authManager.forceRefresh().catch((err) => {
+      console.warn('[Network] forceRefresh on reconnect failed:', err?.message);
+    });
+  }
+});
+
+ipcMain.handle('network:get-state', () => global.networkState);
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Handler for updating user auth state
  */
-ipcMain.on('update-user-auth', (event: Electron.IpcMainInvokeEvent, { userAuthenticated }: { userAuthenticated: AuthUser | null }) => {
-  global.authUser = userAuthenticated;
-  
-  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
-    trayMenuWindow.webContents.send('user-auth', {
-      authUser: global.authUser
-    });
-  }
-  
-  if (global.mainWindow && !global.mainWindow.isDestroyed()) {
-    global.mainWindow.webContents.send('user-auth', {
-      authUser: global.authUser
-    });
-  }
+ipcMain.on('update-user-auth', (_event: Electron.IpcMainInvokeEvent, { userAuthenticated }: { userAuthenticated: AuthUser | null }) => {
+  setAuthUser(userAuthenticated);
 })
 // Handle for opening Coach settings window
 ipcMain.on('open-app-settings-window', () => {
@@ -2019,6 +2087,7 @@ ipcMain.handle('get-app-settings-window-open-state', () => {
 
 // Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow
 ipcMain.on('open-coach-window', () => {
+  if (global.networkState === 'reconnecting') return;
   const micStatus = systemPreferences.getMediaAccessStatus('microphone');
   if (micStatus !== 'granted') {
     createSplashWindow();
@@ -2054,6 +2123,7 @@ ipcMain.handle('update:get-state', () => updateState);
 ipcMain.handle('app:get-version', () => app.getVersion());
 
 ipcMain.on('update:start-download', () => {
+  if (global.networkState === 'reconnecting') return;
   if (!autoUpdater || updateState.phase !== 'available') return;
 
   // Close coach window before downloading
@@ -2083,6 +2153,7 @@ ipcMain.on('update:check-for-updates', () => {
 });
 
 ipcMain.on('app-settings:open-update-tab', () => {
+  if (global.networkState === 'reconnecting') return;
   createAppSettingsWindow('software-update');
 });
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2422,6 +2493,7 @@ const createPlaybookWindow = () => {
 };
 
 ipcMain.on('open-playbook-window', () => {
+  if (global.networkState === 'reconnecting') return;
   createPlaybookWindow();
 });
 

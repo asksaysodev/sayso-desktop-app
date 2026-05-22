@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
+import { useNetworkState } from '@/hooks/useNetworkState';
 import { MdDragIndicator } from 'react-icons/md';
 import { MdErrorOutline } from 'react-icons/md';
 import { LuX } from 'react-icons/lu';
@@ -67,6 +68,7 @@ export default function CoachWindowMain() {
     const isSmartCaptureEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('smart_capture'));
     const isPulseEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('pulse'));
     const currentfs = useFontSize();
+    const { isReconnecting } = useNetworkState();
     usePlaybookPrefetch();
     const [zipCodeValue, setZipCodeValue] = useState<string>("")
     const [isZipDropdownOpen, setIsZipDropdownOpen] = useState<boolean>(false);
@@ -93,6 +95,17 @@ export default function CoachWindowMain() {
         if (isCoachActive) handleStopCue().catch((err) => Sentry.captureException(err));
     }, [isCoachActive, handleStopCue]);
     useSessionExpiry(handleSessionExpired);
+
+    // On transition from offline → online, clear any stale error left over from
+    // the outage (e.g. an "expired token" or failed API call that fired while the
+    // network was down). Only fires on the actual transition, not on mount.
+    const wasReconnecting = useRef(false);
+    useEffect(() => {
+        if (wasReconnecting.current && !isReconnecting) {
+            useCoachWindowStore.getState().clearError();
+        }
+        wasReconnecting.current = isReconnecting;
+    }, [isReconnecting]);
 
     const executeSmartCaptureAction = useCallback((mode: SmartCaptureWarningMode) => {
         const action = mode === 'reset' ? onPressResetSession : handleStopCue;
@@ -414,12 +427,19 @@ export default function CoachWindowMain() {
                 </div>
             </div>
 
-            {coachWindowError && coachFeature === 'cue' && leadType && (
+            {isReconnecting && coachFeature === 'cue' && leadType && (
+                <div className='cue-error-container coach-box-bubble' ref={errorContainerRef}>
+                    <MdErrorOutline className='cue-error-icon' />
+                    <span className='cue-error-text'>No internet connection — we&apos;ll reconnect automatically.</span>
+                </div>
+            )}
+
+            {!isReconnecting && coachWindowError && coachFeature === 'cue' && leadType && (
                 <div className='cue-error-container coach-box-bubble' ref={errorContainerRef}>
                     <MdErrorOutline className='cue-error-icon' />
                     <span className='cue-error-text'>{coachWindowError}</span>
-                    <button 
-                        className='cue-error-close-button' 
+                    <button
+                        className='cue-error-close-button'
                         onClick={() => clearError()}
                         aria-label="Close error message"
                     >

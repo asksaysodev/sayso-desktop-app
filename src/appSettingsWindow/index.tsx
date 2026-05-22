@@ -4,6 +4,7 @@ import './styles/AppSettingsWindow.css';
 import '@/styles/Colors.css';
 import * as Sentry from "@sentry/electron/renderer";
 import { sentryConfig } from '@/config/sentry';
+import '@/services/networkReporter';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 Sentry.init(sentryConfig);

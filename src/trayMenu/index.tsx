@@ -4,6 +4,7 @@ import TrayMenuApp from './TrayMenuApp';
 import './styles/TrayMenu.css';
 import * as Sentry from "@sentry/electron/renderer";
 import { sentryConfig } from '@/config/sentry';
+import '@/services/networkReporter';
 
 Sentry.init(sentryConfig);
 

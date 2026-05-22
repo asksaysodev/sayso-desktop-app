@@ -5,12 +5,14 @@ import { ExternalLink } from 'lucide-react';
 import { useAppSettingsWindow } from '@/hooks/useAppSettingsWindow';
 import { usePlaybookWindow } from '@/hooks/usePlaybookWindow';
 import { useEnabledFeatures } from '@/hooks/useEnabledFeatures';
+import { useNetworkState } from '@/hooks/useNetworkState';
 import { UpdatePhase } from '@/types/update';
 
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
   const [userAuthenticated, setUserAuthenticated] = useState<Account | null>(null);
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('idle');
+  const { isReconnecting } = useNetworkState();
   const { toggleAppSettingsWindow } = useAppSettingsWindow();
   const { isPlaybookWindowOpen, togglePlaybookWindow } = usePlaybookWindow();
   const { hasFeature } = useEnabledFeatures();
@@ -127,7 +129,7 @@ const TrayMenuApp = () => {
             <button
               className="tray-menu-item"
               onClick={handleToggleCoach}
-              disabled={disableToggleCoach || isUpdating}
+              disabled={disableToggleCoach || isUpdating || isReconnecting}
             >
               <span className="tray-menu-item-label">
                 {isCoachOpen ? 'Close Coach' : 'Launch Coach'}
@@ -145,7 +147,7 @@ const TrayMenuApp = () => {
             <button
               className="tray-menu-item"
               onClick={togglePlaybookWindow}
-              disabled={isUpdating}
+              disabled={isUpdating || isReconnecting}
             >
               <span className="tray-menu-item-label">
                 {isPlaybookWindowOpen ? 'Hide Playbooks' : 'Show Playbooks'}
@@ -173,7 +175,7 @@ const TrayMenuApp = () => {
             <button
               className="tray-menu-item"
               onClick={toggleAppSettingsWindow}
-              disabled={isUpdating}
+              disabled={isUpdating || isReconnecting}
             >
               <span className="tray-menu-item-label">Settings</span>
             </button>
@@ -186,8 +188,8 @@ const TrayMenuApp = () => {
           <>
             <button
               className="tray-menu-item"
-              onClick={isUpdating ? undefined : handleOpenUpdateTab}
-              disabled={isUpdating}
+              onClick={isUpdating || isReconnecting ? undefined : handleOpenUpdateTab}
+              disabled={isUpdating || isReconnecting}
             >
               {updatePhase === 'available' && <span className="tray-update-dot" />}
               <span className="tray-menu-item-label">

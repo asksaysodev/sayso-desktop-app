@@ -5,6 +5,7 @@ import './styles/SplashWindowApp.css';
 import './styles/Colors.css';
 import * as Sentry from "@sentry/electron/renderer";
 import { sentryConfig } from '@/config/sentry';
+import '@/services/networkReporter';
 import SplashWindowApp from './SplashWindowApp';
 
 Sentry.init(sentryConfig);
