@@ -89,6 +89,7 @@ declare global {
   var authUser: AuthUser | false | null;
   var authAccessToken: string | null;
   var authRefreshToken: string | null;
+  var networkState: 'online' | 'reconnecting';
 
   // Audio recording processes
   var userStreamingProcess: ChildProcess | null;

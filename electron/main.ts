@@ -633,6 +633,7 @@ const shortcuts = [
   {
     // Open coach window widget
     fn: () => {
+      if (global.networkState === 'reconnecting') return;
       if (!global.authUser || global.authUser?.subscription_plan_id === null) return;
 
       if (isCoachWindowOpen()) {
@@ -647,6 +648,7 @@ const shortcuts = [
   {
     // Toggle playbook window
     fn: () => {
+      if (global.networkState === 'reconnecting') return;
       if (!global.authUser || global.authUser?.subscription_plan_id === null) return;
       if (!cachedEnabledFeatures.includes('playbooks')) return;
 
@@ -1966,6 +1968,21 @@ ipcMain.handle('auth:get-state', () => {
   return authManager.getState();
 });
 
+// ─── Network state (renderer-driven) ────────────────────────────────────────
+// Renderers report online/offline via OS events (window.addEventListener).
+// Main mirrors the state globally and broadcasts so all windows stay in sync.
+global.networkState = 'online';
+
+ipcMain.on('network:report-status', (_event, status: 'online' | 'offline') => {
+  const next = status === 'offline' ? 'reconnecting' : 'online';
+  if (global.networkState === next) return;
+  console.log('[Network] state changed:', next);
+  global.networkState = next;
+  broadcastToAllWindows('network:state-changed', next);
+});
+
+ipcMain.handle('network:get-state', () => global.networkState ?? 'online');
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -2019,6 +2036,7 @@ ipcMain.handle('get-app-settings-window-open-state', () => {
 
 // Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow
 ipcMain.on('open-coach-window', () => {
+  if (global.networkState === 'reconnecting') return;
   const micStatus = systemPreferences.getMediaAccessStatus('microphone');
   if (micStatus !== 'granted') {
     createSplashWindow();
@@ -2054,6 +2072,7 @@ ipcMain.handle('update:get-state', () => updateState);
 ipcMain.handle('app:get-version', () => app.getVersion());
 
 ipcMain.on('update:start-download', () => {
+  if (global.networkState === 'reconnecting') return;
   if (!autoUpdater || updateState.phase !== 'available') return;
 
   // Close coach window before downloading
@@ -2083,6 +2102,7 @@ ipcMain.on('update:check-for-updates', () => {
 });
 
 ipcMain.on('app-settings:open-update-tab', () => {
+  if (global.networkState === 'reconnecting') return;
   createAppSettingsWindow('software-update');
 });
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2422,6 +2442,7 @@ const createPlaybookWindow = () => {
 };
 
 ipcMain.on('open-playbook-window', () => {
+  if (global.networkState === 'reconnecting') return;
   createPlaybookWindow();
 });
 

@@ -43,6 +43,7 @@ export default function CoachWindowMain() {
     const smartCaptureWarningDialogRef = useRef<HTMLDivElement | null>(null);
     //STATE
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [isOffline, setIsOffline] = useState(false);
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
     const [lpmamaTooltipHeight, setLpmamaTooltipHeight] = useState(0);
     const [pendingSmartCaptureAction, setPendingSmartCaptureAction] = useState<SmartCaptureWarningMode | null>(null);
@@ -93,6 +94,15 @@ export default function CoachWindowMain() {
         if (isCoachActive) handleStopCue().catch((err) => Sentry.captureException(err));
     }, [isCoachActive, handleStopCue]);
     useSessionExpiry(handleSessionExpired);
+
+    useEffect(() => {
+        const ipc = window.electron?.ipcRenderer;
+        if (!ipc) return;
+        const handleNetworkState = (state: unknown) => setIsOffline((state as string) === 'reconnecting');
+        ipc.on('network:state-changed', handleNetworkState as any);
+        ipc.invoke('network:get-state').then((s: unknown) => setIsOffline((s as string) === 'reconnecting')).catch(() => {});
+        return () => { ipc.off('network:state-changed', handleNetworkState as any); };
+    }, []);
 
     const executeSmartCaptureAction = useCallback((mode: SmartCaptureWarningMode) => {
         const action = mode === 'reset' ? onPressResetSession : handleStopCue;
@@ -417,9 +427,13 @@ export default function CoachWindowMain() {
             {coachWindowError && coachFeature === 'cue' && leadType && (
                 <div className='cue-error-container coach-box-bubble' ref={errorContainerRef}>
                     <MdErrorOutline className='cue-error-icon' />
-                    <span className='cue-error-text'>{coachWindowError}</span>
-                    <button 
-                        className='cue-error-close-button' 
+                    <span className='cue-error-text'>
+                        {isOffline
+                            ? 'No internet connection — we\'ll reconnect automatically.'
+                            : coachWindowError}
+                    </span>
+                    <button
+                        className='cue-error-close-button'
                         onClick={() => clearError()}
                         aria-label="Close error message"
                     >

@@ -11,6 +11,7 @@ const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
   const [userAuthenticated, setUserAuthenticated] = useState<Account | null>(null);
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('idle');
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const { toggleAppSettingsWindow } = useAppSettingsWindow();
   const { isPlaybookWindowOpen, togglePlaybookWindow } = usePlaybookWindow();
   const { hasFeature } = useEnabledFeatures();
@@ -47,6 +48,25 @@ const TrayMenuApp = () => {
     return () => {
       ipcRenderer.off('coach-window-state', handleCoachWindowState as any);
       ipcRenderer.off('user-auth', handleUserAuth as any);
+    };
+  }, []);
+
+  // Subscribe to network reconnect state
+  useEffect(() => {
+    const ipcRenderer = window.electron?.ipcRenderer;
+    if (!ipcRenderer) return;
+
+    const handleNetworkState = (state: unknown) => {
+      setIsReconnecting((state as string) === 'reconnecting');
+    };
+
+    ipcRenderer.on('network:state-changed', handleNetworkState as any);
+    ipcRenderer.invoke('network:get-state').then((state: unknown) => {
+      setIsReconnecting((state as string) === 'reconnecting');
+    }).catch(() => {});
+
+    return () => {
+      ipcRenderer.off('network:state-changed', handleNetworkState as any);
     };
   }, []);
 
@@ -127,7 +147,7 @@ const TrayMenuApp = () => {
             <button
               className="tray-menu-item"
               onClick={handleToggleCoach}
-              disabled={disableToggleCoach || isUpdating}
+              disabled={disableToggleCoach || isUpdating || isReconnecting}
             >
               <span className="tray-menu-item-label">
                 {isCoachOpen ? 'Close Coach' : 'Launch Coach'}
@@ -145,7 +165,7 @@ const TrayMenuApp = () => {
             <button
               className="tray-menu-item"
               onClick={togglePlaybookWindow}
-              disabled={isUpdating}
+              disabled={isUpdating || isReconnecting}
             >
               <span className="tray-menu-item-label">
                 {isPlaybookWindowOpen ? 'Hide Playbooks' : 'Show Playbooks'}
@@ -163,6 +183,7 @@ const TrayMenuApp = () => {
             <button
               className="tray-menu-item"
               onClick={handlePressMyAccount}
+              disabled={isReconnecting}
             >
               <span className="tray-menu-item-label">My Account</span>
               <ExternalLink size={16} />
@@ -173,7 +194,7 @@ const TrayMenuApp = () => {
             <button
               className="tray-menu-item"
               onClick={toggleAppSettingsWindow}
-              disabled={isUpdating}
+              disabled={isUpdating || isReconnecting}
             >
               <span className="tray-menu-item-label">Settings</span>
             </button>
@@ -186,8 +207,8 @@ const TrayMenuApp = () => {
           <>
             <button
               className="tray-menu-item"
-              onClick={isUpdating ? undefined : handleOpenUpdateTab}
-              disabled={isUpdating}
+              onClick={isUpdating || isReconnecting ? undefined : handleOpenUpdateTab}
+              disabled={isUpdating || isReconnecting}
             >
               {updatePhase === 'available' && <span className="tray-update-dot" />}
               <span className="tray-menu-item-label">
