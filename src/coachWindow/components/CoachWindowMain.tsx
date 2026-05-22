@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
+import { useNetworkState } from '@/hooks/useNetworkState';
 import { MdDragIndicator } from 'react-icons/md';
 import { MdErrorOutline } from 'react-icons/md';
 import { LuX } from 'react-icons/lu';
@@ -43,7 +44,6 @@ export default function CoachWindowMain() {
     const smartCaptureWarningDialogRef = useRef<HTMLDivElement | null>(null);
     //STATE
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    const [isOffline, setIsOffline] = useState(false);
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
     const [lpmamaTooltipHeight, setLpmamaTooltipHeight] = useState(0);
     const [pendingSmartCaptureAction, setPendingSmartCaptureAction] = useState<SmartCaptureWarningMode | null>(null);
@@ -68,6 +68,7 @@ export default function CoachWindowMain() {
     const isSmartCaptureEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('smart_capture'));
     const isPulseEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('pulse'));
     const currentfs = useFontSize();
+    const { isReconnecting } = useNetworkState();
     usePlaybookPrefetch();
     const [zipCodeValue, setZipCodeValue] = useState<string>("")
     const [isZipDropdownOpen, setIsZipDropdownOpen] = useState<boolean>(false);
@@ -95,18 +96,16 @@ export default function CoachWindowMain() {
     }, [isCoachActive, handleStopCue]);
     useSessionExpiry(handleSessionExpired);
 
+    // On transition from offline → online, clear any stale error left over from
+    // the outage (e.g. an "expired token" or failed API call that fired while the
+    // network was down). Only fires on the actual transition, not on mount.
+    const wasReconnecting = useRef(false);
     useEffect(() => {
-        const ipc = window.electron?.ipcRenderer;
-        if (!ipc) return;
-        const handleNetworkState = (state: unknown) => {
-            const offline = (state as string) === 'reconnecting';
-            setIsOffline(offline);
-            if (!offline) useCoachWindowStore.getState().clearError();
-        };
-        ipc.on('network:state-changed', handleNetworkState as any);
-        ipc.invoke('network:get-state').then((s: unknown) => setIsOffline((s as string) === 'reconnecting')).catch(() => {});
-        return () => { ipc.off('network:state-changed', handleNetworkState as any); };
-    }, []);
+        if (wasReconnecting.current && !isReconnecting) {
+            useCoachWindowStore.getState().clearError();
+        }
+        wasReconnecting.current = isReconnecting;
+    }, [isReconnecting]);
 
     const executeSmartCaptureAction = useCallback((mode: SmartCaptureWarningMode) => {
         const action = mode === 'reset' ? onPressResetSession : handleStopCue;
@@ -428,14 +427,17 @@ export default function CoachWindowMain() {
                 </div>
             </div>
 
-            {coachWindowError && coachFeature === 'cue' && leadType && (
+            {isReconnecting && coachFeature === 'cue' && leadType && (
                 <div className='cue-error-container coach-box-bubble' ref={errorContainerRef}>
                     <MdErrorOutline className='cue-error-icon' />
-                    <span className='cue-error-text'>
-                        {isOffline
-                            ? 'No internet connection — we\'ll reconnect automatically.'
-                            : coachWindowError}
-                    </span>
+                    <span className='cue-error-text'>No internet connection — we&apos;ll reconnect automatically.</span>
+                </div>
+            )}
+
+            {!isReconnecting && coachWindowError && coachFeature === 'cue' && leadType && (
+                <div className='cue-error-container coach-box-bubble' ref={errorContainerRef}>
+                    <MdErrorOutline className='cue-error-icon' />
+                    <span className='cue-error-text'>{coachWindowError}</span>
                     <button
                         className='cue-error-close-button'
                         onClick={() => clearError()}

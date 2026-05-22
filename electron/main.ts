@@ -2038,7 +2038,9 @@ ipcMain.on('network:report-status', (_event, status: 'online' | 'offline') => {
   } else {
     // OS says we're back online — trigger one immediate refresh instead of
     // waiting for the next scheduled tick.
-    authManager.forceRefresh().catch(() => {});
+    authManager.forceRefresh().catch((err) => {
+      console.warn('[Network] forceRefresh on reconnect failed:', err?.message);
+    });
   }
 });
 
