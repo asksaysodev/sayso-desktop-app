@@ -724,14 +724,14 @@ function scheduleCueLowAudioCheck(sessionId: string) {
  */
 async function teardownCueStreamsAndNative(): Promise<void> {
   clearCueLowAudioTimer();
+  if (cueAudioStreamer) {
+    await cueAudioStreamer.stop(false);
+    cueAudioStreamer = null;
+  }
   await stopUserStreaming();
   if (nativeAudio) {
     await nativeAudio.stopSystemAudioCapture();
     nativeAudio.setStreamingCallback(null);
-  }
-  if (cueAudioStreamer) {
-    await cueAudioStreamer.stop(false);
-    cueAudioStreamer = null;
   }
 }
 
