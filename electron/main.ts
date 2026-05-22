@@ -1771,6 +1771,7 @@ app.whenReady().then(async () => {
   // after a sleep/lock cycle never races a half-connected network.
   powerMonitor.on('resume', () => {
     console.log('[PowerMonitor] System resumed — forcing token refresh');
+    if (global.networkState === 'reconnecting') return;
     authManager.forceRefresh().catch((err) => {
       console.warn('[PowerMonitor] Force refresh after resume failed:', err?.message);
     });
@@ -1778,6 +1779,7 @@ app.whenReady().then(async () => {
 
   powerMonitor.on('unlock-screen', () => {
     console.log('[PowerMonitor] Screen unlocked — forcing token refresh');
+    if (global.networkState === 'reconnecting') return;
     authManager.forceRefresh().catch((err) => {
       console.warn('[PowerMonitor] Force refresh after screen unlock failed:', err?.message);
     });
@@ -2016,9 +2018,19 @@ ipcMain.on('network:report-status', (_event, status: 'online' | 'offline') => {
   console.log('[Network] state changed:', next);
   global.networkState = next;
   broadcastToAllWindows('network:state-changed', next);
+
+  if (next === 'reconnecting') {
+    // OS says we're offline — stop hammering the auth server with retries.
+    // We'll try exactly once when the OS signals we're back online.
+    authManager.cancelNetworkRetry();
+  } else {
+    // OS says we're back online — trigger one immediate refresh instead of
+    // waiting for the next scheduled 60s retry tick.
+    authManager.forceRefresh().catch(() => {});
+  }
 });
 
-ipcMain.handle('network:get-state', () => global.networkState ?? 'online');
+ipcMain.handle('network:get-state', () => global.networkState);
 
 // ─────────────────────────────────────────────────────────────────────────────
 

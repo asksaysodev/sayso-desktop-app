@@ -253,6 +253,19 @@ export class AuthManager extends EventEmitter {
     return this.networkRetryTimer !== null;
   }
 
+  /**
+   * Cancels any pending network retry timer without clearing the session.
+   * Call this when the OS signals we're offline — no point retrying when
+   * we know there's no network. Pair with forceRefresh() on the 'online' event.
+   */
+  cancelNetworkRetry(): void {
+    if (this.networkRetryTimer) {
+      clearTimeout(this.networkRetryTimer);
+      this.networkRetryTimer = null;
+      console.log('[AuthManager] Network retry cancelled (OS offline)');
+    }
+  }
+
   // ─── Private: refresh ──────────────────────────────────────────────────────
 
   private async _refresh(): Promise<void> {

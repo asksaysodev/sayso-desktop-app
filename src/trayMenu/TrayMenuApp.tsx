@@ -183,7 +183,6 @@ const TrayMenuApp = () => {
             <button
               className="tray-menu-item"
               onClick={handlePressMyAccount}
-              disabled={isReconnecting}
             >
               <span className="tray-menu-item-label">My Account</span>
               <ExternalLink size={16} />
