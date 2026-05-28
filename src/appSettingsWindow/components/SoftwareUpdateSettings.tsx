@@ -29,6 +29,16 @@ export default function SoftwareUpdateSettings() {
 
     const renderStatus = () => {
         switch (phase) {
+            case 'checking':
+                return (
+                    <div className="su-status-block">
+                        <p className="su-status-label">Sayso v{currentVersion} is up to date.</p>
+                        <button className="su-check-btn" disabled>
+                            <span className="su-spinner" />
+                            Checking for Updates…
+                        </button>
+                    </div>
+                );
             case 'available':
                 return (
                     <div className="su-status-block">

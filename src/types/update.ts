@@ -1,4 +1,4 @@
-export type UpdatePhase = 'idle' | 'available' | 'downloading' | 'downloaded' | 'error';
+export type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
 
 export interface UpdateState {
     phase: UpdatePhase;

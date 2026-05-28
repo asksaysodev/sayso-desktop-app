@@ -140,7 +140,7 @@ authManager.on('session-expired', () => {
 let autoUpdater: import('electron-updater').AppUpdater | null = null;
 
 // ─── Update State Machine ─────────────────────────────────────────────────────
-type UpdatePhase = 'idle' | 'available' | 'downloading' | 'downloaded' | 'error';
+type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
 
 interface UpdateState {
   phase: UpdatePhase;
@@ -232,6 +232,7 @@ if (app.isPackaged) {
 
   updater.on('checking-for-update', () => {
     log.info('Checking for updates...');
+    setUpdateState({ phase: 'checking', errorMessage: null });
   });
 
   updater.on('update-available', (info: { version: string }) => {
@@ -248,6 +249,7 @@ if (app.isPackaged) {
 
   updater.on('update-not-available', (info: { version: string }) => {
     log.info('Update not available. Current version:', info.version);
+    setUpdateState({ phase: 'idle', newVersion: null });
     // Signal splash to stop showing the loader (no update found)
     if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
       splashWindowInstance.webContents.send('update-check-complete');
@@ -2144,11 +2146,24 @@ ipcMain.on('update:dismiss', () => {
 });
 
 ipcMain.on('update:check-for-updates', () => {
-  if (!autoUpdater) return;
   if (updateState.phase === 'downloading' || updateState.phase === 'downloaded') return;
+
+  // Flip to 'checking' immediately so the UI reflects the click without depending
+  // on autoUpdater's 'checking-for-update' event timing (which can race against
+  // 'update-not-available' on fast networks).
+  setUpdateState({ phase: 'checking', errorMessage: null });
+
+  if (!autoUpdater) {
+    // Dev mode: no real auto-updater is wired up (only initialized when app.isPackaged).
+    // Flip back to idle after a short delay so the loading UX is testable locally.
+    setTimeout(() => setUpdateState({ phase: 'idle' }), 1500);
+    return;
+  }
+
   autoUpdater.checkForUpdates().catch((err: Error) => {
     console.error('[Updater] Check failed:', err);
     Sentry.captureException(err);
+    setUpdateState({ phase: 'error', errorMessage: err.message });
   });
 });
 
