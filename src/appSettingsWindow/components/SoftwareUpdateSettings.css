@@ -103,3 +103,29 @@
 .su-check-btn:hover {
     background: rgba(255, 255, 255, 0.14);
 }
+
+.su-check-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.su-check-btn:disabled:hover {
+    background: rgba(255, 255, 255, 0.09);
+}
+
+.su-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    border-top-color: rgba(255, 255, 255, 0.75);
+    border-radius: 50%;
+    animation: su-spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+    margin-bottom: 1px;
+}
+
+@keyframes su-spin {
+    to { transform: rotate(360deg); }
+}

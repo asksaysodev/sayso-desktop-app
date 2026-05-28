@@ -24,9 +24,12 @@ export default function UpdateGate({ children }: Props) {
 
         const timeout = setTimeout(() => setUpdateCheckDone(true), UPDATE_CHECK_TIMEOUT_MS);
 
+        const isActionablePhase = (phase: string) =>
+            phase === 'available' || phase === 'downloading' || phase === 'downloaded' || phase === 'error';
+
         // Hydrate from main on mount — if update is already available, show immediately
         window.electron?.update?.getState().then((state) => {
-            if (state.phase !== 'idle') {
+            if (isActionablePhase(state.phase)) {
                 setUpdateState(state);
                 setUpdateCheckDone(true);
                 clearTimeout(timeout);
@@ -35,7 +38,7 @@ export default function UpdateGate({ children }: Props) {
 
         const cleanupState = window.electron?.update?.onStateChanged((state) => {
             setUpdateState(state);
-            if (state.phase !== 'idle') {
+            if (isActionablePhase(state.phase)) {
                 setUpdateCheckDone(true);
                 clearTimeout(timeout);
             }
