@@ -24,6 +24,7 @@ body {
 }
 
 .playbook-window-container {
+    position: relative;
     height: 100%;
     width: 100%;
     padding: 9px;
@@ -252,6 +253,14 @@ body {
 }
 .playbook-state-error {
     color: #ff8080;
+}
+
+.playbook-resize-grip {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    -webkit-app-region: no-drag;
+    cursor: nwse-resize;
 }
 
 /* ===== Custom scrollbar ===== */

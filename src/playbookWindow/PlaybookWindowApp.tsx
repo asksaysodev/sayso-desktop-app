@@ -95,6 +95,8 @@ export default function PlaybookWindowApp() {
             {!isLoading && !error && playbooks && playbooks.length > 0 && (
                 <PlaybookBody playbook={selectedPlaybook} />
             )}
+
+            <div className="playbook-resize-grip" />
         </div>
     );
 }

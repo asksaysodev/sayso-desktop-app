@@ -111,6 +111,8 @@ class WindowManager {
     return {
       width: WINDOW_CONFIG.PLAYBOOK.WIDTH,
       height: WINDOW_CONFIG.PLAYBOOK.HEIGHT,
+      minWidth: WINDOW_CONFIG.PLAYBOOK.MIN_WIDTH,
+      minHeight: WINDOW_CONFIG.PLAYBOOK.MIN_HEIGHT,
       x,
       y,
       frame: WINDOW_CONFIG.PLAYBOOK.FRAME,
