@@ -20,6 +20,8 @@ export const CUE_CONFIG = {
     animationDuration: 300,
     /** Time until the toast is considered too old to display */
     maxAgeBeforeDisplay: 90000, // 90s
+    /** Maximum number of insights that can be pinned simultaneously */
+    maxPinnedInsights: 3,
 };
 
 const AUDIO_INITIAL_STATE = {
@@ -530,12 +532,33 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
         const prevQueue = get().cue.insightsQueue;
         const newQueue = prevQueue.filter(insight => insight.id !== insightId);
         set((state) => ({
-            cue: { 
-                ...state.cue, 
+            cue: {
+                ...state.cue,
                 insightsQueue: newQueue,
                 ...(newQueue.length === 0 ? { isInsightsLayoutOpen: false } : {})
             }
         }));
+    },
+
+    cue_togglePinInsight: (insightId) => {
+        const prevQueue = get().cue.insightsQueue;
+        const insight = prevQueue.find(i => i.id === insightId);
+        if (!insight) return;
+
+        let newQueue;
+        if (insight.pinned) {
+            newQueue = prevQueue.map(i =>
+                i.id === insightId ? { ...i, pinned: false, pinnedAt: undefined } : i
+            );
+        } else {
+            const pinnedCount = prevQueue.filter(i => i.pinned).length;
+            if (pinnedCount >= CUE_CONFIG.maxPinnedInsights) return;
+            newQueue = prevQueue.map(i =>
+                i.id === insightId ? { ...i, pinned: true, pinnedAt: Date.now() } : i
+            );
+        }
+
+        set((state) => ({ cue: { ...state.cue, insightsQueue: newQueue } }));
     },
 
     cue_addInsight: (insight) => {

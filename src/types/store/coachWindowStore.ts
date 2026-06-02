@@ -23,6 +23,8 @@ export interface CueInsight {
     priority?: number;
     expiresAt?: number;
     appointmentBooked?: boolean;
+    pinned?: boolean;
+    pinnedAt?: number;
 }
 
 export interface AudioState {
@@ -118,6 +120,7 @@ export interface CoachWindowStore {
     cue_onPressResetSession: () => Promise<void>;
     cue_removeInsight: (insightId: string) => void;
     cue_addInsight: (insight: Omit<CueInsight, 'createdAt'> & { createdAt?: number }) => void;
+    cue_togglePinInsight: (insightId: string) => void;
     cue_showNext: () => void;
     cue_setIsInsightsLayoutOpen: (isInsightsLayoutOpen: boolean) => void;
     cue_setHasReceivedFirstInsight: (hasReceivedFirstInsight: boolean) => void;

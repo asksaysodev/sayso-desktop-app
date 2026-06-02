@@ -74,12 +74,12 @@
     animation: macosSlideOutUp 250ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
-.insights-vertical-layout-item__close-button {
+.insights-vertical-layout-item__close-button,
+.insights-vertical-layout-item__pin-button {
     position: absolute;
     display: flex;
     align-items: center;
     justify-content: center;
-    right: -4px;
     top: -4px;
     border: none;
     padding: 5px;
@@ -88,7 +88,7 @@
     border-radius: 100px;
     background: var(--sayso-coach-bg);
     border: 0.5px solid rgba(255, 255, 255, 0.15);
-    box-shadow: 
+    box-shadow:
         0 2px 8px rgba(0, 0, 0, 0.25),
         inset 0 0.5px 1px rgba(255, 255, 255, 0.1);
     opacity: 0;
@@ -98,23 +98,48 @@
     z-index: 10;
 }
 
-.insights-vertical-layout-item:hover .insights-vertical-layout-item__close-button {
+.insights-vertical-layout-item__close-button {
+    right: -4px;
+}
+
+.insights-vertical-layout-item__pin-button {
+    right: 15px;
+}
+
+.insights-vertical-layout-item__pin-button--active {
+    opacity: 0.55;
+    pointer-events: auto;
+    color: rgba(160, 200, 255, 0.9);
+}
+
+.insights-vertical-layout-item:hover .insights-vertical-layout-item__close-button,
+.insights-vertical-layout-item:hover .insights-vertical-layout-item__pin-button {
     opacity: 1;
     pointer-events: auto;
 }
 
-.insights-vertical-layout-item__close-button:hover {
+.insights-vertical-layout-item__close-button:hover,
+.insights-vertical-layout-item__pin-button:hover {
     background: rgba(60, 85, 110, 0.95);
     color: rgba(255, 255, 255, 0.95);
-    transform: scale(1.08);
-    box-shadow: 
+    transform: scale(1.2);
+    box-shadow:
         0 3px 12px rgba(0, 0, 0, 0.35),
         inset 0 0.5px 1px rgba(255, 255, 255, 0.15);
 }
 
-.insights-vertical-layout-item__close-button:disabled {
+.insights-vertical-layout-item__close-button:disabled,
+.insights-vertical-layout-item__pin-button:disabled {
     cursor: not-allowed;
-    opacity: 0.5;
+    opacity: 0.2 !important;
+    transform: none;
+}
+
+.insights-vertical-layout-divider {
+    height: 0.5px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 0px 4px;
+    list-style: none;
 }
 .insights-vertical-layout-item__text {
     color: rgba(255, 255, 255, 0.92);
@@ -122,6 +147,22 @@
     line-height: 1.45;
     font-weight: 400;
     letter-spacing: -0.01em;
+}
+
+/* Pinned insight styles */
+.insights-vertical-layout-item--pinned {
+    background: rgba(80, 110, 150, 0.25);
+	border-color: rgba(121, 168, 255, 0.6);
+    opacity: 1 !important;
+    box-shadow:
+        0 2px 8px rgba(0, 0, 0, 0.14),
+        inset 0 1px 0 rgba(160, 200, 255, 0.06);
+}
+
+.insights-vertical-layout-item--pinned:hover {
+    background: rgba(80, 110, 150, 0.35);
+    border-color: rgba(160, 200, 255, 0.3);
+    transform: translateY(-1px);
 }
 
 /* Active insight styles (the first one being displayed) */
