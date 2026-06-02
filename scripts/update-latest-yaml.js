@@ -2,16 +2,18 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-// Configuration
-const releaseDir = path.join(__dirname, '../release');
-const yamlPath = path.join(releaseDir, 'latest-mac.yml');
+const isStaging = process.argv.includes('--staging');
+
 const packageJson = require('../package.json');
 const version = packageJson.version;
 
-// Expected filenames after renaming
+const releaseDir = path.join(__dirname, isStaging ? '../release-staging' : '../release');
+const yamlPath = path.join(releaseDir, isStaging ? 'latest-staging-mac.yml' : 'latest-mac.yml');
+const appName = isStaging ? 'Sayso Staging' : 'Sayso';
+
 const files = {
-  x64: `Sayso-${version}-mac.zip`,
-  arm64: `Sayso-${version}-arm64-mac.zip`
+  x64: `${appName}-${version}-mac.zip`,
+  arm64: `${appName}-${version}-arm64-mac.zip`,
 };
 
 function getFileStats(filePath) {

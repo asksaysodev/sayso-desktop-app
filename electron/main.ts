@@ -26,6 +26,8 @@ import type { AuthState } from './auth/AuthManager';
 
 Sentry.init(sentryConfig);
 
+const IS_STAGING = (require('../package.json') as { build_env?: string }).build_env === 'staging';
+
 // ─── Auth: single source of truth ────────────────────────────────────────────
 // Owns all token state for the app's lifetime. Renderers ask main via IPC.
 export const authManager = new AuthManager();
@@ -229,6 +231,7 @@ if (app.isPackaged) {
   updater.autoDownload = false;
   updater.autoInstallOnAppQuit = false;
   updater.allowDowngrade = false;
+  if (IS_STAGING) updater.channel = 'latest-staging';
 
   updater.on('checking-for-update', () => {
     log.info('Checking for updates...');
@@ -623,22 +626,23 @@ function positionTrayMenu() {
  * Registers the tray icon and sets up click handlers
  */
 function registerTrayIconMenu() {
-  const iconPath = path.join(__dirname, '../public/assets/tray-icon44Template.png');
-  
+  const trayIconFile = IS_STAGING ? 'tray-icon-staging.png' : 'tray-icon44Template.png';
+  const iconPath = path.join(__dirname, `../public/assets/${trayIconFile}`);
+
   let icon = nativeImage.createFromPath(iconPath);
-  
+
   if (icon.isEmpty()) {
     console.error('Tray icon failed to load! Icon is empty.');
     Sentry.captureMessage('Tray icon failed to load - icon is empty', 'error');
     return;
   }
-  
+
   icon = icon.resize({ width: 19, height: 19 });
-  icon.setTemplateImage(true);
-  
+  if (!IS_STAGING) icon.setTemplateImage(true);
+
   tray = new Tray(icon);
   if (tray) {
-    tray.setToolTip('Sayso');
+    tray.setToolTip(IS_STAGING ? 'Sayso Staging' : 'Sayso');
 
     tray.on('click', () => {
       sendToOnboardingWindow('onboarding:tray-clicked');
@@ -1138,11 +1142,12 @@ function loadEnvironmentVariables() {
     // Development: load from project directory
     require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
   } else {
-    // Production: try multiple locations in order of preference
+    // Production/Staging: try multiple locations in order of preference
+    const envFile = IS_STAGING ? '.env.staging' : '.env.production';
     const possiblePaths = [
-      path.resolve(__dirname, '.env.production'), // In electron directory
-      path.resolve(__dirname, '../.env.production'), // In dist directory
-      path.resolve(__dirname, '../dist/.env.production'), // Alternative dist path
+      path.resolve(__dirname, envFile),
+      path.resolve(__dirname, `../${envFile}`),
+      path.resolve(__dirname, `../dist/${envFile}`),
     ];
     
     let loaded = false;
