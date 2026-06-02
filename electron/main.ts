@@ -1142,12 +1142,11 @@ function loadEnvironmentVariables() {
     // Development: load from project directory
     require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
   } else {
-    // Production/Staging: try multiple locations in order of preference
-    const envFile = IS_STAGING ? '.env.staging' : '.env.production';
+    // Production: try multiple locations in order of preference
     const possiblePaths = [
-      path.resolve(__dirname, envFile),
-      path.resolve(__dirname, `../${envFile}`),
-      path.resolve(__dirname, `../dist/${envFile}`),
+      path.resolve(__dirname, '.env.production'),
+      path.resolve(__dirname, '../.env.production'),
+      path.resolve(__dirname, '../dist/.env.production'),
     ];
     
     let loaded = false;
@@ -1168,8 +1167,12 @@ function loadEnvironmentVariables() {
     
     if (!loaded) {
       console.warn('[MAIN] No .env.production file found, using defaults');
-      // Set production defaults
       process.env.VITE_BACKEND_BASE_URL = 'https://your-production-server.com';
+    }
+
+    if (IS_STAGING) {
+      const pkg = require('../package.json') as { staging_backend_url?: string };
+      if (pkg.staging_backend_url) process.env.VITE_BACKEND_BASE_URL = pkg.staging_backend_url;
     }
   }
 }

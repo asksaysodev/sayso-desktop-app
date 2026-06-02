@@ -19,5 +19,6 @@ module.exports = {
   },
   extraMetadata: {
     build_env: 'staging',
+    staging_backend_url: 'https://sayso-server-staging-972ddb4fa0c2.herokuapp.com',
   },
 };
