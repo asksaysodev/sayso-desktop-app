@@ -3,12 +3,12 @@ set -Eeuo pipefail
 
 echo "🔧 Rebuilding and packaging Sayso Staging with notarization..."
 
-if [ -f .env.staging ]; then
-  export $(cat .env.staging | grep -v '^#' | xargs)
-  echo "✅ Loaded environment variables from .env.staging"
+if [ -f .env.production ]; then
+  export $(cat .env.production | grep -v '^#' | xargs)
+  echo "✅ Loaded environment variables from .env.production"
 elif [ -f .env ]; then
   export $(cat .env | grep -v '^#' | xargs)
-  echo "⚠️  Using .env (fallback - .env.staging not found)"
+  echo "⚠️  Using .env (fallback)"
 fi
 
 APP_NAME="Sayso Staging"
