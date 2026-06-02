@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, forwardRef } from 'react';
-import { useCoachWindowStore } from '../../store/coachWindowStore';
+import { useCoachWindowStore, CUE_CONFIG } from '../../store/coachWindowStore';
 import { LuX, LuPin, LuPinOff } from 'react-icons/lu';
 import LpmamaRow from './LpmamaRow';
 import '../styles/InsightVerticalLayout.css';
@@ -9,7 +9,6 @@ const TIMING_CONFIG = {
     exitAnimationDuration: 250,
 };
 
-const MAX_PINNED = 3;
 const MAX_UNPINNED = 5;
 
 interface Props {
@@ -31,7 +30,7 @@ const InsightsVerticalLayout = forwardRef<HTMLDivElement, Props>(({ onLpmamaTool
         insightsQueue
             .filter(i => i.pinned)
             .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
-            .slice(0, MAX_PINNED),
+            .slice(0, CUE_CONFIG.maxPinnedInsights),
         [insightsQueue]
     );
 
@@ -47,7 +46,7 @@ const InsightsVerticalLayout = forwardRef<HTMLDivElement, Props>(({ onLpmamaTool
         [pinnedInsights, unpinnedInsights]
     );
 
-    const isPinLimitReached = pinnedInsights.length >= MAX_PINNED;
+    const isPinLimitReached = pinnedInsights.length >= CUE_CONFIG.maxPinnedInsights;
 
     useEffect(() => {
         const currentInsights = new Map(allInsightsToDisplay.map(insight => [insight.id, insight]));

@@ -20,6 +20,8 @@ export const CUE_CONFIG = {
     animationDuration: 300,
     /** Time until the toast is considered too old to display */
     maxAgeBeforeDisplay: 90000, // 90s
+    /** Maximum number of insights that can be pinned simultaneously */
+    maxPinnedInsights: 3,
 };
 
 const AUDIO_INITIAL_STATE = {
@@ -550,7 +552,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
             );
         } else {
             const pinnedCount = prevQueue.filter(i => i.pinned).length;
-            if (pinnedCount >= 3) return;
+            if (pinnedCount >= CUE_CONFIG.maxPinnedInsights) return;
             newQueue = prevQueue.map(i =>
                 i.id === insightId ? { ...i, pinned: true, pinnedAt: Date.now() } : i
             );
