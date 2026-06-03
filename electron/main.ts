@@ -1137,43 +1137,30 @@ ipcMain.handle('stop-cue', async (_event: Electron.IpcMainInvokeEvent) => {
 // Function to load environment variables
 function loadEnvironmentVariables() {
   const isDev = process.env.NODE_ENV !== 'production';
-  
-  if (isDev) {
-    // Development: load from project directory
-    require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
-  } else {
-    // Production: try multiple locations in order of preference
-    const possiblePaths = [
-      path.resolve(__dirname, '.env.production'),
-      path.resolve(__dirname, '../.env.production'),
-      path.resolve(__dirname, '../dist/.env.production'),
-    ];
-    
-    let loaded = false;
-    for (const envPath of possiblePaths) {
-      if (fs.existsSync(envPath)) {
-        require('dotenv').config({ path: envPath });
-        if (isDev) {
-          console.log(`[MAIN] Loaded environment from: ${envPath}`);
-        }
-        loaded = true;
-        break;
-      } else {
-        if (isDev) {
-          console.log(`[MAIN] Not found: ${envPath}`);
-        }
-      }
-    }
-    
-    if (!loaded) {
-      console.warn('[MAIN] No .env.production file found, using defaults');
-      process.env.VITE_BACKEND_BASE_URL = 'https://your-production-server.com';
-    }
 
-    if (IS_STAGING) {
-      const pkg = require('../package.json') as { staging_backend_url?: string };
-      if (pkg.staging_backend_url) process.env.VITE_BACKEND_BASE_URL = pkg.staging_backend_url;
+  if (isDev) {
+    require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+    return;
+  }
+
+  const envFile = IS_STAGING ? '.env.staging' : '.env.production';
+  const possiblePaths = [
+    path.resolve(__dirname, envFile),
+    path.resolve(__dirname, `../${envFile}`),
+    path.resolve(__dirname, `../dist/${envFile}`),
+  ];
+
+  let loaded = false;
+  for (const envPath of possiblePaths) {
+    if (fs.existsSync(envPath)) {
+      require('dotenv').config({ path: envPath });
+      loaded = true;
+      break;
     }
+  }
+
+  if (!loaded) {
+    console.warn(`[MAIN] ${envFile} not found in any expected location`);
   }
 }
 

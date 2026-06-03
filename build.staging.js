@@ -3,7 +3,7 @@ const base = require('./package.json').build;
 module.exports = {
   ...base,
   appId: 'com.asksayso.app.staging',
-  productName: 'Sayso Staging',
+  productName: 'Sayso [beta]',
   directories: {
     ...base.directories,
     output: 'release-staging',
@@ -19,6 +19,5 @@ module.exports = {
   },
   extraMetadata: {
     build_env: 'staging',
-    staging_backend_url: 'https://sayso-server-staging-972ddb4fa0c2.herokuapp.com',
   },
 };

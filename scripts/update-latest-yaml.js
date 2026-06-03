@@ -9,12 +9,16 @@ const version = packageJson.version;
 
 const releaseDir = path.join(__dirname, isStaging ? '../release-staging' : '../release');
 const yamlPath = path.join(releaseDir, isStaging ? 'latest-staging-mac.yml' : 'latest-mac.yml');
-const appName = isStaging ? 'Sayso Staging' : 'Sayso';
+const appName = isStaging ? 'Sayso [beta]' : 'Sayso';
 
 const files = {
   x64: `${appName}-${version}-mac.zip`,
   arm64: `${appName}-${version}-arm64-mac.zip`,
 };
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 function getFileStats(filePath) {
   try {
@@ -48,14 +52,15 @@ function updateYaml() {
     // This simple regex assumes standard electron-builder yaml formatting
     
     // Update sha512 for this specific file in the 'files' list
-    const fileBlockRegex = new RegExp(`(- url: ${files.x64}[\\s\\S]*?sha512: )[^\\n]+`, 'g');
+    const escapedX64 = escapeRegex(files.x64);
+    const fileBlockRegex = new RegExp(`(- url: ${escapedX64}[\\s\\S]*?sha512: )[^\\n]+`, 'g');
     if (fileBlockRegex.test(yamlContent)) {
       yamlContent = yamlContent.replace(fileBlockRegex, `$1${x64Stats.hash}`);
       updated = true;
     }
 
     // Update size for this specific file
-    const sizeRegex = new RegExp(`(- url: ${files.x64}[\\s\\S]*?size: )\\d+`, 'g');
+    const sizeRegex = new RegExp(`(- url: ${escapedX64}[\\s\\S]*?size: )\\d+`, 'g');
     if (sizeRegex.test(yamlContent)) {
       yamlContent = yamlContent.replace(sizeRegex, `$1${x64Stats.size}`);
       updated = true;
@@ -85,13 +90,14 @@ function updateYaml() {
   if (arm64Stats) {
     console.log(`📝 Updating arm64 hash for ${files.arm64}...`);
     
-    const fileBlockRegex = new RegExp(`(- url: ${files.arm64}[\\s\\S]*?sha512: )[^\\n]+`, 'g');
+    const escapedArm64 = escapeRegex(files.arm64);
+    const fileBlockRegex = new RegExp(`(- url: ${escapedArm64}[\\s\\S]*?sha512: )[^\\n]+`, 'g');
     if (fileBlockRegex.test(yamlContent)) {
       yamlContent = yamlContent.replace(fileBlockRegex, `$1${arm64Stats.hash}`);
       updated = true;
     }
 
-    const sizeRegex = new RegExp(`(- url: ${files.arm64}[\\s\\S]*?size: )\\d+`, 'g');
+    const sizeRegex = new RegExp(`(- url: ${escapedArm64}[\\s\\S]*?size: )\\d+`, 'g');
     if (sizeRegex.test(yamlContent)) {
       yamlContent = yamlContent.replace(sizeRegex, `$1${arm64Stats.size}`);
       updated = true;

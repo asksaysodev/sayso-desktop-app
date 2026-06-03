@@ -9,7 +9,7 @@ const copyEnvFiles = () => {
   return {
     name: 'copy-env-files',
     writeBundle() {
-      const envFiles = ['.env', '.env.production', '.env.development'];
+      const envFiles = ['.env', '.env.production', '.env.staging', '.env.development'];
       const destDirs = ['dist', 'electron']; // Copy to both directories
 
       destDirs.forEach(destDir => {
