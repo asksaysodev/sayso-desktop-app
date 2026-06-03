@@ -11,7 +11,7 @@ elif [ -f .env ]; then
   echo "⚠️  Using .env (fallback)"
 fi
 
-APP_NAME="Sayso Staging"
+APP_NAME="Sayso [beta]"
 NOTARY_PROFILE="NotaryProfile"
 RELEASE_DIR="release-staging"
 
@@ -42,7 +42,10 @@ if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64.dmg" ]; then
 fi
 
 echo "🔍 Looking for .app bundles..."
-APP_PATHS=($(ls -d "${RELEASE_DIR}/**/${APP_NAME}.app" 2>/dev/null || true))
+APP_PATHS=()
+while IFS= read -r -d '' app_path; do
+  APP_PATHS+=("$app_path")
+done < <(find "${RELEASE_DIR}" -name "*.app" -maxdepth 3 -type d -print0 2>/dev/null)
 
 if [[ ${#APP_PATHS[@]} -eq 0 ]]; then
   echo "❌ Could not find any ${APP_NAME}.app under ${RELEASE_DIR}/"
@@ -152,11 +155,22 @@ for f in "${RELEASE_FILES[@]}"; do
   fi
 done
 
+# gh uses Go's filepath.Glob on file args, so [ ] must be escaped as \[ \]
+GH_APP_NAME="${APP_NAME//\[/\\[}"
+GH_APP_NAME="${GH_APP_NAME//\]/\\]}"
+GH_RELEASE_FILES=(
+  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-mac.zip"
+  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-arm64-mac.zip"
+  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}.dmg"
+  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-arm64.dmg"
+  "${RELEASE_DIR}/latest-staging-mac.yml"
+)
+
 gh release create "${RELEASE_TAG}" \
   --title "${RELEASE_TAG}" \
   --prerelease \
   --draft \
   --notes "Staging release ${RELEASE_TAG}" \
-  "${RELEASE_FILES[@]}"
+  "${GH_RELEASE_FILES[@]}"
 
 echo "✅ GitHub Pre-Release draft ${RELEASE_TAG} created — publish manually when ready!"
