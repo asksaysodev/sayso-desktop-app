@@ -9,6 +9,7 @@ import {
 } from '@/playbookWindow/services/playbookServices';
 import { Playbook, PlaybooksCachePayload } from '@/playbookWindow/types';
 import SettingsContentLayout from '../SettingsContentLayout';
+import SettingsToggle from '../SettingsToggle';
 import UploadCard from './components/UploadCard';
 import ScriptsList from './components/ScriptsList';
 import { PLAYBOOK_LIMIT, PLAYBOOKS_QUERY_KEY, getErrorMessage } from './constants';
@@ -16,7 +17,7 @@ import useCoachSettingsContext from '../../context/CoachSettingsContext';
 
 export default function PlaybooksSettings() {
     const queryClient = useQueryClient();
-    const { coachSettings, mutateDefaultPlaybook } = useCoachSettingsContext();
+    const { coachSettings, mutateDefaultPlaybook, mutateOpenLastUsed } = useCoachSettingsContext();
     const { data: playbooks, error: queryError, isLoading } = useQuery({
         queryKey: PLAYBOOKS_QUERY_KEY,
         queryFn: getPlaybooks,
@@ -130,6 +131,23 @@ export default function PlaybooksSettings() {
             title="Playbooks"
             description="Upload and manage call scripts. One script can be set as default for new sessions."
         >
+            <div id="open-last-used" className="cue-setting-item">
+                <div className="cue-setting-left">
+                    <span className="cue-setting-label">Open Last Used</span>
+                    <p className="cue-setting-description">Reopen the playbook you used most recently instead of the default</p>
+                </div>
+                <div className="cue-setting-right">
+                    <SettingsToggle
+                        options={[
+                            { value: 'disabled', label: 'Disabled' },
+                            { value: 'enabled', label: 'Enabled' },
+                        ]}
+                        value={coachSettings?.open_last_used !== false ? 'enabled' : 'disabled'}
+                        onChange={(value) => mutateOpenLastUsed(value === 'enabled')}
+                    />
+                </div>
+            </div>
+
             <UploadCard
                 disabled={isAtLimit}
                 isUploading={uploadMutation.isPending}

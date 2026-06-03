@@ -40,6 +40,16 @@ export default function PlaybookRow({ playbook, isDeleting, isDefault, onDelete,
                 <StatusPill status={playbook.status} />
             </span>
             <span className="playbooks-col-actions">
+                {canDelete && (
+                    <button
+                        type="button"
+                        className="playbooks-row-delete"
+                        onClick={onDelete}
+                        aria-label={`Delete ${playbook.alias ?? playbook.file_name}`}
+                    >
+                        <Trash2 size={14} />
+                    </button>
+                )}
                 <button
                     type="button"
                     className={`playbooks-row-star ${isDefault ? 'active' : ''}`}
@@ -52,16 +62,6 @@ export default function PlaybookRow({ playbook, isDeleting, isDefault, onDelete,
                         fill={isDefault ? 'currentColor' : 'none'}
                     />
                 </button>
-                {canDelete && (
-                    <button
-                        type="button"
-                        className="playbooks-row-delete"
-                        onClick={onDelete}
-                        aria-label={`Delete ${playbook.alias ?? playbook.file_name}`}
-                    >
-                        <Trash2 size={14} />
-                    </button>
-                )}
             </span>
         </div>
     );

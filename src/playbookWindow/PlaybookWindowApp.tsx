@@ -2,13 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Spinner } from '@/components/ui/spinner';
 import { usePlaybooksCache } from './hooks/usePlaybooksCache';
 import { usePlaybookPrefetch } from './hooks/usePlaybookPrefetch';
+import { useOpenLastUsedSetting } from './hooks/useOpenLastUsedSetting';
 import PlaybookHeader from './components/PlaybookHeader';
 import PlaybookSelector from './components/PlaybookSelector';
 import PlaybookBody from './components/PlaybookBody';
 
+const LAST_USED_KEY = 'sayso:lastUsedPlaybookId';
+
 export default function PlaybookWindowApp() {
     usePlaybookPrefetch();
     const { playbooks: rawPlaybooks, error, isLoading } = usePlaybooksCache();
+    const { openLastUsed, loaded: settingLoaded } = useOpenLastUsedSetting();
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement | null>(null);
@@ -19,16 +23,27 @@ export default function PlaybookWindowApp() {
     }, [rawPlaybooks]);
 
     useEffect(() => {
+        if (!settingLoaded) return;
         if (!playbooks || playbooks.length === 0) {
             if (selectedId !== null) setSelectedId(null);
             return;
         }
         const stillExists = selectedId && playbooks.some((p) => p.id === selectedId);
         if (stillExists) return;
+
+        if (openLastUsed) {
+            const lastUsedId = localStorage.getItem(LAST_USED_KEY);
+            const lastUsed = lastUsedId ? playbooks.find((p) => p.id === lastUsedId && p.status === 'ready') : null;
+            if (lastUsed) {
+                setSelectedId(lastUsed.id);
+                return;
+            }
+        }
+
         const defaultReady = playbooks.find((p) => p.is_default && p.status === 'ready');
         const firstReady = playbooks.find((p) => p.status === 'ready');
         setSelectedId((defaultReady ?? firstReady ?? playbooks[0]).id);
-    }, [playbooks, selectedId]);
+    }, [playbooks, selectedId, openLastUsed, settingLoaded]);
 
     useEffect(() => {
         if (!isDropdownOpen) return;
@@ -53,6 +68,7 @@ export default function PlaybookWindowApp() {
     const handleSelect = (id: string) => {
         setSelectedId(id);
         setIsDropdownOpen(false);
+        localStorage.setItem(LAST_USED_KEY, id);
     };
 
     return (
