@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import useCoachSettings from '../hooks/useCoachSettings';
-import { AccessibilityFontSizeType, CueMode, GetCoachSettingsResponse, PostAutoStopTimeDelayResponse, PostBufferTimeResponse } from '../types';
+import { AccessibilityFontSizeType, CueMode, GetCoachSettingsResponse, PostAutoStopTimeDelayResponse, PostBufferTimeResponse, PostOpenLastUsedResponse } from '../types';
 import { UseMutateFunction } from '@tanstack/react-query';
 
 interface CoachSettingsContextValue {
@@ -10,6 +10,7 @@ interface CoachSettingsContextValue {
     mutateCueMode: UseMutateFunction<unknown, Error, CueMode, unknown>;
     mutateAutoStopTimeDelay: UseMutateFunction<PostAutoStopTimeDelayResponse, Error, number, unknown>;
     mutateUpdateFontSize: UseMutateFunction<unknown, Error, AccessibilityFontSizeType, unknown>;
+    mutateOpenLastUsed: UseMutateFunction<PostOpenLastUsedResponse, Error, boolean, unknown>;
     mutateDefaultPlaybook: UseMutateFunction<{ success: true; default_playbook_id: string }, Error, string, unknown>;
 };
 
@@ -23,6 +24,7 @@ export const CoachSettingsProvider = ({ children }: { children: React.ReactNode 
         mutateCueMode,
         mutateAutoStopTimeDelay,
         mutateUpdateFontSize,
+        mutateOpenLastUsed,
         mutateDefaultPlaybook,
     } = useCoachSettings();
 
@@ -33,6 +35,7 @@ export const CoachSettingsProvider = ({ children }: { children: React.ReactNode 
         mutateCueMode,
         mutateAutoStopTimeDelay,
         mutateUpdateFontSize,
+        mutateOpenLastUsed,
         mutateDefaultPlaybook,
     };
     

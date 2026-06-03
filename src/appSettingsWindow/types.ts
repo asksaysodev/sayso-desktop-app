@@ -26,6 +26,12 @@ export interface GetCoachSettingsResponse {
     auto_stop_delay_minutes: number;
     font_size: AccessibilityFontSizeType;
     default_playbook_id: string | null;
+    open_last_used: boolean;
+}
+
+export interface PostOpenLastUsedResponse {
+    success: true;
+    openLastUsed: boolean;
 }
 
 export type CueMode = 'condensed' | 'full';
