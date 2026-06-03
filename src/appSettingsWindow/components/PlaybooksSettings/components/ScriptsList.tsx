@@ -28,18 +28,6 @@ export default function ScriptsList({
 }: ScriptsListProps) {
     return (
         <div id="playbooks-scripts" className="playbooks-list">
-            <div className="playbooks-list-header">
-                <span className="playbooks-list-title">SCRIPTS</span>
-                <button
-                    type="button"
-                    className="playbooks-refresh-btn"
-                    onClick={onRefresh}
-                    disabled={isLoading}
-                    aria-label="Refresh playbooks"
-                >
-                    <RotateCw size={14} />
-                </button>
-            </div>
 
             {queryError && <p className="playbooks-list-error">{queryError}</p>}
 
@@ -58,7 +46,15 @@ export default function ScriptsList({
                         <span className="playbooks-col-alias">ALIAS</span>
                         <span className="playbooks-col-file">FILE</span>
                         <span className="playbooks-col-status">STATUS</span>
-                        <span className="playbooks-col-actions" />
+						<button
+							type="button"
+							className="playbooks-refresh-btn"
+							onClick={onRefresh}
+							disabled={isLoading}
+							aria-label="Refresh playbooks"
+							>
+							<RotateCw size={14} />
+						</button>
                     </div>
                     {playbooks.map((p) => (
                         <PlaybookRow

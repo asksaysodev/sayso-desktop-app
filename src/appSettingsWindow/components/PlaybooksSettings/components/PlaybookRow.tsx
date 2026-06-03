@@ -16,7 +16,7 @@ interface PlaybookRowProps {
 export default function PlaybookRow({ playbook, isDeleting, isDefault, onDelete, onUpdateAlias, onSetDefault }: PlaybookRowProps) {
     const isOptimistic = playbook.id.startsWith('temp-');
     const canDelete = !isOptimistic && !isDeleting && playbook.type === 'custom';
-    const canEdit = !isOptimistic && !isDeleting;
+    const canEdit = !isOptimistic && !isDeleting && playbook.type === 'custom';
     const canSetDefault = !isOptimistic && !isDeleting && playbook.status === 'ready' && !isDefault;
 
     return (
