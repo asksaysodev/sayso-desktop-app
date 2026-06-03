@@ -81,6 +81,7 @@ const TrayMenuApp = () => {
     }
     if (showPlaybooksRow) height += 42;
     if (showUpdateRow) height += 42;
+    height += 42; // Help Center row (always visible)
 
     ipcRenderer.send('set-tray-menu-height', height);
   }, [disableToggleCoach, userAuthenticated, showPlaybooksRow, showUpdateRow]);
@@ -119,6 +120,10 @@ const TrayMenuApp = () => {
 
   const handleOpenUpdateTab = () => {
     window.electron?.appSettings?.openUpdateTab();
+  };
+
+  const handleOpenHelpCenter = () => {
+    window.electron?.openExternal('https://asksayso.notion.site/helpcenter');
   };
 
   return (
@@ -164,20 +169,20 @@ const TrayMenuApp = () => {
           <>
             <button
               className="tray-menu-item"
-              onClick={handlePressMyAccount}
+              onClick={toggleAppSettingsWindow}
+              disabled={isUpdating || isReconnecting}
             >
-              <span className="tray-menu-item-label">My Account</span>
-              <ExternalLink size={16} />
+              <span className="tray-menu-item-label">Settings</span>
             </button>
 
             <div className="tray-menu-separator" />
 
             <button
               className="tray-menu-item"
-              onClick={toggleAppSettingsWindow}
-              disabled={isUpdating || isReconnecting}
+              onClick={handlePressMyAccount}
             >
-              <span className="tray-menu-item-label">Settings</span>
+              <span className="tray-menu-item-label">My Account</span>
+              <ExternalLink size={16} />
             </button>
 
             <div className="tray-menu-separator" />
@@ -199,6 +204,12 @@ const TrayMenuApp = () => {
             <div className="tray-menu-separator" />
           </>
         )}
+
+        <button className="tray-menu-item" onClick={handleOpenHelpCenter}>
+          <span className="tray-menu-item-label">Help Center</span>
+          <ExternalLink size={16} />
+        </button>
+        <div className="tray-menu-separator" />
 
         <div className="tray-menu-bottom-row">
           <button className="tray-menu-item tray-menu-item--bottom" onClick={handleQuit}>
