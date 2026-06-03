@@ -523,7 +523,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 14px;
-    padding: 18px;
+    padding: 14px;
     border: 1px dashed rgba(255, 255, 255, 0.2);
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.02);
@@ -545,7 +545,7 @@ body {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 28px 12px;
+    padding: 20px 12px;
     border-radius: 8px;
     cursor: pointer;
     text-align: center;
@@ -743,11 +743,11 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     background: transparent;
     border: none;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.818);
     border-radius: 4px;
     cursor: pointer;
 }
@@ -793,7 +793,7 @@ body {
 }
 
 .playbooks-table-head {
-    padding: 10px 8px;
+    padding: 10px 10px;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.6px;
@@ -890,6 +890,11 @@ body {
     color: rgba(255, 255, 255, 0.5);
     border-radius: 6px;
     cursor: pointer;
+	opacity: 0;
+}
+
+.playbooks-row:hover .playbooks-row-delete {
+	opacity: 1;
 }
 
 .playbooks-row-delete:hover {

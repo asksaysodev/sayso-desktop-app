@@ -137,14 +137,14 @@ export default function UploadCard({
 
             <div className="playbooks-upload-row">
                 <div className="playbooks-alias-field">
-                    <label className="playbooks-alias-label" htmlFor="playbook-alias-input">
+                    {/* <label className="playbooks-alias-label" htmlFor="playbook-alias-input">
                         ALIAS
-                    </label>
+                    </label> */}
                     <input
                         id="playbook-alias-input"
                         className="playbooks-alias-input"
                         type="text"
-                        placeholder="e.g. Enterprise Discovery"
+                        placeholder="Enter an alias for the script"
                         value={alias}
                         onChange={(e) => setAlias(e.target.value)}
                         disabled={disabled || isUploading}

@@ -129,23 +129,26 @@ export default function PlaybooksSettings() {
     return (
         <SettingsContentLayout
             title="Playbooks"
-            description="Upload and manage call scripts. One script can be set as default for new sessions."
+            description="Upload and manage call scripts. One script can be set as default for new sessions"
         >
             <div id="open-last-used" className="cue-setting-item">
                 <div className="cue-setting-left">
-                    <span className="cue-setting-label">Open Last Used</span>
-                    <p className="cue-setting-description">Reopen the playbook you used most recently instead of the default</p>
+                    <span className="cue-setting-label">Default Playbook</span>
+                    <p className="cue-setting-description">Shown first each time you open a new session</p>
                 </div>
                 <div className="cue-setting-right">
                     <SettingsToggle
                         options={[
-                            { value: 'disabled', label: 'Disabled' },
-                            { value: 'enabled', label: 'Enabled' },
+                            { value: 'disabled', label: 'Favorite' },
+                            { value: 'enabled', label: 'Last Used' },
                         ]}
                         value={coachSettings?.open_last_used !== false ? 'enabled' : 'disabled'}
                         onChange={(value) => mutateOpenLastUsed(value === 'enabled')}
                     />
                 </div>
+            </div>
+			<div className="playbooks-list-header">
+                <span className="playbooks-list-title">SCRIPTS</span>
             </div>
 
             <UploadCard
