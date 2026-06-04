@@ -483,16 +483,19 @@ export class AuthManager extends EventEmitter {
     if (!response.ok) {
       const err = await response.json().catch(() => ({})) as {
         error?: string;
+        error_code?: string;
         error_description?: string;
         message?: string;
         msg?: string;
       };
 
-      // Only treat known Supabase grant-rejection codes as terminal
-      if (TERMINAL_GRANT_ERRORS.has(err.error ?? '')) {
+      const errorCode = err.error ?? err.error_code ?? '';
+      const errorMessage = err.error_description ?? err.message ?? err.msg ?? err.error;
+
+      if (TERMINAL_GRANT_ERRORS.has(errorCode)) {
         throw new AuthError(
           'invalid_grant',
-          err.error_description ?? err.message ?? err.error ?? `Auth rejected: ${response.status}`,
+          errorMessage ?? `Auth rejected: ${response.status}`,
           response.status,
         );
       }
@@ -500,7 +503,7 @@ export class AuthManager extends EventEmitter {
       // 5xx or unrecognised 4xx — treat as transient
       throw new AuthError(
         'unknown',
-        err.error_description ?? err.message ?? err.msg ?? `Request failed: ${response.status}`,
+        errorMessage ?? `Request failed: ${response.status}`,
         response.status,
       );
     }
@@ -524,19 +527,25 @@ export class AuthManager extends EventEmitter {
     if (!response.ok) {
       const err = await response.json().catch(() => ({})) as {
         error?: string;
+        error_code?: string;
         error_description?: string;
         message?: string;
+        msg?: string;
       };
-      if (TERMINAL_GRANT_ERRORS.has(err.error ?? '')) {
+
+      const errorCode = err.error ?? err.error_code ?? '';
+      const errorMessage = err.error_description ?? err.message ?? err.msg ?? err.error;
+
+      if (TERMINAL_GRANT_ERRORS.has(errorCode)) {
         throw new AuthError(
           'invalid_grant',
-          err.error_description ?? err.message ?? err.error ?? `Auth rejected: ${response.status}`,
+          errorMessage ?? `Auth rejected: ${response.status}`,
           response.status,
         );
       }
       throw new AuthError(
         'unknown',
-        err.error_description ?? err.message ?? `Request failed: ${response.status}`,
+        errorMessage ?? `Request failed: ${response.status}`,
         response.status,
       );
     }

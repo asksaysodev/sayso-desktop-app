@@ -261,8 +261,14 @@ if (app.isPackaged) {
 
   updater.on('error', (err: Error) => {
     log.error('Error in auto-updater:', err);
-    Sentry.captureException(err);
-    setUpdateState({ phase: 'error', errorMessage: err.message });
+    const isOffline = err.message.includes('ERR_INTERNET_DISCONNECTED') || err.message.includes('ENOTFOUND');
+    if (!isOffline) Sentry.captureException(err);
+    setUpdateState({
+      phase: 'error',
+      errorMessage: isOffline
+        ? 'No internet connection. Please check your network and try again.'
+        : err.message,
+    });
   });
 
   updater.on('download-progress', (progressObj: { percent?: number; transferred?: number; total?: number; bytesPerSecond?: number }) => {
