@@ -133,7 +133,7 @@ if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}.dmg" ]; then
   notarize_dmg "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}.dmg" "Intel"
 fi
 
-echo "🔄 Updating latest-staging-mac.yml with new hashes..."
+echo "🔄 Updating staging-mac.yml with new hashes..."
 node scripts/update-latest-yaml.js --staging
 
 RELEASE_TAG="v${APP_VERSION}-staging"
@@ -145,7 +145,7 @@ RELEASE_FILES=(
   "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.zip"
   "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}.dmg"
   "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64.dmg"
-  "${RELEASE_DIR}/latest-staging-mac.yml"
+  "${RELEASE_DIR}/staging-mac.yml"
 )
 
 for f in "${RELEASE_FILES[@]}"; do
@@ -163,7 +163,7 @@ GH_RELEASE_FILES=(
   "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-arm64-mac.zip"
   "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}.dmg"
   "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-arm64.dmg"
-  "${RELEASE_DIR}/latest-staging-mac.yml"
+  "${RELEASE_DIR}/staging-mac.yml"
 )
 
 gh release create "${RELEASE_TAG}" \

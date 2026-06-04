@@ -14,7 +14,7 @@ module.exports = {
   },
   publish: {
     ...base.publish,
-    channel: 'latest-staging',
+    channel: 'staging',
     releaseType: 'prerelease',
   },
   extraMetadata: {

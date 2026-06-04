@@ -231,7 +231,10 @@ if (app.isPackaged) {
   updater.autoDownload = false;
   updater.autoInstallOnAppQuit = false;
   updater.allowDowngrade = false;
-  if (IS_STAGING) updater.channel = 'latest-staging';
+  if (IS_STAGING) {
+    updater.allowPrerelease = true;
+    updater.channel = 'staging';
+  }
 
   updater.on('checking-for-update', () => {
     log.info('Checking for updates...');
@@ -1150,6 +1153,17 @@ function loadEnvironmentVariables() {
     return;
   }
 
+  const basePaths = [
+    path.resolve(__dirname, '.env'),
+    path.resolve(__dirname, '../.env'),
+  ];
+  for (const basePath of basePaths) {
+    if (fs.existsSync(basePath)) {
+      require('dotenv').config({ path: basePath });
+      break;
+    }
+  }
+
   const envFile = IS_STAGING ? '.env.staging' : '.env.production';
   const possiblePaths = [
     path.resolve(__dirname, envFile),
@@ -1160,7 +1174,7 @@ function loadEnvironmentVariables() {
   let loaded = false;
   for (const envPath of possiblePaths) {
     if (fs.existsSync(envPath)) {
-      require('dotenv').config({ path: envPath });
+      require('dotenv').config({ path: envPath, override: true });
       loaded = true;
       break;
     }
