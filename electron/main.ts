@@ -261,7 +261,8 @@ if (app.isPackaged) {
 
   updater.on('error', (err: Error) => {
     log.error('Error in auto-updater:', err);
-    const isOffline = err.message.includes('ERR_INTERNET_DISCONNECTED') || err.message.includes('ENOTFOUND');
+    const OFFLINE_PATTERNS = ['ERR_INTERNET_DISCONNECTED', 'ENOTFOUND', 'ENETUNREACH', 'EAI_AGAIN'];
+    const isOffline = OFFLINE_PATTERNS.some(p => err.message.includes(p));
     if (!isOffline) Sentry.captureException(err);
     setUpdateState({
       phase: 'error',

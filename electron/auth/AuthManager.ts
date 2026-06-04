@@ -489,7 +489,7 @@ export class AuthManager extends EventEmitter {
         msg?: string;
       };
 
-      const errorCode = err.error ?? err.error_code ?? '';
+      const errorCode = err.error_code ?? err.error ?? '';
       const errorMessage = err.error_description ?? err.message ?? err.msg ?? err.error;
 
       if (TERMINAL_GRANT_ERRORS.has(errorCode)) {
@@ -533,7 +533,7 @@ export class AuthManager extends EventEmitter {
         msg?: string;
       };
 
-      const errorCode = err.error ?? err.error_code ?? '';
+      const errorCode = err.error_code ?? err.error ?? '';
       const errorMessage = err.error_description ?? err.message ?? err.msg ?? err.error;
 
       if (TERMINAL_GRANT_ERRORS.has(errorCode)) {
