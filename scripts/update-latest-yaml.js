@@ -8,7 +8,7 @@ const packageJson = require('../package.json');
 const version = packageJson.version;
 
 const releaseDir = path.join(__dirname, isStaging ? '../release-staging' : '../release');
-const yamlPath = path.join(releaseDir, isStaging ? 'latest-staging-mac.yml' : 'latest-mac.yml');
+const yamlPath = path.join(releaseDir, isStaging ? 'staging-mac.yml' : 'latest-mac.yml');
 const appName = isStaging ? 'Sayso [beta]' : 'Sayso';
 
 const files = {
