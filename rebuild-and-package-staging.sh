@@ -3,12 +3,16 @@ set -Eeuo pipefail
 
 echo "🔧 Rebuilding and packaging Sayso Staging with notarization..."
 
+# Load only build-tool credentials (Sentry, GH token) from .env.production.
+# VITE_* vars are intentionally excluded so Vite reads them from .env.staging.
+# Vite does NOT override existing process.env vars, so exporting VITE_* from
+# .env.production would bake the production backend URL into the renderer bundle.
 if [ -f .env.production ]; then
-  export $(cat .env.production | grep -v '^#' | xargs)
-  echo "✅ Loaded environment variables from .env.production"
+  export $(cat .env.production | grep -v '^#' | grep -v '^VITE_' | xargs)
+  echo "✅ Loaded build-tool credentials from .env.production (VITE_* excluded)"
 elif [ -f .env ]; then
-  export $(cat .env | grep -v '^#' | xargs)
-  echo "⚠️  Using .env (fallback)"
+  export $(cat .env | grep -v '^#' | grep -v '^VITE_' | xargs)
+  echo "⚠️  Using .env (fallback, VITE_* excluded)"
 fi
 
 APP_NAME="Sayso [beta]"
