@@ -441,9 +441,8 @@ class AuthManager extends events_1.EventEmitter {
         }
         if (!response.ok) {
             const err = await response.json().catch(() => ({}));
-            const errorCode = err.error ?? err.error_code ?? '';
+            const errorCode = err.error_code ?? err.error ?? '';
             const errorMessage = err.error_description ?? err.message ?? err.msg ?? err.error;
-            // Only treat known Supabase grant-rejection codes as terminal
             if (TERMINAL_GRANT_ERRORS.has(errorCode)) {
                 throw new AuthError('invalid_grant', errorMessage ?? `Auth rejected: ${response.status}`, response.status);
             }
@@ -467,7 +466,7 @@ class AuthManager extends events_1.EventEmitter {
         }
         if (!response.ok) {
             const err = await response.json().catch(() => ({}));
-            const errorCode = err.error ?? err.error_code ?? '';
+            const errorCode = err.error_code ?? err.error ?? '';
             const errorMessage = err.error_description ?? err.message ?? err.msg ?? err.error;
             if (TERMINAL_GRANT_ERRORS.has(errorCode)) {
                 throw new AuthError('invalid_grant', errorMessage ?? `Auth rejected: ${response.status}`, response.status);

@@ -17,7 +17,7 @@ body {
   flex-direction: column;
   overflow: hidden;
   background: transparent;
-  padding: 10px 12px;
+  padding: 8px 8px;
 }
 
 .tray-menu-item {
