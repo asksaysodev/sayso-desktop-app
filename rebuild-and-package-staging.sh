@@ -15,7 +15,7 @@ elif [ -f .env ]; then
   echo "⚠️  Using .env (fallback, VITE_* excluded)"
 fi
 
-APP_NAME="Sayso [beta]"
+APP_NAME="Sayso-Beta"
 NOTARY_PROFILE="NotaryProfile"
 RELEASE_DIR="release-staging"
 
@@ -159,14 +159,11 @@ for f in "${RELEASE_FILES[@]}"; do
   fi
 done
 
-# gh uses Go's filepath.Glob on file args, so [ ] must be escaped as \[ \]
-GH_APP_NAME="${APP_NAME//\[/\\[}"
-GH_APP_NAME="${GH_APP_NAME//\]/\\]}"
 GH_RELEASE_FILES=(
-  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-x64-mac.zip"
-  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-arm64-mac.zip"
-  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-x64-mac.dmg"
-  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-arm64-mac.dmg"
+  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.zip"
+  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.zip"
+  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.dmg"
+  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.dmg"
   "${RELEASE_DIR}/staging-mac.yml"
 )
 

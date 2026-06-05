@@ -13,7 +13,7 @@ if [[ -z "$FROM_VERSION" || -z "$TO_VERSION" ]]; then
   exit 1
 fi
 
-APP_NAME="Sayso [beta]"
+APP_NAME="Sayso-Beta"
 RELEASE_DIR="release-staging"
 TEST_DIR="${RELEASE_DIR}/test-release-${TO_VERSION}"
 RELEASE_TAG="v${TO_VERSION}-staging"
