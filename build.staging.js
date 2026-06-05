@@ -10,6 +10,7 @@ module.exports = {
   },
   mac: {
     ...base.mac,
+    artifactName: 'Sayso-Beta-${version}-${arch}-mac.${ext}',
     icon: 'assets/icon-staging.icns',
   },
   publish: {

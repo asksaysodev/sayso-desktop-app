@@ -9,7 +9,7 @@ const version = packageJson.version;
 
 const releaseDir = path.join(__dirname, isStaging ? '../release-staging' : '../release');
 const yamlPath = path.join(releaseDir, isStaging ? 'staging-mac.yml' : 'latest-mac.yml');
-const appName = isStaging ? 'Sayso [beta]' : 'Sayso';
+const appName = isStaging ? 'Sayso-Beta' : 'Sayso';
 
 const files = {
   x64: `${appName}-${version}-x64-mac.zip`,
