@@ -636,7 +636,7 @@ function positionTrayMenu() {
  * Registers the tray icon and sets up click handlers
  */
 function registerTrayIconMenu() {
-  const trayIconFile = IS_STAGING ? 'tray-icon-staging.png' : 'tray-icon44Template.png';
+  const trayIconFile = IS_STAGING ? 'staging-tray-icon44Template.png' : 'tray-icon44Template.png';
   const iconPath = path.join(__dirname, `../public/assets/${trayIconFile}`);
 
   let icon = nativeImage.createFromPath(iconPath);
@@ -648,7 +648,7 @@ function registerTrayIconMenu() {
   }
 
   icon = icon.resize({ width: 19, height: 19 });
-  if (!IS_STAGING) icon.setTemplateImage(true);
+  icon.setTemplateImage(true);
 
   tray = new Tray(icon);
   if (tray) {
