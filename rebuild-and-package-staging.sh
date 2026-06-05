@@ -36,12 +36,12 @@ npm run package:staging
 
 # Sign the DMGs
 echo "🔐 Signing staging DMGs..."
-if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}.dmg" ]; then
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}.dmg"
+if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.dmg" ]; then
+  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.dmg"
   echo "✅ Signed Intel DMG"
 fi
-if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64.dmg" ]; then
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64.dmg"
+if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.dmg" ]; then
+  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.dmg"
   echo "✅ Signed Apple Silicon DMG"
 fi
 
@@ -87,7 +87,7 @@ notarize_app() {
 
   local final_zip_name=""
   if [ "$arch_name" == "Intel" ]; then
-    final_zip_name="${APP_NAME}-${APP_VERSION}-mac.zip"
+    final_zip_name="${APP_NAME}-${APP_VERSION}-x64-mac.zip"
   elif [ "$arch_name" == "ARM64" ]; then
     final_zip_name="${APP_NAME}-${APP_VERSION}-arm64-mac.zip"
   fi
@@ -130,11 +130,11 @@ notarize_dmg() {
   echo "✅ ${arch_name} DMG notarized and stapled!"
 }
 
-if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64.dmg" ]; then
-  notarize_dmg "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64.dmg" "ARM64"
+if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.dmg" ]; then
+  notarize_dmg "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.dmg" "ARM64"
 fi
-if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}.dmg" ]; then
-  notarize_dmg "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}.dmg" "Intel"
+if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.dmg" ]; then
+  notarize_dmg "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.dmg" "Intel"
 fi
 
 echo "🔄 Updating staging-mac.yml with new hashes..."
@@ -145,10 +145,10 @@ RELEASE_TAG="v${APP_VERSION}-staging"
 echo "🚀 Creating GitHub Pre-Release ${RELEASE_TAG}..."
 
 RELEASE_FILES=(
-  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-mac.zip"
+  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.zip"
   "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.zip"
-  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}.dmg"
-  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64.dmg"
+  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.dmg"
+  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.dmg"
   "${RELEASE_DIR}/staging-mac.yml"
 )
 
@@ -163,10 +163,10 @@ done
 GH_APP_NAME="${APP_NAME//\[/\\[}"
 GH_APP_NAME="${GH_APP_NAME//\]/\\]}"
 GH_RELEASE_FILES=(
-  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-mac.zip"
+  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-x64-mac.zip"
   "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-arm64-mac.zip"
-  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}.dmg"
-  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-arm64.dmg"
+  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-x64-mac.dmg"
+  "${RELEASE_DIR}/${GH_APP_NAME}-${APP_VERSION}-arm64-mac.dmg"
   "${RELEASE_DIR}/staging-mac.yml"
 )
 

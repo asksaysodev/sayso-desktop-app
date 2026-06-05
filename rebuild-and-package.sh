@@ -41,12 +41,12 @@ npm run package
 
 # Sign the electron-builder created DMGs
 echo "🔐 Signing electron-builder DMGs..."
-if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}.dmg" ]; then
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/Sayso-${APP_VERSION}.dmg"
+if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}-x64-mac.dmg" ]; then
+  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/Sayso-${APP_VERSION}-x64-mac.dmg"
   echo "✅ Signed Intel DMG"
 fi
-if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64.dmg" ]; then
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64.dmg"
+if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64-mac.dmg" ]; then
+  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64-mac.dmg"
   echo "✅ Signed Apple Silicon DMG"
 fi
 
@@ -110,7 +110,7 @@ notarize_app() {
   # RENAME to match the standard name electron-builder used (and listed in latest-mac.yml)
   local final_zip_name=""
   if [ "$arch_name" == "Intel" ]; then
-    final_zip_name="${APP_NAME}-${APP_VERSION}-mac.zip"
+    final_zip_name="${APP_NAME}-${APP_VERSION}-x64-mac.zip"
   elif [ "$arch_name" == "ARM64" ]; then
     final_zip_name="${APP_NAME}-${APP_VERSION}-arm64-mac.zip"
   fi
@@ -191,15 +191,15 @@ notarize_dmg() {
 echo "📦 Using electron-builder DMGs (they already have installer UI)..."
 
 # Notarize electron-builder DMGs (keep original names with version numbers)
-if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64.dmg" ]; then
-  dmg_path="${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64.dmg"
+if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64-mac.dmg" ]; then
+  dmg_path="${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64-mac.dmg"
   echo "🔐 Notarizing ARM64 DMG..."
   notarize_dmg "${dmg_path}" "ARM64"
   echo "✅ ARM64 DMG notarized: ${dmg_path}"
 fi
 
-if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}.dmg" ]; then
-  dmg_path="${RELEASE_DIR}/Sayso-${APP_VERSION}.dmg"
+if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}-x64-mac.dmg" ]; then
+  dmg_path="${RELEASE_DIR}/Sayso-${APP_VERSION}-x64-mac.dmg"
   echo "🔐 Notarizing Intel DMG..."
   notarize_dmg "${dmg_path}" "Intel"
   echo "✅ Intel DMG notarized: ${dmg_path}"
@@ -216,10 +216,10 @@ node scripts/update-latest-yaml.js
 echo "🚀 Creating GitHub Release v${APP_VERSION}..."
 
 RELEASE_FILES=(
-  "${RELEASE_DIR}/Sayso-${APP_VERSION}-mac.zip"
+  "${RELEASE_DIR}/Sayso-${APP_VERSION}-x64-mac.zip"
   "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64-mac.zip"
-  "${RELEASE_DIR}/Sayso-${APP_VERSION}.dmg"
-  "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64.dmg"
+  "${RELEASE_DIR}/Sayso-${APP_VERSION}-x64-mac.dmg"
+  "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64-mac.dmg"
   "${RELEASE_DIR}/latest-mac.yml"
 )
 
