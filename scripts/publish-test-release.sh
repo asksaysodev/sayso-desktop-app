@@ -22,10 +22,10 @@ echo "📦 Creating test release ${RELEASE_TAG} from v${FROM_VERSION} binaries..
 
 # Verify source files exist
 SOURCE_FILES=(
-  "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-mac.zip"
+  "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-x64-mac.zip"
   "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-arm64-mac.zip"
-  "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}.dmg"
-  "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-arm64.dmg"
+  "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-x64-mac.dmg"
+  "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-arm64-mac.dmg"
   "${RELEASE_DIR}/staging-mac.yml"
 )
 
@@ -41,16 +41,16 @@ mkdir -p "$TEST_DIR"
 
 # Copy and rename binaries to the new version
 echo "📋 Copying binaries..."
-cp "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-mac.zip"       "${TEST_DIR}/${APP_NAME}-${TO_VERSION}-mac.zip"
-cp "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-arm64-mac.zip" "${TEST_DIR}/${APP_NAME}-${TO_VERSION}-arm64-mac.zip"
-cp "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}.dmg"           "${TEST_DIR}/${APP_NAME}-${TO_VERSION}.dmg"
-cp "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-arm64.dmg"     "${TEST_DIR}/${APP_NAME}-${TO_VERSION}-arm64.dmg"
+cp "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-x64-mac.zip"    "${TEST_DIR}/${APP_NAME}-${TO_VERSION}-x64-mac.zip"
+cp "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-arm64-mac.zip"  "${TEST_DIR}/${APP_NAME}-${TO_VERSION}-arm64-mac.zip"
+cp "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-x64-mac.dmg"    "${TEST_DIR}/${APP_NAME}-${TO_VERSION}-x64-mac.dmg"
+cp "${RELEASE_DIR}/${APP_NAME}-${FROM_VERSION}-arm64-mac.dmg"  "${TEST_DIR}/${APP_NAME}-${TO_VERSION}-arm64-mac.dmg"
 
 # Patch the yml: update version and filenames
 echo "📝 Patching staging-mac.yml..."
 sed \
   -e "s/^version: .*/version: ${TO_VERSION}/" \
-  -e "s/${APP_NAME}-${FROM_VERSION}-mac\.zip/${APP_NAME}-${TO_VERSION}-mac.zip/g" \
+  -e "s/${APP_NAME}-${FROM_VERSION}-x64-mac\.zip/${APP_NAME}-${TO_VERSION}-x64-mac.zip/g" \
   -e "s/${APP_NAME}-${FROM_VERSION}-arm64-mac\.zip/${APP_NAME}-${TO_VERSION}-arm64-mac.zip/g" \
   "${RELEASE_DIR}/staging-mac.yml" > "${TEST_DIR}/staging-mac.yml"
 
@@ -68,10 +68,10 @@ gh release create "${RELEASE_TAG}" \
   --prerelease \
   --draft \
   --notes "Test release ${RELEASE_TAG} (binaries from v${FROM_VERSION})" \
-  "${TEST_DIR}/${GH_APP_NAME}-${TO_VERSION}-mac.zip" \
+  "${TEST_DIR}/${GH_APP_NAME}-${TO_VERSION}-x64-mac.zip" \
   "${TEST_DIR}/${GH_APP_NAME}-${TO_VERSION}-arm64-mac.zip" \
-  "${TEST_DIR}/${GH_APP_NAME}-${TO_VERSION}.dmg" \
-  "${TEST_DIR}/${GH_APP_NAME}-${TO_VERSION}-arm64.dmg" \
+  "${TEST_DIR}/${GH_APP_NAME}-${TO_VERSION}-x64-mac.dmg" \
+  "${TEST_DIR}/${GH_APP_NAME}-${TO_VERSION}-arm64-mac.dmg" \
   "${TEST_DIR}/staging-mac.yml"
 
 echo ""
