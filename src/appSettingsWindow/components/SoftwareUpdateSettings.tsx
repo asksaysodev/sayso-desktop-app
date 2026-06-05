@@ -79,7 +79,7 @@ export default function SoftwareUpdateSettings() {
                 return (
                     <div className="su-status-block">
                         <p className="su-status-label su-status-error">
-                            {state?.errorMessage ?? 'Update failed. Please try again.'}
+                            Could not complete the request. Please try again.
                         </p>
                         <button className="su-update-btn" onClick={handleCheckForUpdates}>
                             Try Again
