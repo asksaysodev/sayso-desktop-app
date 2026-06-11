@@ -21,8 +21,8 @@
     "rebuild-native-both": "node scripts/rebuild-native-both-archs.js",
     "package": "npm run rebuild-native-both && npm run build:electron && npm run build && electron-builder --publish never",
     "package:staging": "npm run rebuild-native-both && npm run build:electron && npm run build:staging && electron-builder --config build.staging.js --publish never",
-    "export": "chmod +x rebuild-and-package.sh && ./rebuild-and-package.sh",
-    "export:staging": "chmod +x rebuild-and-package-staging.sh && ./rebuild-and-package-staging.sh",
+    "export": "chmod +x scripts/rebuild-and-package.sh && ./scripts/rebuild-and-package.sh",
+    "export:staging": "chmod +x scripts/rebuild-and-package-staging.sh && ./scripts/rebuild-and-package-staging.sh",
     "fresh-export": "npm run clean && npm run export",
     "fresh-export:staging": "npm run clean:staging && npm run export:staging",
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -158,9 +158,9 @@
         "NSAudioCaptureUsageDescription": "We need access to system audio to create multi-output devices for call recording"
       },
       "notarize": {
-        "teamId": "Y57SJLCC9H"
+        "teamId": "AFGHD8M3VK"
       },
-      "identity": "EXOMEND LLC (Y57SJLCC9H)"
+      "identity": "AskSayso, Inc. (AFGHD8M3VK)"
     },
     "win": {
       "target": "nsis"

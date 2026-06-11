@@ -106,7 +106,7 @@ exports.default = async function(context) {
 console.log('🔐 [AFTER_PACK] Signing native audio module with entitlements...');
 try {
   execSync(
-    `codesign --force --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" --options runtime --entitlements "${path.join(__dirname, '..', 'assets', 'entitlements.mac.plist')}" "${nativeModulePath}"`,
+    `codesign --force --sign "Developer ID Application: AskSayso, Inc. (AFGHD8M3VK)" --options runtime --entitlements "${path.join(__dirname, '..', 'assets', 'entitlements.mac.plist')}" "${nativeModulePath}"`,
     { stdio: 'inherit' }
   );
   console.log('✅ [AFTER_PACK] Native audio module signed successfully');

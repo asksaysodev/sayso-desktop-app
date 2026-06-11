@@ -37,11 +37,11 @@ npm run package:staging
 # Sign the DMGs
 echo "🔐 Signing staging DMGs..."
 if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.dmg" ]; then
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.dmg"
+  codesign --sign "Developer ID Application: AskSayso, Inc. (AFGHD8M3VK)" "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.dmg"
   echo "✅ Signed Intel DMG"
 fi
 if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.dmg" ]; then
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.dmg"
+  codesign --sign "Developer ID Application: AskSayso, Inc. (AFGHD8M3VK)" "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.dmg"
   echo "✅ Signed Apple Silicon DMG"
 fi
 
