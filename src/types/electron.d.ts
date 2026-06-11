@@ -36,29 +36,6 @@ export interface AudioCaptureOptions {
   channels?: number;
 }
 
-export interface RecordingAPI {
-  startDualChannel: (params: AudioRecordingParams) => Promise<boolean>;
-  stopDualChannel: () => Promise<boolean>;
-  compressAudio: (options: CompressAudioOptions) => Promise<string>;
-}
-
-export interface AudioRecordingParams {
-  sessionId: string;
-  prospectId: string;
-  metadata: {
-    sessionId: string;
-    prospectId: string;
-    timestamp: number;
-  };
-}
-
-export interface CompressAudioOptions {
-  format?: string;
-  inputPath: string;
-  outputPath: string;
-  bitrate?: string;
-  sampleRate?: number;
-}
 
 export interface CueParams {
   sessionId: string;
@@ -112,22 +89,6 @@ export interface CueAPI {
   onSmartCapture: (callback: (data: CueSmartCaptureItem[]) => void) => () => void;
 }
 
-export interface UploadFileOptions {
-  filePath: string;
-  type: string;
-  parentId: string;
-  accessToken: string;
-  fileName: string;
-  data?: Record<string, unknown>;
-  contentType?: string;
-}
-
-export interface UploadBothFilesOptions {
-  user: { file: string, actualStartMs: number };
-  prospect: { file: string, actualStartMs: number };
-  sessionId: string;
-  accessToken: string;
-}
 
 export interface PermissionsAPI {
   check: () => Promise<PermissionsStatus>;
@@ -173,10 +134,7 @@ export interface ElectronBridge {
   ipcRenderer: ElectronIpcRenderer;
   openExternal: (url: string) => void;
   nativeAudio: NativeAudioAPI;
-  recording: RecordingAPI;
   cue: CueAPI;
-  uploadFile: (options: UploadFileOptions) => Promise<{ success: boolean; error?: string }>;
-  uploadBothFiles: (options: UploadBothFilesOptions) => Promise<{ success: boolean; error?: string }>;
   permissions: PermissionsAPI;
   autoUpdater: AutoUpdaterAPI;
   update: UpdateAPI;
