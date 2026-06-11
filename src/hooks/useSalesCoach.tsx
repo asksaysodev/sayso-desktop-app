@@ -65,45 +65,6 @@ export const useSalesCoach = () => {
   }, [globalUser, getIceBreaker, startLiveCoach, setIsCallActive]);
 
 
-  const getCallSummary = useCallback(async (meetingId: string, prospectId: string, sessionId: string): Promise<any> => { // $FixTS
-
-    try {
-
-      const accountId = globalUser?.id;
-
-      if(!meetingId || !prospectId || !accountId) {
-        throw new Error('Meeting ID, prospect ID, and account ID are required');
-      }
-
-      const data = {
-        meetingId,
-        prospectId,
-        accountId,
-        sessionId
-      }
-
-      const response = await apiClient.post(
-        '/sales-coach/call-summary',
-        data,
-      );
-
-      return response.data.summary;
-    } catch (error: any) {
-      console.error('Error in getCallSummary:', error); 
-    }
-    
-  }, []);
-
-  
-
-  const handleStopLiveCoach = useCallback(async (meetingId: string, prospectId: string, sessionId: string): Promise<void> => {
-    setSessionId(null);
-    stopLiveCoach();
-    setIsCallActive(false);
-    await getCallSummary(meetingId, prospectId, sessionId);
-    // Removed window.location.reload() to prevent Electron app issues
-  }, [stopLiveCoach, setIsCallActive, getCallSummary]);
-
   const handleRestartApp = useCallback(async (): Promise<void> => {
     window.location.reload();
   }, []);
@@ -112,9 +73,6 @@ export const useSalesCoach = () => {
 
   return {
     handleNewCall,
-    // startLiveCoach,
-    handleStopLiveCoach,
-    getCallSummary,
     getIceBreaker,
     handleRestartApp,
   };

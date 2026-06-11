@@ -1,10 +1,9 @@
-import { Signal } from "@/types/admin";
-import { LeadType, Prospect } from "@/types/coach";
+import { LeadType } from "@/types/coach";
 
 export type LpmamField = 'location' | 'price' | 'motivation' | 'agent' | 'mortgage' | 'appointment';
 export type LpmamData = Record<LpmamField, string | null>;
 
-export type CoachFeature = 'cue' | 'recall';
+export type CoachFeature = 'cue';
 
 export type EnabledFeature = 'cue' | 'smart_capture' | 'playbooks' | 'pulse';
 
@@ -27,11 +26,6 @@ export interface CueInsight {
     pinnedAt?: number;
 }
 
-export interface AudioState {
-    isCompressing: boolean;
-    isUploading: boolean;
-}
-
 export interface CueState {
     isResettingCueSession: boolean;
     insightsQueue: CueInsight[];
@@ -45,29 +39,6 @@ export interface CueState {
     enabledFeatures: EnabledFeature[];
 }
 
-export interface RecallState {
-    selectedProspect: Prospect | null;
-    prospects: Prospect[];
-    isLoadingProspects: boolean;
-    prospectsError: string | null;
-    signals: Signal[];
-}
-
-export interface RecordingResult {
-    micFilePath?: string;
-    systemFilePath?: string;
-    duration?: number;
-}
-
-export interface RecordingParams {
-    sessionId: string;
-    prospectId: string;
-    metadata: {
-        sessionId: string;
-        prospectId: string;
-        timestamp: number;
-    };
-}
 
 export interface CoachWindowStore {
     // ========== SHARED STATE ========== //
@@ -77,9 +48,7 @@ export interface CoachWindowStore {
     sessionData: SessionData | null;
     coachFeature: CoachFeature;
     error: string | null;
-    audio: AudioState;
     cue: CueState;
-    recall: RecallState;
 
     // ========== PERMISSIONS STATE ========== //
     showPermissionsModal: boolean;
@@ -99,16 +68,6 @@ export interface CoachWindowStore {
     closePermissionsModal: () => void;
     openCoachWindow: () => Promise<boolean>;
     closeCoachWindow: () => void;
-
-    // ========== RECALL ACTIONS ========== //
-    recall_createNewSessionData: (prospectId: string) => SessionData | null;
-    setSelectedProspect: (selectedProspect: Prospect) => void;
-    setProspects: (prospects: Prospect[]) => void;
-    recall_fetchProspects: () => Promise<void>;
-    recall_startDualChannelRecording: (prospectId: string) => Promise<RecordingResult | undefined>;
-    recall_handleStopRecording: () => Promise<unknown>;
-    setSignals: (signals: Signal[]) => void;
-    recall_resetCoach: () => void;
 
     // ========== CUE ACTIONS ========== //
     setLeadType: (leadType: LeadType | null) => void;

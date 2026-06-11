@@ -1,8 +1,5 @@
 import { create } from 'zustand';
 import { v4 } from 'uuid';
-import { uploadFullRecording } from '../coachWindow/services/audioUploadService';
-import { getProspects } from '../coachWindow/services/recallService';
-import { stopDualChannelRecording, startDualChannelRecording } from '../coachWindow/services/audioRecordingService';
 import { cue_startStreaming, cue_stopStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
 import apiClient from '../config/axios';
@@ -24,11 +21,6 @@ export const CUE_CONFIG = {
     maxPinnedInsights: 3,
 };
 
-const AUDIO_INITIAL_STATE = {
-    isCompressing: false,
-    isUploading: false,
-};
-
 const LPMAMA_INITIAL: LpmamData = {
     location: null, price: null, motivation: null,
     appointment: null, mortgage: null, agent: null,
@@ -47,21 +39,12 @@ const CUE_INITIAL_STATE = {
     enabledFeatures: ['cue'] as EnabledFeature[],
 };
 
-const RECALL_INITIAL_STATE = {
-    selectedProspect: null,
-    prospects: [],
-    isLoadingProspects: false,
-    prospectsError: null,
-    signals: []
-};
-
 const getInitialSharedState = () => ({
     isCoachActive: false,
     isCoachLoading: false,
     callDurationInSeconds: 0,
     sessionData: null,
     error: null,
-    audio: { ...AUDIO_INITIAL_STATE },
 })
 
 let openWindowCheckInterval: NodeJS.Timeout | null = null;
@@ -76,11 +59,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
     coachFeature: 'cue', // 'cue' or 'recall'
     error: null, // string | null
 
-    audio: {...AUDIO_INITIAL_STATE},
-
     cue: {...CUE_INITIAL_STATE},
-
-    recall: {...RECALL_INITIAL_STATE},
 
     // ========== PERMISSIONS STATE ========== //
     showPermissionsModal: false,
@@ -210,156 +189,6 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
     },
 
     resetCallDuration: () => set({ callDurationInSeconds: 0 }),
-
-    recall_createNewSessionData: (prospectId: string) => {
-        if (!prospectId) return null;
-
-        const newSessionId = v4();
-        const newSessionData = {
-            sessionId: newSessionId,
-            prospectId: prospectId,
-            timestamp: Date.now()
-        }
-        set({ sessionData: newSessionData});
-        return newSessionData;
-    },
-
-    // ========== RECALL ACTIONS ========== //
-    setSelectedProspect: (selectedProspect: Prospect) => set((state) => ({
-        recall: {
-            ...state.recall,
-            selectedProspect
-        }
-    })),
-
-    setProspects: (prospects: Prospect[]) => set((state) => ({
-        recall: {
-            ...state.recall,
-            prospects
-        }
-    })),
-
-    recall_fetchProspects: async () => {
-        set((state) => ({
-            recall: {
-                ...state.recall,
-                isLoadingProspects: true,
-            }
-        }));
-
-        try {
-            const prospectsData = await getProspects();
-
-            set((state) => ({
-                recall: {
-                    ...state.recall,
-                    prospects: prospectsData,
-                    isLoadingProspects: false
-                }
-            }));
-        } catch (error: any) {
-            console.error('Error fetching prospects:', error);
-            set((state) => ({
-                recall: {
-                    ...state.recall,
-                    isLoadingProspects: false,
-                    prospectsError: error.message
-                }
-            }));
-        }
-    },
-
-    recall_startDualChannelRecording: async (prospectId: string) => {
-        set({ isCoachLoading: true })
-
-        try {
-            // Create session data to get sessionId and prospectId
-            const sessionData = get().recall_createNewSessionData(prospectId);
-
-            if (!sessionData) {
-                set({ isCoachLoading: false })
-                return;
-            }
-
-            const recordingParams = {
-                sessionId: sessionData.sessionId,
-                prospectId,
-                metadata: {
-                    sessionId: sessionData.sessionId,
-                    prospectId: sessionData.prospectId,
-                    timestamp: sessionData.timestamp
-                }
-            };
-
-            const result = await startDualChannelRecording(recordingParams);
-            set({
-                isCoachLoading: false,
-                isCoachActive: true
-            })
-            return result;
-        } catch (error) {
-            set({ isCoachLoading: false });
-            throw error;
-        }
-    },
-
-    recall_handleStopRecording: async () => {
-        try {
-            set({
-                isCoachLoading: true,
-                isCoachActive: false
-            });
-
-            const result = await stopDualChannelRecording();
-            console.log('[Store] Recording stopped:', result);
-
-            set((state) => ({
-                audio: {
-                    ...state.audio,
-                    isCompressing: true
-                }
-            }));
-
-            set((state) => ({
-                audio: {
-                    ...state.audio,
-                    isUploading: true,
-                    isCompressing: false
-                }
-            }));
-            const uploadResults = await uploadFullRecording(result);
-            console.log('[Store] Files uploaded:', uploadResults);
-
-            set((state) => ({
-                audio: {
-                    ...state.audio,
-                    isUploading: false
-                }
-            }));
-            return uploadResults;
-
-        } catch (error) {
-            console.error('[Store] Error:', error);
-            throw error;
-        } finally {
-            get().recall_resetCoach();
-        }
-    },
-
-    setSignals: (signals) => set((state) => ({
-        recall: { ...state.recall, signals }
-    })),
-
-    recall_resetCoach: () => {
-        set((state) => ({
-            ...getInitialSharedState(),
-            recall: {
-                ...RECALL_INITIAL_STATE,
-                selectedProspect: state.recall.selectedProspect,
-                prospects: state.recall.prospects,
-            }
-        }));
-    },
 
     // ========== CUE ACTIONS ========== //
     setLeadType: (leadType) => set((state) => ({

@@ -7,7 +7,6 @@ import { LuX } from 'react-icons/lu';
 import * as Sentry from "@sentry/electron/renderer";
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import CoachButtons from './CoachButtons';
-import SelectProspectDropdown from './SelectProspectDropdown';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
 import SessionStoppedDialog from './SessionStoppedDialog';
@@ -52,7 +51,6 @@ export default function CoachWindowMain() {
     const sessionData = useCoachWindowStore(state => state.sessionData);
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
     const coachFeature = useCoachWindowStore(state => state.coachFeature);
-    const selectedProspect = useCoachWindowStore(state => state.recall.selectedProspect);
     const leadType = useCoachWindowStore(state => state.cue.leadType);
     const currentInsight = useCoachWindowStore(state => state.cue.currentInsight);
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
@@ -372,7 +370,6 @@ export default function CoachWindowMain() {
     }, [isDropdownOpen, isCoachActive, leadType]);
 
     const DropdownComponent = {
-        recall: <SelectProspectDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
         cue: <SelectLeadTypeDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
     };
     
@@ -412,7 +409,7 @@ export default function CoachWindowMain() {
                         />
                         
                         {
-                            (selectedProspect || leadType) && (
+                            leadType && (
                                 <CoachButtons
                                     setIsDropdownOpen={setIsDropdownOpen}
                                     isDropdownOpen={isDropdownOpen}
