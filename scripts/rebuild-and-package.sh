@@ -42,11 +42,11 @@ npm run package
 # Sign the electron-builder created DMGs
 echo "🔐 Signing electron-builder DMGs..."
 if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}-x64-mac.dmg" ]; then
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/Sayso-${APP_VERSION}-x64-mac.dmg"
+  codesign --sign "Developer ID Application: AskSayso, Inc. (AFGHD8M3VK)" "${RELEASE_DIR}/Sayso-${APP_VERSION}-x64-mac.dmg"
   echo "✅ Signed Intel DMG"
 fi
 if [ -f "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64-mac.dmg" ]; then
-  codesign --sign "Developer ID Application: EXOMEND LLC (Y57SJLCC9H)" "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64-mac.dmg"
+  codesign --sign "Developer ID Application: AskSayso, Inc. (AFGHD8M3VK)" "${RELEASE_DIR}/Sayso-${APP_VERSION}-arm64-mac.dmg"
   echo "✅ Signed Apple Silicon DMG"
 fi
 
@@ -73,7 +73,7 @@ if ! xcrun notarytool history --keychain-profile "${NOTARY_PROFILE}" &>/dev/null
   echo "To fix this, create the profile with:"
   echo "  xcrun notarytool store-credentials ${NOTARY_PROFILE} \\"
   echo "    --apple-id YOUR_APPLE_ID \\"
-  echo "    --team-id Y57SJLCC9H"
+  echo "    --team-id AFGHD8M3VK"
   echo ""
   echo "You'll need an App-Specific Password from:"
   echo "  https://appleid.apple.com/account/manage → Security → App-Specific Passwords"
