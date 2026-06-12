@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -23,13 +23,18 @@ function getStoredTeamId(): string | null {
 }
 
 function storeTeamId(teamId: string): void {
-  fs.writeFileSync(getMigrationFilePath(), JSON.stringify({ teamId }));
+  try {
+    fs.writeFileSync(getMigrationFilePath(), JSON.stringify({ teamId }));
+  } catch (err) {
+    console.warn('[Migration] Failed to persist team ID:', err);
+  }
 }
 
 function getAppBundleId(): string {
   try {
     const appBundle = app.getPath('exe').split('/Contents/MacOS')[0];
-    return execSync(`defaults read "${appBundle}/Contents/Info.plist" CFBundleIdentifier`, { encoding: 'utf8' }).trim();
+    const result = spawnSync('defaults', ['read', `${appBundle}/Contents/Info.plist`, 'CFBundleIdentifier'], { encoding: 'utf8' });
+    return result.stdout.trim() || 'com.asksayso.app';
   } catch {
     return 'com.asksayso.app';
   }
@@ -39,16 +44,31 @@ export function resetPermissionsIfCertChanged(): void {
   if (process.platform !== 'darwin') return;
 
   const storedTeamId = getStoredTeamId();
+  if (storedTeamId === null) {
+    const userDataPath = app.getPath('userData');
+    // Key off specific pre-migration app files rather than a generic directory scan —
+    // Electron writes Cache/GPUCache/etc. before whenReady fires and would falsely
+    // classify a true first install as an upgrade.
+    const hasPriorInstall =
+      fs.existsSync(path.join(userDataPath, 'auth.json')) ||
+      fs.existsSync(path.join(userDataPath, 'logs'));
+    if (!hasPriorInstall) {
+      storeTeamId(CURRENT_TEAM_ID);
+      return;
+    }
+    // Existing user upgrading from a pre-migration version — fall through to reset
+  }
   if (storedTeamId === CURRENT_TEAM_ID) return;
 
   const bundleId = getAppBundleId();
-  try {
-    execSync(`tccutil reset ScreenCapture ${bundleId}`);
-    execSync(`tccutil reset Microphone ${bundleId}`);
-    console.log(`[Migration] TCC permissions reset for ${bundleId} (${storedTeamId ?? 'none'} → ${CURRENT_TEAM_ID})`);
-  } catch (err) {
-    console.warn('[Migration] Failed to reset TCC permissions:', err);
+  const screenResult = spawnSync('tccutil', ['reset', 'ScreenCapture', bundleId]);
+  const micResult = spawnSync('tccutil', ['reset', 'Microphone', bundleId]);
+
+  if (screenResult.error || micResult.error || screenResult.status !== 0 || micResult.status !== 0) {
+    console.warn('[Migration] Failed to reset TCC permissions:', screenResult.error ?? micResult.error ?? `exit ${screenResult.status ?? micResult.status}`);
+    return;
   }
 
   storeTeamId(CURRENT_TEAM_ID);
+  console.log(`[Migration] TCC permissions reset for ${bundleId} (${storedTeamId ?? 'none'} → ${CURRENT_TEAM_ID})`);
 }
