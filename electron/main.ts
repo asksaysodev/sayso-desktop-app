@@ -21,12 +21,20 @@ import * as Sentry from '@sentry/electron/main';
 import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
+import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 
 Sentry.init(sentryConfig);
 
 const IS_STAGING = (require('../package.json') as { build_env?: string }).build_env === 'staging';
+
+if (IS_STAGING) {
+  // Give staging its own safeStorage keychain entry so it doesn't conflict
+  // with production's "sayso-app Safe Storage" item (different binary, same entry name = prompt every launch)
+  app.setName('sayso-app-staging');
+  app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app-staging'));
+}
 
 // ─── Auth: single source of truth ────────────────────────────────────────────
 // Owns all token state for the app's lifetime. Renderers ask main via IPC.
@@ -1470,6 +1478,7 @@ app.on('second-instance', (event: Event, commandLine: string[], workingDirectory
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
   setupLogging();
+  resetPermissionsIfCertChanged();
 
   // Run auto-updater check FIRST, before any potential native module crashes
   if (autoUpdater) {
