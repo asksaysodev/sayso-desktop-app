@@ -20,6 +20,10 @@ export function saveRefreshToken(token: string) {
 }
 
 export function loadRefreshToken(): string | null {
+    if (!safeStorage.isEncryptionAvailable()) {
+        console.error('[tokenStore] safeStorage encryption unavailable — cannot load refresh token');
+        return null;
+    }
     try {
         const raw = fs.readFileSync(getAuthFilePath(), 'utf-8');
         const { refreshToken } = JSON.parse(raw);

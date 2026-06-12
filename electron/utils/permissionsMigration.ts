@@ -34,6 +34,10 @@ function getAppBundleId(): string {
   try {
     const appBundle = app.getPath('exe').split('/Contents/MacOS')[0];
     const result = spawnSync('defaults', ['read', `${appBundle}/Contents/Info.plist`, 'CFBundleIdentifier'], { encoding: 'utf8' });
+    if (result.error) {
+      console.warn('[Migration] getAppBundleId failed, using fallback:', result.error);
+      return 'com.asksayso.app';
+    }
     return result.stdout.trim() || 'com.asksayso.app';
   } catch {
     return 'com.asksayso.app';

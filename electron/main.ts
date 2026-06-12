@@ -33,7 +33,7 @@ if (IS_STAGING) {
   // Give staging its own safeStorage keychain entry so it doesn't conflict
   // with production's "sayso-app Safe Storage" item (different binary, same entry name = prompt every launch)
   app.setName('sayso-app-staging');
-  app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app'));
+  app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app-staging'));
 }
 
 // ─── Auth: single source of truth ────────────────────────────────────────────
