@@ -21,6 +21,7 @@ import * as Sentry from '@sentry/electron/main';
 import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
+import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 
@@ -1469,6 +1470,7 @@ app.on('second-instance', (event: Event, commandLine: string[], workingDirectory
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
+  resetPermissionsIfCertChanged();
   setupLogging();
 
   // Run auto-updater check FIRST, before any potential native module crashes
