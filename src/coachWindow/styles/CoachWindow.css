@@ -1077,18 +1077,16 @@ button {
 
 .zip-code-inner-box .zc-tooltip {
     position: absolute;
-    bottom: calc(100% + 6px);
-    left: 50%;
-    transform: translateX(-50%);
+    /* bottom and left/right set via inline style based on icon position */
     background: #1e2936;
     border: 0.5px solid rgba(255, 255, 255, 0.18);
     color: #e5e7eb;
-    font-size: 11px;
+    font-size: var(--cw-fs-lpmama);
     font-weight: 400;
     line-height: 1.4;
     padding: 6px 9px;
     border-radius: 7px;
-    width: 200px;
+    width: 320px;
     white-space: normal;
     z-index: 100;
     pointer-events: none;

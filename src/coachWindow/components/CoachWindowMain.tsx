@@ -41,6 +41,9 @@ export default function CoachWindowMain() {
     const errorContainerRef = useRef<HTMLDivElement | null>(null);
     const sessionStoppedDialogRef = useRef<HTMLDivElement | null>(null);
     const smartCaptureWarningDialogRef = useRef<HTMLDivElement | null>(null);
+    // Mirror of insightsListMaxHeight state as a ref so getHeightByCurrentState()
+    // can read the latest computed value synchronously without waiting for a React re-render.
+    const insightsListMaxHeightRef = useRef<number | undefined>(undefined);
     //STATE
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
@@ -70,6 +73,7 @@ export default function CoachWindowMain() {
     usePlaybookPrefetch();
     const [zipCodeValue, setZipCodeValue] = useState<string>("")
     const [isZipDropdownOpen, setIsZipDropdownOpen] = useState<boolean>(false);
+    const [insightsListMaxHeight, setInsightsListMaxHeight] = useState<number | undefined>(undefined);
 
     const isZipCodeValid = useMemo(()=> {
         return /^\d{5}$/.test(zipCodeValue);
@@ -85,6 +89,31 @@ export default function CoachWindowMain() {
     useEffect(() => {
         if (isZipCodeValid) setIsZipDropdownOpen(true);
     }, [isZipCodeValid]);
+
+    // Compute the max height for the scrollable insights list by measuring the
+    // list's actual viewport position after DOM layout. This avoids stale-ref issues
+    // that occur when reading offsetHeight during the render phase.
+    const updateInsightsMaxListHeight = useCallback(() => {
+        if (!isInsightsLayoutOpen || !insightsLayoutRef.current) {
+            insightsListMaxHeightRef.current = undefined;
+            setInsightsListMaxHeight(undefined);
+            return;
+        }
+        const listEl = insightsLayoutRef.current.querySelector<HTMLElement>('ul.insights-vertical-list');
+        if (!listEl) return;
+        const listTop = listEl.getBoundingClientRect().top;
+        if (listTop <= 0) return; // not yet in viewport
+        // Reserve: lpmama row (36px) + container bottom padding (9px) + gap after container (6px)
+        const LPMAMA_RESERVE = isSmartCaptureEnabled ? 51 : 0;
+        const BOTTOM_MARGIN = 20;
+        const screenBottom = ((window.screen as any).availTop ?? 0) + window.screen.availHeight;
+        const available = (screenBottom - window.screenY) - listTop - LPMAMA_RESERVE - BOTTOM_MARGIN;
+        const newMax = Math.max(150, Math.round(available));
+        // Update the ref synchronously so getHeightByCurrentState() can use it immediately
+        // in the same call stack, before React re-renders with the new state.
+        insightsListMaxHeightRef.current = newMax;
+        setInsightsListMaxHeight(prev => prev !== newMax ? newMax : prev);
+    }, [isInsightsLayoutOpen, isSmartCaptureEnabled]);
     
     const handleSessionExpired = useCallback(() => {
         useCoachWindowStore.setState({ error: 'Your session has expired. Please re-login from the main window.' });
@@ -205,7 +234,19 @@ export default function CoachWindowMain() {
 
         if (isInsightsLayoutOpen) {
             if (insightsLayoutRef.current) {
-                height += insightsLayoutRef.current.offsetHeight + 6 + lpmamaTooltipHeight;
+                const listEl = insightsLayoutRef.current.querySelector<HTMLElement>('ul.insights-vertical-list');
+                if (listEl) {
+                    // Compute height mathematically using scrollHeight (natural size ignoring
+                    // max-height) capped by the ref, which is set synchronously by
+                    // updateInsightsMaxListHeight before this function is called.
+                    const LPMAMA_HEIGHT = isSmartCaptureEnabled ? 36 : 0;
+                    const naturalH = listEl.scrollHeight;
+                    const maxH = insightsListMaxHeightRef.current;
+                    const listH = maxH !== undefined ? Math.min(naturalH, maxH) : naturalH;
+                    height += (18 + listH + LPMAMA_HEIGHT) + 6 + lpmamaTooltipHeight;
+                } else {
+                    height += insightsLayoutRef.current.offsetHeight + 6 + lpmamaTooltipHeight;
+                }
             } else {
                 const queueLength = insightsQueue.length;
                 let estimatedInsightsHeight = 280;
@@ -242,16 +283,24 @@ export default function CoachWindowMain() {
 
         let rafId: number | null = null;
         const timeoutId = setTimeout(() => {
-            // Use double requestAnimationFrame to ensure DOM has fully updated
             rafId = requestAnimationFrame(() => {
+                // First: compute the constraint from DOM (updates ref synchronously).
+                updateInsightsMaxListHeight();
                 requestAnimationFrame(() => {
+                    // Second: resize the window using the now-accurate ref value.
                     updateWindowSize();
                 });
             });
         }, delay);
 
-        // Use ResizeObserver for automatic size updates
-        const resizeObserver = new ResizeObserver(updateWindowSize);
+        // ResizeObserver: call both in the same RAF so the ref is already set when
+        // updateWindowSize reads it — no second render cycle needed for correct sizing.
+        const resizeObserver = new ResizeObserver(() => {
+            requestAnimationFrame(() => {
+                updateInsightsMaxListHeight(); // sets ref synchronously
+                updateWindowSize();            // reads ref → correct height immediately
+            });
+        });
         if (containerRef.current) {
             resizeObserver.observe(containerRef.current);
         }
@@ -261,13 +310,16 @@ export default function CoachWindowMain() {
         if (zipCodeDropdownRef.current) {
             resizeObserver.observe(zipCodeDropdownRef.current);
         }
+        if (insightsLayoutRef.current) {
+            resizeObserver.observe(insightsLayoutRef.current);
+        }
 
         return () => {
             clearTimeout(timeoutId);
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, allResults, pulseError, isPulsePending, pendingSmartCaptureAction]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, allResults, pulseError, isPulsePending, pendingSmartCaptureAction, updateInsightsMaxListHeight]);
 
     /**
      * Handling auto opening of insights layout and unseen insights count for the notification dot
@@ -462,6 +514,7 @@ export default function CoachWindowMain() {
                 <InsightsVerticalLayout
                     ref={insightsLayoutRef}
                     onLpmamaTooltipHeightChange={setLpmamaTooltipHeight}
+                    maxListHeight={insightsListMaxHeight}
                 />
             )}
 

@@ -45,6 +45,13 @@ interface Props {
     onRetry: () => void;
 }
 
+interface TooltipState {
+    key: string;
+    detail: string;
+    bottomPx: number;
+    side: 'left' | 'right';
+}
+
 const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
     onClose,
     zipCodeValue,
@@ -54,7 +61,8 @@ const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
     onRetry,
 }, ref) => {
     const [selectedTab, setSelectedTab] = useState<string>('');
-    const [tooltipKey, setTooltipKey] = useState<string | null>(null);
+    const [tooltipState, setTooltipState] = useState<TooltipState | null>(null);
+    const innerBoxRef = useRef<HTMLDivElement>(null);
 
     // Keep selectedTab in sync when new results arrive (new zip fetch)
     const prevResultsRef = useRef<PulseResponse | null>(null);
@@ -74,6 +82,19 @@ const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
         const timer = setTimeout(() => onClose(), 10000);
         return () => clearTimeout(timer);
     }, [pulseError, onClose]);
+
+    // Clear tooltip on tab switch (hovered element is replaced)
+    useEffect(() => { setTooltipState(null); }, [selectedTab]);
+
+    const handleIconEnter = (e: React.MouseEvent<HTMLSpanElement>, item: MarketDataItem) => {
+        if (!innerBoxRef.current || !item.detail) return;
+        const iconRect = e.currentTarget.getBoundingClientRect();
+        const boxRect = innerBoxRef.current.getBoundingClientRect();
+        // bottom = distance from box's bottom to 6px above the icon's top
+        const bottomPx = boxRect.bottom - iconRect.top + 6;
+        const side = (iconRect.left - boxRect.left) < boxRect.width / 2 ? 'left' : 'right';
+        setTooltipState({ key: item.key, detail: item.detail, bottomPx, side });
+    };
 
     const renderInnerContent = () => {
         if (isPending) {
@@ -134,13 +155,10 @@ const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
                                         {item.detail && (
                                             <span
                                                 className='zc-info-icon-wrapper'
-                                                onMouseEnter={() => setTooltipKey(item.key)}
-                                                onMouseLeave={() => setTooltipKey(null)}
+                                                onMouseEnter={(e) => handleIconEnter(e, item)}
+                                                onMouseLeave={() => setTooltipState(null)}
                                             >
                                                 <Info size={12} className='zc-info-icon' />
-                                                {tooltipKey === item.key && (
-                                                    <span className='zc-tooltip'>{item.detail}</span>
-                                                )}
                                             </span>
                                         )}
                                     </span>
@@ -168,8 +186,19 @@ const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
 
     return (
         <div className='zip-code-dropdown' ref={ref}>
-            <div className='zip-code-inner-box'>
+            <div className='zip-code-inner-box' ref={innerBoxRef}>
                 {renderInnerContent()}
+                {tooltipState && (
+                    <span
+                        className='zc-tooltip'
+                        style={{
+                            bottom: tooltipState.bottomPx,
+                            ...(tooltipState.side === 'left' ? { left: 0 } : { right: 0 }),
+                        }}
+                    >
+                        {tooltipState.detail}
+                    </span>
+                )}
             </div>
         </div>
     );

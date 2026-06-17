@@ -46,6 +46,21 @@
     display: flex;
     flex-direction: column;
     list-style: none;
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* max-height supplied via inline style from parent */
+
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+.insights-vertical-list::-webkit-scrollbar { width: 4px; }
+.insights-vertical-list::-webkit-scrollbar-track { background: transparent; }
+.insights-vertical-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+.insights-vertical-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.35);
 }
 
 /* Base styles for all insight items */
