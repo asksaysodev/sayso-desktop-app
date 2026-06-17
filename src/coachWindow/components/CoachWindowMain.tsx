@@ -76,12 +76,10 @@ export default function CoachWindowMain() {
     },[zipCodeValue])
 
     const {
-        selectedPropertyType,
-        setSelectedPropertyType,
-        valuesFound,
+        allResults,
         pulseError,
         isPending: isPulsePending,
-        fetch: fetchPulse,
+        retry: retryPulse,
     } = usePulseMarketProperty(zipCodeValue, sessionData?.sessionId ?? '');
 
     useEffect(() => {
@@ -260,13 +258,16 @@ export default function CoachWindowMain() {
         if (mainContainerRef.current) {
             resizeObserver.observe(mainContainerRef.current);
         }
+        if (zipCodeDropdownRef.current) {
+            resizeObserver.observe(zipCodeDropdownRef.current);
+        }
 
         return () => {
             clearTimeout(timeoutId);
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, valuesFound, pulseError, isPulsePending, pendingSmartCaptureAction]);
+    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, allResults, pulseError, isPulsePending, pendingSmartCaptureAction]);
 
     /**
      * Handling auto opening of insights layout and unseen insights count for the notification dot
@@ -450,12 +451,10 @@ export default function CoachWindowMain() {
                     ref={zipCodeDropdownRef}
                     onClose={() => setIsZipDropdownOpen(false)}
                     zipCodeValue={zipCodeValue}
-                    selectedPropertyType={selectedPropertyType}
-                    setSelectedPropertyType={setSelectedPropertyType}
-                    valuesFound={valuesFound}
+                    allResults={allResults}
                     pulseError={pulseError}
                     isPending={isPulsePending}
-                    onFetch={fetchPulse}
+                    onRetry={retryPulse}
                 />
             )}
             

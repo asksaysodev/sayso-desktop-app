@@ -954,7 +954,7 @@ button {
     column-gap: 10px;
     row-gap: 2px;
     flex: 1;
-    padding: 0px 16px;
+    padding: 0px 6px;
 }
 
 .zip-code-inner-box .zc-fact {
@@ -971,10 +971,19 @@ button {
     font-size: var(--cw-fs-zip-fact);
     line-height: 24px;
     font-weight: 400;
+	display: flex;
+	align-items: center;
+	gap: 4px
 }
-.zip-code-inner-box .zc-fact-label {
-    color: #c7c7c7;
+
+.zc-fact-label {
+	height: 100%;
+	display: flex;
+	align-items: center;
+	/* width: 12px; */
+	/* justify-content: center; */
 }
+
 .zc-location-city {
     font-size: var(--cw-fs-zip-city);
 }
@@ -995,6 +1004,7 @@ button {
     gap: 2px;
     margin-left: 4px;
 	margin-bottom: 4px;
+	margin-top: 4px;
     vertical-align: middle;
 }
 
@@ -1019,6 +1029,89 @@ button {
     color: #c7c7c7;
     cursor: pointer;
     flex-shrink: 0;
+}
+
+/* Property type tab bar */
+.zip-code-inner-box .zc-property-tab-bar {
+    display: flex;
+    /* width: 100%; */
+    gap: 12px;
+    margin: 8px 0 12px 6px;
+	background-color: #1e2936;
+	padding: 4px;
+	border-radius: 100px 
+}
+
+.zip-code-inner-box .zc-property-tab {
+    cursor: pointer;
+    padding: 3px 8px !important;
+    border-radius: 24px;
+    /* background-color: #515C6C; */
+    color: #fff;
+    border: none;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 18px;
+    white-space: nowrap;
+}
+
+.zip-code-inner-box .zc-property-tab.selected {
+    background-color: #487AB3;
+	font-weight: 600;
+}
+
+/* Info icon + tooltip */
+.zip-code-inner-box .zc-info-icon-wrapper {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+    margin-left: 3px;
+    cursor: default;
+    vertical-align: middle;
+}
+
+.zip-code-inner-box .zc-info-icon {
+    color: #9ca3af;
+    flex-shrink: 0;
+}
+
+.zip-code-inner-box .zc-tooltip {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1e2936;
+    border: 0.5px solid rgba(255, 255, 255, 0.18);
+    color: #e5e7eb;
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.4;
+    padding: 6px 9px;
+    border-radius: 7px;
+    width: 200px;
+    white-space: normal;
+    z-index: 100;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* Trend value inline */
+.zip-code-inner-box .zc-fact-value--trend {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+	/* padding-top: 2px; */
+}
+
+/* Disclaimer */
+.zip-code-inner-box .zc-disclaimer {
+    margin-top: 18px;
+    font-size: 12px;
+	font-style: italic;
+    color: #bbbfc6;
+    line-height: 1.4;
+    width: 100%;
+	margin-left: 12px;
 }
 
 

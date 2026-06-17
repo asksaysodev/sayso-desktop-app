@@ -1,29 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import getPulseMarketProperty, { MarketProperty, PulseApiError } from '../services/getPulseMarketProperty';
+import getPulseMarketProperty, { PulseResponse, PulseApiError } from '../services/getPulseMarketProperty';
 
 export default function usePulseMarketProperty(zipCodeValue: string, sessionId: string) {
-    const [selectedPropertyType, setSelectedPropertyType] = useState('');
-    const [valuesFound, setValuesFound] = useState<MarketProperty | null>(null);
+    const [allResults, setAllResults] = useState<PulseResponse | null>(null);
     const [pulseError, setPulseError] = useState<PulseApiError | null>(null);
-    // Track the zip for which a fetch was issued so stale responses are discarded.
     const pendingZipRef = useRef<string>('');
-
-    useEffect(() => {
-        setValuesFound(null);
-        setPulseError(null);
-        setSelectedPropertyType('');
-    }, [zipCodeValue]);
+    const cacheRef = useRef<Map<string, PulseResponse>>(new Map());
 
     const { mutate, isPending } = useMutation({
         mutationFn: () => {
             pendingZipRef.current = zipCodeValue;
-            return getPulseMarketProperty(zipCodeValue, selectedPropertyType, sessionId);
+            return getPulseMarketProperty(zipCodeValue, sessionId);
+        },
+        onMutate: () => {
+            setAllResults(null);
+            setPulseError(null);
         },
         onSuccess: (data) => {
             if (pendingZipRef.current !== zipCodeValue) return;
-            setValuesFound(data);
-            setPulseError(null);
+            cacheRef.current.set(zipCodeValue, data);
+            setAllResults(data);
         },
         onError: (err: PulseApiError) => {
             if (pendingZipRef.current !== zipCodeValue) return;
@@ -31,12 +28,25 @@ export default function usePulseMarketProperty(zipCodeValue: string, sessionId: 
         },
     });
 
+    useEffect(() => {
+        if (zipCodeValue.length !== 5) {
+            setAllResults(null);
+            setPulseError(null);
+            return;
+        }
+        const cached = cacheRef.current.get(zipCodeValue);
+        if (cached) {
+            setAllResults(cached);
+            setPulseError(null);
+            return;
+        }
+        mutate();
+    }, [zipCodeValue]);
+
     return {
-        selectedPropertyType,
-        setSelectedPropertyType,
-        valuesFound,
+        allResults,
         pulseError,
         isPending,
-        fetch: mutate,
+        retry: mutate,
     };
 }

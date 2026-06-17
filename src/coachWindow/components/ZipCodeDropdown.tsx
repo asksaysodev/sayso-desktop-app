@@ -1,16 +1,10 @@
-import { forwardRef } from 'react';
-import { Minus, MoveUpRight, MoveDownRight, Equal } from 'lucide-react';
+import { forwardRef, useState, useEffect, useRef } from 'react';
+import { Minus, MoveUpRight, MoveDownRight, Equal, Info } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { MdErrorOutline } from 'react-icons/md';
 import { LuRefreshCw } from 'react-icons/lu';
-import { MarketProperty, PulseApiError } from '../services/getPulseMarketProperty';
+import { PulseResponse, PulseApiError, MarketDataItem } from '../services/getPulseMarketProperty';
 
-const PROPERTY_OPTIONS = [
-    { key: 'sfr', value: 'SFR' },
-    { key: 'multifamily', value: 'Multifamily' },
-    { key: 'townhouse/condo', value: 'Townhouse/Condo' },
-    // { key: 'manufactured', value: 'Manufactured' },
-]
 
 const TREND_CONFIG = {
     up:      { Icon: MoveUpRight,   className: 'zc-trend-up' },
@@ -18,14 +12,22 @@ const TREND_CONFIG = {
     neutral: { Icon: Equal,          className: 'zc-trend-neutral' },
 } as const;
 
-function renderTrend(trend?: { direction: 'up' | 'down' | 'neutral'; changePercent: number }) {
-    if (!trend) return null;
-    const { Icon, className } = TREND_CONFIG[trend.direction];
-    return (
-        <span className={`zc-trend ${className}`}>
-            <Icon size={14} className='zc-trend-icon' />
-        </span>
-    );
+function renderValue(item: MarketDataItem) {
+    const { value } = item;
+    if (value === null || value === undefined) {
+        return <span className='zc-fact-value'>—</span>;
+    }
+    if (typeof value === 'object' && 'direction' in value) {
+        const { Icon, className } = TREND_CONFIG[value.direction];
+        return (
+            <span className='zc-fact-value zc-fact-value--trend'>
+                <span className={`zc-trend ${className}`}>
+                    <Icon size={14} className='zc-trend-icon' />
+                </span>
+            </span>
+        );
+    }
+    return <span className='zc-fact-value'>{String(value)}</span>;
 }
 
 function getErrorDisplay(error: PulseApiError, zip: string): { text: string; canRetry: boolean } {
@@ -37,24 +39,42 @@ function getErrorDisplay(error: PulseApiError, zip: string): { text: string; can
 interface Props {
     onClose: () => void;
     zipCodeValue: string;
-    selectedPropertyType: string;
-    setSelectedPropertyType: (v: string) => void;
-    valuesFound: MarketProperty | null;
+    allResults: PulseResponse | null;
     pulseError: PulseApiError | null;
     isPending: boolean;
-    onFetch: () => void;
+    onRetry: () => void;
 }
 
 const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
     onClose,
     zipCodeValue,
-    selectedPropertyType,
-    setSelectedPropertyType,
-    valuesFound,
+    allResults,
     pulseError,
     isPending,
-    onFetch,
+    onRetry,
 }, ref) => {
+    const [selectedTab, setSelectedTab] = useState<string>('');
+    const [tooltipKey, setTooltipKey] = useState<string | null>(null);
+
+    // Keep selectedTab in sync when new results arrive (new zip fetch)
+    const prevResultsRef = useRef<PulseResponse | null>(null);
+    if (allResults !== prevResultsRef.current) {
+        prevResultsRef.current = allResults;
+        if (allResults) {
+            setSelectedTab(Object.keys(allResults.byPropertyType)[0] ?? '');
+        }
+    }
+
+    // Derive the active tab without waiting for a state update cycle —
+    // ensures correct height on first render when reopening with cached results.
+    const activeTab = selectedTab || (allResults ? Object.keys(allResults.byPropertyType)[0] ?? '' : '');
+
+    useEffect(() => {
+        if (!pulseError) return;
+        const timer = setTimeout(() => onClose(), 10000);
+        return () => clearTimeout(timer);
+    }, [pulseError, onClose]);
+
     const renderInnerContent = () => {
         if (isPending) {
             return (
@@ -72,7 +92,7 @@ const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
                     <MdErrorOutline className='zc-error-icon' />
                     <span className='zc-error-text'>{text}</span>
                     {canRetry && (
-                        <button className='zc-retry-btn' onClick={() => onFetch()}>
+                        <button className='zc-retry-btn' onClick={() => onRetry()}>
                             <LuRefreshCw size={12} />
                             <span>Try again</span>
                         </button>
@@ -82,62 +102,67 @@ const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
             );
         }
 
-        if (valuesFound) {
+        if (allResults && activeTab) {
+            const propertyTabs = Object.entries(allResults.byPropertyType);
+            const currentData = allResults.byPropertyType[activeTab];
             return (
-				<div className='zc-values-found'>
-					<div className='zc-location-block'>
-						<span className='zc-location-city'>{valuesFound.property.location.city}, {valuesFound.property.location.state}</span>
-					</div>
-					<div className='zc-facts-grid'>
-						{valuesFound.data.filter(item => item.display).map(({ key, value, label, trend }) => (
-							<div key={key} className='zc-fact'>
-								<span className='zc-fact-bullet'>•</span>
-								<span className='zc-fact-text'>
-									<span className='zc-fact-label'>{label}: </span>
-									<span className='zc-fact-value'>{value}</span>
-									{renderTrend(trend)}
-								</span>
-							</div>
-						))}
-					</div>
-					<Minus size={16} className='zc-collapse-icon' onClick={onClose} />
-				</div>
+                <div className='zc-values-found'>
+                    <div className='zc-location-block'>
+                        <span className='zc-location-city'>{allResults.location.city}, {allResults.location.state} - {allResults.location.zipCode}</span>
+                    </div>
+						<div className='zc-property-tab-bar'>
+							{propertyTabs.map(([key, typeData]) => (
+								<button
+									key={key}
+									className={`zc-property-tab ${activeTab === key ? 'selected' : ''}`}
+									onClick={() => setSelectedTab(key)}
+								>
+									<span>{typeData.type}</span>
+								</button>
+							))}
+						</div>
+
+                    <div className='zc-facts-grid'>
+                        {currentData.data.filter(item => item.display).map((item) => (
+                            <div key={item.key} className='zc-fact'>
+                                <span className='zc-fact-bullet'>•</span>
+                                <span className='zc-fact-text'>
+									{item.label}
+									{': '}
+                                    {renderValue(item)}
+                                    <span className='zc-fact-label'>
+                                        {item.detail && (
+                                            <span
+                                                className='zc-info-icon-wrapper'
+                                                onMouseEnter={() => setTooltipKey(item.key)}
+                                                onMouseLeave={() => setTooltipKey(null)}
+                                            >
+                                                <Info size={12} className='zc-info-icon' />
+                                                {tooltipKey === item.key && (
+                                                    <span className='zc-tooltip'>{item.detail}</span>
+                                                )}
+                                            </span>
+                                        )}
+                                    </span>
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {allResults.disclaimer && (
+                        <p className='zc-disclaimer'>{allResults.disclaimer}</p>
+                    )}
+
+                    <Minus size={16} className='zc-collapse-icon' onClick={onClose} />
+                </div>
             );
         }
 
         return (
-            <>
-                <div className='zc-select-property-header'>
-                    <span className='zc-select-property-label'>Select Property Type</span>
-                    <Minus size={16} className='zc-header-collapse-icon' onClick={onClose} />
-                </div>
-
-                <div className='zc-selectors-container'>
-                    {PROPERTY_OPTIONS.map(({ key, value }) => {
-                        const isSelected = selectedPropertyType === key;
-                        return (
-                            <div
-                                key={key}
-                                role="button"
-                                tabIndex={0}
-                                className={`property-type-pill ${isSelected ? 'selected' : ''}`}
-                                onClick={() => setSelectedPropertyType(key)}
-                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedPropertyType(key); }}
-                                aria-pressed={isSelected}
-                            >
-                                <span>{value}</span>
-                            </div>
-                        );
-                    })}
-                    <button
-                        disabled={!selectedPropertyType || isPending}
-                        className={`init-property-search-btn ${!selectedPropertyType ? 'disabled' : ''}`}
-                        onClick={() => onFetch()}
-                    >
-                        Search
-                    </button>
-                </div>
-            </>
+            <div className='zc-loading-text'>
+                <Spinner width={16} height={16} />
+                <span>Processing Information</span>
+            </div>
         );
     };
 
