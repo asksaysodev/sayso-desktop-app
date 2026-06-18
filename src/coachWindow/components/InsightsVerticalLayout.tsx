@@ -13,9 +13,10 @@ const MAX_UNPINNED = 5;
 
 interface Props {
     onLpmamaTooltipHeightChange: (height: number) => void;
+    maxListHeight?: number;
 }
 
-const InsightsVerticalLayout = forwardRef<HTMLDivElement, Props>(({ onLpmamaTooltipHeightChange }, ref) => {
+const InsightsVerticalLayout = forwardRef<HTMLDivElement, Props>(({ onLpmamaTooltipHeightChange, maxListHeight }, ref) => {
     const insightsQueue = useCoachWindowStore(state => state.cue.insightsQueue);
     const removeInsight = useCoachWindowStore(state => state.cue_removeInsight);
     const togglePinInsight = useCoachWindowStore(state => state.cue_togglePinInsight);
@@ -140,7 +141,10 @@ const InsightsVerticalLayout = forwardRef<HTMLDivElement, Props>(({ onLpmamaTool
     return (
         <div ref={ref} className="insights-vertical-layout-container">
             {hasAny ? (
-                <ul className="insights-vertical-list">
+                <ul
+                    className="insights-vertical-list"
+                    style={maxListHeight ? { maxHeight: maxListHeight } : undefined}
+                >
                     {pinnedInsights.map((insight, index) => renderInsight(insight, index, 'pinned'))}
                     {pinnedInsights.length > 0 && unpinnedInsights.length > 0 && (
                         <li className="insights-vertical-layout-divider" aria-hidden="true" />

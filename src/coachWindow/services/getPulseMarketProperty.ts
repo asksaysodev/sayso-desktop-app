@@ -1,24 +1,26 @@
 import apiClient from "@/config/axios";
 
-export interface MarketProperty {
-    property: {
-        location: {
-            zipCode: string;
-            city: string;
-            state: string;
-        },
-        type: string;
-    },
-    data: {
-        key: string;
-        value: string;
-        label: string;
-        display: boolean;
-        trend?: {
-            direction: "up" | "down" | "neutral";
-            changePercent: number;
-        }
-    }[]
+export interface MarketDataItem {
+    key: string;
+    label: string;
+    display: boolean;
+    value: string | number | { direction: 'up' | 'down' | 'neutral'; changePercent: number } | null;
+    detail?: string;
+}
+
+export interface PropertyTypeResult {
+    type: string;
+    data: MarketDataItem[];
+}
+
+export interface PulseResponse {
+    location: {
+        zipCode: string;
+        city: string;
+        state: string;
+    };
+    byPropertyType: Record<string, PropertyTypeResult>;
+    disclaimer: string;
 }
 
 export interface PulseApiError {
@@ -26,9 +28,9 @@ export interface PulseApiError {
     message: string;
 }
 
-export default async function getPulseMarketProperty(zipCode: string, propertyType: string, sessionId: string): Promise<MarketProperty> {
+export default async function getPulseMarketProperty(zipCode: string, sessionId: string): Promise<PulseResponse> {
     try {
-        const response = await apiClient.post('/pulse/market', { zipCode, propertyType, sessionId });
+        const response = await apiClient.post('/pulse/market/all', { zipCode, sessionId });
 
         if (!response?.data) {
             throw { status: 500, message: 'Failed to fetch market data' } as PulseApiError;

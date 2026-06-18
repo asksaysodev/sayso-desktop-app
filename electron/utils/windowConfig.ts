@@ -6,7 +6,7 @@ const WINDOW_CONFIG = {
     MIN_WIDTH: 285,
     MAX_WIDTH: 1200,
     MIN_HEIGHT: 45,
-    MAX_HEIGHT: 600,
+    MAX_HEIGHT: 1400,
     OFFSET_Y: 80, 
     OFFSET_X: 100, 
     FRAME: false,

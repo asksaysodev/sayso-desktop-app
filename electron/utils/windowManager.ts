@@ -29,15 +29,22 @@ class WindowManager {
       return false;
     }
 
+    // Cap height to the available work area on whichever display the window is on,
+    // leaving a small margin so the window never bleeds under the dock/taskbar.
+    const { workArea } = screen.getDisplayMatching(coachWindow.getBounds());
+    const windowY = coachWindow.getBounds().y;
+    const screenMaxHeight = workArea.y + workArea.height - windowY - 20;
+    const effectiveMaxHeight = Math.min(WINDOW_CONFIG.COACH.MAX_HEIGHT, screenMaxHeight);
+
     // Validate dimensions
     const validatedWidth = Math.max(
       WINDOW_CONFIG.COACH.MIN_WIDTH,
       Math.min(WINDOW_CONFIG.COACH.MAX_WIDTH, width)
     );
-    
+
     const validatedHeight = Math.max(
       WINDOW_CONFIG.COACH.MIN_HEIGHT,
-      Math.min(WINDOW_CONFIG.COACH.MAX_HEIGHT, height)
+      Math.min(effectiveMaxHeight, height)
     );
 
     try {
