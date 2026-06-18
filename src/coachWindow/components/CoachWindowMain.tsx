@@ -44,6 +44,9 @@ export default function CoachWindowMain() {
     // Mirror of insightsListMaxHeight state as a ref so getHeightByCurrentState()
     // can read the latest computed value synchronously without waiting for a React re-render.
     const insightsListMaxHeightRef = useRef<number | undefined>(undefined);
+    // Absolute bottom of the work area (screen coords) from the main process.
+    // Populated on mount via IPC; falls back to screen.availHeight (conservative by ~menuBarHeight).
+    const workAreaBottomRef = useRef<number | null>(null);
     //STATE
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
@@ -90,6 +93,14 @@ export default function CoachWindowMain() {
         if (isZipCodeValid) setIsZipDropdownOpen(true);
     }, [isZipCodeValid]);
 
+    // Fetch the absolute bottom of the work area from the main process so we can
+    // accurately constrain the insights list without relying on availTop (Firefox-only).
+    useEffect(() => {
+        window.electronAPI?.getCoachWorkAreaBottom()?.then(v => { workAreaBottomRef.current = v; });
+    }, []);
+
+    const handleZipClose = useCallback(() => setIsZipDropdownOpen(false), []);
+
     // Compute the max height for the scrollable insights list by measuring the
     // list's actual viewport position after DOM layout. This avoids stale-ref issues
     // that occur when reading offsetHeight during the render phase.
@@ -106,8 +117,10 @@ export default function CoachWindowMain() {
         // Reserve: lpmama row (36px) + container bottom padding (9px) + gap after container (6px)
         const LPMAMA_RESERVE = isSmartCaptureEnabled ? 51 : 0;
         const BOTTOM_MARGIN = 20;
-        const screenBottom = ((window.screen as any).availTop ?? 0) + window.screen.availHeight;
-        const available = (screenBottom - window.screenY) - listTop - LPMAMA_RESERVE - BOTTOM_MARGIN;
+        // Use IPC-provided workAreaBottom (accurate). Falls back to screen.availHeight,
+        // which is conservative by ~menuBarHeight but safe.
+        const screenBottom = workAreaBottomRef.current ?? window.screen.availHeight;
+        const available = screenBottom - window.screenY - listTop - LPMAMA_RESERVE - BOTTOM_MARGIN;
         const newMax = Math.max(150, Math.round(available));
         // Update the ref synchronously so getHeightByCurrentState() can use it immediately
         // in the same call stack, before React re-renders with the new state.
@@ -501,7 +514,7 @@ export default function CoachWindowMain() {
             {isZipDropdownOpen && isZipCodeValid && isCoachActive && isPulseEnabled && !pendingSmartCaptureAction && (
                 <ZipCodeDropdown
                     ref={zipCodeDropdownRef}
-                    onClose={() => setIsZipDropdownOpen(false)}
+                    onClose={handleZipClose}
                     zipCodeValue={zipCodeValue}
                     allResults={allResults}
                     pulseError={pulseError}

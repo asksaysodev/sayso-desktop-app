@@ -41,7 +41,7 @@ export default function usePulseMarketProperty(zipCodeValue: string, sessionId: 
             return;
         }
         mutate();
-    }, [zipCodeValue]);
+    }, [zipCodeValue, mutate]);
 
     return {
         allResults,

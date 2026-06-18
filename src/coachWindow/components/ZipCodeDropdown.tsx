@@ -64,14 +64,10 @@ const ZipCodeDropdown = forwardRef<HTMLDivElement, Props>(({
     const [tooltipState, setTooltipState] = useState<TooltipState | null>(null);
     const innerBoxRef = useRef<HTMLDivElement>(null);
 
-    // Keep selectedTab in sync when new results arrive (new zip fetch)
-    const prevResultsRef = useRef<PulseResponse | null>(null);
-    if (allResults !== prevResultsRef.current) {
-        prevResultsRef.current = allResults;
-        if (allResults) {
-            setSelectedTab(Object.keys(allResults.byPropertyType)[0] ?? '');
-        }
-    }
+    // Reset selected tab when new results arrive (new zip fetch).
+    useEffect(() => {
+        if (allResults) setSelectedTab(Object.keys(allResults.byPropertyType)[0] ?? '');
+    }, [allResults]);
 
     // Derive the active tab without waiting for a state update cycle —
     // ensures correct height on first render when reopening with cached results.

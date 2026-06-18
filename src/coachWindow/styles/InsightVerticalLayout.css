@@ -182,7 +182,6 @@
 
 /* Active insight styles (the first one being displayed) */
 .insights-vertical-layout-item--active {
-    /*background: rgba(255, 255, 255, 0.11);*/
     background: #3B516C;
     border: 0.5px solid rgba(255, 255, 255, 0.2);
     box-shadow: 

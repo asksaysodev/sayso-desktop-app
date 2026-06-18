@@ -144,6 +144,7 @@ try {
   contextBridge.exposeInMainWorld('electronAPI', {
     resizeWindow: (width: number, height: number) => ipcRenderer.send('resize-coach-window', width, height),
     closeCoachWindow: () => ipcRenderer.send('close-coach-window'),
+    getCoachWorkAreaBottom: (): Promise<number | null> => ipcRenderer.invoke('get-coach-work-area-bottom'),
     getWindowPosition: () => ipcRenderer.invoke('get-window-position'),
     setWindowPosition: (x: number, y: number) => ipcRenderer.send('set-window-position', x, y),
     playbook: {

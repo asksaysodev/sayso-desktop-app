@@ -2278,6 +2278,14 @@ ipcMain.on('resize-coach-window', (event: Electron.IpcMainInvokeEvent, width: nu
   }
 });
 
+ipcMain.handle('get-coach-work-area-bottom', () => {
+  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+    const { workArea } = electronScreen.getDisplayMatching(global.coachWindow.getBounds());
+    return workArea.y + workArea.height;
+  }
+  return null;
+});
+
 // Handler for manual window dragging
 ipcMain.handle('get-window-position', () => {
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {

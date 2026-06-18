@@ -150,6 +150,7 @@ export interface PlaybookWindowAPI {
 export interface ElectronAPIBridge {
   resizeWindow: (width: number, height: number) => void;
   closeCoachWindow: () => void;
+  getCoachWorkAreaBottom: () => Promise<number | null>;
   getWindowPosition: () => Promise<[number, number]>;
   setWindowPosition: (x: number, y: number) => void;
   playbook: PlaybookWindowAPI;
