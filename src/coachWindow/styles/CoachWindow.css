@@ -1,6 +1,4 @@
 body {
-    /* font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
-      Arial, sans-serif; */
     font-family: Helvetica, Arial, sans-serif;
 }
 button {
@@ -8,7 +6,6 @@ button {
 }
 .coach-window {
     gap: 6px;
-    /* width: 100%; */
     height: 100%;
     background: transparent;
     -webkit-app-region: drag;
@@ -81,7 +78,6 @@ button {
     cursor: pointer;
     -webkit-app-region: no-drag;
     height: 32px;
-    /* padding: 10px 20px; */
 }
 
 .coach-window .coach-window-drag-container{
@@ -89,7 +85,6 @@ button {
     align-items: center;
     justify-content: center;
     font-size: 24px;
-    /* padding: 0 10px; */
     color: white;
 }
 
@@ -348,7 +343,6 @@ button {
     margin-bottom: 12px;
     border: 1px solid var(--sayso-border);
     border-radius: 6px;
-    /* padding: 0 8px; */
 }
 
 .coach-window .searchbar-container:focus-within{
@@ -973,7 +967,7 @@ button {
     font-weight: 400;
     display: flex;
     align-items: center;
-    gap: 4px
+    gap: 4px;
 }
 
 .zc-fact-label {
@@ -1026,19 +1020,17 @@ button {
 /* Property type tab bar */
 .zip-code-inner-box .zc-property-tab-bar {
     display: flex;
-    /* width: 100%; */
     gap: 12px;
     margin: 8px 0 12px 6px;
     background-color: #1e2936;
     padding: 4px;
-    border-radius: 100px 
+    border-radius: 100px;
 }
 
 .zip-code-inner-box .zc-property-tab {
     cursor: pointer;
     padding: 3px 8px !important;
     border-radius: 24px;
-    /* background-color: #515C6C; */
     color: #fff;
     border: none;
     font-size: 12px;
@@ -1090,7 +1082,6 @@ button {
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    /* padding-top: 2px; */
 }
 
 /* Disclaimer */

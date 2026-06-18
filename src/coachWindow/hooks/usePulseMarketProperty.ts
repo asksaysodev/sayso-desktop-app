@@ -3,6 +3,14 @@ import { useMutation } from '@tanstack/react-query';
 import getPulseMarketProperty, { PulseResponse, PulseApiError } from '../services/getPulseMarketProperty';
 
 export default function usePulseMarketProperty(zipCodeValue: string, sessionId: string) {
+	const MAX_ZIP_CACHE = 20;
+
+	function setCached(cache: Map<string, PulseResponse>, key: string, value: PulseResponse) {
+		if(cache.size >= MAX_ZIP_CACHE) {
+			cache.delete(cache.keys().next().value!);
+		}
+		cache.set(key, value);
+	}
     const [allResults, setAllResults] = useState<PulseResponse | null>(null);
     const [pulseError, setPulseError] = useState<PulseApiError | null>(null);
     const pendingZipRef = useRef<string>('');
@@ -19,7 +27,7 @@ export default function usePulseMarketProperty(zipCodeValue: string, sessionId: 
         },
         onSuccess: (data) => {
             if (pendingZipRef.current !== zipCodeValue) return;
-            cacheRef.current.set(zipCodeValue, data);
+            setCached(cacheRef.current, zipCodeValue, data);
             setAllResults(data);
         },
         onError: (err: PulseApiError) => {
