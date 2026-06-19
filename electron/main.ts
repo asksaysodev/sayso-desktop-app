@@ -1692,6 +1692,13 @@ app.whenReady().then(async () => {
         console.warn('[MAIN] Silent auth: features fetch failed — no features enabled by default', featuresResult.reason);
         Sentry.captureException(featuresResult.reason);
       }
+
+      // Open onboarding directly if not yet complete — no splash shown.
+      const onboardingStatus = global.authUser?.onboarding_status;
+      if (onboardingStatus !== 'complete' && onboardingStatus !== 'dismissed') {
+        console.log('[MAIN] Permissions complete but onboarding not done — opening onboarding window');
+        createOnboardingWindow();
+      }
     }
   } else if (authManager.isNetworkRetryPending()) {
     // Offline at startup — session exists but network was down during init().
@@ -2045,7 +2052,13 @@ ipcMain.on('set-font-size', (_event, size: string) => {
   applyFontSize(size);
 });
 
-ipcMain.on('open-onboarding-window', () => createOnboardingWindow());
+ipcMain.on('open-onboarding-window', () => {
+  if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+    console.log('[MAIN] open-onboarding-window: blocked — splash still open');
+    return;
+  }
+  createOnboardingWindow();
+});
 
 ipcMain.on('close-onboarding-window', (_event) => {
   onboardingClosedIntentionally = true;
@@ -2059,10 +2072,21 @@ ipcMain.on('complete-onboarding', (_event) => {
   if (win && !win.isDestroyed()) win.close();
 });
 
-// Handler for the splash window to signal successful login — closes the splash window
+// Handler for the splash window to signal successful login — closes splash, then opens onboarding if needed
 ipcMain.on('splash-login-success', () => {
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+    splashWindowInstance.once('closed', () => {
+      const status = global.authUser?.onboarding_status;
+      if (status !== 'complete' && status !== 'dismissed') {
+        createOnboardingWindow();
+      }
+    });
     splashWindowInstance.close();
+  } else {
+    const status = global.authUser?.onboarding_status;
+    if (status !== 'complete' && status !== 'dismissed') {
+      createOnboardingWindow();
+    }
   }
 });
 
