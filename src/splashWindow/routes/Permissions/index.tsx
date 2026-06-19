@@ -19,6 +19,10 @@ export default function Permissions() {
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const bothGranted = perms.mic === 'granted' && perms.screen === 'granted';
+    // CGPreflightScreenCaptureAccess caches false for the process lifetime after being denied at launch,
+    // so we can't rely on the poll to confirm mid-session. Once the user has opened System Settings
+    // and mic is already granted, surface "Quit and Reopen" directly.
+    const canComplete = bothGranted || (perms.mic === 'granted' && screenOpened);
 
     // On mount, check current state so returning users see accurate status
     useEffect(() => {
@@ -72,7 +76,7 @@ export default function Permissions() {
     };
 
     const handleComplete = async () => {
-        if (!bothGranted || completing) return;
+        if (!canComplete || completing) return;
         setCompleting(true);
         // Writes flag + relaunches the app
         await window.electron?.ipcRenderer?.invoke('permissions-complete');
@@ -140,12 +144,12 @@ export default function Permissions() {
 				{ 
 					perms.mic === 'granted' && perms.screen !== 'granted' && (
 						<p className="permissions-hint">
-							Enable <strong>Sayso</strong> in System Settings → Privacy &amp; Security → Screen Recording, then return here.
+							Enable <strong>Sayso</strong> in System Settings → Privacy &amp; Security → Screen Recording, then quit and reopen the app.
 						</p>
 					) 
 				}
 
-                {!bothGranted && (
+                {!canComplete && (
                     <button
                         className="permissions-cta-btn"
                         onClick={perms.mic !== 'granted' ? handleRequestMic : handleOpenScreenSettings}
@@ -160,7 +164,7 @@ export default function Permissions() {
                     </button>
                 )}
 
-                {bothGranted && (
+                {canComplete && (
                     <button
                         className="permissions-complete-btn"
                         onClick={handleComplete}
