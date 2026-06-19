@@ -1,37 +1,57 @@
-.mfa-verify-container {
+.mfa-otp-wrapper {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 20px;
     width: 100%;
+    gap: 0;
 }
 
-.mfa-verify-input {
-    width: 100%;
-    max-width: 200px;
-    padding: 12px 16px;
-    font-size: 24px;
-    font-family: monospace;
-    text-align: center;
-    letter-spacing: 8px;
-    border: 1px solid var(--sayso-border);
+.mfa-layout-toggle-text {
+	text-align: center;
+	color: rgba(255, 255, 255, 0.4);
+	cursor: pointer;
+	font-size: 13px;
+	transition: color 0.15s;
+	margin-top: 24px;
+}
+  
+  
+.mfa-layout-toggle-text:hover {
+	color: rgba(255, 255, 255, 0.8);
+}
+
+.mfa-otp-inputs {
+    display: flex;
+    gap: 8px;
+    justify-content: space-around;
+    margin-bottom: 18px;
+}
+
+.mfa-otp-input {
+    width: 42px;
+    height: 50px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
+    color: #fff;
+    font-size: 22px;
+    font-weight: 500;
+    text-align: center;
     outline: none;
-    transition: border-color 0.2s;
-    color: var(--sayso-dark) !important;
-    background-color: white !important;
+    font-family: inherit;
+    caret-color: transparent;
+    transition: border-color 0.15s, background 0.15s;
 }
 
-.mfa-verify-input:focus {
-    border-color: var(--sayso-indigo);
+.mfa-otp-input:focus {
+    border-color: rgba(35, 103, 238, 0.7);
+    background: rgba(255, 255, 255, 0.09);
 }
 
-.mfa-verify-input::placeholder {
-    letter-spacing: 8px;
-    color: var(--sayso-border);
+.mfa-otp-input--filled {
+    border-color: rgba(35, 103, 238, 0.35);
 }
 
-.mfa-verify-input:disabled {
-    opacity: 0.6;
+.mfa-otp-input:disabled {
+    opacity: 0.5;
     cursor: not-allowed;
 }

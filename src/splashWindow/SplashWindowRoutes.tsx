@@ -13,11 +13,11 @@ export default function SplashWindowRoutes() {
 
     return (
         <Routes>
-            {/* <Route path="/" element={<PostAuthRedirect />} />
-            <Route path="/login" element={<Login />} /> */}
+            <Route path="/" element={<PostAuthRedirect />} />
+            <Route path="/login" element={<Login />} />
             <Route path="/mfa-verify" element={<MFAVerify />} />
-            {/* <Route path="/permissions" element={<Permissions />} />
-            <Route path="*" element={<Navigate to="/login" replace />} /> */}
+            <Route path="/permissions" element={<Permissions />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
     );
 }

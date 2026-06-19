@@ -1,28 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import LoginLayout from '@/components/layouts/LoginLayout';
 import LoginBtn from '@/components/LoginBtn';
+import './styles.css';
 
 const MFAVerify = () => {
     const navigate = useNavigate();
     const { verifyMFA, handleSignOut } = useAuth();
 
-    const [code, setCode] = useState('');
+    const [digits, setDigits] = useState<string[]>(Array(6).fill(''));
     const [error, setError] = useState<string | null>(null);
     const [isVerifying, setIsVerifying] = useState(false);
+    const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-    const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-        setCode(value);
-        setError(null);
-    };
+    const code = digits.join('');
 
     const handleVerify = async () => {
-        if (code.length !== 6) {
-            setError('Please enter a 6-digit code');
-            return;
-        }
+        if (code.length !== 6 || isVerifying) return;
         setIsVerifying(true);
         setError(null);
         const result = await verifyMFA(code);
@@ -30,13 +25,53 @@ const MFAVerify = () => {
             navigate('/permissions', { replace: true });
         } else {
             setError(result.error?.message || 'Invalid code. Please try again.');
-            setCode('');
+            setDigits(Array(6).fill(''));
+            inputRefs.current[0]?.focus();
             setIsVerifying(false);
         }
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && code.length === 6 && !isVerifying) handleVerify();
+    // Auto-submit when all 6 digits filled
+    useEffect(() => {
+        if (code.length === 6 && !isVerifying) handleVerify();
+    }, [code]);
+
+    const handleChange = (index: number, value: string) => {
+        if (!/^\d*$/.test(value)) return;
+        const digit = value.slice(-1);
+        const newDigits = [...digits];
+        newDigits[index] = digit;
+        setDigits(newDigits);
+        setError(null);
+        if (digit && index < 5) inputRefs.current[index + 1]?.focus();
+    };
+
+    const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Backspace') {
+            if (digits[index]) {
+                const newDigits = [...digits];
+                newDigits[index] = '';
+                setDigits(newDigits);
+            } else if (index > 0) {
+                const newDigits = [...digits];
+                newDigits[index - 1] = '';
+                setDigits(newDigits);
+                inputRefs.current[index - 1]?.focus();
+            }
+        } else if (e.key === 'ArrowLeft' && index > 0) {
+            inputRefs.current[index - 1]?.focus();
+        } else if (e.key === 'ArrowRight' && index < 5) {
+            inputRefs.current[index + 1]?.focus();
+        }
+    };
+
+    const handlePaste = (e: React.ClipboardEvent) => {
+        e.preventDefault();
+        const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+        const newDigits = [...digits];
+        pasted.split('').forEach((char, i) => { newDigits[i] = char; });
+        setDigits(newDigits);
+        inputRefs.current[Math.min(pasted.length, 5)]?.focus();
     };
 
     const handleBackToLogin = async () => {
@@ -45,35 +80,37 @@ const MFAVerify = () => {
     };
 
     return (
-        <LoginLayout
-            title="Two-Factor Auth"
-            description="Enter the 6-digit code from your authenticator app"
-            error={error}
-        >
-            <div className="mfa-verify-container">
-                <input
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    value={code}
-                    onChange={handleCodeChange}
-                    onKeyDown={handleKeyDown}
-                    placeholder="000000"
-                    className="mfa-verify-input"
-                    maxLength={6}
-                    autoFocus
-                    disabled={isVerifying}
-                />
+        <LoginLayout hideLogo error={error}>
+            <h1 className="permissions-title">One More Step</h1>
+            <p className="permissions-subtitle">In order to protect your account, please enter the 6-digit code from your authenticator app</p>
+            <div className="mfa-otp-wrapper">
+                <div className="mfa-otp-inputs">
+                    {digits.map((digit, i) => (
+                        <input
+                            key={i}
+                            ref={el => { inputRefs.current[i] = el; }}
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={1}
+                            value={digit}
+                            onChange={e => handleChange(i, e.target.value)}
+                            onKeyDown={e => handleKeyDown(i, e)}
+                            onPaste={handlePaste}
+                            onFocus={e => e.target.select()}
+                            className={`mfa-otp-input${digit ? ' mfa-otp-input--filled' : ''}`}
+                            disabled={isVerifying}
+                            autoFocus={i === 0}
+                        />
+                    ))}
+                </div>
                 <LoginBtn
-                    text="Verify"
+                    text={isVerifying ? 'Verifying…' : 'Verify'}
                     onClick={handleVerify}
                     isLoading={isVerifying}
                     isDisabled={code.length !== 6 || isVerifying}
                 />
             </div>
-            <p className="toggleText" onClick={handleBackToLogin}>
-                Back to Log In
-            </p>
+            <p className="mfa-layout-toggle-text" onClick={handleBackToLogin}>Back to Log In</p>
         </LoginLayout>
     );
 };
