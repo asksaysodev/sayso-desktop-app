@@ -15,8 +15,8 @@ export default function SplashWindowRoutes() {
         <Routes>
             <Route path="/" element={<PostAuthRedirect />} />
             <Route path="/login" element={<Login />} />
-            <Route path="/mfa-verify" element={<MFAVerify />} />
             <Route path="/permissions" element={<Permissions />} />
+            <Route path="/mfa-verify" element={<MFAVerify />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
     );

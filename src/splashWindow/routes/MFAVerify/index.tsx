@@ -82,7 +82,7 @@ const MFAVerify = () => {
     return (
         <LoginLayout hideLogo error={error}>
             <h1 className="permissions-title">One More Step</h1>
-            <p className="permissions-subtitle">In order to protect your account, please enter the 6-digit code from your authenticator app</p>
+            <p className="permissions-subtitle">In order to protect your account, please enter the 6-digit code from your Authenticator App</p>
             <div className="mfa-otp-wrapper">
                 <div className="mfa-otp-inputs">
                     {digits.map((digit, i) => (

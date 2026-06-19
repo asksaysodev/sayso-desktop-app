@@ -14,7 +14,7 @@ export default function LoginLayout({ children, title, description, error, notic
         <div className="loginLayoutContainer">
             <div className="splash-drag-bar"></div>
             <div className="loginLayoutForm">
-                {!hideLogo && <img src="/assets/logo-neg-vertical.png" alt="Sayso" className="loginLayoutLogo" />}
+                {!hideLogo && <img src="/assets/logo-neg-horizontal.png" alt="Sayso" className="loginLayoutLogo" />}
                 {description && <p className="loginLayoutDescription">{description}</p>}
                 {notice && <div className="noticeMessage">{notice}</div>}
                 <div className={`errorMessage${error ? '' : ' errorMessage--hidden'}`}>{error}</div>

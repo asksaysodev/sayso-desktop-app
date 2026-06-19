@@ -41,9 +41,9 @@
 
 .loginLayoutLogo {
   display: block;
-  margin: 0 auto 8px;
-  height: 86px;
-  opacity: 0.9;
+  margin: 0 auto 12px;
+  height: 36px;
+  opacity: 1;
 }
 
 .loginLayoutTitle {
@@ -94,10 +94,18 @@
 
 /* ── Form inputs (scoped to splash) ── */
 .loginLayoutContainer .login-layout-form-inputs-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 20px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-bottom: 16px;
+	width: 100%;
+	background: rgba(255, 255, 255, 0.04);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 12px;
+	overflow: hidden;
+	padding: 22px 10px 18px;
+
+
 }
 
 .loginLayoutContainer .customInputFormGroup label,
@@ -106,11 +114,12 @@
   font-size: 13px;
   font-weight: 500;
   margin-bottom: 4px;
+  margin-left: 2px;
   display: block;
 }
 
 .loginLayoutContainer .formInput {
-  background: rgba(255, 255, 255, 0.06) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   border-radius: 8px !important;
   color: #fff !important;
@@ -180,9 +189,11 @@
   margin-top: 6px;
 }
 
-.loginLayoutContainer .login-primary-button:hover:not(:disabled) {
+.loginLayoutContainer .login-primary-button:hover:not(:disabled),
+.loginLayoutContainer .login-primary-button:focus-visible:not(:disabled) {
   background: #2367EE;
   opacity: 1;
+  outline: none;
 }
 
 .loginLayoutContainer .login-primary-button:disabled {
