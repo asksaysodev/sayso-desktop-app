@@ -1,5 +1,3 @@
-import TopDragBar from "../TopDragBar";
-import logoVertical from '/assets/logo-pos-vertical.png';
 import './styles/loginLayout.css';
 
 interface Props {
@@ -13,14 +11,18 @@ interface Props {
 export default function LoginLayout({ children, title, description, error, notice }: Props) {
     return (
         <div className="loginLayoutContainer">
-            <TopDragBar />
+            <div className="splash-drag-bar"></div>
             <div className="loginLayoutForm">
-                <img src={logoVertical} alt="Sayso" style={{ display: 'block', margin: '20px auto', height: 100 }} />
+                <img
+                    src="/assets/logo-neg-vertical.png"
+                    alt="Sayso"
+                    className="loginLayoutLogo"
+                />
                 {description && <p className="loginLayoutDescription">{description}</p>}
                 {notice && <div className="noticeMessage">{notice}</div>}
-                {error && <div className="errorMessage">{error}</div>}
+                <div className={`errorMessage${error ? '' : ' errorMessage--hidden'}`}>{error}</div>
                 {children}
             </div>
         </div>
-    )
+    );
 }

@@ -4,62 +4,59 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background-color: var(--sayso-white);
-	z-index: 9999;
+	background: transparent;
 }
 
-.sayso-loader-logo-container {
-	height: 100px;
-	padding: 5px;
+.sayso-loader-wrap {
+	position: relative;
+	width: 72px;
+	height: 72px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	position: relative;
-	overflow: hidden;
+	animation: loader-fadein 0.35s ease forwards;
 }
 
-.sayso-loader-logo-container img {
-	width: 100%;
-	height: 100%;
-	object-fit: contain;
-	position: relative;
-	z-index: 1;
-	animation: beat 1.5s ease-in-out infinite;
-}
-
-@keyframes beat {
-	0%, 100% {
-		transform: scale(1);
-	}
-	50% {
-		transform: scale(1.05);
-	}
-}
-
-.sayso-loader-logo-container::before {
-	content: '';
+/* Rotating container — dot rides along with it */
+.sayso-loader-orbit {
 	position: absolute;
-	top: -50%;
-	left: -50%;
-	width: 200%;
-	height: 200%;
-	background: linear-gradient(
-		45deg,
-		transparent,
-		transparent 25%,
-		var(--sayso-white) 50%,
-		transparent 75%,
-		transparent
-	);
-	z-index: 2;
-	animation: shine 2s infinite linear;
+	inset: 6px;
+	animation: loader-spin 1.5s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
 }
 
-@keyframes shine {
-	0% {
-		transform: translate(-150%, 150%);
-	}
-	100% {
-		transform: translate(150%, -150%);
-	}
+/* Dot pinned to top-center of the orbit ring */
+.sayso-loader-dot {
+	position: absolute;
+	top: 0;
+	left: 50%;
+	transform: translateX(-50%);
+	width: 4px;
+	height: 4px;
+	border-radius: 50%;
+	background: #2367EE;
+	box-shadow: 0 0 6px rgba(233, 236, 241, 0.951);
+}
+
+/* S logo */
+.sayso-loader-logo {
+	width: 62px;
+	height: 62px;
+	object-fit: contain;
+	filter: brightness(0) invert(1) drop-shadow(0 0 7px rgba(35, 103, 238, 0.55));
+	animation: loader-breathe 2.4s ease-in-out infinite;
+	animation-delay: 0.35s;
+}
+
+@keyframes loader-fadein {
+	from { opacity: 0; transform: scale(0.88); }
+	to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes loader-spin {
+	to { transform: rotate(360deg); }
+}
+
+@keyframes loader-breathe {
+	0%, 100% { opacity: 0.7; transform: scale(1); }
+	50%       { opacity: 1;   transform: scale(1.07); }
 }

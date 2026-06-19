@@ -34,12 +34,16 @@ export default function useLoginForm() {
   const {
     control,
     handleSubmit: rhfHandleSubmit,
+    watch,
   } = useForm<LoginFormData>({
     resolver: customResolver,
     mode: 'onSubmit',
     reValidateMode: 'onBlur',
     defaultValues: INITIAL_VALUES
   });
+
+  const [email, password] = watch(['email', 'password']);
+  const isFormReady = email.trim().length > 0 && password.length > 0;
 
 const performAuthentication = async (data: LoginFormData) => {
     const signInResult = await signIn({
@@ -54,7 +58,7 @@ const performAuthentication = async (data: LoginFormData) => {
         return;
     }
 
-    navigate('/', { replace: true });
+    navigate('/permissions', { replace: true });
   };
 
   const onSubmit = async (data: LoginFormData) => {
@@ -79,6 +83,7 @@ const performAuthentication = async (data: LoginFormData) => {
     control,
     error,
     isBtnLoading,
+    isFormReady,
     handleSubmit,
   }
 }

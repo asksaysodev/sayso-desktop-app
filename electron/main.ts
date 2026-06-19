@@ -36,6 +36,18 @@ if (IS_STAGING) {
   app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app-staging'));
 }
 
+// ─── Permissions-complete flag ────────────────────────────────────────────────
+const getPermissionsCompletePath = () => path.join(app.getPath('userData'), 'permissions-complete');
+
+function isPermissionsComplete(): boolean {
+  try {
+    return fs.existsSync(getPermissionsCompletePath()) &&
+      systemPreferences.getMediaAccessStatus('microphone') === 'granted';
+  } catch {
+    return false;
+  }
+}
+
 // ─── Auth: single source of truth ────────────────────────────────────────────
 // Owns all token state for the app's lifetime. Renderers ask main via IPC.
 export const authManager = new AuthManager();
@@ -1334,17 +1346,16 @@ ipcMain.on('open-external', (event: Electron.IpcMainInvokeEvent, url: string) =>
 });
 
 // --- Permissions Handlers ---
-// Check current permissions (non-interactive)
+// Check current mic + screen status (non-interactive)
 ipcMain.handle('permissions-check', async () => {
   try {
     const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-    if (isDev) {
-      console.log('[Permissions] check: micStatus =', micStatus, '(screen reported as false by design)');
-    }
     const mic = micStatus === 'granted';
-    // macOS does not provide a reliable non-interactive API to check ScreenCaptureKit permission.
-    // We'll return false here and request explicitly via native module when needed.
-    const screen = false;
+    let screen = false;
+    if (nativeAudio && typeof nativeAudio.checkScreenRecordingGranted === 'function') {
+      screen = !!nativeAudio.checkScreenRecordingGranted();
+    }
+    if (isDev) console.log('[Permissions] check:', { mic, screen });
     return { mic, screen };
   } catch (e: any) {
     console.error('[MAIN] [Permissions] Error checking permissions:', e);
@@ -1353,65 +1364,69 @@ ipcMain.handle('permissions-check', async () => {
   }
 });
 
-// Request microphone + screen recording permissions (interactive)
-ipcMain.handle('permissions-request-all', async () => {
+// Request microphone permission only (never triggers app restart)
+ipcMain.handle('permissions-request-mic', async () => {
   try {
-    // 1) MICROPHONE FIRST (never triggers app restart)
     const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-    if (isDev) {
-      console.log('[Permissions] requestAll: initial micStatus =', micStatus);
+    if (micStatus === 'granted') return { mic: true, action: 'already-granted' };
+    if (micStatus === 'not-determined') {
+      const granted = await systemPreferences.askForMediaAccess('microphone');
+      return { mic: granted, action: 'asked' };
     }
-    let mic = false;
-    let micAction = 'none';
-    if (micStatus === 'granted') {
-      mic = true;
-      micAction = 'already-granted';
-    } else if (micStatus === 'not-determined') {
-      mic = await systemPreferences.askForMediaAccess('microphone');
-      micAction = 'asked';
-    } else {
-      // denied, restricted, unknown — open System Settings to guide the user
-      mic = false;
-      micAction = 'open-settings';
-      try {
-        await (systemPreferences as any).openSystemPreferences('privacy', 'Microphone');
-      } catch (e: any) {
-        console.warn('[MAIN] [Permissions] Could not open System Settings for Microphone:', e?.message || e);
-      }
-    }
-
-    // If mic isn't granted, stop here and let the UI guide the user
-    if (!mic) {
-      if (isDev) {
-        console.log('[Permissions] requestAll: mic not granted, skipping screen request');
-      }
-      return { mic, screen: false, micStatus, screenStatus: 'skipped', micAction };
-    }
-
-    // 2) SCREEN RECORDING (may require restart on first grant)
-    let screen = false;
-    let screenRequested = false;
-    try {
-      if (nativeAudio && typeof nativeAudio.requestScreenRecordingPermission === 'function') {
-        const res = await nativeAudio.requestScreenRecordingPermission();
-        screen = !!res;
-        screenRequested = true;
-      } else {
-        console.warn('[MAIN] [Permissions] Native module missing requestScreenRecordingPermission');
-      }
-    } catch (err: any) {
-      console.warn('[MAIN] [Permissions] Screen permission request failed:', err?.message || err);
-      screen = false;
-    }
-    if (isDev) {
-      console.log('[Permissions] requestAll result:', { mic, screen, micAction, screenRequested });
-    }
-    return { mic, screen, micAction, screenRequested };
+    // denied / restricted → open Microphone privacy pane directly
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
+    return { mic: false, action: 'open-settings' };
   } catch (e: any) {
-    console.error('[MAIN] [Permissions] Error requesting permissions:', e);
+    console.error('[MAIN] [Permissions] Error requesting mic:', e);
     Sentry.captureException(e);
-    return { mic: false, screen: false, error: e.message };
+    return { mic: false, action: 'error', error: e.message };
   }
+});
+
+// Non-destructive poll: did the user grant screen recording?
+ipcMain.handle('permissions-check-screen', () => {
+  if (!nativeAudio || typeof nativeAudio.checkScreenRecordingGranted !== 'function') return false;
+  try {
+    return !!nativeAudio.checkScreenRecordingGranted();
+  } catch {
+    return false;
+  }
+});
+
+// Prompt macOS to surface the Screen Recording row in System Settings (fire-and-forget)
+ipcMain.handle('permissions-request-screen', () => {
+  if (!nativeAudio || typeof nativeAudio.requestScreenRecordingPermission !== 'function') return;
+  try { nativeAudio.requestScreenRecordingPermission(); } catch { /* ignore */ }
+});
+
+// Open Screen Recording privacy pane directly
+ipcMain.handle('permissions-open-screen-settings', async () => {
+  try {
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+  } catch (e: any) {
+    console.warn('[MAIN] [Permissions] Could not open Screen Recording settings:', e?.message || e);
+  }
+});
+
+// Write permissions-complete flag then relaunch
+ipcMain.handle('permissions-complete', () => {
+  try {
+    fs.writeFileSync(getPermissionsCompletePath(), '1');
+    console.log('[Permissions] permissions-complete flag written');
+  } catch (e: any) {
+    console.error('[MAIN] [Permissions] Failed to write permissions-complete flag:', e);
+    Sentry.captureException(e);
+  }
+  app.relaunch();
+  app.quit();
+});
+
+// Returns whether the permissions-complete flag is set (for renderer routing)
+ipcMain.handle('permissions-get-flag', () => isPermissionsComplete());
+
+// Legacy handler kept for any callers that may still reference it
+ipcMain.handle('permissions-request-all', async () => {
+  return ipcMain.emit('permissions-request-mic', null);
 });
 
 // --- Audio Queue Event Handlers ---
@@ -1645,31 +1660,38 @@ app.whenReady().then(async () => {
 
   const authState = authManager.getState();
   if (authState.isAuthenticated) {
-    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
-    const headers = { Authorization: `Bearer ${authState.accessToken}` };
-
-    // Fetch profile, font size, and enabled features in parallel before any window opens.
-    const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
-      axios.get(`${baseUrl}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
-      fetchAndCacheFontSize(baseUrl, authState.accessToken!),
-      fetchAndCacheEnabledFeatures(baseUrl, authState.accessToken!),
-    ]);
-
-    if (profileResult.status === 'fulfilled') {
-      global.authUser = profileResult.value.data.data;
+    if (!isPermissionsComplete()) {
+      // Token restored but permissions flow was never completed — show splash.
+      // PostAuthRedirect will see the user is authenticated and route to /permissions.
+      console.log('[MAIN] Authenticated but permissions-complete flag missing — showing splash for permissions');
+      createSplashWindow();
     } else {
-      console.warn('[MAIN] Silent auth succeeded but profile fetch failed — tray will show logged-out state', profileResult.reason);
-      Sentry.captureException(profileResult.reason);
-    }
+      const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+      const headers = { Authorization: `Bearer ${authState.accessToken}` };
 
-    if (fontSizeResult.status === 'rejected') {
-      console.warn('[MAIN] Silent auth: font_size fetch failed — falling back to default S', fontSizeResult.reason);
-      Sentry.captureException(fontSizeResult.reason);
-    }
+      // Fetch profile, font size, and enabled features in parallel before any window opens.
+      const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
+        axios.get(`${baseUrl}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
+        fetchAndCacheFontSize(baseUrl, authState.accessToken!),
+        fetchAndCacheEnabledFeatures(baseUrl, authState.accessToken!),
+      ]);
 
-    if (featuresResult.status === 'rejected') {
-      console.warn('[MAIN] Silent auth: features fetch failed — no features enabled by default', featuresResult.reason);
-      Sentry.captureException(featuresResult.reason);
+      if (profileResult.status === 'fulfilled') {
+        global.authUser = profileResult.value.data.data;
+      } else {
+        console.warn('[MAIN] Silent auth succeeded but profile fetch failed — tray will show logged-out state', profileResult.reason);
+        Sentry.captureException(profileResult.reason);
+      }
+
+      if (fontSizeResult.status === 'rejected') {
+        console.warn('[MAIN] Silent auth: font_size fetch failed — falling back to default S', fontSizeResult.reason);
+        Sentry.captureException(fontSizeResult.reason);
+      }
+
+      if (featuresResult.status === 'rejected') {
+        console.warn('[MAIN] Silent auth: features fetch failed — no features enabled by default', featuresResult.reason);
+        Sentry.captureException(featuresResult.reason);
+      }
     }
   } else if (authManager.isNetworkRetryPending()) {
     // Offline at startup — session exists but network was down during init().

@@ -1014,6 +1014,13 @@ NAN_METHOD(Initialize) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
+// Non-destructive check: returns true if screen recording is already granted.
+// Uses CGPreflightScreenCaptureAccess() (macOS 12.3+) — no dialog, no side effects.
+NAN_METHOD(CheckScreenRecordingGranted) {
+    bool granted = CGPreflightScreenCaptureAccess();
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(granted));
+}
+
 // Request screen recording permission
 NAN_METHOD(RequestScreenRecordingPermission) {
     NSLog(@"🎤 [NATIVE] Requesting screen recording permission");
@@ -1897,6 +1904,9 @@ NAN_MODULE_INIT(Init) {
     Nan::Set(target, Nan::New("initialize").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(Initialize)).ToLocalChecked());
     
+    Nan::Set(target, Nan::New("checkScreenRecordingGranted").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(CheckScreenRecordingGranted)).ToLocalChecked());
+
     Nan::Set(target, Nan::New("requestScreenRecordingPermission").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(RequestScreenRecordingPermission)).ToLocalChecked());
     

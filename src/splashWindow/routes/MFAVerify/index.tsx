@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import LoginLayout from '@/components/layouts/LoginLayout';
-import SaysoButton from '@/components/SaysoButton';
-import './styles.css';
+import LoginBtn from '@/components/LoginBtn';
 
 const MFAVerify = () => {
     const navigate = useNavigate();
@@ -24,14 +23,11 @@ const MFAVerify = () => {
             setError('Please enter a 6-digit code');
             return;
         }
-
         setIsVerifying(true);
         setError(null);
-
         const result = await verifyMFA(code);
-
         if (result.success) {
-            navigate('/', { replace: true });
+            navigate('/permissions', { replace: true });
         } else {
             setError(result.error?.message || 'Invalid code. Please try again.');
             setCode('');
@@ -40,9 +36,7 @@ const MFAVerify = () => {
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && code.length === 6 && !isVerifying) {
-            handleVerify();
-        }
+        if (e.key === 'Enter' && code.length === 6 && !isVerifying) handleVerify();
     };
 
     const handleBackToLogin = async () => {
@@ -52,7 +46,7 @@ const MFAVerify = () => {
 
     return (
         <LoginLayout
-            title="Two-Factor Authentication"
+            title="Two-Factor Auth"
             description="Enter the 6-digit code from your authenticator app"
             error={error}
         >
@@ -70,16 +64,13 @@ const MFAVerify = () => {
                     autoFocus
                     disabled={isVerifying}
                 />
-
-                <SaysoButton
-                    label="Verify"
+                <LoginBtn
+                    text="Verify"
                     onClick={handleVerify}
-                    loading={isVerifying}
-                    disabled={code.length !== 6 || isVerifying}
-                    fullWidth
+                    isLoading={isVerifying}
+                    isDisabled={code.length !== 6 || isVerifying}
                 />
             </div>
-
             <p className="toggleText" onClick={handleBackToLogin}>
                 Back to Log In
             </p>
