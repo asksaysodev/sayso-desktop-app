@@ -11,6 +11,7 @@ export interface AuthUser {
   id: string;
   email: string;
   subscription_plan_id: string | null;
+  onboarding_status?: 'complete' | 'dismissed' | null;
   [key: string]: unknown;
 }
 

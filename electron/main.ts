@@ -1694,7 +1694,7 @@ app.whenReady().then(async () => {
       }
 
       // Open onboarding directly if not yet complete — no splash shown.
-      const onboardingStatus = global.authUser?.onboarding_status;
+      const onboardingStatus = (global.authUser || undefined)?.onboarding_status;
       if (onboardingStatus !== 'complete' && onboardingStatus !== 'dismissed') {
         console.log('[MAIN] Permissions complete but onboarding not done — opening onboarding window');
         createOnboardingWindow();
@@ -2076,14 +2076,14 @@ ipcMain.on('complete-onboarding', (_event) => {
 ipcMain.on('splash-login-success', () => {
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
     splashWindowInstance.once('closed', () => {
-      const status = global.authUser?.onboarding_status;
+      const status = (global.authUser || undefined)?.onboarding_status;
       if (status !== 'complete' && status !== 'dismissed') {
         createOnboardingWindow();
       }
     });
     splashWindowInstance.close();
   } else {
-    const status = global.authUser?.onboarding_status;
+    const status = (global.authUser || undefined)?.onboarding_status;
     if (status !== 'complete' && status !== 'dismissed') {
       createOnboardingWindow();
     }
