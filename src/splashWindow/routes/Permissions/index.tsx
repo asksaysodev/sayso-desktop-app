@@ -18,10 +18,11 @@ export default function Permissions() {
     const [completing, setCompleting] = useState(false);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    // "Quit and Reopen" only appears when both permissions are actually granted per the native poll.
-    // If the OS can't report SCK as granted (e.g. it requires a restart to reflect), this stays false
-    // and "Open System Settings" remains the last visible CTA — the user quits/reopens manually.
-    const canComplete = perms.mic === 'granted' && perms.screen === 'granted';
+    // macOS binds screen-recording permission at process launch — a mid-session grant is NEVER
+    // reflected to the running process (confirmed: CGPreflight returns false until restart). So we
+    // can't detect SCK live. Once mic is granted AND the user has gone to System Settings, offer
+    // "Quit and Reopen"; the next launch is the source of truth for whether SCK was actually granted.
+    const canComplete = perms.mic === 'granted' && (perms.screen === 'granted' || screenOpened);
 
     // On mount, check current state so returning users see accurate status
     useEffect(() => {
