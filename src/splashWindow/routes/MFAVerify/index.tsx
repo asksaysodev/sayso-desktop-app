@@ -13,27 +13,32 @@ const MFAVerify = () => {
     const [error, setError] = useState<string | null>(null);
     const [isVerifying, setIsVerifying] = useState(false);
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+    // Set synchronously to guard against double-submit even before isVerifying re-renders.
+    const verifyingRef = useRef(false);
 
     const code = digits.join('');
 
     const handleVerify = async () => {
-        if (code.length !== 6 || isVerifying) return;
+        if (code.length !== 6 || verifyingRef.current) return;
+        verifyingRef.current = true;
         setIsVerifying(true);
         setError(null);
         const result = await verifyMFA(code);
         if (result.success) {
-            navigate('/permissions', { replace: true });
+            // Let PostAuthRedirect decide based on the permissions flag (skips /permissions if complete).
+            navigate('/', { replace: true });
         } else {
             setError(result.error?.message || 'Invalid code. Please try again.');
             setDigits(Array(6).fill(''));
             inputRefs.current[0]?.focus();
+            verifyingRef.current = false;
             setIsVerifying(false);
         }
     };
 
     // Auto-submit when all 6 digits filled
     useEffect(() => {
-        if (code.length === 6 && !isVerifying) handleVerify();
+        if (code.length === 6) handleVerify();
     }, [code]);
 
     const handleChange = (index: number, value: string) => {

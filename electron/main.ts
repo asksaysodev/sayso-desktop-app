@@ -1331,7 +1331,7 @@ const createSplashWindow = (opts: { logout?: boolean; reason?: 'session-expired'
 
   const preloadScriptPath = path.join(__dirname, 'preload.js');
 
-const splashWindow = new BrowserWindow({
+  const splashWindow = new BrowserWindow({
     show: false,
     width: 380,
     height: 560,
@@ -1342,12 +1342,12 @@ const splashWindow = new BrowserWindow({
     roundedCorners: true,
     titleBarStyle: 'hiddenInset',
     webPreferences: {
-        preload: preloadScriptPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        webSecurity: true,
+      preload: preloadScriptPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
     },
-});
+  });
 
   splashWindowInstance = splashWindow;
 
