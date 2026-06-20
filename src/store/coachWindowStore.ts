@@ -84,9 +84,9 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
                     return false;
                 }
 
-                // Mic is still granted - proceed to open window
-                // Note: Screen permission can't be reliably checked without requesting,
-                // so we'll handle that when actually trying to use it
+                // Mic is still granted - proceed to open window.
+                // Screen permission is enforced separately by the start-cue guard in main
+                // (and is checked reliably via CGPreflight in permissions.check()).
             } catch (error) {
                 console.error('[CoachWindowStore] Error checking permissions:', error);
                 // On error, clear cache and block open to be safe

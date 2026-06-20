@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import LoginLayout from '@/components/layouts/LoginLayout';
@@ -18,7 +18,7 @@ const MFAVerify = () => {
 
     const code = digits.join('');
 
-    const handleVerify = async () => {
+    const handleVerify = useCallback(async () => {
         if (code.length !== 6 || verifyingRef.current) return;
         verifyingRef.current = true;
         setIsVerifying(true);
@@ -34,12 +34,12 @@ const MFAVerify = () => {
             verifyingRef.current = false;
             setIsVerifying(false);
         }
-    };
+    }, [code, verifyMFA, navigate]);
 
     // Auto-submit when all 6 digits filled
     useEffect(() => {
         if (code.length === 6) handleVerify();
-    }, [code]);
+    }, [code, handleVerify]);
 
     const handleChange = (index: number, value: string) => {
         if (!/^\d*$/.test(value)) return;

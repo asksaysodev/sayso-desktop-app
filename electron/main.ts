@@ -1449,7 +1449,8 @@ ipcMain.handle('permissions-open-screen-settings', async () => {
   }
 });
 
-// Write permissions-complete flag then relaunch
+// Write permissions-complete flag then relaunch. Only relaunch if the write succeeded —
+// otherwise the next boot would route back to permissions (potential loop).
 ipcMain.handle('permissions-complete', () => {
   try {
     fs.writeFileSync(getPermissionsCompletePath(), '1');
@@ -1457,6 +1458,7 @@ ipcMain.handle('permissions-complete', () => {
   } catch (e: any) {
     console.error('[MAIN] [Permissions] Failed to write permissions-complete flag:', e);
     Sentry.captureException(e);
+    return { error: e.message };
   }
   app.relaunch();
   app.quit();

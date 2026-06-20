@@ -92,6 +92,12 @@ export interface CueAPI {
 
 export interface PermissionsAPI {
   check: () => Promise<PermissionsStatus>;
+  requestMic: () => Promise<{ mic: boolean; action: string; error?: string }>;
+  checkScreen: () => Promise<boolean>;
+  requestScreen: () => Promise<void>;
+  openScreenSettings: () => Promise<void>;
+  complete: () => Promise<{ error?: string } | void>;
+  getFlag: () => Promise<boolean>;
 }
 
 export interface PermissionsStatus {
