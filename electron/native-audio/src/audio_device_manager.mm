@@ -1021,88 +1021,6 @@ NAN_METHOD(CheckScreenRecordingGranted) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(granted));
 }
 
-// Async SCK permission probe. Resolves a diagnostic object:
-//   { granted, preflight, displays, errorCode, errorDomain, errorDescription }
-// We compare CGPreflightScreenCaptureAccess() against the authoritative SCShareableContent result
-// so we can see, in one run, exactly which API disagrees and why.
-struct PendingSckPermCheck {
-    uv_async_t async;
-    Nan::Persistent<v8::Promise::Resolver> resolver;
-    bool granted;
-    bool preflight;
-    long displays;
-    long errorCode;
-    std::string errorDomain;
-    std::string errorDescription;
-};
-
-static void SckPermCheckCb(uv_async_t* handle) {
-    PendingSckPermCheck* p = static_cast<PendingSckPermCheck*>(handle->data);
-    if (!p) return;
-    Nan::HandleScope scope;
-    Isolate* isolate = Isolate::GetCurrent();
-    Local<Context> context = isolate->GetCurrentContext();
-    Local<Promise::Resolver> res = Nan::New(p->resolver);
-    p->resolver.Reset();
-
-    Local<Object> result = Nan::New<Object>();
-    Nan::Set(result, Nan::New("granted").ToLocalChecked(), Nan::New<v8::Boolean>(p->granted));
-    Nan::Set(result, Nan::New("preflight").ToLocalChecked(), Nan::New<v8::Boolean>(p->preflight));
-    Nan::Set(result, Nan::New("displays").ToLocalChecked(), Nan::New<v8::Number>((double)p->displays));
-    Nan::Set(result, Nan::New("errorCode").ToLocalChecked(), Nan::New<v8::Number>((double)p->errorCode));
-    Nan::Set(result, Nan::New("errorDomain").ToLocalChecked(),
-             Nan::New(p->errorDomain).ToLocalChecked());
-    Nan::Set(result, Nan::New("errorDescription").ToLocalChecked(),
-             Nan::New(p->errorDescription).ToLocalChecked());
-    res->Resolve(context, result).Check();
-
-    uv_close(reinterpret_cast<uv_handle_t*>(handle), [](uv_handle_t* h) {
-        delete static_cast<PendingSckPermCheck*>(h->data);
-    });
-}
-
-NAN_METHOD(CheckSCKPermission) {
-    Isolate* isolate = info.GetIsolate();
-    Local<Context> context = isolate->GetCurrentContext();
-    MaybeLocal<Promise::Resolver> maybe = Promise::Resolver::New(context);
-    if (maybe.IsEmpty()) {
-        info.GetReturnValue().SetUndefined();
-        return;
-    }
-    Local<Promise::Resolver> resolver = maybe.ToLocalChecked();
-    info.GetReturnValue().Set(resolver->GetPromise());
-
-    PendingSckPermCheck* pending = new PendingSckPermCheck();
-    pending->async.data = pending;
-    pending->granted = false;
-    pending->preflight = CGPreflightScreenCaptureAccess();
-    pending->displays = 0;
-    pending->errorCode = 0;
-    pending->resolver.Reset(resolver);
-    uv_async_init(uv_default_loop(), &pending->async, SckPermCheckCb);
-
-    [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent* content, NSError* error) {
-        if (error) {
-            NSLog(@"[CheckSCKPermission] ❌ preflight=%d error domain=%@ code=%ld desc=%@",
-                  pending->preflight, error.domain, (long)error.code, error.localizedDescription);
-            pending->errorCode = (long)error.code;
-            pending->errorDomain = error.domain ? std::string([error.domain UTF8String]) : "";
-            pending->errorDescription = error.localizedDescription
-                ? std::string([error.localizedDescription UTF8String]) : "";
-        } else {
-            NSLog(@"[CheckSCKPermission] ✅ preflight=%d displays=%lu apps=%lu windows=%lu",
-                  pending->preflight,
-                  (unsigned long)content.displays.count,
-                  (unsigned long)content.applications.count,
-                  (unsigned long)content.windows.count);
-            pending->displays = (long)content.displays.count;
-        }
-        // Authoritative grant = SCShareableContent succeeded AND at least one display is shareable.
-        pending->granted = (error == nil && content != nil && content.displays.count > 0);
-        uv_async_send(&pending->async);
-    }];
-}
-
 // Request screen recording permission.
 // CGRequestScreenCaptureAccess() shows the native macOS dialog when the permission is
 // "not-determined" (its own "Open System Settings" button leads the user to the right pane).
@@ -1978,9 +1896,6 @@ NAN_MODULE_INIT(Init) {
     
     Nan::Set(target, Nan::New("checkScreenRecordingGranted").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(CheckScreenRecordingGranted)).ToLocalChecked());
-
-    Nan::Set(target, Nan::New("checkSCKPermission").ToLocalChecked(),
-             Nan::GetFunction(Nan::New<FunctionTemplate>(CheckSCKPermission)).ToLocalChecked());
 
     Nan::Set(target, Nan::New("requestScreenRecordingPermission").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(RequestScreenRecordingPermission)).ToLocalChecked());

@@ -77,7 +77,6 @@ async function checkMacOSPermissions(): Promise<PermissionsResult> {
   } else {
     console.warn('[Permissions] checkScreenRecordingGranted not available on nativeAudio');
   }
-  console.log('[Permissions] checkMacOSPermissions →', { mic, screen });
   return { granted: mic && screen, mic, screen };
 }
 
