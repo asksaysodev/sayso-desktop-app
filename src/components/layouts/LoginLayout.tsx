@@ -1,6 +1,5 @@
-import TopDragBar from "../TopDragBar";
-import logoVertical from '/assets/logo-pos-vertical.png';
 import './styles/loginLayout.css';
+import saysoLogoHorizontal from '/assets/logo-neg-horizontal.png';
 
 interface Props {
     children: React.ReactNode;
@@ -8,19 +7,20 @@ interface Props {
     description?: string;
     error?: string | null;
     notice?: string | null;
+    hideLogo?: boolean;
 }
 
-export default function LoginLayout({ children, title, description, error, notice }: Props) {
+export default function LoginLayout({ children, title, description, error, notice, hideLogo }: Props) {
     return (
         <div className="loginLayoutContainer">
-            <TopDragBar />
+            <div className="splash-drag-bar"></div>
             <div className="loginLayoutForm">
-                <img src={logoVertical} alt="Sayso" style={{ display: 'block', margin: '20px auto', height: 100 }} />
+                {!hideLogo && <img src={saysoLogoHorizontal} className="loginLayoutLogo" alt="Sayso" />}
                 {description && <p className="loginLayoutDescription">{description}</p>}
                 {notice && <div className="noticeMessage">{notice}</div>}
-                {error && <div className="errorMessage">{error}</div>}
+                <div className={`errorMessage${error ? '' : ' errorMessage--hidden'}`}>{error}</div>
                 {children}
             </div>
         </div>
-    )
+    );
 }

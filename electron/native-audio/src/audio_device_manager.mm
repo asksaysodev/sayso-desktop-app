@@ -1014,24 +1014,21 @@ NAN_METHOD(Initialize) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
-// Request screen recording permission
+// Non-destructive check: returns true if screen recording is already granted.
+// Uses CGPreflightScreenCaptureAccess() (macOS 12.3+) — no dialog, no side effects.
+NAN_METHOD(CheckScreenRecordingGranted) {
+    bool granted = CGPreflightScreenCaptureAccess();
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(granted));
+}
+
+// Request screen recording permission.
+// CGRequestScreenCaptureAccess() shows the native macOS dialog when the permission is
+// "not-determined" (its own "Open System Settings" button leads the user to the right pane).
+// Returns true if already granted; false if the dialog was shown or the permission was previously denied.
 NAN_METHOD(RequestScreenRecordingPermission) {
-    NSLog(@"🎤 [NATIVE] Requesting screen recording permission");
-    
-    // Check current permission status by trying to get shareable content
-    [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
-        if (error) {
-            NSLog(@"❌ [NATIVE] Permission check failed: %@", error.localizedDescription);
-            // Return false to JavaScript
-            return;
-        }
-        
-        NSLog(@"✅ [NATIVE] Screen recording permission granted");
-        // Return true to JavaScript
-    }];
-    
-    // For now, return true - the actual permission check happens asynchronously
-    info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
+    bool granted = CGRequestScreenCaptureAccess();
+    NSLog(@"🎤 [NATIVE] RequestScreenRecordingPermission → granted=%d", granted);
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(granted));
 }
 
 // Start system audio capture
@@ -1897,6 +1894,9 @@ NAN_MODULE_INIT(Init) {
     Nan::Set(target, Nan::New("initialize").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(Initialize)).ToLocalChecked());
     
+    Nan::Set(target, Nan::New("checkScreenRecordingGranted").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(CheckScreenRecordingGranted)).ToLocalChecked());
+
     Nan::Set(target, Nan::New("requestScreenRecordingPermission").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(RequestScreenRecordingPermission)).ToLocalChecked());
     

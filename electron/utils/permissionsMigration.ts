@@ -73,6 +73,15 @@ export function resetPermissionsIfCertChanged(): void {
     return;
   }
 
+  // Clear the permissions-complete flag so the user goes through the permissions
+  // flow again after the TCC reset (they'll need to re-grant mic + screen recording).
+  const permissionsFlag = path.join(app.getPath('userData'), 'permissions-complete');
+  try {
+    if (fs.existsSync(permissionsFlag)) fs.unlinkSync(permissionsFlag);
+  } catch (err) {
+    console.warn('[Migration] Failed to delete permissions-complete flag:', err);
+  }
+
   storeTeamId(CURRENT_TEAM_ID);
   console.log(`[Migration] TCC permissions reset for ${bundleId} (${storedTeamId ?? 'none'} → ${CURRENT_TEAM_ID})`);
 }

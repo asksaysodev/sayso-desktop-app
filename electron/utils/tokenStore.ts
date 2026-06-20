@@ -5,7 +5,10 @@ import path from "path";
 const getAuthFilePath = () => path.join(app.getPath('userData'), 'auth.json');
 
 export function saveRefreshToken(token: string) {
-    if (!token) return;
+    if (!token) {
+        console.warn('[tokenStore] saveRefreshToken called with empty token — skipping');
+        return;
+    }
     if (!safeStorage.isEncryptionAvailable()) {
         console.error('[tokenStore] safeStorage encryption unavailable — refresh token not saved');
         return;

@@ -11,6 +11,7 @@ export default function EyeToggleShowPasswordButton({ showPassword, setShowPassw
          <button
              type="button"
              className="passwordToggleButton"
+             tabIndex={-1}
              onClick={() => setShowPassword(prev => !prev)}
              aria-label={showPassword ? 'Hide password' : 'Show password'}
          >

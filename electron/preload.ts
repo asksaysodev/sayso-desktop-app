@@ -98,7 +98,13 @@ try {
     // Permissions API
     permissions: {
       check: () => ipcRenderer.invoke('permissions-check'),
-      requestAll: () => ipcRenderer.invoke('permissions-request-all')
+      requestMic: () => ipcRenderer.invoke('permissions-request-mic'),
+      checkScreen: () => ipcRenderer.invoke('permissions-check-screen'),
+      requestScreen: () => ipcRenderer.invoke('permissions-request-screen'),
+      openScreenSettings: () => ipcRenderer.invoke('permissions-open-screen-settings'),
+      complete: () => ipcRenderer.invoke('permissions-complete'),
+      getFlag: () => ipcRenderer.invoke('permissions-get-flag'),
+      requestAll: () => ipcRenderer.invoke('permissions-request-all'),
     },
     
     autoUpdater: {

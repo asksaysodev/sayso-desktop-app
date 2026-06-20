@@ -36,6 +36,7 @@ const Login = () => {
     control,
     error,
     isBtnLoading,
+    isFormReady,
     handleSubmit,
   } = useLoginForm();
 
@@ -45,14 +46,15 @@ const Login = () => {
             <LoginInFormInputs
                 control={control}
                 isBtnLoading={isBtnLoading}
+                isFormReady={isFormReady}
             />
         </form>
         <div className='toggle-text-container'>
             <p className="login-layout-toggle-text" onClick={handleSignUp}>
-                {"Don't have an account? Sign Up"}
+                Don't have an account? <span>Sign Up</span>
             </p>
             <p className="login-layout-toggle-text" onClick={handleForgotPassword}>
-                Forgot password? Click here
+                Forgot password? <span>Click here</span>
             </p>
         </div>
     </LoginLayout>

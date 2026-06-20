@@ -11,9 +11,10 @@ import { Control } from 'react-hook-form';
 interface Props {
     control: Control<LoginFormData>;
     isBtnLoading: boolean;
+    isFormReady: boolean;
 }
 
-export default function LoginInFormInputs({ control, isBtnLoading }: Props) {
+export default function LoginInFormInputs({ control, isBtnLoading, isFormReady }: Props) {
     const [showPassword, setShowPassword] = useState(false);
 
     return (
@@ -37,7 +38,7 @@ export default function LoginInFormInputs({ control, isBtnLoading }: Props) {
                 }
             />
             <div className="formActions">
-                <LoginBtn type="submit" text="Log In" isLoading={isBtnLoading} isDisabled={isBtnLoading} />
+                <LoginBtn type="submit" text="Log In" isLoading={isBtnLoading} isDisabled={isBtnLoading || !isFormReady} />
             </div>
         </div>
     )

@@ -29,11 +29,9 @@ export default function ControlledCustomFormField({ name, control, rules, label,
                         {label && <Label className={labelCn} htmlFor={name} style={{ color: labelColor }}>{label}</Label>}
                         {children(fieldOptions)}
                     </div>
-                    {fieldOptions.fieldState.error && (
-                        <span className="text-xs" style={{ color: 'var(--sayso-error)' }}>
+                    <span className="text-xs" style={{ color: 'var(--sayso-error)', display: 'block', minHeight: '1em', visibility: fieldOptions.fieldState.error ? 'visible' : 'hidden' }}>
                         {fieldOptions.fieldState.error?.message}
-                        </span>
-                    )}
+                    </span>
                 </div>
             )}
         />

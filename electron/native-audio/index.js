@@ -56,6 +56,11 @@ class AudioDeviceManager {
     return nativeAudio.requestScreenRecordingPermission();
   }
 
+  // Non-destructive screen-recording permission check (CGPreflight). Does NOT prompt or require initialize().
+  checkScreenRecordingGranted() {
+    return nativeAudio.checkScreenRecordingGranted();
+  }
+
   /**
    * Set streaming callback for real-time audio chunks
    * @param {Function} callback - Callback function(buffer, format)
