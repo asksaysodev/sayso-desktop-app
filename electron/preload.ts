@@ -104,7 +104,6 @@ try {
       openScreenSettings: () => ipcRenderer.invoke('permissions-open-screen-settings'),
       complete: () => ipcRenderer.invoke('permissions-complete'),
       getFlag: () => ipcRenderer.invoke('permissions-get-flag'),
-      requestAll: () => ipcRenderer.invoke('permissions-request-all'),
     },
     
     autoUpdater: {

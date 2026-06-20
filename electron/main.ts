@@ -1465,11 +1465,6 @@ ipcMain.handle('permissions-complete', () => {
 // Returns whether the permissions-complete flag is set (for renderer routing)
 ipcMain.handle('permissions-get-flag', () => isPermissionsComplete());
 
-// Legacy handler kept for any callers that may still reference it
-ipcMain.handle('permissions-request-all', async () => {
-  return ipcMain.emit('permissions-request-mic', null);
-});
-
 // --- Audio Queue Event Handlers ---
 audioQueue.on('failed', (item: AudioQueueItem) => {
   console.error(`[Audio Queue] Failed to process audio chunk after ${item.retries} retries: ${item.filePath} (${item.speaker})`);

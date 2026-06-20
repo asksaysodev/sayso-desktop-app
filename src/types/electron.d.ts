@@ -92,7 +92,6 @@ export interface CueAPI {
 
 export interface PermissionsAPI {
   check: () => Promise<PermissionsStatus>;
-  requestAll: () => Promise<PermissionsStatus>;
 }
 
 export interface PermissionsStatus {
