@@ -39,10 +39,23 @@ if (IS_STAGING) {
 // ─── Permissions-complete flag ────────────────────────────────────────────────
 const getPermissionsCompletePath = () => path.join(app.getPath('userData'), 'permissions-complete');
 
+function isMacOSPermissionsComplete(): boolean {
+  const flag = fs.existsSync(getPermissionsCompletePath());
+  const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
+  // CGPreflight is accurate for the running process (screen-recording grant is bound at launch),
+  // so this catches the case where the flag was written optimistically but SCK was never granted.
+  const screen = !!(nativeAudio && typeof nativeAudio.checkScreenRecordingGranted === 'function'
+    && nativeAudio.checkScreenRecordingGranted());
+  return flag && mic && screen;
+}
+
+// Platform dispatcher: are all OS permissions required to run granted (and onboarding flag set)?
+// Mirrors checkOSPermissionsGranted so main can stay platform-agnostic.
 function isPermissionsComplete(): boolean {
   try {
-    return fs.existsSync(getPermissionsCompletePath()) &&
-      systemPreferences.getMediaAccessStatus('microphone') === 'granted';
+    if (process.platform === 'darwin') return isMacOSPermissionsComplete();
+    // Windows and other platforms: no permission gating yet
+    return true;
   } catch {
     return false;
   }
@@ -1010,6 +1023,8 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
     const permsCheck = await checkOSPermissionsGranted();
     if (!permsCheck.granted) {
       console.warn('[Cue] OS permissions not granted — mic:', permsCheck.mic, 'screen:', permsCheck.screen);
+      // Surface the splash window; PostAuthRedirect sees permissions are incomplete and routes to /permissions.
+      createSplashWindow();
       return { success: false, error: 'permissions_denied', mic: permsCheck.mic, screen: permsCheck.screen };
     }
 
