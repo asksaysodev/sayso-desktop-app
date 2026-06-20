@@ -48,6 +48,32 @@ function isPermissionsComplete(): boolean {
   }
 }
 
+interface PermissionsResult {
+  granted: boolean;
+  mic: boolean;
+  screen: boolean;
+}
+
+async function checkMacOSPermissions(): Promise<PermissionsResult> {
+  const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
+  // Use CGPreflightScreenCaptureAccess (non-prompting) to READ status — never triggers the macOS
+  // dialog. The dialog is only shown on explicit user action via requestScreenRecordingPermission.
+  let screen = false;
+  if (nativeAudio && typeof nativeAudio.checkScreenRecordingGranted === 'function') {
+    screen = !!nativeAudio.checkScreenRecordingGranted();
+  } else {
+    console.warn('[Permissions] checkScreenRecordingGranted not available on nativeAudio');
+  }
+  console.log('[Permissions] checkMacOSPermissions →', { mic, screen });
+  return { granted: mic && screen, mic, screen };
+}
+
+async function checkOSPermissionsGranted(): Promise<PermissionsResult> {
+  if (process.platform === 'darwin') return checkMacOSPermissions();
+  // Windows and other platforms: no permission gating yet
+  return { granted: true, mic: true, screen: true };
+}
+
 // ─── Auth: single source of truth ────────────────────────────────────────────
 // Owns all token state for the app's lifetime. Renderers ask main via IPC.
 export const authManager = new AuthManager();
@@ -981,6 +1007,12 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
       throw new Error('Native audio module not loaded. Please wait for app initialization.');
     }
 
+    const permsCheck = await checkOSPermissionsGranted();
+    if (!permsCheck.granted) {
+      console.warn('[Cue] OS permissions not granted — mic:', permsCheck.mic, 'screen:', permsCheck.screen);
+      return { success: false, error: 'permissions_denied', mic: permsCheck.mic, screen: permsCheck.screen };
+    }
+
     if (cueStopInFlight) {
       await cueStopInFlight;
     }
@@ -1349,14 +1381,9 @@ ipcMain.on('open-external', (event: Electron.IpcMainInvokeEvent, url: string) =>
 // Check current mic + screen status (non-interactive)
 ipcMain.handle('permissions-check', async () => {
   try {
-    const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-    const mic = micStatus === 'granted';
-    let screen = false;
-    if (nativeAudio && typeof nativeAudio.checkScreenRecordingGranted === 'function') {
-      screen = !!nativeAudio.checkScreenRecordingGranted();
-    }
-    if (isDev) console.log('[Permissions] check:', { mic, screen });
-    return { mic, screen };
+    const result = await checkOSPermissionsGranted();
+    if (isDev) console.log('[Permissions] check:', result);
+    return { mic: result.mic, screen: result.screen };
   } catch (e: any) {
     console.error('[MAIN] [Permissions] Error checking permissions:', e);
     Sentry.captureException(e);
@@ -1384,10 +1411,10 @@ ipcMain.handle('permissions-request-mic', async () => {
 });
 
 // Non-destructive poll: did the user grant screen recording?
-ipcMain.handle('permissions-check-screen', () => {
-  if (!nativeAudio || typeof nativeAudio.checkScreenRecordingGranted !== 'function') return false;
+ipcMain.handle('permissions-check-screen', async () => {
   try {
-    return !!nativeAudio.checkScreenRecordingGranted();
+    const result = await checkOSPermissionsGranted();
+    return result.screen;
   } catch {
     return false;
   }

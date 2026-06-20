@@ -8,7 +8,7 @@ export default function SaysoLoader() {
 				<div className="sayso-loader-orbit">
 					<span className="sayso-loader-dot" />
 				</div>
-				<img src={saysoLogo} className="sayso-loader-logo" alt="" />
+				<img src={saysoLogo} className="sayso-loader-logo" alt="Loading Sayso" />
 			</div>
 		</div>
 	);

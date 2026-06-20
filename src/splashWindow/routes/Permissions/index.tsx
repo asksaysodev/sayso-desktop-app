@@ -18,11 +18,10 @@ export default function Permissions() {
     const [completing, setCompleting] = useState(false);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    const bothGranted = perms.mic === 'granted' && perms.screen === 'granted';
-    // CGPreflightScreenCaptureAccess caches false for the process lifetime after being denied at launch,
-    // so we can't rely on the poll to confirm mid-session. Once the user has opened System Settings
-    // and mic is already granted, surface "Quit and Reopen" directly.
-    const canComplete = bothGranted || (perms.mic === 'granted' && screenOpened);
+    // "Quit and Reopen" only appears when both permissions are actually granted per the native poll.
+    // If the OS can't report SCK as granted (e.g. it requires a restart to reflect), this stays false
+    // and "Open System Settings" remains the last visible CTA — the user quits/reopens manually.
+    const canComplete = perms.mic === 'granted' && perms.screen === 'granted';
 
     // On mount, check current state so returning users see accurate status
     useEffect(() => {
@@ -68,11 +67,16 @@ export default function Permissions() {
     };
 
     const handleOpenScreenSettings = async () => {
-        // Prompt macOS to register the app in the Screen Recording list (first-time only)
-        await window.electron?.ipcRenderer?.invoke('permissions-request-screen');
-        // Open System Settings directly to the Screen Recording pane
-        await window.electron?.ipcRenderer?.invoke('permissions-open-screen-settings');
-        setScreenOpened(true);
+        if (!screenOpened) {
+            // First action: trigger the native macOS dialog (it has its own "Open System Settings" button).
+            // macOS only shows it when the permission is not-determined.
+            await window.electron?.ipcRenderer?.invoke('permissions-request-screen');
+            setScreenOpened(true);
+        } else {
+            // Already prompted: if the user previously denied, macOS won't re-show the dialog,
+            // so open the Screen Recording pane directly as a fallback.
+            await window.electron?.ipcRenderer?.invoke('permissions-open-screen-settings');
+        }
     };
 
     const handleComplete = async () => {
@@ -120,15 +124,17 @@ export default function Permissions() {
                             <div className={`perm-icon-bg ${perms.screen === 'granted' ? 'perm-icon-bg--granted' : ''}`}>
                                 <LuHeadphones size={18} />
                             </div>
-							{ 
-								perms.screen === 'granted' &&
-								<div className='perm-granted-check'>
-									<LuCheck size={12} />
-								</div>
-							}
                             <div>
-                                <p className="perm-name">Screen & System Audio</p>
-                                <p className="perm-desc">To capture audio from your leads during conversations</p>
+								<div className='perm-name-container'>
+									<p className="perm-name">Screen & System Audio</p>
+									{ 
+										perms.screen === 'granted' &&
+										<div className='perm-granted-check'>
+											<LuCheck size={12} />
+										</div>
+									}
+								</div>
+								<p className="perm-desc">To capture audio from your leads during conversations</p>
                             </div>
                         </div>
                     </div>
@@ -159,7 +165,7 @@ export default function Permissions() {
                             ? <><LuLoader size={14} className="perm-spin" /> Requesting…</>
                             : perms.mic !== 'granted'
                                 ? 'Allow Microphone'
-                                : screenOpened ? 'Open System Settings' : 'Open System Settings'
+                                : 'Open System Settings'
                         }
                     </button>
                 )}

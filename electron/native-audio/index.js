@@ -56,6 +56,17 @@ class AudioDeviceManager {
     return nativeAudio.requestScreenRecordingPermission();
   }
 
+  // Non-destructive screen-recording permission probe. Does NOT require initialize().
+  // Resolves a diagnostic object: { granted, preflight, displays, errorCode, errorDomain, errorDescription }
+  async checkSCKPermission() {
+    return nativeAudio.checkSCKPermission();
+  }
+
+  // Legacy synchronous CGPreflight check (kept as fallback).
+  checkScreenRecordingGranted() {
+    return nativeAudio.checkScreenRecordingGranted();
+  }
+
   /**
    * Set streaming callback for real-time audio chunks
    * @param {Function} callback - Callback function(buffer, format)
