@@ -11,9 +11,7 @@ const BACKGROUND = path.resolve(__dirname, '../assets/dmg-background.tiff');
 exports.default = async function applyDmgBackground(buildResult) {
   if (process.platform !== 'darwin') return;
 
-  const dmgs = (buildResult.artifactPaths || []).filter(
-    p => p.endsWith('.dmg') && !p.endsWith('.dmg.blockmap')
-  );
+  const dmgs = (buildResult.artifactPaths || []).filter(p => p.endsWith('.dmg'));
 
   if (dmgs.length === 0) return;
 
@@ -36,7 +34,7 @@ async function applyBackground(dmgPath) {
     // Convert to read-write so Finder can modify .DS_Store
     execSync(`hdiutil convert "${dmgPath}" -format UDRW -o "${tmp}" -quiet`);
 
-    // Mount read-write (with browse so Finder can see it)
+    // Mount read-write so Finder can modify .DS_Store
     const mountOut = execSync(`hdiutil attach "${tmp}" -readwrite -noverify`).toString();
     volumePath = mountOut
       .split('\n')
