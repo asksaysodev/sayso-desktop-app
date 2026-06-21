@@ -1,32 +1,25 @@
 .updating-progress {
-    margin: 28px 0 16px;
+    margin-top: 82px;
 }
 
 .updating-progress-bar {
-    height: 6px;
-    background-color: var(--sayso-white);
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
     border-radius: 99px;
     overflow: hidden;
-    border: 1px solid var(--sayso-border);
+    border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .updating-progress-fill {
     height: 100%;
-    background-color: var(--sayso-blue);
+    background: rgba(35, 103, 238, 0.9);
     border-radius: 99px;
     transition: width 0.3s ease;
 }
 
 .updating-progress-label {
     font-size: 13px;
-    color: var(--sayso-lightgray);
+    color: rgba(255, 255, 255, 0.4);
     text-align: center;
     margin-top: 10px;
-}
-
-.updating-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-top: 50px;
 }

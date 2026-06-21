@@ -11,14 +11,22 @@ interface Props {
 }
 
 export default function LoginLayout({ children, title, description, error, notice, hideLogo }: Props) {
+	
     return (
         <div className="loginLayoutContainer">
             <div className="splash-drag-bar"></div>
             <div className="loginLayoutForm">
-                {!hideLogo && <img src={saysoLogoHorizontal} className="loginLayoutLogo" alt="Sayso" />}
+                {!hideLogo && <img src={saysoLogoHorizontal} className="splash-layout-logo" alt="Sayso" />}
+                <div className="splash-layout-headline">
+                    {error
+                        ? <div className="splash-error-message">{error}</div>
+                        : title
+                        ? <h1 className="loginLayoutTitle">{title}</h1>
+                        : null
+                    }
+                </div>
                 {description && <p className="loginLayoutDescription">{description}</p>}
                 {notice && <div className="noticeMessage">{notice}</div>}
-                <div className={`errorMessage${error ? '' : ' errorMessage--hidden'}`}>{error}</div>
                 {children}
             </div>
         </div>

@@ -41,7 +41,7 @@ const Login = () => {
   } = useLoginForm();
 
   return (
-    <LoginLayout title={'Welcome Back!'} notice={notice} error={error}>
+    <LoginLayout title={'Welcome'} notice={notice} error={error}>
         <form onSubmit={handleSubmit}>
             <LoginInFormInputs
                 control={control}
