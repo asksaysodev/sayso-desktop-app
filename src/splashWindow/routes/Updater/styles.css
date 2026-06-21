@@ -1,14 +1,3 @@
-.updater-container {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    width: 100%;
-    background: rgba(2, 25, 47, 0.97);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    color: #fff; 
-    overflow: hidden;
-}
-
 .updater-content {
     flex: 1;
     display: flex;
@@ -16,33 +5,7 @@
     align-items: center;
     justify-content: center;
     -webkit-app-region: no-drag;
-	gap: 12px
-}
-
-.updater-icon-circle {
-    width: 64px;
-    height: 64px;
-    border-radius: 50%;
-    background: rgba(35, 103, 238, 0.15);
-    border: 1px solid rgba(35, 103, 238, 0.25);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 20px;
-}
-
-.updater-icon-circle svg {
-    color: rgba(35, 103, 238, 0.9);
-}
-
-.updater-title {
-    font-size: 22px;
-    font-weight: 700;
-    color: #fff;
-    letter-spacing: -0.02em;
-    margin: 0 0 8px;
-    text-align: center;
-    line-height: 1.2;
+    gap: 12px;
 }
 
 .updater-description {
@@ -55,14 +18,14 @@
 .version-pills-container {
     display: flex;
     align-items: center;
-	justify-content: center;
+    justify-content: center;
     gap: 10px;
     font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 10px;
     padding: 22px 20px;
-	width: 100%;
+    width: 100%;
 }
 
 .vpc-arrow {
@@ -98,7 +61,7 @@
     align-items: center;
     gap: 4px;
     width: 100%;
-	margin-top: 36px;
+    margin-top: 36px;
     -webkit-app-region: no-drag;
 }
 
