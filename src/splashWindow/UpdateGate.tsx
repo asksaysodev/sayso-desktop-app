@@ -66,6 +66,7 @@ export default function UpdateGate({ children }: Props) {
 
     const handleDismiss = () => {
         window.electron?.update?.dismiss();
+        setUpdateState(null);
         if (user) {
             window.electron?.ipcRenderer?.send('splash-login-success');
         } else {

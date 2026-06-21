@@ -199,6 +199,15 @@ authManager.on('session-expired', () => {
 
 let autoUpdater: import('electron-updater').AppUpdater | null = null;
 
+function semverGt(a: string, b: string): boolean {
+  const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number);
+  const [aMaj, aMin, aPat] = parse(a);
+  const [bMaj, bMin, bPat] = parse(b);
+  if (aMaj !== bMaj) return aMaj > bMaj;
+  if (aMin !== bMin) return aMin > bMin;
+  return aPat > bPat;
+}
+
 // ─── Update State Machine ─────────────────────────────────────────────────────
 type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
 
@@ -301,6 +310,15 @@ if (app.isPackaged) {
 
   updater.on('update-available', (info: { version: string }) => {
     log.info('Update available:', info.version);
+    const current = app.getVersion();
+    if (!semverGt(info.version, current)) {
+      log.warn(`[Updater] Ignoring update to ${info.version} — not newer than current ${current}`);
+      setUpdateState({ phase: 'idle', newVersion: null });
+      if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
+        splashWindowInstance.webContents.send('update-check-complete');
+      }
+      return;
+    }
     setUpdateState({ phase: 'available', newVersion: info.version });
 
     if (isCoachSessionActive()) {
