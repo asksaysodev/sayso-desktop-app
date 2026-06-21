@@ -110,11 +110,42 @@ function setAuthUser(user: AuthUser | null): void {
   }
 }
 
+// Tracks the in-flight profile fetch started on the most recent sign-in so the
+// onboarding gate (splash-login-success) can await a fresh `global.authUser`
+// before deciding whether to show onboarding. Without this, the renderer's
+// debounced account fetch (AuthContext) races the gate — and the splash often
+// closes before it lands — leaving global.authUser stale (`false`). That made
+// the tray show a logged-out state and re-opened onboarding even when the
+// account already had onboarding_status === 'complete'.
+let authUserReady: Promise<void> = Promise.resolve();
+
+// Fetches the full account profile into global.authUser (main's source of truth
+// for subscription/onboarding state and the tray's logged-in display). Mirrors
+// the silent-restore fetch at startup. Never throws — on failure the tray falls
+// back to its logged-out state, same as the restore path.
+async function loadAuthUserProfile(accessToken: string, email: string | undefined): Promise<void> {
+  if (!email) return;
+  const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+  try {
+    const res = await axios.get(`${baseUrl}/accounts/${email}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: 5000,
+    });
+    setAuthUser(res.data.data);
+  } catch (err) {
+    console.warn('[MAIN] sign-in: profile fetch failed — tray will show logged-out state', (err as Error)?.message);
+    Sentry.captureException(err);
+  }
+}
+
 authManager.on('signed-in', (state: AuthState) => {
   console.log('[AuthManager] signed-in:', state.user?.email);
   global.authAccessToken = state.accessToken;
   broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated, accessToken: state.accessToken });
   if (state.accessToken) {
+    // Load the account profile into global.authUser now, so the tray shows the
+    // logged-in state and the onboarding gate sees the real onboarding_status.
+    authUserReady = loadAuthUserProfile(state.accessToken, state.user?.email);
     const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
     fetchAndCacheEnabledFeatures(baseUrl, state.accessToken).catch((err) => {
       console.warn('[AuthManager] signed-in: features fetch failed', err?.message);
@@ -2130,20 +2161,22 @@ ipcMain.on('complete-onboarding', (_event) => {
 });
 
 // Handler for the splash window to signal successful login — closes splash, then opens onboarding if needed
-ipcMain.on('splash-login-success', () => {
+ipcMain.on('splash-login-success', async () => {
+  // Wait for the sign-in profile fetch so the gate reads a fresh
+  // onboarding_status rather than a stale `false` from before login.
+  await authUserReady;
+  const status = (global.authUser || undefined)?.onboarding_status;
+  const shouldOpenOnboarding = status !== 'complete' && status !== 'dismissed';
+
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
     splashWindowInstance.once('closed', () => {
-      const status = (global.authUser || undefined)?.onboarding_status;
-      if (status !== 'complete' && status !== 'dismissed') {
+      if (shouldOpenOnboarding) {
         createOnboardingWindow();
       }
     });
     splashWindowInstance.close();
-  } else {
-    const status = (global.authUser || undefined)?.onboarding_status;
-    if (status !== 'complete' && status !== 'dismissed') {
-      createOnboardingWindow();
-    }
+  } else if (shouldOpenOnboarding) {
+    createOnboardingWindow();
   }
 });
 
