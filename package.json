@@ -110,6 +110,7 @@
     },
     "beforePack": "scripts/rebuild-native-for-arch.js",
     "afterPack": "scripts/verify-and-fix-native-module.js",
+    "afterAllArtifactBuild": "scripts/apply-dmg-background.js",
     "asar": false,
     "files": [
       "**/*",
@@ -161,6 +162,19 @@
         "teamId": "AFGHD8M3VK"
       },
       "identity": "AskSayso, Inc. (AFGHD8M3VK)"
+    },
+    "dmg": {
+      "title": "Install Sayso",
+      "background": "assets/dmg-background.tiff",
+      "iconSize": 110,
+      "window": {
+        "width": 600,
+        "height": 400
+      },
+      "contents": [
+        { "x": 155, "y": 255, "type": "file" },
+        { "x": 445, "y": 255, "type": "link", "path": "/Applications" }
+      ]
     },
     "win": {
       "target": "nsis"
