@@ -1560,7 +1560,7 @@ app.whenReady().then(async () => {
   
   // Load native audio module AFTER logging is set up
   try {
-    nativeAudio = require('./native-audio');
+    nativeAudio = require('./audio').default;
   } catch (error) {
     Sentry.captureException(error);
   }

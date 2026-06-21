@@ -1,4 +1,4 @@
-const nativeAudio = require('./native-audio');
+const nativeAudio = require('./audio').default;
 import * as Sentry from '@sentry/electron/main';
 
 // Store streaming callback for user audio
