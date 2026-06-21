@@ -33,6 +33,9 @@ export default function UpdateGate({ children }: Props) {
                 setUpdateState(state);
                 setUpdateCheckDone(true);
                 clearTimeout(timeout);
+            } else if (state.phase === 'idle') {
+                setUpdateCheckDone(true);
+                clearTimeout(timeout);
             }
         }).catch(Sentry.captureException);
 
