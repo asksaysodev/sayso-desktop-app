@@ -26,9 +26,7 @@
     "fresh-export": "npm run clean && npm run export",
     "fresh-export:staging": "npm run clean:staging && npm run export:staging",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "kill-port": "lsof -ti :5173 | xargs kill -9 || true",
-    "rebuild-zoom": "cd electron/zoom-sdk && node-gyp rebuild",
-    "install-zoom": "cd electron/zoom-sdk && npm install"
+    "kill-port": "lsof -ti :5173 | xargs kill -9 || true"
   },
   "keywords": [
     "electron",

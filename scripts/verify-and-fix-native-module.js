@@ -83,10 +83,11 @@ exports.default = async function(context) {
     console.log(`[AFTER_PACK] Native module architecture matches (${actualArch})`);
   }
 
+  const signingIdentity = process.env.CSC_NAME || 'Developer ID Application: AskSayso, Inc. (AFGHD8M3VK)';
   console.log('[AFTER_PACK] Signing native audio module...');
   try {
     execSync(
-      `codesign --force --sign "Developer ID Application: AskSayso, Inc. (AFGHD8M3VK)" --options runtime --entitlements "${path.join(__dirname, '..', 'assets', 'entitlements.mac.plist')}" "${nativeModulePath}"`,
+      `codesign --force --sign "${signingIdentity}" --options runtime --entitlements "${path.join(__dirname, '..', 'assets', 'entitlements.mac.plist')}" "${nativeModulePath}"`,
       { stdio: 'inherit' }
     );
     console.log('[AFTER_PACK] Native audio module signed successfully');
