@@ -9,6 +9,8 @@ const BACKGROUND = path.resolve(__dirname, '../assets/dmg-background.tiff');
 
 // electron-builder afterAllArtifactBuild hook
 exports.default = async function applyDmgBackground(buildResult) {
+  if (process.platform !== 'darwin') return;
+
   const dmgs = (buildResult.artifactPaths || []).filter(
     p => p.endsWith('.dmg') && !p.endsWith('.dmg.blockmap')
   );
@@ -28,27 +30,26 @@ exports.default = async function applyDmgBackground(buildResult) {
 async function applyBackground(dmgPath) {
   const tmp = path.join(os.tmpdir(), `sayso-rw-${Date.now()}.dmg`);
   const scriptPath = path.join(os.tmpdir(), `sayso-bg-${Date.now()}.applescript`);
+  let volumePath;
 
-  // Convert to read-write so Finder can modify .DS_Store
-  execSync(`hdiutil convert "${dmgPath}" -format UDRW -o "${tmp}" -quiet`);
+  try {
+    // Convert to read-write so Finder can modify .DS_Store
+    execSync(`hdiutil convert "${dmgPath}" -format UDRW -o "${tmp}" -quiet`);
 
-  // Mount read-write (with browse so Finder can see it)
-  const mountOut = execSync(`hdiutil attach "${tmp}" -readwrite -noverify`).toString();
-  const volumePath = mountOut
-    .split('\n')
-    .map(line => line.match(/\t(\/Volumes\/.+)/)?.[1]?.trim())
-    .find(Boolean);
+    // Mount read-write (with browse so Finder can see it)
+    const mountOut = execSync(`hdiutil attach "${tmp}" -readwrite -noverify`).toString();
+    volumePath = mountOut
+      .split('\n')
+      .map(line => line.match(/\t(\/Volumes\/.+)/)?.[1]?.trim())
+      .find(Boolean);
 
-  if (!volumePath) {
-    fs.unlinkSync(tmp);
-    throw new Error(`Could not determine mount point:\n${mountOut}`);
-  }
+    if (!volumePath) throw new Error(`Could not determine mount point:\n${mountOut}`);
 
-  const volName = path.basename(volumePath);
-  console.log(`  Mounted: ${volumePath}`);
+    const volName = path.basename(volumePath);
+    console.log(`  Mounted: ${volumePath}`);
 
-  // Let Finder write the .DS_Store itself — this is what works on macOS 14+/APFS
-  fs.writeFileSync(scriptPath, `
+    // Let Finder write the .DS_Store itself — this is what works on macOS 14+/APFS
+    fs.writeFileSync(scriptPath, `
 tell application "Finder"
   tell disk "${volName}"
     open
@@ -61,45 +62,54 @@ tell application "Finder"
     set icon size of theViewOptions to 110
     set background picture of theViewOptions to POSIX file "${BACKGROUND}"
     update without registering applications
-    delay 3
+    delay 5
     close
   end tell
 end tell
 `);
 
-  try {
-    execSync(`osascript "${scriptPath}"`, { stdio: 'inherit' });
-    console.log('  Finder applied background successfully');
-  } finally {
-    try { fs.unlinkSync(scriptPath); } catch (_) {}
-  }
-
-  // Give Finder a moment to flush .DS_Store to disk
-  execSync('sync');
-
-  // Unmount
-  execSync(`hdiutil detach "${volumePath}" -quiet`);
-
-  // Replace original DMG with re-compressed version
-  fs.unlinkSync(dmgPath);
-  execSync(`hdiutil convert "${tmp}" -format UDZO -imagekey zlib-level=9 -o "${dmgPath}" -quiet`);
-  fs.unlinkSync(tmp);
-
-  // Regenerate blockmap so auto-update deltas stay valid
-  const blockmapPath = `${dmgPath}.blockmap`;
-  if (fs.existsSync(blockmapPath)) fs.unlinkSync(blockmapPath);
-  try {
-    const appBuilder = path.resolve(
-      __dirname,
-      '../node_modules/app-builder-bin/mac/app-builder'
-    );
-    if (fs.existsSync(appBuilder)) {
-      execSync(`"${appBuilder}" blockmap --input="${dmgPath}" --output="${blockmapPath}"`);
-      console.log('  Blockmap regenerated');
+    try {
+      execSync(`osascript "${scriptPath}"`, { stdio: 'inherit' });
+      console.log('  Finder applied background successfully');
+    } finally {
+      try { fs.unlinkSync(scriptPath); } catch (_) {}
     }
-  } catch (_) {
-    console.warn('  Could not regenerate blockmap — rebuild if you need delta updates');
-  }
 
-  console.log(`  Done: ${path.basename(dmgPath)}`);
+    // Give Finder a moment to flush .DS_Store to disk
+    execSync('sync');
+
+    // Unmount
+    execSync(`hdiutil detach "${volumePath}" -quiet`);
+    volumePath = null;
+
+    // Replace original DMG with re-compressed version
+    fs.unlinkSync(dmgPath);
+    execSync(`hdiutil convert "${tmp}" -format UDZO -imagekey zlib-level=9 -o "${dmgPath}" -quiet`);
+    fs.unlinkSync(tmp);
+
+    // Regenerate blockmap so auto-update deltas stay valid
+    const blockmapPath = `${dmgPath}.blockmap`;
+    if (fs.existsSync(blockmapPath)) fs.unlinkSync(blockmapPath);
+    try {
+      const appBuilder = path.resolve(
+        __dirname,
+        '../node_modules/app-builder-bin/mac/app-builder'
+      );
+      if (fs.existsSync(appBuilder)) {
+        execSync(`"${appBuilder}" blockmap --input="${dmgPath}" --output="${blockmapPath}"`);
+        console.log('  Blockmap regenerated');
+      }
+    } catch (_) {
+      console.warn('  Could not regenerate blockmap — rebuild if you need delta updates');
+    }
+
+    console.log(`  Done: ${path.basename(dmgPath)}`);
+  } finally {
+    if (volumePath) {
+      try { execSync(`hdiutil detach "${volumePath}" -quiet -force`); } catch (_) {}
+    }
+    if (fs.existsSync(tmp)) {
+      try { fs.unlinkSync(tmp); } catch (_) {}
+    }
+  }
 }
