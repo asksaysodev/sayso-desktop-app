@@ -156,33 +156,11 @@ static bool convertInt32ToFloat(const char* sourceData, size_t sourceSize, char*
     // Convert from 32-bit signed integer to 32-bit float
     // Scale by 1.0f / INT32_MAX to normalize to [-1.0, 1.0]
     const float scale = 1.0f / (float)INT32_MAX;
-    
-    // Debug: log first few samples to check conversion
-    static int conversionCount = 0;
-    conversionCount++;
-    if (conversionCount <= 3) {
-        NSLog(@"🎵 [CONVERSION] Sample %d: First few int32 values: %d, %d, %d, %d", 
-              conversionCount, intSamples[0], intSamples[1], intSamples[2], intSamples[3]);
-        
-        // Check the actual range of values
-        int32_t minVal = INT32_MAX, maxVal = INT32_MIN;
-        for (size_t i = 0; i < sampleCount && i < 1000; i++) {
-            if (intSamples[i] < minVal) minVal = intSamples[i];
-            if (intSamples[i] > maxVal) maxVal = intSamples[i];
-        }
-        NSLog(@"🎵 [CONVERSION] Sample %d: Actual range of int32 values: [%d, %d]", 
-              conversionCount, minVal, maxVal);
-    }
-    
+
     for (size_t i = 0; i < sampleCount; i++) {
         floatSamples[i] = (float)intSamples[i] * scale;
     }
-    
-    if (conversionCount <= 3) {
-        NSLog(@"🎵 [CONVERSION] Sample %d: First few float values: %.6f, %.6f, %.6f, %.6f", 
-              conversionCount, floatSamples[0], floatSamples[1], floatSamples[2], floatSamples[3]);
-    }
-    
+
     destSize = sampleCount * sizeof(float);
     return true;
 }

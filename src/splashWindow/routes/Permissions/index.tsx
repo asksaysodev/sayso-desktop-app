@@ -83,8 +83,13 @@ export default function Permissions() {
     const handleComplete = async () => {
         if (!canComplete || completing) return;
         setCompleting(true);
-        // Writes flag + relaunches the app
-        await window.electron?.ipcRenderer?.invoke('permissions-complete');
+        // Writes flag + relaunches the app. On a write failure the app does NOT relaunch and
+        // returns an error — reset so the user can retry instead of being stuck on "Restarting…".
+        const result = await window.electron?.ipcRenderer?.invoke('permissions-complete') as { error?: string } | undefined;
+        if (result?.error) {
+            console.error('[Permissions] Failed to complete:', result.error);
+            setCompleting(false);
+        }
     };
 
     return (

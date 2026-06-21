@@ -58,7 +58,9 @@ const performAuthentication = async (data: LoginFormData) => {
         return;
     }
 
-    navigate('/permissions', { replace: true });
+    // Let PostAuthRedirect decide: it checks the permissions flag and only routes to
+    // /permissions when needed — a returning user with permissions complete skips it.
+    navigate('/', { replace: true });
   };
 
   const onSubmit = async (data: LoginFormData) => {

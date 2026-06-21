@@ -50,10 +50,6 @@ export interface CoachWindowStore {
     error: string | null;
     cue: CueState;
 
-    // ========== PERMISSIONS STATE ========== //
-    showPermissionsModal: boolean;
-    needsSystemSettings: boolean;
-
     // ========== SHARED ACTIONS ========== //
     setIsCoachActive: (isCoachActive: boolean) => void;
     setIsCoachLoading: (isCoachLoading: boolean) => void;
@@ -63,9 +59,7 @@ export interface CoachWindowStore {
     incrementCallDuration: () => void;
     resetCallDuration: () => void;
 
-    // ========== PERMISSIONS ACTIONS ========== //
-    requestPermissions: () => Promise<boolean>;
-    closePermissionsModal: () => void;
+    // ========== COACH WINDOW ACTIONS ========== //
     openCoachWindow: () => Promise<boolean>;
     closeCoachWindow: () => void;
 

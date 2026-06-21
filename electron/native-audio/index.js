@@ -95,7 +95,7 @@ class AudioDeviceManager {
         this.setStreamingCallback(streamingCallback);
       }
       const nativeResult = await nativeAudio.startSystemAudioCapture(captureOptions);
-      if (nativeResult === true) {
+      if (nativeResult) {
         return { success: true };
       }
       return {

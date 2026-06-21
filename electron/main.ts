@@ -1331,7 +1331,7 @@ const createSplashWindow = (opts: { logout?: boolean; reason?: 'session-expired'
 
   const preloadScriptPath = path.join(__dirname, 'preload.js');
 
-const splashWindow = new BrowserWindow({
+  const splashWindow = new BrowserWindow({
     show: false,
     width: 380,
     height: 560,
@@ -1342,12 +1342,12 @@ const splashWindow = new BrowserWindow({
     roundedCorners: true,
     titleBarStyle: 'hiddenInset',
     webPreferences: {
-        preload: preloadScriptPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        webSecurity: true,
+      preload: preloadScriptPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
     },
-});
+  });
 
   splashWindowInstance = splashWindow;
 
@@ -1449,7 +1449,8 @@ ipcMain.handle('permissions-open-screen-settings', async () => {
   }
 });
 
-// Write permissions-complete flag then relaunch
+// Write permissions-complete flag then relaunch. Only relaunch if the write succeeded —
+// otherwise the next boot would route back to permissions (potential loop).
 ipcMain.handle('permissions-complete', () => {
   try {
     fs.writeFileSync(getPermissionsCompletePath(), '1');
@@ -1457,6 +1458,7 @@ ipcMain.handle('permissions-complete', () => {
   } catch (e: any) {
     console.error('[MAIN] [Permissions] Failed to write permissions-complete flag:', e);
     Sentry.captureException(e);
+    return { error: e.message };
   }
   app.relaunch();
   app.quit();
@@ -1464,11 +1466,6 @@ ipcMain.handle('permissions-complete', () => {
 
 // Returns whether the permissions-complete flag is set (for renderer routing)
 ipcMain.handle('permissions-get-flag', () => isPermissionsComplete());
-
-// Legacy handler kept for any callers that may still reference it
-ipcMain.handle('permissions-request-all', async () => {
-  return ipcMain.emit('permissions-request-mic', null);
-});
 
 // --- Audio Queue Event Handlers ---
 audioQueue.on('failed', (item: AudioQueueItem) => {

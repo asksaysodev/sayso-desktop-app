@@ -17,11 +17,13 @@ try {
         return ipcRenderer.invoke(channel, ...args);
       },
       on: (channel: string, callback: (data: unknown) => void) => {
-        ipcRenderer.on(channel, (event: Event, ...args: unknown[]) => {
+        const listener = (_event: Event, ...args: unknown[]) => {
           callback(args[0]);
-        });
+        };
+        ipcRenderer.on(channel, listener);
+        // Remove only this listener on cleanup, so other components on the same channel are unaffected.
         return () => {
-          ipcRenderer.removeAllListeners(channel);
+          ipcRenderer.removeListener(channel, listener);
         };
       },
       send: (channel: string, ...args: unknown[]) => {
@@ -104,7 +106,6 @@ try {
       openScreenSettings: () => ipcRenderer.invoke('permissions-open-screen-settings'),
       complete: () => ipcRenderer.invoke('permissions-complete'),
       getFlag: () => ipcRenderer.invoke('permissions-get-flag'),
-      requestAll: () => ipcRenderer.invoke('permissions-request-all'),
     },
     
     autoUpdater: {
