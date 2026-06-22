@@ -89,10 +89,12 @@ The renderer (`useCue.tsx`) treats the failed result as a thrown error — it lo
 
 ## Team-id (certificate) migration
 
-`permissionsMigration.ts` runs at startup before the permission checks. On Apple-team change (same bundle id, new certificate):
+`permissionsMigration.ts` runs at startup before the permission checks. It reads the running app's **actual** team id from its code signature at runtime (`codesign -dvvv` → `TeamIdentifier=`) and compares it to the team id stored from the last launch — there is no hardcoded constant to keep in sync. On Apple-team change (same bundle id, new certificate):
 1. `tccutil reset ScreenCapture/Microphone <bundleId>` clears stale old-team TCC entries
 2. Deletes the `permissions-complete` flag → user re-runs the permissions flow under the new team
 3. Stores the new team id so it only resets once
+
+If the running team id can't be read (unsigned / ad-hoc / dev build), the migration is a safe no-op.
 
 This composes correctly with the permission logic: CGPreflight is scoped to the running binary's signature (new team), and flag deletion forces a clean re-grant.
 
