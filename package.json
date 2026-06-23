@@ -110,10 +110,12 @@
     "afterAllArtifactBuild": "scripts/apply-dmg-background.js",
     "asar": true,
     "asarUnpack": [
-      "**/electron/native-audio/**"
+      "electron/native-audio/**"
     ],
     "files": [
       "**/*",
+      "!release{,/**/*}",
+      "!release-staging{,/**/*}",
       "!electron/full_recordings/**/*",
       "!electron/chunks/**/*"
     ],
