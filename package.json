@@ -5,7 +5,7 @@
   "main": "electron/main.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/asksaysodev/sayso-frontend.git"
+    "url": "https://github.com/asksaysodev/sayso-desktop-app.git"
   },
   "scripts": {
     "start": "electron .",
