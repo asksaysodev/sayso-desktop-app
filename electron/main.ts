@@ -34,6 +34,14 @@ if (IS_STAGING) {
   // with production's "sayso-app Safe Storage" item (different binary, same entry name = prompt every launch)
   app.setName('sayso-app-staging');
   app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app-staging'));
+} else if (!app.isPackaged) {
+  // Dev runs (`npm run dev`) are unpackaged and carry no build_env, so without this
+  // they fall through to the default "sayso-app" userData — the SAME directory the
+  // installed production app uses — and pollute its auth/permissions state (e.g.
+  // writing permissions-team-id.json, which then suppresses the prod cert migration).
+  // Isolate dev into its own directory. (app.isPackaged is reliable here; NODE_ENV is not.)
+  app.setName('sayso-app-dev');
+  app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app-dev'));
 }
 
 // ─── Permissions-complete flag ────────────────────────────────────────────────
