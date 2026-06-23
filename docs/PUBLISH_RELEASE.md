@@ -53,7 +53,7 @@ This will clean previous builds, rebuild everything, create DMGs for both Intel 
 
 ### 3. Publish on GitHub
 
-1. Go to https://github.com/asksaysodev/sayso-frontend/releases
+1. Go to https://github.com/asksaysodev/sayso-desktop-app/releases
 2. Find the draft release (tagged `v1.0.1`)
 3. Make sure both DMG files are there (arm64 and Intel)
 4. Add release notes describing what changed
