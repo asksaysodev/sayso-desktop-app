@@ -48,13 +48,26 @@ if (IS_STAGING) {
 const getPermissionsCompletePath = () => path.join(app.getPath('userData'), 'permissions-complete');
 
 function isMacOSPermissionsComplete(): boolean {
-  const flag = fs.existsSync(getPermissionsCompletePath());
   const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
-  // CGPreflight is accurate for the running process (screen-recording grant is bound at launch),
-  // so this catches the case where the flag was written optimistically but SCK was never granted.
+  // CGPreflight is accurate for the running process (screen-recording grant is bound at launch).
   const screen = !!(nativeAudio && typeof nativeAudio.checkScreenRecordingGranted === 'function'
     && nativeAudio.checkScreenRecordingGranted());
-  return flag && mic && screen;
+  // Live OS state is authoritative: if both are actually granted for this process, onboarding is
+  // complete regardless of the flag. This self-heals the case where the flag is missing but perms
+  // work — e.g. after the cert migration deletes the flag and the user re-grants + reopens. We only
+  // short-circuit on live grants, so an optimistically-written flag without a real SCK grant
+  // (screen === false) still routes back to /permissions.
+  if (mic && screen) {
+    if (!fs.existsSync(getPermissionsCompletePath())) {
+      try {
+        fs.writeFileSync(getPermissionsCompletePath(), '1');
+      } catch (e) {
+        console.warn('[Permissions] Failed to self-heal permissions-complete flag:', e);
+      }
+    }
+    return true;
+  }
+  return false;
 }
 
 // Platform dispatcher: are all OS permissions required to run granted (and onboarding flag set)?
