@@ -103,7 +103,7 @@
     "publish": {
       "provider": "github",
       "owner": "asksaysodev",
-      "repo": "sayso-frontend"
+      "repo": "sayso-desktop-app"
     },
     "beforePack": "scripts/rebuild-native-for-arch.js",
     "afterPack": "scripts/verify-and-fix-native-module.js",
