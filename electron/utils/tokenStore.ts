@@ -34,9 +34,17 @@ export function loadRefreshToken(): string | null {
         const buffer = Buffer.from(refreshToken, 'base64');
         return safeStorage.decryptString(buffer);
     } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-            console.error('[tokenStore] Failed to load refresh token:', err);
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+            // No stored token — normal for a fresh install or after sign-out.
+            return null;
         }
+        // The file exists but is unusable — most commonly because it was encrypted
+        // with a previous safeStorage key (e.g. after the "Sayso Safe Storage" keychain
+        // rename in SAYSO-272, where decryptString fails against the new key). Drop the
+        // stale blob so it doesn't linger; the user signs in fresh and the next
+        // saveRefreshToken rewrites it under the current key.
+        console.error('[tokenStore] Failed to load refresh token — clearing stale token:', err);
+        clearRefreshToken();
         return null;
     }
 }

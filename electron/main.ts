@@ -22,6 +22,7 @@ import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
+import { IS_MAC } from './utils/platform';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 
@@ -31,7 +32,7 @@ const IS_STAGING = (require('../package.json') as { build_env?: string }).build_
 
 if (IS_STAGING) {
   // Give staging its own safeStorage keychain entry so it doesn't conflict
-  // with production's "sayso-app Safe Storage" item (different binary, same entry name = prompt every launch)
+  // with production's "Sayso Safe Storage" item (different binary, same entry name = prompt every launch)
   app.setName('sayso-app-staging');
   app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app-staging'));
 } else if (!app.isPackaged) {
@@ -42,6 +43,23 @@ if (IS_STAGING) {
   // Isolate dev into its own directory. (app.isPackaged is reliable here; NODE_ENV is not.)
   app.setName('sayso-app-dev');
   app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app-dev'));
+} else {
+  // Production. Align the Electron app name with the display name ("Sayso") so the
+  // safeStorage keychain item is named "Sayso Safe Storage" (matching the convention
+  // other apps use) instead of "sayso-app Safe Storage". The default app name comes
+  // from package.json ("sayso-app"); npm names must be lowercase, so we rename at
+  // runtime here rather than in package.json.
+  //
+  // app.getName() also drives userData, so PIN it to the existing "sayso-app" dir —
+  // otherwise renaming would relocate auth.json / permissions flags / logs and treat
+  // every user as a fresh install. Bundle ID, code signature and Team ID come from
+  // Info.plist and are unchanged, so the cert/TCC migration is unaffected.
+  //
+  // NOTE: this changes the keychain service name, so the new "Sayso Safe Storage"
+  // item is created fresh (silently) on first login and the old "sayso-app Safe
+  // Storage" item is left orphaned. Every existing user re-logs in once — intended.
+  app.setName('Sayso');
+  app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app'));
 }
 
 // ─── Permissions-complete flag ────────────────────────────────────────────────
@@ -153,6 +171,7 @@ async function loadAuthUserProfile(accessToken: string, email: string | undefine
       timeout: 5000,
     });
     setAuthUser(res.data.data);
+	maybeReportAppVersion(baseUrl, accessToken, res.data.data);
   } catch (err) {
     console.warn('[MAIN] sign-in: profile fetch failed — tray will show logged-out state', (err as Error)?.message);
     Sentry.captureException(err);
@@ -216,6 +235,7 @@ authManager.on('token-refreshed', async (state: AuthState) => {
     ]);
     if (profileResult.status === 'fulfilled') {
       setAuthUser(profileResult.value.data.data);
+	  maybeReportAppVersion(baseUrl, state.accessToken!, profileResult.value.data.data);
     } else {
       console.warn('[MAIN] Startup-offline recovery: profile fetch failed', profileResult.reason);
       Sentry.captureException(profileResult.reason);
@@ -550,6 +570,32 @@ async function fetchAndCacheFontSize(baseUrl: string, accessToken: string): Prom
   if (size && VALID_FONT_SIZES.has(size)) {
     cachedFontSize = size;
   }
+}
+
+async function reportAppVersionIfChanged(baseUrl: string, accessToken: string, storedVersion: string | null | undefined): Promise<void> {
+	const runningVersion = app.getVersion();
+	if (runningVersion === storedVersion) return;
+	const osLabel = process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : process.platform;
+	const osVersion = process.getSystemVersion();
+	await axios.put(
+		`${baseUrl}/accounts/update-account`,
+		{
+		updateData: {
+			desktop_app_latest_version: runningVersion,
+			desktop_app_os: `${osLabel} ${osVersion}`,
+			desktop_app_updated_at: new Date().toISOString(),
+		},
+		},
+		{ headers: { Authorization: `Bearer ${accessToken}` }, timeout: 5000 }
+	);
+}
+
+function maybeReportAppVersion(baseUrl: string, accessToken: string, user: AuthUser | false | null): void {
+	if (!app.isPackaged || IS_STAGING || !user) return;
+	reportAppVersionIfChanged(baseUrl, accessToken, user.desktop_app_latest_version as string | null | undefined).catch((err) => {
+		console.warn('[MAIN] Failed to report app version:', err?.message);
+		Sentry.captureException(err);
+	});
 }
 
 // ===== HELPER FUNCTIONS =====
@@ -1383,6 +1429,21 @@ if (require('electron-squirrel-startup')) {
   app.quit();
 }
 
+// Enforce a single running instance. Without this lock the 'second-instance'
+// event never fires, so a deep link opened while the app is already running
+// (Windows/Linux) would spawn a new process instead of routing to the existing
+// one. The OS forwards the second instance's argv to the primary via the
+// 'second-instance' event.
+//
+// app.quit() is async and does NOT stop synchronous module execution, so the
+// doomed second instance must skip deep-link setup and whenReady (gated on
+// gotSingleInstanceLock below) — otherwise it would re-register listeners and
+// race window creation before the quit lands.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
 // Prefer Electron's packaging flag to detect development vs production
 const isDev = !app.isPackaged;
 
@@ -1564,43 +1625,117 @@ ipcMain.handle('test-simple', () => {
 
 // Native Audio Module IPC Handlers moved to app.whenReady() after module loads
 
-// Handle protocol activation (when app is opened via sayso:// URL)
-app.on('open-url', (event: Event, url: string) => {
-  if (isDev) {
-    console.log('[Electron] open-url event:', url);
-    console.log('Protocol URL received:', url);
+// Set when a `launch-coach` deep link arrives before the app is ready (cold
+// launch via protocol). Flushed once `app.whenReady()` resolves — calling
+// createCoachWindow() before 'ready' crashes because the `screen` module is
+// not yet available (SAYSO-268).
+let pendingLaunchCoach = false;
+
+function openCoachFromProtocol() {
+  if (!isCoachWindowOpen()) {
+    createCoachWindow();
+  } else {
+    global.coachWindow?.focus();
   }
-  event.preventDefault();
-  
-  const urlObj = new URL(url);
+}
+
+// Restore and focus an existing window. Used when a second instance launches
+// (the user re-opened the app while it was already running).
+function focusExistingWindow(): void {
+  const win = global.coachWindow && !global.coachWindow.isDestroyed()
+    ? global.coachWindow
+    : (splashWindowInstance && !splashWindowInstance.isDestroyed() ? splashWindowInstance : null);
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+}
+
+// Platform-agnostic deep link router. Called from open-url (macOS) and from the
+// process argv on Windows/Linux (cold launch via argv, warm launch via
+// second-instance). Parsing is guarded so malformed input can't crash the
+// main process.
+function handleDeepLink(url: string): void {
+  if (isDev) console.log('[Electron] deep link:', url);
+
+  let urlObj: URL;
+  try {
+    urlObj = new URL(url);
+  } catch {
+    // Malformed sayso:// is OS/attacker-controlled input, not an app fault.
+    // Report as a warning with the URL as context (stable grouping) rather than
+    // an exception, so junk input can't flood Sentry with errors.
+    console.warn('[Electron] Ignoring malformed deep link:', url);
+    Sentry.withScope(scope => {
+      scope.setLevel('warning');
+      scope.setExtra('url', url);
+      Sentry.captureMessage('Malformed deep link');
+    });
+    return;
+  }
 
   if (urlObj.hostname === 'launch-coach') {
-    if (!isCoachWindowOpen()) {
-      createCoachWindow();
-    } else {
-      global.coachWindow?.focus();
+    // A cold launch (notably macOS open-url) can deliver this before whenReady
+    // resolves; creating the coach window touches `screen`, which throws before
+    // 'ready'. Defer and let the whenReady flush handle it.
+    if (!app.isReady()) {
+      pendingLaunchCoach = true;
+      return;
     }
+    openCoachFromProtocol();
   }
-});
+}
 
-// Handle second instance (when app is already running and opened via protocol)
-app.on('second-instance', (event: Event, commandLine: string[], workingDirectory: string) => {
-  if (isDev) {
-    console.log('Second instance detected, command line:', commandLine);
+// Returns the first sayso:// deep link found in a process argv list, if any.
+// Windows/Linux pass the protocol URL as a launch argument rather than via
+// the macOS-only open-url event.
+function findDeepLinkArg(argv: string[]): string | undefined {
+  return argv.find(arg => arg.startsWith('sayso://'));
+}
+
+// Wires up sayso:// deep-link routing for the current platform. macOS and
+// Windows/Linux deliver protocol activations through entirely different
+// mechanisms, so each platform gets its own explicit branch.
+function setupDeepLinkHandling(): void {
+  if (IS_MAC) {
+    // macOS delivers the URL through the open-url event — for both a cold
+    // launch (fires before whenReady) and while the app is already running.
+    app.on('open-url', (event: Event, url: string) => {
+      event.preventDefault();
+      handleDeepLink(url);
+    });
+    return;
   }
-  
-  // Check if there's a protocol URL in the command line
-  const protocolUrl = commandLine.find(arg => arg.startsWith('sayso://'));
-  if (protocolUrl) {
-    // Trigger the same handling as open-url
-    app.emit('open-url', { preventDefault: () => {} }, protocolUrl);
-  }
-});
+
+  // Windows/Linux deliver the URL as a process argument.
+  // Warm launch: the OS starts a second process; with the single-instance lock
+  // held, its argv is forwarded to the primary via 'second-instance'.
+  app.on('second-instance', (_event: Event, argv: string[]) => {
+    if (isDev) console.log('Second instance detected, command line:', argv);
+    focusExistingWindow();
+    const url = findDeepLinkArg(argv);
+    if (url) handleDeepLink(url);
+  });
+
+  // Cold launch: the URL is in this process's own argv. handleDeepLink defers
+  // window creation until ready (pendingLaunchCoach), just like macOS open-url,
+  // so the whenReady flush below opens the window.
+  const coldLaunchUrl = findDeepLinkArg(process.argv);
+  if (coldLaunchUrl) handleDeepLink(coldLaunchUrl);
+}
+
+// Only the primary instance routes deep links and boots the app.
+if (gotSingleInstanceLock) {
+  setupDeepLinkHandling();
+}
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
+  // Second instance is quitting (lock not acquired) — don't boot/create windows.
+  if (!gotSingleInstanceLock) return;
+
   setupLogging();
   resetPermissionsIfCertChanged();
 
@@ -1802,6 +1937,8 @@ app.whenReady().then(async () => {
         Sentry.captureException(featuresResult.reason);
       }
 
+	  maybeReportAppVersion(baseUrl, authState.accessToken!, global.authUser);
+
       // Open onboarding directly if not yet complete — no splash shown.
       const onboardingStatus = (global.authUser || undefined)?.onboarding_status;
       if (onboardingStatus !== 'complete' && onboardingStatus !== 'dismissed') {
@@ -1823,6 +1960,14 @@ app.whenReady().then(async () => {
   }
   registerTrayIconMenu();
   setupGlobalShortcut();
+
+  // Flush a launch-coach deep link that arrived during a cold launch, before
+  // the app was ready — queued by setupDeepLinkHandling on any platform
+  // (macOS open-url / Windows-Linux argv). Safe to create windows now (SAYSO-268).
+  if (pendingLaunchCoach) {
+    pendingLaunchCoach = false;
+    openCoachFromProtocol();
+  }
 
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the

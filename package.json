@@ -1,6 +1,6 @@
 {
   "name": "sayso-app",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Sayso Desktop App",
   "main": "electron/main.js",
   "repository": {
@@ -166,7 +166,7 @@
       "identity": "AskSayso, Inc. (AFGHD8M3VK)"
     },
     "dmg": {
-      "title": "Install Sayso",
+      "title": "Install Sayso ${version}",
       "background": "assets/dmg-background.tiff",
       "iconSize": 110,
       "window": {
