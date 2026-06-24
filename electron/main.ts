@@ -1592,6 +1592,20 @@ ipcMain.handle('test-simple', () => {
 
 // Native Audio Module IPC Handlers moved to app.whenReady() after module loads
 
+// Set when a `launch-coach` deep link arrives before the app is ready (cold
+// launch via protocol). Flushed once `app.whenReady()` resolves — calling
+// createCoachWindow() before 'ready' crashes because the `screen` module is
+// not yet available (SAYSO-268).
+let pendingLaunchCoach = false;
+
+function openCoachFromProtocol() {
+  if (!isCoachWindowOpen()) {
+    createCoachWindow();
+  } else {
+    global.coachWindow?.focus();
+  }
+}
+
 // Handle protocol activation (when app is opened via sayso:// URL)
 app.on('open-url', (event: Event, url: string) => {
   if (isDev) {
@@ -1599,15 +1613,18 @@ app.on('open-url', (event: Event, url: string) => {
     console.log('Protocol URL received:', url);
   }
   event.preventDefault();
-  
+
   const urlObj = new URL(url);
 
   if (urlObj.hostname === 'launch-coach') {
-    if (!isCoachWindowOpen()) {
-      createCoachWindow();
-    } else {
-      global.coachWindow?.focus();
+    // On a cold launch macOS delivers open-url before whenReady resolves.
+    // Creating the coach window touches `screen`, which throws before 'ready',
+    // so defer it and let the whenReady flush handle it.
+    if (!app.isReady()) {
+      pendingLaunchCoach = true;
+      return;
     }
+    openCoachFromProtocol();
   }
 });
 
@@ -1853,6 +1870,13 @@ app.whenReady().then(async () => {
   }
   registerTrayIconMenu();
   setupGlobalShortcut();
+
+  // Flush a launch-coach deep link that arrived during a cold launch, before
+  // the app was ready (SAYSO-268). Safe to create windows now.
+  if (pendingLaunchCoach) {
+    pendingLaunchCoach = false;
+    openCoachFromProtocol();
+  }
 
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the
