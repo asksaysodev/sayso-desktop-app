@@ -46,6 +46,14 @@ async function applyBackground(dmgPath) {
     const volName = path.basename(volumePath);
     console.log(`  Mounted: ${volumePath}`);
 
+    // Ship the background image *inside* the DMG so it travels with the volume.
+    // Referencing an absolute build-machine path here means the alias stored in
+    // .DS_Store only resolves on the build machine — every other user gets a
+    // plain window. Copy it into .background/ and reference it volume-relative.
+    const bgDir = path.join(volumePath, '.background');
+    fs.mkdirSync(bgDir, { recursive: true });
+    fs.copyFileSync(BACKGROUND, path.join(bgDir, 'background.tiff'));
+
     // Let Finder write the .DS_Store itself — this is what works on macOS 14+/APFS
     fs.writeFileSync(scriptPath, `
 tell application "Finder"
@@ -58,7 +66,7 @@ tell application "Finder"
     set theViewOptions to icon view options of container window
     set arrangement of theViewOptions to not arranged
     set icon size of theViewOptions to 110
-    set background picture of theViewOptions to POSIX file "${BACKGROUND}"
+    set background picture of theViewOptions to file ".background:background.tiff"
     update without registering applications
     delay 5
     close

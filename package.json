@@ -164,7 +164,7 @@
       "identity": "AskSayso, Inc. (AFGHD8M3VK)"
     },
     "dmg": {
-      "title": "Install Sayso",
+      "title": "Install Sayso ${version}",
       "background": "assets/dmg-background.tiff",
       "iconSize": 110,
       "window": {
