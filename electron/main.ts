@@ -1415,9 +1415,15 @@ if (require('electron-squirrel-startup')) {
 // Enforce a single running instance. Without this lock the 'second-instance'
 // event never fires, so a deep link opened while the app is already running
 // (Windows/Linux) would spawn a new process instead of routing to the existing
-// one. The second instance forwards its argv to the primary via 'second-instance'
-// and then quits here.
-if (!app.requestSingleInstanceLock()) {
+// one. The OS forwards the second instance's argv to the primary via the
+// 'second-instance' event.
+//
+// app.quit() is async and does NOT stop synchronous module execution, so the
+// doomed second instance must skip deep-link setup and whenReady (gated on
+// gotSingleInstanceLock below) — otherwise it would re-register listeners and
+// race window creation before the quit lands.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
   app.quit();
 }
 
@@ -1638,9 +1644,16 @@ function handleDeepLink(url: string): void {
   let urlObj: URL;
   try {
     urlObj = new URL(url);
-  } catch (err) {
+  } catch {
+    // Malformed sayso:// is OS/attacker-controlled input, not an app fault.
+    // Report as a warning with the URL as context (stable grouping) rather than
+    // an exception, so junk input can't flood Sentry with errors.
     console.warn('[Electron] Ignoring malformed deep link:', url);
-    Sentry.captureException(err);
+    Sentry.withScope(scope => {
+      scope.setLevel('warning');
+      scope.setExtra('url', url);
+      Sentry.captureMessage('Malformed deep link');
+    });
     return;
   }
 
@@ -1694,12 +1707,18 @@ function setupDeepLinkHandling(): void {
   if (coldLaunchUrl) handleDeepLink(coldLaunchUrl);
 }
 
-setupDeepLinkHandling();
+// Only the primary instance routes deep links and boots the app.
+if (gotSingleInstanceLock) {
+  setupDeepLinkHandling();
+}
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
+  // Second instance is quitting (lock not acquired) — don't boot/create windows.
+  if (!gotSingleInstanceLock) return;
+
   setupLogging();
   resetPermissionsIfCertChanged();
 
