@@ -22,6 +22,7 @@ import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
+import { IS_MAC } from './utils/platform';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 
@@ -1411,6 +1412,15 @@ if (require('electron-squirrel-startup')) {
   app.quit();
 }
 
+// Enforce a single running instance. Without this lock the 'second-instance'
+// event never fires, so a deep link opened while the app is already running
+// (Windows/Linux) would spawn a new process instead of routing to the existing
+// one. The second instance forwards its argv to the primary via 'second-instance'
+// and then quits here.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+}
+
 // Prefer Electron's packaging flag to detect development vs production
 const isDev = !app.isPackaged;
 
@@ -1606,41 +1616,85 @@ function openCoachFromProtocol() {
   }
 }
 
-// Handle protocol activation (when app is opened via sayso:// URL)
-app.on('open-url', (event: Event, url: string) => {
-  if (isDev) {
-    console.log('[Electron] open-url event:', url);
-    console.log('Protocol URL received:', url);
+// Restore and focus an existing window. Used when a second instance launches
+// (the user re-opened the app while it was already running).
+function focusExistingWindow(): void {
+  const win = global.coachWindow && !global.coachWindow.isDestroyed()
+    ? global.coachWindow
+    : (splashWindowInstance && !splashWindowInstance.isDestroyed() ? splashWindowInstance : null);
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
   }
-  event.preventDefault();
+}
 
-  const urlObj = new URL(url);
+// Platform-agnostic deep link router. Called from open-url (macOS) and from the
+// process argv on Windows/Linux (cold launch via argv, warm launch via
+// second-instance). Parsing is guarded so malformed input can't crash the
+// main process.
+function handleDeepLink(url: string): void {
+  if (isDev) console.log('[Electron] deep link:', url);
+
+  let urlObj: URL;
+  try {
+    urlObj = new URL(url);
+  } catch (err) {
+    console.warn('[Electron] Ignoring malformed deep link:', url);
+    Sentry.captureException(err);
+    return;
+  }
 
   if (urlObj.hostname === 'launch-coach') {
-    // On a cold launch macOS delivers open-url before whenReady resolves.
-    // Creating the coach window touches `screen`, which throws before 'ready',
-    // so defer it and let the whenReady flush handle it.
+    // A cold launch (notably macOS open-url) can deliver this before whenReady
+    // resolves; creating the coach window touches `screen`, which throws before
+    // 'ready'. Defer and let the whenReady flush handle it.
     if (!app.isReady()) {
       pendingLaunchCoach = true;
       return;
     }
     openCoachFromProtocol();
   }
-});
+}
 
-// Handle second instance (when app is already running and opened via protocol)
-app.on('second-instance', (event: Event, commandLine: string[], workingDirectory: string) => {
-  if (isDev) {
-    console.log('Second instance detected, command line:', commandLine);
+// Returns the first sayso:// deep link found in a process argv list, if any.
+// Windows/Linux pass the protocol URL as a launch argument rather than via
+// the macOS-only open-url event.
+function findDeepLinkArg(argv: string[]): string | undefined {
+  return argv.find(arg => arg.startsWith('sayso://'));
+}
+
+// Wires up sayso:// deep-link routing for the current platform. macOS and
+// Windows/Linux deliver protocol activations through entirely different
+// mechanisms, so each platform gets its own explicit branch.
+function setupDeepLinkHandling(): void {
+  if (IS_MAC) {
+    // macOS delivers the URL through the open-url event — for both a cold
+    // launch (fires before whenReady) and while the app is already running.
+    app.on('open-url', (event: Event, url: string) => {
+      event.preventDefault();
+      handleDeepLink(url);
+    });
+    return;
   }
-  
-  // Check if there's a protocol URL in the command line
-  const protocolUrl = commandLine.find(arg => arg.startsWith('sayso://'));
-  if (protocolUrl) {
-    // Trigger the same handling as open-url
-    app.emit('open-url', { preventDefault: () => {} }, protocolUrl);
-  }
-});
+
+  // Windows/Linux deliver the URL as a process argument.
+  // Warm launch: the OS starts a second process; with the single-instance lock
+  // held, its argv is forwarded to the primary via 'second-instance'.
+  app.on('second-instance', (_event: Event, argv: string[]) => {
+    if (isDev) console.log('Second instance detected, command line:', argv);
+    focusExistingWindow();
+    const url = findDeepLinkArg(argv);
+    if (url) handleDeepLink(url);
+  });
+
+  // Cold launch: the URL is in this process's own argv. handleDeepLink defers
+  // window creation until ready (pendingLaunchCoach), just like macOS open-url,
+  // so the whenReady flush below opens the window.
+  const coldLaunchUrl = findDeepLinkArg(process.argv);
+  if (coldLaunchUrl) handleDeepLink(coldLaunchUrl);
+}
+
+setupDeepLinkHandling();
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -1872,7 +1926,8 @@ app.whenReady().then(async () => {
   setupGlobalShortcut();
 
   // Flush a launch-coach deep link that arrived during a cold launch, before
-  // the app was ready (SAYSO-268). Safe to create windows now.
+  // the app was ready — queued by setupDeepLinkHandling on any platform
+  // (macOS open-url / Windows-Linux argv). Safe to create windows now (SAYSO-268).
   if (pendingLaunchCoach) {
     pendingLaunchCoach = false;
     openCoachFromProtocol();
