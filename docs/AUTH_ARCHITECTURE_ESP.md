@@ -207,7 +207,8 @@ La única fuente de verdad para auth en el proceso main. ~350 líneas.
 - `signed-in`, `signed-out`, `token-refreshed`, `session-expired` — main los escucha y hace broadcast a todas las ventanas + actualiza variables global + reapunta los WebSockets.
 
 **Persistencia:**
-- El refresh token es lo único que se persiste, y pasa por `safeStorage` (keychain del SO — Keychain en macOS, DPAPI en Windows, libsecret en Linux). Implementado en `electron/utils/tokenStore.ts`.
+- El refresh token es lo único que se persiste, y pasa por `safeStorage` (keychain del SO — Keychain en macOS, DPAPI en Windows, libsecret en Linux). Implementado en `electron/utils/tokenStore.ts`. En macOS el ítem del keychain es **`Sayso Safe Storage`**, nombrado a partir del nombre de la app en producción definido en `main.ts` (SAYSO-272).
+- `loadRefreshToken()` se auto-repara: si el blob en disco existe pero no se puede desencriptar — ej. la clave de `safeStorage` cambió tras el renombrado del keychain o una migración de firma/certificado — descarta el archivo viejo con `clearRefreshToken()` y devuelve `null`, así el usuario simplemente vuelve a iniciar sesión en vez de quedar bloqueado (sin crash, sin diálogo del keychain). Un archivo inexistente (`ENOENT`) es el caso normal de "no autenticado" y se deja intacto.
 - El access token es solo en memoria — expira de todas formas, no tiene sentido persistirlo.
 
 ### `electron/main.ts` — Wiring
@@ -371,7 +372,7 @@ Los 401 concurrentes de múltiples ventanas todos golpean la misma `refreshPromi
 app.whenReady()
   ├─ loadEnvironmentVariables()  ← crítico: debe correr antes de AuthManager.init()
   └─ await authManager.init()
-        ├─ loadRefreshToken()  → lee blob encriptado del disco vía safeStorage
+        ├─ loadRefreshToken()  → desencripta blob del disco vía safeStorage (lo borra si no se puede desencriptar)
         ├─ si no hay token → return (el usuario se loggea)
         ├─ _exchangeRefreshToken(stored)
         │     POST /token?grant_type=refresh_token

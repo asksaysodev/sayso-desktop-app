@@ -32,7 +32,7 @@ const IS_STAGING = (require('../package.json') as { build_env?: string }).build_
 
 if (IS_STAGING) {
   // Give staging its own safeStorage keychain entry so it doesn't conflict
-  // with production's "sayso-app Safe Storage" item (different binary, same entry name = prompt every launch)
+  // with production's "Sayso Safe Storage" item (different binary, same entry name = prompt every launch)
   app.setName('sayso-app-staging');
   app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app-staging'));
 } else if (!app.isPackaged) {
@@ -43,6 +43,23 @@ if (IS_STAGING) {
   // Isolate dev into its own directory. (app.isPackaged is reliable here; NODE_ENV is not.)
   app.setName('sayso-app-dev');
   app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app-dev'));
+} else {
+  // Production. Align the Electron app name with the display name ("Sayso") so the
+  // safeStorage keychain item is named "Sayso Safe Storage" (matching the convention
+  // other apps use) instead of "sayso-app Safe Storage". The default app name comes
+  // from package.json ("sayso-app"); npm names must be lowercase, so we rename at
+  // runtime here rather than in package.json.
+  //
+  // app.getName() also drives userData, so PIN it to the existing "sayso-app" dir —
+  // otherwise renaming would relocate auth.json / permissions flags / logs and treat
+  // every user as a fresh install. Bundle ID, code signature and Team ID come from
+  // Info.plist and are unchanged, so the cert/TCC migration is unaffected.
+  //
+  // NOTE: this changes the keychain service name, so the new "Sayso Safe Storage"
+  // item is created fresh (silently) on first login and the old "sayso-app Safe
+  // Storage" item is left orphaned. Every existing user re-logs in once — intended.
+  app.setName('Sayso');
+  app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app'));
 }
 
 // ─── Permissions-complete flag ────────────────────────────────────────────────
