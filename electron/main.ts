@@ -608,6 +608,13 @@ function isAppSettingsWindowOpen() {
 function isPlaybookWindowOpen() {
   return global.playbookWindow && !global.playbookWindow.isDestroyed();
 }
+function windowSourceFromEvent(event: Electron.IpcMainInvokeEvent): 'coach' | 'independent' {
+  const coach = global.coachWindow;
+  if (coach && !coach.isDestroyed() && event.sender === coach.webContents) {
+    return 'coach';
+  }
+  return 'independent';
+}
 function broadcastAppSettingsWindowState(isOpen: boolean) {
   const payload = { isOpen };
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
@@ -2186,8 +2193,8 @@ ipcMain.on('update-user-auth', (_event: Electron.IpcMainInvokeEvent, { userAuthe
   setAuthUser(userAuthenticated);
 })
 // Handle for opening Coach settings window
-ipcMain.on('open-app-settings-window', () => {
-    createAppSettingsWindow();
+ipcMain.on('open-app-settings-window', (event: Electron.IpcMainInvokeEvent) => {
+    createAppSettingsWindow(undefined, windowSourceFromEvent(event));
 })
 ipcMain.on('close-app-settings-window', () => {
     if (global.appSettingsWindow && !global.appSettingsWindow.isDestroyed()) {
@@ -2452,11 +2459,12 @@ const createOnboardingWindow = (tab?: string) => {
   }
 };
 
-const createAppSettingsWindow = (tab?: string) => {
+const createAppSettingsWindow = (tab?: string, source: 'coach' | 'independent' = 'independent') => {
     if (global.appSettingsWindow && !global.appSettingsWindow.isDestroyed()) {
         if (isDev) {
             console.log('Coach window already exists and is not destroyed, focusing...');
         }
+        global.appSettingsWindowSource = source;
         global.appSettingsWindow.focus();
         if (tab) {
             global.appSettingsWindow.webContents.send('app-settings:navigate-to-update');
@@ -2467,6 +2475,8 @@ const createAppSettingsWindow = (tab?: string) => {
     if (global.appSettingsWindow && global.appSettingsWindow.isDestroyed()) {
         global.appSettingsWindow = null;
     }
+
+    global.appSettingsWindowSource = source;
 
     const preloadScriptPath = path.join(__dirname, 'preload.js');
     const windowConfig = WindowManager.getAppSettingsWindowConfig();
@@ -2504,6 +2514,7 @@ const createAppSettingsWindow = (tab?: string) => {
 
     appSettingsWindow.on('closed', () => {
         global.appSettingsWindow = null;
+        global.appSettingsWindowSource = null;
         broadcastAppSettingsWindowState(false);
     })
 }
@@ -2562,6 +2573,14 @@ const createCoachWindow = () => {
     await cleanupAllAudioCapture();
 
     global.coachWindow = null;
+
+    // Close Settings/Playbooks windows that were opened from Coach
+    if (global.appSettingsWindowSource === 'coach' && isAppSettingsWindowOpen()) {
+      global.appSettingsWindow!.close();
+    }
+    if (global.playbookWindowSource === 'coach' && isPlaybookWindowOpen()) {
+      global.playbookWindow!.close();
+    }
 
     updateTrayMenu();
   });
@@ -2622,14 +2641,17 @@ ipcMain.on('demo-insight', (event: Electron.IpcMainInvokeEvent, insightData: Cue
 });
 
 // --- Playbook Window ---
-const createPlaybookWindow = () => {
+const createPlaybookWindow = (source: 'coach' | 'independent' = 'independent') => {
   if (global.playbookWindow && !global.playbookWindow.isDestroyed()) {
+    global.playbookWindowSource = source;
     return;
   }
 
   if (global.playbookWindow && global.playbookWindow.isDestroyed()) {
     global.playbookWindow = null;
   }
+
+  global.playbookWindowSource = source;
 
   const preloadScriptPath = path.join(__dirname, 'preload.js');
   const coachBounds = isCoachWindowOpen() ? global.coachWindow!.getBounds() : undefined;
@@ -2659,13 +2681,14 @@ const createPlaybookWindow = () => {
 
   playbookWindow.on('closed', () => {
     global.playbookWindow = null;
+    global.playbookWindowSource = null;
     broadcastPlaybookWindowState(false);
   });
 };
 
-ipcMain.on('open-playbook-window', () => {
+ipcMain.on('open-playbook-window', (event: Electron.IpcMainInvokeEvent) => {
   if (global.networkState === 'reconnecting') return;
-  createPlaybookWindow();
+  createPlaybookWindow(windowSourceFromEvent(event));
 });
 
 ipcMain.on('close-playbook-window', () => {
