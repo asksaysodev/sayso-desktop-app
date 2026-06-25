@@ -73,7 +73,18 @@ const performAuthentication = async (data: LoginFormData) => {
     } catch (err: any) {
       setError(err.message);
       console.error('Authentication error:', err);
-      Sentry.captureException(err);
+      
+      if (err instanceof Error) {
+        Sentry.captureException(err);
+      } else {
+        Sentry.addBreadcrumb({
+          category: 'auth.login',
+          message: 'Login failed (expected auth error)',
+          level: 'info',
+          data: {error: err?.message ?? String(err)},
+        })
+      }
+
     } finally {
       setIsBtnLoading(false);
     }
