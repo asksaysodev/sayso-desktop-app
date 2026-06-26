@@ -608,7 +608,7 @@ function isAppSettingsWindowOpen() {
 function isPlaybookWindowOpen() {
   return global.playbookWindow && !global.playbookWindow.isDestroyed();
 }
-function windowSourceFromEvent(event: Electron.IpcMainInvokeEvent): 'coach' | 'independent' {
+function windowSourceFromEvent(event: Electron.IpcMainEvent): 'coach' | 'independent' {
   const coach = global.coachWindow;
   if (coach && !coach.isDestroyed() && event.sender === coach.webContents) {
     return 'coach';
@@ -1743,6 +1743,9 @@ app.whenReady().then(async () => {
   // Second instance is quitting (lock not acquired) — don't boot/create windows.
   if (!gotSingleInstanceLock) return;
 
+  global.appSettingsWindowSource = null;
+  global.playbookWindowSource = null;
+
   setupLogging();
   resetPermissionsIfCertChanged();
 
@@ -2193,7 +2196,7 @@ ipcMain.on('update-user-auth', (_event: Electron.IpcMainInvokeEvent, { userAuthe
   setAuthUser(userAuthenticated);
 })
 // Handle for opening Coach settings window
-ipcMain.on('open-app-settings-window', (event: Electron.IpcMainInvokeEvent) => {
+ipcMain.on('open-app-settings-window', (event: Electron.IpcMainEvent) => {
     createAppSettingsWindow(undefined, windowSourceFromEvent(event));
 })
 ipcMain.on('close-app-settings-window', () => {
@@ -2686,7 +2689,7 @@ const createPlaybookWindow = (source: 'coach' | 'independent' = 'independent') =
   });
 };
 
-ipcMain.on('open-playbook-window', (event: Electron.IpcMainInvokeEvent) => {
+ipcMain.on('open-playbook-window', (event: Electron.IpcMainEvent) => {
   if (global.networkState === 'reconnecting') return;
   createPlaybookWindow(windowSourceFromEvent(event));
 });
