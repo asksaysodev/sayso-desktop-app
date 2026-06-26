@@ -86,6 +86,8 @@ declare global {
   var playbookWindow: BrowserWindow | null;
   var playbooksCache: { playbooks: unknown[] | null; error: string | null } | null;
   var appSettingsWindow: BrowserWindow | null;
+  var appSettingsWindowSource: 'coach' | 'independent' | null;
+  var playbookWindowSource: 'coach' | 'independent' | null;
   var mainWindow: BrowserWindow | null;
   var authUser: AuthUser | false | null;
   var authAccessToken: string | null;
