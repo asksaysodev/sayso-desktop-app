@@ -1736,6 +1736,40 @@ if (gotSingleInstanceLock) {
   setupDeepLinkHandling();
 }
 
+// When the system wakes from sleep, the network/DNS stack may not be ready for
+// a few seconds. Firing network requests immediately produces ERR_NAME_NOT_RESOLVED
+// / "fetch failed" errors that get reported to Sentry on every resume. This helper
+// defers `fn` by an initial delay and retries with backoff — but only for transient
+// DNS/connection errors — so the first attempt lands after the network has settled.
+const RESUME_NETWORK_DELAY_MS = 4000;
+
+function isTransientNetworkError(err: any): boolean {
+  const msg = (err?.message || err?.code || '').toString();
+  return /ERR_NAME_NOT_RESOLVED|ENOTFOUND|EAI_AGAIN|fetch failed|ECONNREFUSED|ETIMEDOUT/i.test(msg);
+}
+
+function runAfterNetworkSettles(
+  label: string,
+  fn: () => Promise<unknown>,
+  { initialDelay = RESUME_NETWORK_DELAY_MS, retries = 3, backoff = 3000 } = {}
+): void {
+  let attempt = 0;
+  const tryRun = () => {
+    fn().catch((err) => {
+      if (isTransientNetworkError(err) && attempt < retries) {
+        const wait = backoff * Math.pow(2, attempt);
+        attempt++;
+        console.warn(`[Resume] ${label} transient failure, retry ${attempt}/${retries} in ${wait}ms`);
+        setTimeout(tryRun, wait);
+      } else {
+        console.warn(`[Resume] ${label} failed:`, err?.message);
+        Sentry.captureException(err);
+      }
+    });
+  };
+  setTimeout(tryRun, initialDelay);
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -1759,12 +1793,12 @@ app.whenReady().then(async () => {
       });
     }, 1000); // 1 second delay
     
-    // Check every hour
+    // Check every hour. macOS catches up an elapsed interval on resume, so this
+    // can fire the instant the system wakes — route it through the resume-settle
+    // helper so it waits for the network instead of hitting ERR_NAME_NOT_RESOLVED.
     setInterval(() => {
-      autoUpdater.checkForUpdates().catch(err => {
-        console.error('Failed to check for updates:', err);
-        Sentry.captureException(err);
-      });
+      if (!autoUpdater) return;
+      runAfterNetworkSettles('auto-updater check', () => autoUpdater!.checkForUpdates());
     }, 60 * 60 * 1000);
   }
 
@@ -1897,19 +1931,15 @@ app.whenReady().then(async () => {
   // Re-validate auth on system wake and screen unlock so the first API call
   // after a sleep/lock cycle never races a half-connected network.
   powerMonitor.on('resume', () => {
-    console.log('[PowerMonitor] System resumed — forcing token refresh');
     if (global.networkState === 'reconnecting') return;
-    authManager.forceRefresh().catch((err) => {
-      console.warn('[PowerMonitor] Force refresh after resume failed:', err?.message);
-    });
+    console.log('[PowerMonitor] System resumed — scheduling delayed token refresh');
+    runAfterNetworkSettles('token refresh (resume)', () => authManager.forceRefresh());
   });
 
   powerMonitor.on('unlock-screen', () => {
-    console.log('[PowerMonitor] Screen unlocked — forcing token refresh');
     if (global.networkState === 'reconnecting') return;
-    authManager.forceRefresh().catch((err) => {
-      console.warn('[PowerMonitor] Force refresh after screen unlock failed:', err?.message);
-    });
+    console.log('[PowerMonitor] Screen unlocked — scheduling delayed token refresh');
+    runAfterNetworkSettles('token refresh (unlock)', () => authManager.forceRefresh());
   });
 
   const authState = authManager.getState();
