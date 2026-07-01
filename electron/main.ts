@@ -1744,18 +1744,42 @@ if (gotSingleInstanceLock) {
 const RESUME_NETWORK_DELAY_MS = 4000;
 
 function isTransientNetworkError(err: any): boolean {
-  const msg = (err?.message || err?.code || '').toString();
+  const msg = `${err?.message ?? ''} ${err?.code ?? ''}`;
   return /ERR_NAME_NOT_RESOLVED|ENOTFOUND|EAI_AGAIN|fetch failed|ECONNREFUSED|ETIMEDOUT/i.test(msg);
 }
+
+// Labels currently running under a given dedupe `key`, so that e.g. the
+// 'resume' and 'unlock-screen' events firing back-to-back (common when
+// closing a laptop lid) don't each spin up their own overlapping retry chain.
+const inFlightNetworkSettleKeys = new Set<string>();
 
 function runAfterNetworkSettles(
   label: string,
   fn: () => Promise<unknown>,
-  { initialDelay = RESUME_NETWORK_DELAY_MS, retries = 3, backoff = 3000 } = {}
+  { initialDelay = RESUME_NETWORK_DELAY_MS, retries = 3, backoff = 3000, key }: { initialDelay?: number; retries?: number; backoff?: number; key?: string } = {}
 ): void {
+  if (key) {
+    if (inFlightNetworkSettleKeys.has(key)) {
+      console.log(`[Resume] ${label} skipped — '${key}' already in flight`);
+      return;
+    }
+    inFlightNetworkSettleKeys.add(key);
+  }
+  const done = () => {
+    if (key) inFlightNetworkSettleKeys.delete(key);
+  };
+
   let attempt = 0;
   const tryRun = () => {
-    fn().catch((err) => {
+    // Re-check on every attempt (not just at schedule time) — the OS can flip
+    // networkState between when this was scheduled and when it actually runs,
+    // and again between retries.
+    if (global.networkState === 'reconnecting') {
+      console.log(`[Resume] ${label} skipped — network still reconnecting`);
+      done();
+      return;
+    }
+    fn().then(done, (err) => {
       if (isTransientNetworkError(err) && attempt < retries) {
         const wait = backoff * Math.pow(2, attempt);
         attempt++;
@@ -1764,6 +1788,7 @@ function runAfterNetworkSettles(
       } else {
         console.warn(`[Resume] ${label} failed:`, err?.message);
         Sentry.captureException(err);
+        done();
       }
     });
   };
@@ -1793,9 +1818,10 @@ app.whenReady().then(async () => {
       });
     }, 1000); // 1 second delay
     
-    // Check every hour. macOS catches up an elapsed interval on resume, so this
-    // can fire the instant the system wakes — route it through the resume-settle
-    // helper so it waits for the network instead of hitting ERR_NAME_NOT_RESOLVED.
+    // Check every hour. JS timers are driven by wall-clock time, so on any OS
+    // a setInterval whose tick elapsed during sleep fires the instant the
+    // system wakes — route it through the resume-settle helper so it waits
+    // for the network instead of hitting ERR_NAME_NOT_RESOLVED.
     setInterval(() => {
       if (!autoUpdater) return;
       runAfterNetworkSettles('auto-updater check', () => autoUpdater!.checkForUpdates());
@@ -1930,16 +1956,21 @@ app.whenReady().then(async () => {
 
   // Re-validate auth on system wake and screen unlock so the first API call
   // after a sleep/lock cycle never races a half-connected network.
+  //
+  // 'resume' fires on macOS, Windows, and Linux. 'unlock-screen' fires on
+  // macOS and Windows only — Electron never emits it on Linux. Closing the
+  // lid on mac/Windows commonly fires both in quick succession, which is why
+  // they share the 'token-refresh' dedupe key below.
   powerMonitor.on('resume', () => {
     if (global.networkState === 'reconnecting') return;
     console.log('[PowerMonitor] System resumed — scheduling delayed token refresh');
-    runAfterNetworkSettles('token refresh (resume)', () => authManager.forceRefresh());
+    runAfterNetworkSettles('token refresh (resume)', () => authManager.forceRefresh(), { key: 'token-refresh' });
   });
 
   powerMonitor.on('unlock-screen', () => {
     if (global.networkState === 'reconnecting') return;
     console.log('[PowerMonitor] Screen unlocked — scheduling delayed token refresh');
-    runAfterNetworkSettles('token refresh (unlock)', () => authManager.forceRefresh());
+    runAfterNetworkSettles('token refresh (unlock)', () => authManager.forceRefresh(), { key: 'token-refresh' });
   });
 
   const authState = authManager.getState();
