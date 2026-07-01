@@ -22,7 +22,7 @@ import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
-import { IS_MAC } from './utils/platform';
+import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 
@@ -669,7 +669,6 @@ function createTrayMenuWindow() {
   }
 
   const preloadScriptPath = path.join(__dirname, 'preload.js');
-  const allowVibrancy: boolean = process.platform === 'darwin' && process.arch !== 'x64'; 
 
   // Create a frameless, always-on-top window
   trayMenuWindow = new BrowserWindow({
@@ -685,9 +684,9 @@ function createTrayMenuWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: true,
-    vibrancy: allowVibrancy ? 'menu' : undefined,
-    visualEffectState: allowVibrancy ? 'active' : undefined,
-    backgroundColor: allowVibrancy ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
+    vibrancy: ALLOW_VIBRANCY ? 'menu' : undefined,
+    visualEffectState: ALLOW_VIBRANCY ? 'active' : undefined,
+    backgroundColor: ALLOW_VIBRANCY ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
@@ -715,7 +714,7 @@ function createTrayMenuWindow() {
         hideTrayMenu();
     });
     
-    if (!allowVibrancy) {
+    if (!ALLOW_VIBRANCY) {
       nativeTheme.on('updated', () => {
         if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
           trayMenuWindow.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB');
@@ -1480,6 +1479,10 @@ const createSplashWindow = (opts: { logout?: boolean; reason?: 'session-expired'
     fullscreenable: false,
     roundedCorners: true,
     titleBarStyle: 'hiddenInset',
+    // Matches the app's dark UI (rgba(2, 25, 47, 0.97)) so there's no white
+    // flash when the renderer isn't painted over the native backing yet/anymore
+    // (e.g. during the native close animation).
+    backgroundColor: '#02192f',
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,

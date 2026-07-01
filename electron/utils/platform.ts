@@ -4,3 +4,8 @@
 export const IS_MAC = process.platform === 'darwin';
 export const IS_WINDOWS = process.platform === 'win32';
 export const IS_LINUX = process.platform === 'linux';
+
+// Vibrancy (NSVisualEffectView blur) is cheap to composite on Apple Silicon's
+// unified GPU but noticeably heavier on Intel integrated graphics, especially
+// for always-on-top windows that repaint often. Keep it Apple Silicon-only.
+export const ALLOW_VIBRANCY = IS_MAC && process.arch !== 'x64';
