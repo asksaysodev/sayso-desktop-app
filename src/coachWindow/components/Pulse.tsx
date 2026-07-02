@@ -14,7 +14,7 @@ interface Props {
 
 export default function Pulse({ isCoachActive, isPulseEnabled, isZipCodeValid, setIsZipDropdownOpen, isZipDropdownOpen, setZipCodeValue, zipCodeValue }: Props) {
 
-    if (!isCoachActive || !isPulseEnabled) return;
+    if (!isCoachActive || !isPulseEnabled) return null;
 
 	return (
         <div
