@@ -423,6 +423,9 @@ button {
     opacity: 0.8 !important;
 }
 
+.coach-window .pulse-holder{
+    width: 100px;
+}
 .coach-window .zip-code-input-container {
     display: flex;
     align-items: center;
