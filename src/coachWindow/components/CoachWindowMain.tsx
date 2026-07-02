@@ -467,13 +467,17 @@ export default function CoachWindowMain() {
                         <Pulse
                             isCoachActive={isCoachActive}
                             isPulseEnabled={isPulseEnabled}
-                            isZipCodeValid={isZipCodeValid} 
-                            setIsZipDropdownOpen={setIsZipDropdownOpen} 
+                            isZipCodeValid={isZipCodeValid}
+                            setIsZipDropdownOpen={setIsZipDropdownOpen}
                             isZipDropdownOpen={isZipDropdownOpen}
                             setZipCodeValue={setZipCodeValue}
-                            zipCodeValue={zipCodeValue} 
+                            zipCodeValue={zipCodeValue}
                         />
-                        
+
+                        {isCoachActive && !isPulseEnabled && (
+                            <div className="pulse-holder" />
+                        )}
+
                         {
                             leadType && (
                                 <CoachButtons

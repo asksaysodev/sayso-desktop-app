@@ -80,7 +80,13 @@ class WindowManager {
       maximizable: WINDOW_CONFIG.COACH.MAXIMIZABLE,
       fullscreenable: WINDOW_CONFIG.COACH.FULLSCREENABLE,
       minimizable: WINDOW_CONFIG.COACH.MINIMIZABLE,
-      hasShadow: WINDOW_CONFIG.COACH.HAS_SHADOW
+      hasShadow: WINDOW_CONFIG.COACH.HAS_SHADOW,
+      // Fully transparent backing so there's no white flash when the renderer
+      // isn't painted over it (e.g. during the native close animation).
+      // No vibrancy here: NSVisualEffectView blurs the whole window rect, but
+      // this window's content is a rounded pill smaller than the window
+      // bounds, so vibrancy shows up as a visible frosted box around it.
+      backgroundColor: '#00000000'
     };
   }
   
@@ -130,7 +136,10 @@ class WindowManager {
       maximizable: WINDOW_CONFIG.PLAYBOOK.MAXIMIZABLE,
       minimizable: WINDOW_CONFIG.PLAYBOOK.MINIMIZABLE,
       fullscreenable: WINDOW_CONFIG.PLAYBOOK.FULLSCREENABLE,
-      hasShadow: WINDOW_CONFIG.PLAYBOOK.HAS_SHADOW
+      hasShadow: WINDOW_CONFIG.PLAYBOOK.HAS_SHADOW,
+      // See getCoachWindowConfig: fully transparent backing avoids the white
+      // close flash. No vibrancy for the same reason (visible frosted box).
+      backgroundColor: '#00000000'
     };
   }
 
@@ -149,6 +158,9 @@ class WindowManager {
           minimizable: false,
           maximizable: false,
           fullscreenable: false,
+          // Matches the app's dark UI so there's no white flash when the
+          // renderer isn't painted over the native backing (e.g. on close).
+          backgroundColor: '#02192f',
       };
   }
 }

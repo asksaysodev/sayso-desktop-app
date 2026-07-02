@@ -22,7 +22,7 @@ import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
-import { IS_MAC } from './utils/platform';
+import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 
@@ -608,6 +608,13 @@ function isAppSettingsWindowOpen() {
 function isPlaybookWindowOpen() {
   return global.playbookWindow && !global.playbookWindow.isDestroyed();
 }
+function windowSourceFromEvent(event: Electron.IpcMainEvent): 'coach' | 'independent' {
+  const coach = global.coachWindow;
+  if (coach && !coach.isDestroyed() && event.sender === coach.webContents) {
+    return 'coach';
+  }
+  return 'independent';
+}
 function broadcastAppSettingsWindowState(isOpen: boolean) {
   const payload = { isOpen };
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
@@ -662,7 +669,6 @@ function createTrayMenuWindow() {
   }
 
   const preloadScriptPath = path.join(__dirname, 'preload.js');
-  const allowVibrancy: boolean = process.platform === 'darwin' && process.arch !== 'x64'; 
 
   // Create a frameless, always-on-top window
   trayMenuWindow = new BrowserWindow({
@@ -678,9 +684,9 @@ function createTrayMenuWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: true,
-    vibrancy: allowVibrancy ? 'menu' : undefined,
-    visualEffectState: allowVibrancy ? 'active' : undefined,
-    backgroundColor: allowVibrancy ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
+    vibrancy: ALLOW_VIBRANCY ? 'menu' : undefined,
+    visualEffectState: ALLOW_VIBRANCY ? 'active' : undefined,
+    backgroundColor: ALLOW_VIBRANCY ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
@@ -708,7 +714,7 @@ function createTrayMenuWindow() {
         hideTrayMenu();
     });
     
-    if (!allowVibrancy) {
+    if (!ALLOW_VIBRANCY) {
       nativeTheme.on('updated', () => {
         if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
           trayMenuWindow.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB');
@@ -1473,6 +1479,10 @@ const createSplashWindow = (opts: { logout?: boolean; reason?: 'session-expired'
     fullscreenable: false,
     roundedCorners: true,
     titleBarStyle: 'hiddenInset',
+    // Matches the app's dark UI (rgba(2, 25, 47, 0.97)) so there's no white
+    // flash when the renderer isn't painted over the native backing yet/anymore
+    // (e.g. during the native close animation).
+    backgroundColor: '#02192f',
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
@@ -1729,12 +1739,74 @@ if (gotSingleInstanceLock) {
   setupDeepLinkHandling();
 }
 
+// When the system wakes from sleep, the network/DNS stack may not be ready for
+// a few seconds. Firing network requests immediately produces ERR_NAME_NOT_RESOLVED
+// / "fetch failed" errors that get reported to Sentry on every resume. This helper
+// defers `fn` by an initial delay and retries with backoff — but only for transient
+// DNS/connection errors — so the first attempt lands after the network has settled.
+const RESUME_NETWORK_DELAY_MS = 4000;
+
+function isTransientNetworkError(err: any): boolean {
+  const msg = `${err?.message ?? ''} ${err?.code ?? ''}`;
+  return /ERR_NAME_NOT_RESOLVED|ENOTFOUND|EAI_AGAIN|fetch failed|ECONNREFUSED|ETIMEDOUT/i.test(msg);
+}
+
+// Labels currently running under a given dedupe `key`, so that e.g. the
+// 'resume' and 'unlock-screen' events firing back-to-back (common when
+// closing a laptop lid) don't each spin up their own overlapping retry chain.
+const inFlightNetworkSettleKeys = new Set<string>();
+
+function runAfterNetworkSettles(
+  label: string,
+  fn: () => Promise<unknown>,
+  { initialDelay = RESUME_NETWORK_DELAY_MS, retries = 3, backoff = 3000, key }: { initialDelay?: number; retries?: number; backoff?: number; key?: string } = {}
+): void {
+  if (key) {
+    if (inFlightNetworkSettleKeys.has(key)) {
+      console.log(`[Resume] ${label} skipped — '${key}' already in flight`);
+      return;
+    }
+    inFlightNetworkSettleKeys.add(key);
+  }
+  const done = () => {
+    if (key) inFlightNetworkSettleKeys.delete(key);
+  };
+
+  let attempt = 0;
+  const tryRun = () => {
+    // Re-check on every attempt (not just at schedule time) — the OS can flip
+    // networkState between when this was scheduled and when it actually runs,
+    // and again between retries.
+    if (global.networkState === 'reconnecting') {
+      console.log(`[Resume] ${label} skipped — network still reconnecting`);
+      done();
+      return;
+    }
+    fn().then(done, (err) => {
+      if (isTransientNetworkError(err) && attempt < retries) {
+        const wait = backoff * Math.pow(2, attempt);
+        attempt++;
+        console.warn(`[Resume] ${label} transient failure, retry ${attempt}/${retries} in ${wait}ms`);
+        setTimeout(tryRun, wait);
+      } else {
+        console.warn(`[Resume] ${label} failed:`, err?.message);
+        Sentry.captureException(err);
+        done();
+      }
+    });
+  };
+  setTimeout(tryRun, initialDelay);
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
   // Second instance is quitting (lock not acquired) — don't boot/create windows.
   if (!gotSingleInstanceLock) return;
+
+  global.appSettingsWindowSource = null;
+  global.playbookWindowSource = null;
 
   setupLogging();
   resetPermissionsIfCertChanged();
@@ -1749,12 +1821,13 @@ app.whenReady().then(async () => {
       });
     }, 1000); // 1 second delay
     
-    // Check every hour
+    // Check every hour. JS timers are driven by wall-clock time, so on any OS
+    // a setInterval whose tick elapsed during sleep fires the instant the
+    // system wakes — route it through the resume-settle helper so it waits
+    // for the network instead of hitting ERR_NAME_NOT_RESOLVED.
     setInterval(() => {
-      autoUpdater.checkForUpdates().catch(err => {
-        console.error('Failed to check for updates:', err);
-        Sentry.captureException(err);
-      });
+      if (!autoUpdater) return;
+      runAfterNetworkSettles('auto-updater check', () => autoUpdater!.checkForUpdates());
     }, 60 * 60 * 1000);
   }
 
@@ -1886,20 +1959,21 @@ app.whenReady().then(async () => {
 
   // Re-validate auth on system wake and screen unlock so the first API call
   // after a sleep/lock cycle never races a half-connected network.
+  //
+  // 'resume' fires on macOS, Windows, and Linux. 'unlock-screen' fires on
+  // macOS and Windows only — Electron never emits it on Linux. Closing the
+  // lid on mac/Windows commonly fires both in quick succession, which is why
+  // they share the 'token-refresh' dedupe key below.
   powerMonitor.on('resume', () => {
-    console.log('[PowerMonitor] System resumed — forcing token refresh');
     if (global.networkState === 'reconnecting') return;
-    authManager.forceRefresh().catch((err) => {
-      console.warn('[PowerMonitor] Force refresh after resume failed:', err?.message);
-    });
+    console.log('[PowerMonitor] System resumed — scheduling delayed token refresh');
+    runAfterNetworkSettles('token refresh (resume)', () => authManager.forceRefresh(), { key: 'token-refresh' });
   });
 
   powerMonitor.on('unlock-screen', () => {
-    console.log('[PowerMonitor] Screen unlocked — forcing token refresh');
     if (global.networkState === 'reconnecting') return;
-    authManager.forceRefresh().catch((err) => {
-      console.warn('[PowerMonitor] Force refresh after screen unlock failed:', err?.message);
-    });
+    console.log('[PowerMonitor] Screen unlocked — scheduling delayed token refresh');
+    runAfterNetworkSettles('token refresh (unlock)', () => authManager.forceRefresh(), { key: 'token-refresh' });
   });
 
   const authState = authManager.getState();
@@ -2186,8 +2260,8 @@ ipcMain.on('update-user-auth', (_event: Electron.IpcMainInvokeEvent, { userAuthe
   setAuthUser(userAuthenticated);
 })
 // Handle for opening Coach settings window
-ipcMain.on('open-app-settings-window', () => {
-    createAppSettingsWindow();
+ipcMain.on('open-app-settings-window', (event: Electron.IpcMainEvent) => {
+    createAppSettingsWindow(undefined, windowSourceFromEvent(event));
 })
 ipcMain.on('close-app-settings-window', () => {
     if (global.appSettingsWindow && !global.appSettingsWindow.isDestroyed()) {
@@ -2452,11 +2526,12 @@ const createOnboardingWindow = (tab?: string) => {
   }
 };
 
-const createAppSettingsWindow = (tab?: string) => {
+const createAppSettingsWindow = (tab?: string, source: 'coach' | 'independent' = 'independent') => {
     if (global.appSettingsWindow && !global.appSettingsWindow.isDestroyed()) {
         if (isDev) {
             console.log('Coach window already exists and is not destroyed, focusing...');
         }
+        global.appSettingsWindowSource = source;
         global.appSettingsWindow.focus();
         if (tab) {
             global.appSettingsWindow.webContents.send('app-settings:navigate-to-update');
@@ -2467,6 +2542,8 @@ const createAppSettingsWindow = (tab?: string) => {
     if (global.appSettingsWindow && global.appSettingsWindow.isDestroyed()) {
         global.appSettingsWindow = null;
     }
+
+    global.appSettingsWindowSource = source;
 
     const preloadScriptPath = path.join(__dirname, 'preload.js');
     const windowConfig = WindowManager.getAppSettingsWindowConfig();
@@ -2504,6 +2581,7 @@ const createAppSettingsWindow = (tab?: string) => {
 
     appSettingsWindow.on('closed', () => {
         global.appSettingsWindow = null;
+        global.appSettingsWindowSource = null;
         broadcastAppSettingsWindowState(false);
     })
 }
@@ -2562,6 +2640,14 @@ const createCoachWindow = () => {
     await cleanupAllAudioCapture();
 
     global.coachWindow = null;
+
+    // Close Settings/Playbooks windows that were opened from Coach
+    if (global.appSettingsWindowSource === 'coach' && isAppSettingsWindowOpen()) {
+      global.appSettingsWindow!.close();
+    }
+    if (global.playbookWindowSource === 'coach' && isPlaybookWindowOpen()) {
+      global.playbookWindow!.close();
+    }
 
     updateTrayMenu();
   });
@@ -2622,14 +2708,17 @@ ipcMain.on('demo-insight', (event: Electron.IpcMainInvokeEvent, insightData: Cue
 });
 
 // --- Playbook Window ---
-const createPlaybookWindow = () => {
+const createPlaybookWindow = (source: 'coach' | 'independent' = 'independent') => {
   if (global.playbookWindow && !global.playbookWindow.isDestroyed()) {
+    global.playbookWindowSource = source;
     return;
   }
 
   if (global.playbookWindow && global.playbookWindow.isDestroyed()) {
     global.playbookWindow = null;
   }
+
+  global.playbookWindowSource = source;
 
   const preloadScriptPath = path.join(__dirname, 'preload.js');
   const coachBounds = isCoachWindowOpen() ? global.coachWindow!.getBounds() : undefined;
@@ -2659,13 +2748,14 @@ const createPlaybookWindow = () => {
 
   playbookWindow.on('closed', () => {
     global.playbookWindow = null;
+    global.playbookWindowSource = null;
     broadcastPlaybookWindowState(false);
   });
 };
 
-ipcMain.on('open-playbook-window', () => {
+ipcMain.on('open-playbook-window', (event: Electron.IpcMainEvent) => {
   if (global.networkState === 'reconnecting') return;
-  createPlaybookWindow();
+  createPlaybookWindow(windowSourceFromEvent(event));
 });
 
 ipcMain.on('close-playbook-window', () => {

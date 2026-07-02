@@ -9,7 +9,7 @@ import '../styles/SaysoButton.css';
  * @param {boolean} loading - Show loading spinner
  * @param {React.ReactNode} icon - Optional icon to display before label
  * @param {'sayso-indigo' | 'error' | 'outlined'} variant - Button style variant (default: 'sayso-indigo')
- * @param {boolean} fullWidth - Make button take full width of container (default: false)
+ * @param {boolean} fullWidth - Make button take full width of container (default: false) 
  */
 
 interface Props {

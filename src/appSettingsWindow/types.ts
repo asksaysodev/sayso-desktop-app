@@ -27,11 +27,17 @@ export interface GetCoachSettingsResponse {
     font_size: AccessibilityFontSizeType;
     default_playbook_id: string | null;
     open_last_used: boolean;
+    pulse_enabled: boolean;
 }
 
 export interface PostOpenLastUsedResponse {
     success: true;
     openLastUsed: boolean;
+}
+
+export interface PostPulseEnabledResponse {
+    success: true;
+    pulseEnabled: boolean;
 }
 
 export type CueMode = 'condensed' | 'full';
