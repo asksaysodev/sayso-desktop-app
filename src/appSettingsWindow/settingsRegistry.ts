@@ -100,6 +100,14 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
         keywords: ['playbook', 'playbooks', 'scripts', 'list', 'manage', 'refresh', 'delete', 'remove'],
         section: 'playbooks',
     },
+    // Pulse
+    {
+        id: 'pulse-settings',
+        label: 'Pulse',
+        description: 'Show real-time market data in the Coach widget during your calls',
+        keywords: ['pulse', 'market', 'data', 'enable', 'disable', 'toggle'],
+        section: 'pulse',
+    },
     // Software Update
     {
         id: 'software-update',

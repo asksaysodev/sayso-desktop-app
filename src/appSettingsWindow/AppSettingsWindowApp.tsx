@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useSessionExpiry } from "@/hooks/useSessionExpiry";
-import { LuPersonStanding, LuSettings, LuZap } from "react-icons/lu";
+import { useEnabledFeatures } from "@/hooks/useEnabledFeatures";
+import { LuMapPin, LuPersonStanding, LuSettings, LuZap } from "react-icons/lu";
 import { Download } from "lucide-react";
 import CueSettings from "./components/CueSettings";
 import ScriptsSettings from "./components/ScriptsSettings";
@@ -15,8 +16,9 @@ import GeneralSettings from "./components/GeneralSettings";
 import { Book } from "lucide-react";
 import PlaybooksSettings from "./components/PlaybooksSettings";
 import SoftwareUpdateSettings from "./components/SoftwareUpdateSettings";
+import PulseSettings from "./components/PulseSettings";
 
-export type SidebarOptionType = 'cue' | 'auto-stop' | 'audio' | 'scripts' | 'accessibility' | 'general' | 'playbooks' | 'software-update';
+export type SidebarOptionType = 'cue' | 'auto-stop' | 'audio' | 'scripts' | 'accessibility' | 'general' | 'playbooks' | 'software-update' | 'pulse';
 
 interface SidebarOption {
     key: SidebarOptionType;
@@ -24,16 +26,22 @@ interface SidebarOption {
     label: string;
 }
 
-const SIDEBAR_OPTIONS: SidebarOption[] = [
+const BASE_SIDEBAR_OPTIONS: SidebarOption[] = [
 	{ key: 'general', label: 'General', icon: <LuSettings /> },
 	{ key: 'cue', label: 'Cue', icon: <LuZap /> },
-    { key: 'accessibility', label: 'Accessibility', icon: <LuPersonStanding /> },
+    { key: 'pulse', label: 'Pulse', icon: <LuMapPin/> },
     { key: 'playbooks', label: 'Playbooks', icon: <Book /> },
-    { key: 'software-update', label: 'Software Update', icon: <Download size={16} /> },
+    { key: 'accessibility', label: 'Accessibility', icon: <LuPersonStanding /> },
+    { key: 'software-update', label: 'Software Update', icon: <Download /> },
 ];
 
 function AppSettingsContent() {
     const { coachSettingsIsLoading, coachSettings } = useCoachSettingsContext();
+    const { hasFeature } = useEnabledFeatures();
+
+    const SIDEBAR_OPTIONS = BASE_SIDEBAR_OPTIONS.filter(
+        option => option.key !== 'pulse' || hasFeature('pulse')
+    );
 
     useEffect(() => {
         if (!coachSettings) return;
@@ -67,7 +75,9 @@ function AppSettingsContent() {
         return () => ipc.off('app-settings:navigate-to-update', handler);
     }, []);
 
-    const searchResults: SettingsRegistryEntry[] = searchValue ? searchSettings(searchValue) : [];
+    const searchResults: SettingsRegistryEntry[] = searchValue
+        ? searchSettings(searchValue).filter(entry => SIDEBAR_OPTIONS.some(o => o.key === entry.section))
+        : [];
 
     useEffect(() => {
         if (!highlightId) return;
@@ -93,6 +103,7 @@ function AppSettingsContent() {
             case "accessibility": return <AccessibilitySettings />
             case "general": return <GeneralSettings />
             case "playbooks": return <PlaybooksSettings />
+            case "pulse": return <PulseSettings />
             case "software-update": return <SoftwareUpdateSettings />
         }
     };

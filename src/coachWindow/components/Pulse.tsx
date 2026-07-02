@@ -13,9 +13,10 @@ interface Props {
 }
 
 export default function Pulse({ isCoachActive, isPulseEnabled, isZipCodeValid, setIsZipDropdownOpen, isZipDropdownOpen, setZipCodeValue, zipCodeValue }: Props) {
-    if (!isCoachActive || !isPulseEnabled) return null;
-    
-    return (
+
+    if (!isCoachActive || !isPulseEnabled) return;
+
+	return (
         <div
             className={`zip-code-input-container ${isZipCodeValid ? 'active' : ''}`}
             onClick={() => {
@@ -46,5 +47,5 @@ export default function Pulse({ isCoachActive, isPulseEnabled, isZipCodeValid, s
                 </button>
             )}
         </div>
-    )
+	)
 }
