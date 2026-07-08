@@ -932,6 +932,12 @@ body {
     color: #ff8080;
 }
 
+.playbooks-status-info {
+    cursor: help;
+    opacity: 0.8;
+    flex-shrink: 0;
+}
+
 /* Edit playbook trigger (visible on row hover) */
 
 .playbooks-edit-trigger {
