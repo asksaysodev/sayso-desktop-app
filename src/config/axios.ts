@@ -90,9 +90,13 @@ apiClient.interceptors.response.use(
 			return apiClient(originalRequest);
 		}
 
-		// ── Network errors: up to 3 retries with back-off ───────────────────
+		// ── Network errors & timeouts: up to 3 retries with back-off ────────
+		// ECONNABORTED is what axios reports on a request timeout ("timeout of
+		// Nms exceeded"). Treat it like a transient network blip and retry.
 		if (
-			(error.code === 'ERR_NETWORK' || error.code === 'ERR_EMPTY_RESPONSE') &&
+			(error.code === 'ERR_NETWORK' ||
+				error.code === 'ERR_EMPTY_RESPONSE' ||
+				error.code === 'ECONNABORTED') &&
 			originalRequest &&
 			(originalRequest._retryCount ?? 0) < 3
 		) {
