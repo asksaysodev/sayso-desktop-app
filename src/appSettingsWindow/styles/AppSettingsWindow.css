@@ -933,9 +933,33 @@ body {
 }
 
 .playbooks-status-info {
+    display: inline-flex;
+    align-items: center;
     cursor: help;
     opacity: 0.8;
     flex-shrink: 0;
+}
+
+/* Failure-reason tooltip — matches the repo's zc-tooltip styling.
+   Position:fixed (anchored to the icon via inline top/left) so it escapes the
+   scrollable list; translate puts it above and left-aligned to the icon's right edge. */
+.playbooks-status-tooltip {
+    position: fixed;
+    transform: translate(-100%, -100%);
+    width: 240px;
+    background: #1e2936;
+    border: 0.5px solid rgba(255, 255, 255, 0.18);
+    color: #e5e7eb;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.4;
+    padding: 6px 9px;
+    border-radius: 7px;
+    white-space: normal;
+    text-align: left;
+    z-index: 1000;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 /* Edit playbook trigger (visible on row hover) */
