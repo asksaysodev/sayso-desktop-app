@@ -174,7 +174,7 @@ async function loadAuthUserProfile(accessToken: string, email: string | undefine
 	maybeReportAppVersion(baseUrl, accessToken, res.data.data);
   } catch (err) {
     console.warn('[MAIN] sign-in: profile fetch failed — tray will show logged-out state', (err as Error)?.message);
-    Sentry.captureException(err);
+    if (!isTransientNetworkError(err)) Sentry.captureException(err);
   }
 }
 
@@ -189,7 +189,7 @@ authManager.on('signed-in', (state: AuthState) => {
     const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
     fetchAndCacheEnabledFeatures(baseUrl, state.accessToken).catch((err) => {
       console.warn('[AuthManager] signed-in: features fetch failed', err?.message);
-      Sentry.captureException(err);
+      if (!isTransientNetworkError(err)) Sentry.captureException(err);
     });
   }
 });
@@ -238,7 +238,7 @@ authManager.on('token-refreshed', async (state: AuthState) => {
 	  maybeReportAppVersion(baseUrl, state.accessToken!, profileResult.value.data.data);
     } else {
       console.warn('[MAIN] Startup-offline recovery: profile fetch failed', profileResult.reason);
-      Sentry.captureException(profileResult.reason);
+      if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
     }
     if (fontSizeResult.status === 'rejected') {
       console.warn('[MAIN] Startup-offline recovery: font_size fetch failed', fontSizeResult.reason);
@@ -607,7 +607,7 @@ function maybeReportAppVersion(baseUrl: string, accessToken: string, user: AuthU
 	if (!app.isPackaged || IS_STAGING || !user) return;
 	reportAppVersionIfChanged(baseUrl, accessToken, user.desktop_app_latest_version as string | null | undefined).catch((err) => {
 		console.warn('[MAIN] Failed to report app version:', err?.message);
-		Sentry.captureException(err);
+		if (!isTransientNetworkError(err)) Sentry.captureException(err);
 	});
 }
 
@@ -2013,17 +2013,17 @@ app.whenReady().then(async () => {
         global.authUser = profileResult.value.data.data;
       } else {
         console.warn('[MAIN] Silent auth succeeded but profile fetch failed — tray will show logged-out state', profileResult.reason);
-        Sentry.captureException(profileResult.reason);
+        if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
       }
 
       if (fontSizeResult.status === 'rejected') {
         console.warn('[MAIN] Silent auth: font_size fetch failed — falling back to default S', fontSizeResult.reason);
-        Sentry.captureException(fontSizeResult.reason);
+        if (!isTransientNetworkError(fontSizeResult.reason)) Sentry.captureException(fontSizeResult.reason);
       }
 
       if (featuresResult.status === 'rejected') {
         console.warn('[MAIN] Silent auth: features fetch failed — no features enabled by default', featuresResult.reason);
-        Sentry.captureException(featuresResult.reason);
+        if (!isTransientNetworkError(featuresResult.reason)) Sentry.captureException(featuresResult.reason);
       }
 
 	  maybeReportAppVersion(baseUrl, authState.accessToken!, global.authUser);
