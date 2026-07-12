@@ -123,7 +123,11 @@ class WebSocketClient extends EventEmitter {
         const timeout = setTimeout(() => {
           if (this.state === 'connecting') {
             console.error(`⏱️ [WebSocketClient:${this.speaker}] Connection timeout`);
-            this.ws.close();
+            if (this.ws) {
+              this.ws.removeAllListeners();
+              this.ws.on('error', () => {});
+              this.ws.close();
+            }
             this._handleDisconnect();
             reject(new Error('Connection timeout'));
           }
