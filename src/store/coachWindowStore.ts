@@ -227,7 +227,8 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
         try {
             const sessionId = get().sessionData?.sessionId;
             if(!sessionId) {
-                throw new Error('Session ID is required');
+                get().cue_resetStates();
+                return;
             }
 
 			await cue_stopStreaming();
