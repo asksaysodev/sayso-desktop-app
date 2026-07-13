@@ -18,6 +18,7 @@ import ZipCodeDropdown from './ZipCodeDropdown';
 import { usePlaybookPrefetch } from '@/playbookWindow/hooks/usePlaybookPrefetch';
 import Pulse from './Pulse';
 import { copyLpmamaContent, hasCapturedLpmamaData } from '../helpers/copyLpmamaContent';
+import { isCuePermissionsDeniedError } from '../services/cueService';
 
 const WINDOW_WIDTH_SIZES = {
     s: { BASE: 380, MAX_WIDTH: 900 },
@@ -147,7 +148,11 @@ export default function CoachWindowMain() {
 
     const executeSmartCaptureAction = useCallback((mode: SmartCaptureWarningMode) => {
         const action = mode === 'reset' ? onPressResetSession : handleStopCue;
-        action().catch((err) => Sentry.captureException(err));
+        action().catch((err) => {
+            if (!isCuePermissionsDeniedError(err)) {
+                Sentry.captureException(err);
+            }
+        });
     }, [handleStopCue, onPressResetSession]);
 
     const handleRequestStop = useCallback(() => {
