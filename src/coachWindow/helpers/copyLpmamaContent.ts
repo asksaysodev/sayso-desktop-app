@@ -1,9 +1,6 @@
 import { LpmamData } from '@/types/store/coachWindowStore';
 import { LPMAMA_CONFIG } from '../constants/lpmama';
 
-export const hasCapturedLpmamaData = (lpmama: LpmamData): boolean =>
-    Object.values(lpmama).some(v => v !== null);
-
 export const copyLpmamaContent = async (lpmama: LpmamData): Promise<void> => {
     const textToCopy = LPMAMA_CONFIG
         .map(({ field, label }) => `${label}: ${lpmama[field] ?? ''}`)
