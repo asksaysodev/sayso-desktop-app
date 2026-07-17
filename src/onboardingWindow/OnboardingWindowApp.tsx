@@ -5,6 +5,7 @@ import Step2LaunchCoach from './components/steps/Step2LaunchCoach';
 import Step3StartCall from './components/steps/Step3StartCall';
 import Step4StopSession from './components/steps/Step4StopSession';
 import CompletionScreen from './components/CompletionScreen';
+import IntroScreen from './components/IntroScreen';
 import MenuBarMock from './components/animations/MenuBarMock';
 import { useOnboardingProgress } from './hooks/useOnboardingProgress';
 import updateOnboardingStatus from './services/updateOnboardingStatus';
@@ -33,6 +34,7 @@ const STEPS = [
 ];
 
 export default function OnboardingWindowApp() {
+    const [showIntro, setShowIntro] = useState(true);
     const [currentStep, setCurrentStep] = useState(0);
     const [isComplete, setIsComplete] = useState(false);
     const [zoomTransition, setZoomTransition] = useState(false);
@@ -83,6 +85,8 @@ export default function OnboardingWindowApp() {
         setIsComplete(false);
         setCurrentStep(0);
     };
+
+    if (showIntro) return <IntroScreen onStart={() => setShowIntro(false)} onSkip={handleDismiss} />;
 
     if (isComplete) return <CompletionScreen onRepeat={handleRepeat} />;
 

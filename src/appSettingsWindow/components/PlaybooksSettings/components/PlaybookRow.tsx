@@ -37,7 +37,7 @@ export default function PlaybookRow({ playbook, isDeleting, isDefault, onDelete,
                 {playbook.file_name}
             </span>
             <span className="playbooks-col-status">
-                <StatusPill status={playbook.status} />
+                <StatusPill status={playbook.status} failureReason={playbook.failure_reason} />
             </span>
             <span className="playbooks-col-actions">
                 {canDelete && (

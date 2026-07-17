@@ -26,6 +26,7 @@ export interface Playbook {
     file_size: number;
     file_type: string;
     status: PlaybookStatus;
+    failure_reason?: string | null;
     type: PlaybookType;
     price?: number | null;
     currency?: string | null;
