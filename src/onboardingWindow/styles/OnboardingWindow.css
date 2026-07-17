@@ -797,30 +797,6 @@
     text-align: center;
 }
 
-.intro-brand {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    margin-bottom: 22px;
-}
-
-.intro-brand-logo {
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #2367EE;
-    border-radius: 8px;
-    flex-shrink: 0;
-}
-
-.intro-brand-name {
-    font-size: 17px;
-    font-weight: 700;
-    color: #fff;
-}
-
 .intro-title {
     font-size: 32px;
     font-weight: 700;
