@@ -16,6 +16,7 @@ import type {
 import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu, nativeTheme, powerMonitor } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import { nativeImage } from 'electron/common';
 import * as Sentry from '@sentry/electron/main';
 import sentryConfig from './sentry.config';
@@ -449,6 +450,32 @@ if (app.isPackaged) {
     setUpdateState({ phase: 'downloaded' });
     setImmediate(() => {
       try {
+        // macOS: launchd sometimes pends Squirrel's submitted ShipIt job
+        // instead of spawning it ("pended nondemand spawn = semaphore" in
+        // `launchctl print`, `runs = 0`) — typically every update after the
+        // first successful one since boot. The app then quits but never
+        // installs or relaunches, with no error surfaced anywhere. Spawn a
+        // detached watcher that outlives this process: once we exit, if the
+        // ShipIt job was submitted but never ran, kick it manually.
+        // `launchctl kickstart` on the pended job reliably completes the
+        // install + relaunch; if Squirrel's own spawn worked (runs >= 1) the
+        // watcher is a no-op, so it can never double-install.
+        if (process.platform === 'darwin') {
+          const shipItLabel = `${IS_STAGING ? 'com.asksayso.app.staging' : 'com.asksayso.app'}.ShipIt`;
+          const watcherScript = [
+            `i=0`,
+            // Wait (max ~10 min) for the app process to exit.
+            `while kill -0 ${process.pid} 2>/dev/null; do i=$((i+1)); [ $i -gt 600 ] && exit 0; sleep 1; done`,
+            // Grace period for Squirrel's own ShipIt spawn to do its job.
+            `sleep 6`,
+            // Only intervene if the job is loaded but never ran.
+            `if launchctl print "gui/$(id -u)/${shipItLabel}" 2>/dev/null | grep -q "runs = 0"; then`,
+            `  launchctl kickstart "gui/$(id -u)/${shipItLabel}"`,
+            `fi`,
+          ].join('\n');
+          spawn('/bin/sh', ['-c', watcherScript], { detached: true, stdio: 'ignore' }).unref();
+          log.info(`[Updater] Spawned ShipIt watchdog for ${shipItLabel}`);
+        }
         app.removeAllListeners('window-all-closed');
         updater.quitAndInstall(false, true);
       } catch (err) {
