@@ -115,7 +115,9 @@
     "files": [
       "**/*",
       "!electron/full_recordings/**/*",
-      "!electron/chunks/**/*"
+      "!electron/chunks/**/*",
+      "!release/**/*",
+      "!release-staging/**/*"
     ],
     "extraResources": [
       {
