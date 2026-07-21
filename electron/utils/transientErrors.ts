@@ -1,9 +1,3 @@
-// Classification for "noise-ish" errors coming off the network / auto-updater
-// paths. Two distinct decisions live here — kept as separate functions on
-// purpose, because they answer different questions — but they share one
-// primitive: which upstream HTTP statuses count as transient/environmental
-// rather than real failures.
-
 /**
  * Transient upstream HTTP statuses that recover on the next attempt and should
  * not be treated as real failures:
