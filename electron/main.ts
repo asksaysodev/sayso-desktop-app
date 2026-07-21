@@ -23,6 +23,7 @@ import { WindowManager } from './utils/windowManager';
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
+import { classifyUpdaterError, isSuppressibleUpdaterError, isTransientNetworkError } from './utils/transientErrors';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 
@@ -360,15 +361,6 @@ process.on('uncaughtException', (error) => {
   // so the auto-updater can still run or the user can see an error UI.
 });
 
-// Transient/environmental updater errors (offline, or a transient upstream
-// 502/503/504/429) that recover on the next check and shouldn't reach Sentry.
-function isSuppressibleUpdaterError(err: any): boolean {
-  const OFFLINE_PATTERNS = ['ERR_INTERNET_DISCONNECTED', 'ENOTFOUND', 'ENETUNREACH', 'EAI_AGAIN'];
-  if (OFFLINE_PATTERNS.some(p => `${err?.message ?? ''}`.includes(p))) return true;
-  const status = typeof err?.statusCode === 'number' ? err.statusCode : undefined;
-  return status === 502 || status === 503 || status === 504 || status === 429;
-}
-
 if (app.isPackaged) {
   const { autoUpdater: updater } = require('electron-updater');
   const log = require('electron-log');
@@ -422,16 +414,13 @@ if (app.isPackaged) {
 
   updater.on('error', (err: Error & { statusCode?: number }) => {
     log.error('Error in auto-updater:', err);
-    const OFFLINE_PATTERNS = ['ERR_INTERNET_DISCONNECTED', 'ENOTFOUND', 'ENETUNREACH', 'EAI_AGAIN'];
-    const isOffline = OFFLINE_PATTERNS.some(p => err.message.includes(p));
-    const status = typeof err.statusCode === 'number' ? err.statusCode : undefined;
-    const isTransientUpstream = status === 502 || status === 503 || status === 504 || status === 429;
-    if (!isOffline && !isTransientUpstream) Sentry.captureException(err);
+    const kind = classifyUpdaterError(err);
+    if (kind === 'fatal') Sentry.captureException(err);
     setUpdateState({
       phase: 'error',
-      errorMessage: isOffline
+      errorMessage: kind === 'offline'
         ? 'No internet connection. Please check your network and try again.'
-        : isTransientUpstream
+        : kind === 'transient'
         ? 'Couldn’t reach the update server. Please try again shortly.'
         : err.message,
     });
@@ -1758,13 +1747,6 @@ if (gotSingleInstanceLock) {
 // defers `fn` by an initial delay and retries with backoff — but only for transient
 // DNS/connection errors — so the first attempt lands after the network has settled.
 const RESUME_NETWORK_DELAY_MS = 4000;
-
-function isTransientNetworkError(err: any): boolean {
-  const status = typeof err?.statusCode === 'number' ? err.statusCode : undefined;
-  if (status === 502 || status === 503 || status === 504 || status === 429) return true;
-  const msg = `${err?.message ?? ''} ${err?.code ?? ''}`;
-  return /ERR_NAME_NOT_RESOLVED|ENOTFOUND|EAI_AGAIN|fetch failed|ECONNREFUSED|ETIMEDOUT/i.test(msg);
-}
 
 // Labels currently running under a given dedupe `key`, so that e.g. the
 // 'resume' and 'unlock-screen' events firing back-to-back (common when
