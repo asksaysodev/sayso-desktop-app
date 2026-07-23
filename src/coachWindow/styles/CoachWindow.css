@@ -165,7 +165,7 @@ button {
 }
 
 .coach-window-select-prospect-button{
-    height: 32px;
+    height: var(--cw-fs-container-height);
     border: none;
     display: flex;
     align-items: center;
@@ -197,7 +197,7 @@ button {
     justify-content: center;
     gap: 10px;
     padding: 4px 0;
-    font-size: var(--cw-fs-prospect-select);
+    font-size: var(--cw-fs-select-lead);
     -webkit-app-region: no-drag;
 }
 
@@ -384,8 +384,8 @@ button {
     cursor: not-allowed !important;
 }
 .coach-window-selected-prospect-button .coach-window-selected-prospect-initials-container{
-    width: 32px;
-    height: 32px;
+    width: var(--cw-fs-lead-type-initial-height);
+    height: var(--cw-fs-lead-type-initial-height);
     aspect-ratio: 1/1;
     border-radius: 100px;
     z-index: 1000;
@@ -394,14 +394,14 @@ button {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: var(--cw-fs-lead-type-initial-fs);
     font-weight: 500;
 }
 .coach-window-selected-prospect-button .coach-window-selected-prospect-initials-container.disabled{
     opacity: 0.8 !important;
 }
 .coach-window .coach-window-selected-prospect-button-text-container{
-    height: 30px;
+    height: var(--cw-fs-container-height);
     display: flex;
     align-items: center;
     justify-content: start;
@@ -433,7 +433,7 @@ button {
     background-color: #3C4A5C;
     border-radius: 100px;
     padding: 0 12px;
-    height: var(--cw-fs-zip-input-height);
+    height: var(--cw-fs-container-height);
     -webkit-app-region: no-drag;
     cursor: default;
 }
@@ -442,7 +442,7 @@ button {
 }
 .coach-window .zip-code-input-icon {
     color: #FFF;
-    font-size: 14px;
+    font-size: var(--cw-fs-zip-input-fs);
     flex-shrink: 0;
 }
 
@@ -453,7 +453,7 @@ button {
     outline: none;
     color: #fff;
     -webkit-app-region: no-drag;
-    font-size: var(--cw-fs-zip-input);
+    font-size: var(--cw-fs-zip-input-fs);
 }
 
 .coach-window .zip-code-input.valid {
@@ -494,8 +494,8 @@ button {
     -webkit-app-region: no-drag;
     cursor: pointer;
     border: none;
-    height: 32px;
-    width: 32px;
+    height: var(--cw-fs-container-height);
+    width: var(--cw-fs-container-height);
     aspect-ratio: 1/1;
     border-radius: 100px;
     color: white;
@@ -552,7 +552,7 @@ button {
 }
 
 .coach-buttons-container .start-coach-button{
-    height: 32px;
+    height: var(--cw-fs-container-height);
     border: none;
     display: flex;
     align-items: center;
@@ -613,7 +613,7 @@ button {
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    height: 32px;
+    height: var(--cw-fs-container-height);
     width: 90px;
     background-color: var(--sayso-darkgray);
     color: white;
@@ -631,8 +631,8 @@ button {
 }
 
 .coach-window .right-side-coach-button{
-    height: var(--cw-fs-right-btn-size);
-    width: var(--cw-fs-right-btn-size);
+    height: var(--cw-fs-container-height);
+    width: var(--cw-fs-container-height);
     aspect-ratio: 1/1;
     border-radius: 100px;
     color: white;
@@ -1032,11 +1032,13 @@ button {
 
 .zip-code-inner-box .zc-property-tab {
     cursor: pointer;
-    padding: 3px 8px !important;
+    /* padding: 3px 8px !important; */
+    padding: var(--cw-fs-zc-property-tab-padd) !important;
     border-radius: 24px;
     color: #fff;
     border: none;
-    font-size: 12px;
+    /* font-size: 12px; */
+    font-size: var(--cw-fs-zc-property-tab-fs);
     font-weight: 500;
     line-height: 18px;
     white-space: nowrap;
@@ -1102,15 +1104,18 @@ button {
 
 /* S — default */
 :root {
-    --cw-fs-prospect-select:  14px;
-    --cw-fs-launch-btn:       14px;
-    --cw-fs-insight:          13.5px;
+    --cw-fs-lead-type-initial-fs: 14px;
+    --cw-fs-lead-type-initial-height: 38px;
+    --cw-fs-container-height: 36px;
+    --cw-fs-select-lead: 14px;
+    --cw-fs-launch-btn: 14px;
+    --cw-fs-insight:          14px;
     --cw-fs-icon:             18px;
     --cw-fs-icon-sm:          16px;
     --cw-fs-dialog-title:     18px;
     --cw-fs-dialog-subtitle:  14px;
     --cw-fs-dropdown-item:    16px;
-    --cw-fs-zip-input:        16px;
+    --cw-fs-zip-input-fs:     14px;
     --cw-fs-zip-label:        16px;
     --cw-fs-zip-action:       14px;
     --cw-fs-zip-loading:      15px;
@@ -1118,59 +1123,71 @@ button {
     --cw-fs-zip-city:         15px;
     --cw-fs-zip-fact:         14px;
     --cw-fs-lpmama:           14px;
-    --cw-fs-right-btn-size:   32px;
     --cw-base-width:          380px;
     --cw-fs-zip-input-width:             44px;
     --cw-fs-zip-input-height:            32px;
     --cw-fs-zip-input-placeholder-width: 66px;
+
+    --cw-fs-zc-property-tab-fs: 12px;
+    --cw-fs-zc-property-tab-padd: 3px 8px;
 }
 
 /* M */
 :root[data-font-size="m"] {
-    --cw-fs-prospect-select:  16.8px;
-    --cw-fs-launch-btn:       16.8px;
-    --cw-fs-insight:          16.2px;
+    --cw-fs-lead-type-initial-fs: 16px;
+    --cw-fs-lead-type-initial-height: 38px;
+    --cw-fs-container-height: 36px;
+    --cw-fs-select-lead: 16.8px;
+    --cw-fs-launch-btn: 16px;
+    --cw-fs-insight: 16px;
     --cw-fs-icon:             21.6px;
     --cw-fs-icon-sm:          19.2px;
     --cw-fs-dialog-title:     21.6px;
     --cw-fs-dialog-subtitle:  16.8px;
     --cw-fs-dropdown-item:    19.2px;
-    --cw-fs-zip-input:        19.2px;
+    --cw-fs-zip-input-fs: 17px;
     --cw-fs-zip-label:        19.2px;
     --cw-fs-zip-action:       16.8px;
     --cw-fs-zip-loading:      18px;
     --cw-fs-zip-result:       18px;
-    --cw-fs-zip-city:         18px;
+    --cw-fs-zip-city:         17px;
     --cw-fs-zip-fact:         16.8px;
-    --cw-fs-lpmama:           16.8px;
-    --cw-fs-right-btn-size:   38.4px;
+    --cw-fs-lpmama:           16px;
     --cw-base-width:          400px;
     --cw-fs-zip-input-width:             53px;
     --cw-fs-zip-input-height:            38.4px;
     --cw-fs-zip-input-placeholder-width: 79.2px;
+
+    --cw-fs-zc-property-tab-fs: 12px;
+    --cw-fs-zc-property-tab-padd: 3px 8px;
 }
 
 /* L */
 :root[data-font-size="l"] {
-    --cw-fs-prospect-select:  19.6px;
-    --cw-fs-launch-btn:       19.6px;
-    --cw-fs-insight:          18.9px;
-    --cw-fs-icon:             25.2px;
-    --cw-fs-icon-sm:          22.4px;
-    --cw-fs-dialog-title:     25.2px;
-    --cw-fs-dialog-subtitle:  19.6px;
-    --cw-fs-dropdown-item:    22.4px;
-    --cw-fs-zip-input:        22.4px;
-    --cw-fs-zip-label:        22.4px;
-    --cw-fs-zip-action:       19.6px;
-    --cw-fs-zip-loading:      21px;
-    --cw-fs-zip-result:       21px;
-    --cw-fs-zip-city:         21px;
-    --cw-fs-zip-fact:         19.6px;
-    --cw-fs-lpmama:           19.6px;
-    --cw-fs-right-btn-size:   44.8px;
-    --cw-base-width:          420px;
-    --cw-fs-zip-input-width:             62px;
-    --cw-fs-zip-input-height:            44.8px;
+    --cw-fs-lead-type-initial-fs: 17px;
+    --cw-fs-lead-type-initial-height: 38px;
+    --cw-fs-container-height: 36px;
+    --cw-fs-select-lead: 19.6px;
+    --cw-fs-launch-btn: 19px;
+    --cw-fs-insight: 18px;
+    --cw-fs-icon: 25.2px;
+    --cw-fs-icon-sm: 22.4px;
+    --cw-fs-dialog-title: 25.2px;
+    --cw-fs-dialog-subtitle: 19.6px;
+    --cw-fs-dropdown-item: 22.4px;
+    --cw-fs-zip-input-fs: 17px;
+    --cw-fs-zip-label: 22.4px;
+    --cw-fs-zip-action: 19.6px;
+    --cw-fs-zip-loading: 21px;
+    --cw-fs-zip-result: 21px;
+    --cw-fs-zip-city: 19px;
+    --cw-fs-zip-fact: 18px;
+    --cw-fs-lpmama: 17px;
+    --cw-base-width: 420px;
+    --cw-fs-zip-input-width: 62px;
+    --cw-fs-zip-input-height: 44.8px;
     --cw-fs-zip-input-placeholder-width: 92.4px;
+
+    --cw-fs-zc-property-tab-fs: 14px;
+    --cw-fs-zc-property-tab-padd: 6px 10px;
 }
