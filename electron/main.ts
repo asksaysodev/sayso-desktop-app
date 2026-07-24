@@ -23,7 +23,7 @@ import { WindowManager } from './utils/windowManager';
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
-import { classifyUpdaterError, isSuppressibleUpdaterError, isTransientNetworkError } from './utils/transientErrors';
+import { classifyUpdaterError, isSuppressibleUpdaterError, isTransientNetworkError, updaterErrorMessage } from './utils/transientErrors';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 
@@ -414,16 +414,8 @@ if (app.isPackaged) {
 
   updater.on('error', (err: Error & { statusCode?: number }) => {
     log.error('Error in auto-updater:', err);
-    const kind = classifyUpdaterError(err);
-    if (kind === 'fatal') Sentry.captureException(err);
-    setUpdateState({
-      phase: 'error',
-      errorMessage: kind === 'offline'
-        ? 'No internet connection. Please check your network and try again.'
-        : kind === 'transient'
-        ? 'Couldn’t reach the update server. Please try again shortly.'
-        : err.message,
-    });
+    if (classifyUpdaterError(err) === 'fatal') Sentry.captureException(err);
+    setUpdateState({ phase: 'error', errorMessage: updaterErrorMessage(err) });
   });
 
   updater.on('download-progress', (progressObj: { percent?: number; transferred?: number; total?: number; bytesPerSecond?: number }) => {
@@ -2337,7 +2329,7 @@ ipcMain.on('update:start-download', () => {
   autoUpdater.downloadUpdate().catch((err: Error) => {
     console.error('[Updater] Download failed:', err);
     if (!isSuppressibleUpdaterError(err)) Sentry.captureException(err);
-    setUpdateState({ phase: 'error', errorMessage: err.message });
+    setUpdateState({ phase: 'error', errorMessage: updaterErrorMessage(err) });
   });
 });
 
@@ -2363,7 +2355,7 @@ ipcMain.on('update:check-for-updates', () => {
   autoUpdater.checkForUpdates().catch((err: Error) => {
     console.error('[Updater] Check failed:', err);
     if (!isSuppressibleUpdaterError(err)) Sentry.captureException(err);
-    setUpdateState({ phase: 'error', errorMessage: err.message });
+    setUpdateState({ phase: 'error', errorMessage: updaterErrorMessage(err) });
   });
 });
 

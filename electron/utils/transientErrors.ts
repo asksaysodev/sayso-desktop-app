@@ -45,6 +45,27 @@ export function isSuppressibleUpdaterError(err: any): boolean {
 }
 
 /**
+ * The user-facing text for an updater failure. Lives here, next to the
+ * classifier, because electron-updater reports the *same* failure twice — it
+ * emits 'error' and rejects the promise — so several call sites race to write
+ * `updateState.errorMessage`. They must all produce the same string, or a
+ * transient hiccup can end up showing the raw signed-URL/HTML error body
+ * depending on which handler happens to run last.
+ *
+ * Only 'fatal' errors surface their raw message; noise gets a friendly hint.
+ */
+export function updaterErrorMessage(err: any): string {
+  switch (classifyUpdaterError(err)) {
+    case 'offline':
+      return 'No internet connection. Please check your network and try again.';
+    case 'transient':
+      return 'Couldn’t reach the update server. Please try again shortly.';
+    default:
+      return `${err?.message ?? ''}`;
+  }
+}
+
+/**
  * Whether a network op should be retried after the network settles on
  * wake/resume. When the system wakes, the network/DNS stack may not be ready
  * for a few seconds, so DNS/connection errors here are transient and a retry
