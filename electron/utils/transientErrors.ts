@@ -16,9 +16,42 @@ function getStatus(err: any): number | undefined {
   return typeof err?.statusCode === 'number' ? err.statusCode : undefined;
 }
 
-// Errors that mean the user simply has no connectivity — don't alarm them, and
-// don't report them to Sentry.
-const OFFLINE_PATTERNS = ['ERR_INTERNET_DISCONNECTED', 'ENOTFOUND', 'ENETUNREACH', 'EAI_AGAIN'];
+// One shared vocabulary of environmental network failures. Both questions this
+// module answers — "should the user see a friendly hint instead of the raw
+// error?" and "should this be retried once the network settles?" — read from
+// these lists, so a code can never be retryable-but-reportable (see the
+// invariant on isTransientNetworkError below).
+//
+// Split in two only to pick the wording; both halves are equally suppressed.
+
+// No usable connection at all → "check your network".
+const OFFLINE_PATTERNS = [
+  'ERR_INTERNET_DISCONNECTED',
+  'ERR_NETWORK_CHANGED', // Wi-Fi hop / VPN toggle mid-request
+  'ERR_NETWORK_IO_SUSPENDED', // machine suspended mid-request
+  'ERR_ADDRESS_UNREACHABLE',
+  'ENOTFOUND',
+  'ENETUNREACH',
+  'EAI_AGAIN',
+];
+
+// There is a network, but this attempt didn't get a fair shot — DNS not warmed
+// up yet after a wake, connection dropped, or it timed out → "try again shortly".
+const FLAKY_NETWORK_PATTERNS = [
+  'ERR_NAME_NOT_RESOLVED',
+  'ERR_CONNECTION_RESET',
+  'ERR_TIMED_OUT',
+  'ERR_CONNECTION_TIMED_OUT',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'fetch failed',
+];
+
+/** Scan both `message` and `code` — Node surfaces the code in either place. */
+function matchesAny(err: any, patterns: string[]): boolean {
+  const haystack = `${err?.message ?? ''} ${err?.code ?? ''}`.toLowerCase();
+  return patterns.some(p => haystack.includes(p.toLowerCase()));
+}
 
 export type UpdaterErrorKind = 'offline' | 'transient' | 'fatal';
 
@@ -33,15 +66,10 @@ export type UpdaterErrorKind = 'offline' | 'transient' | 'fatal';
  * 618 case in case `statusCode` isn't populated on some code path.
  */
 export function classifyUpdaterError(err: any): UpdaterErrorKind {
-  const message = `${err?.message ?? ''}`;
-  if (OFFLINE_PATTERNS.some(p => message.includes(p))) return 'offline';
-  if (isTransientUpstreamStatus(getStatus(err)) || message.includes('jwt:expired')) return 'transient';
+  if (matchesAny(err, OFFLINE_PATTERNS)) return 'offline';
+  if (matchesAny(err, FLAKY_NETWORK_PATTERNS)) return 'transient';
+  if (isTransientUpstreamStatus(getStatus(err)) || matchesAny(err, ['jwt:expired'])) return 'transient';
   return 'fatal';
-}
-
-/** Updater errors we should not report to Sentry (offline or transient upstream). */
-export function isSuppressibleUpdaterError(err: any): boolean {
-  return classifyUpdaterError(err) !== 'fatal';
 }
 
 /**
@@ -66,14 +94,16 @@ export function updaterErrorMessage(err: any): string {
 }
 
 /**
- * Whether a network op should be retried after the network settles on
- * wake/resume. When the system wakes, the network/DNS stack may not be ready
- * for a few seconds, so DNS/connection errors here are transient and a retry
- * fixes them. Distinct from the offline set above: this is "not ready yet",
- * not "no internet".
+ * Whether a network op should be retried (and kept out of Sentry) — the machine
+ * was offline, changed networks, or woke before its DNS/network stack was ready.
+ *
+ * INVARIANT: every error this returns true for must classify as 'offline' or
+ * 'transient', never 'fatal'. Retries re-run the operation, and each failed
+ * attempt re-emits electron-updater's 'error' event — so an error that is
+ * retryable *and* reportable gets reported once per attempt. Reading both
+ * predicates off the same lists is what keeps that from happening.
  */
 export function isTransientNetworkError(err: any): boolean {
   if (isTransientUpstreamStatus(getStatus(err))) return true;
-  const msg = `${err?.message ?? ''} ${err?.code ?? ''}`;
-  return /ERR_NAME_NOT_RESOLVED|ENOTFOUND|EAI_AGAIN|fetch failed|ECONNREFUSED|ETIMEDOUT/i.test(msg);
+  return matchesAny(err, OFFLINE_PATTERNS) || matchesAny(err, FLAKY_NETWORK_PATTERNS);
 }

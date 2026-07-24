@@ -23,7 +23,7 @@ import { WindowManager } from './utils/windowManager';
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
-import { classifyUpdaterError, isSuppressibleUpdaterError, isTransientNetworkError, updaterErrorMessage } from './utils/transientErrors';
+import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage } from './utils/transientErrors';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 
@@ -1748,7 +1748,19 @@ const inFlightNetworkSettleKeys = new Set<string>();
 function runAfterNetworkSettles(
   label: string,
   fn: () => Promise<unknown>,
-  { initialDelay = RESUME_NETWORK_DELAY_MS, retries = 3, backoff = 3000, key }: { initialDelay?: number; retries?: number; backoff?: number; key?: string } = {}
+  { 
+    initialDelay = RESUME_NETWORK_DELAY_MS,
+    retries = 3,
+    backoff = 3000,
+    key, 
+    report = true 
+  }: { 
+    initialDelay?: number; 
+    retries?: number; 
+    backoff?: number; 
+    key?: string; 
+    report?: boolean 
+  } = {}
 ): void {
   if (key) {
     if (inFlightNetworkSettleKeys.has(key)) {
@@ -1779,7 +1791,7 @@ function runAfterNetworkSettles(
         setTimeout(tryRun, wait);
       } else {
         console.warn(`[Resume] ${label} failed:`, err?.message);
-        if (!isTransientNetworkError(err)) Sentry.captureException(err);
+        if (report && !isTransientNetworkError(err)) Sentry.captureException(err);
         done();
       }
     });
@@ -1806,7 +1818,6 @@ app.whenReady().then(async () => {
     setTimeout(() => {
       autoUpdater.checkForUpdates().catch(err => {
         console.error('Failed to check for updates:', err);
-        if (!isSuppressibleUpdaterError(err)) Sentry.captureException(err);
       });
     }, 1000); // 1 second delay
     
@@ -1816,7 +1827,7 @@ app.whenReady().then(async () => {
     // for the network instead of hitting ERR_NAME_NOT_RESOLVED.
     setInterval(() => {
       if (!autoUpdater) return;
-      runAfterNetworkSettles('auto-updater check', () => autoUpdater!.checkForUpdates());
+      runAfterNetworkSettles('auto-updater check', () => autoUpdater!.checkForUpdates(), { report: false });
     }, 60 * 60 * 1000);
   }
 
@@ -2327,8 +2338,8 @@ ipcMain.on('update:start-download', () => {
   }
 
   autoUpdater.downloadUpdate().catch((err: Error) => {
+    // Reporting is owned by updater.on('error') — see the startup check.
     console.error('[Updater] Download failed:', err);
-    if (!isSuppressibleUpdaterError(err)) Sentry.captureException(err);
     setUpdateState({ phase: 'error', errorMessage: updaterErrorMessage(err) });
   });
 });
@@ -2353,8 +2364,8 @@ ipcMain.on('update:check-for-updates', () => {
   }
 
   autoUpdater.checkForUpdates().catch((err: Error) => {
+    // Reporting is owned by updater.on('error') — see the startup check.
     console.error('[Updater] Check failed:', err);
-    if (!isSuppressibleUpdaterError(err)) Sentry.captureException(err);
     setUpdateState({ phase: 'error', errorMessage: updaterErrorMessage(err) });
   });
 });
