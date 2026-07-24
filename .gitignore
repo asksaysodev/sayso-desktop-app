@@ -54,6 +54,8 @@ electron/utils/*.js
 electron/utils/*.js.map
 electron/audio/*.js
 electron/audio/*.js.map
+electron/permissions/*.js
+electron/permissions/*.js.map
 electron/auth/*.js
 electron/auth/*.js.map
 
