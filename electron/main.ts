@@ -6,11 +6,9 @@ import type {
   WebContents
 } from 'electron';
 import type { Event } from 'electron';
-import type { 
-  AuthUser, 
-  AudioQueueItem, 
-  AudioCaptureOptions, 
-  CueInsight 
+import type {
+  AuthUser,
+  CueInsight
 } from './globals';
 
 import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu, nativeTheme, powerMonitor } from 'electron';
@@ -219,7 +217,6 @@ authManager.on('token-refreshed', async (state: AuthState) => {
   // _connect() call will embed it in the WebSocket URL query string.
   if (state.accessToken) {
     if (cueAudioStreamer) cueAudioStreamer.updateToken(state.accessToken);
-    if (audioStreamer)    audioStreamer.updateToken(state.accessToken);
   }
 
   // Startup-offline recovery: the first successful refresh after init() failed
@@ -262,7 +259,6 @@ authManager.on('session-expired', () => {
   broadcastToAllWindows('auth:session-expired');
   // Stop WebSocket reconnect loops — there is no valid token to reconnect with
   if (cueAudioStreamer) { cueAudioStreamer.shouldReconnect = false; cueAudioStreamer.stop(false).catch(() => {}); }
-  if (audioStreamer)    { audioStreamer.shouldReconnect    = false; audioStreamer.stop(false).catch(() => {}); }
   // Close secondary windows and route to the login screen so the user isn't
   // left clicking around with broken auth
   if (isCoachWindowOpen()) global.coachWindow!.close();
@@ -980,9 +976,6 @@ if (!process.env.NODE_ENV) {
 
 // Store active recording session metadata
 
-// Store AudioStreamer instance
-let audioStreamer: any = null;
-
 // Store Cue instances (separate from regular streaming)
 let cueAudioStreamer: any = null;
 
@@ -1062,80 +1055,7 @@ async function cleanupAllAudioCapture() {
       nativeAudio.setStreamingCallback(null);
     }
     
-    // 3. Stop user full recording FFmpeg process
-    if (global.userFullRecordingProcess) {
-      try {
-        global.userFullRecordingProcess.kill('SIGINT');
-        await new Promise(resolve => setTimeout(resolve, 200));
-        global.userFullRecordingProcess = null;
-      } catch (error) {
-        console.error('[Cleanup] Error stopping user recording process:', error);
-        Sentry.captureException(error);
-        global.userFullRecordingProcess = null;
-      }
-    }
-    
-    // 4. Stop user MediaRecorder
-    if (global.userMediaRecorder) {
-      try {
-        global.userMediaRecorder.stop();
-        global.userMediaRecorder = null;
-      } catch (error) {
-        console.error('[Cleanup] Error stopping user MediaRecorder:', error);
-        Sentry.captureException(error);
-        global.userMediaRecorder = null;
-      }
-    }
-    
-    // 5. Stop user audio stream tracks
-    if (global.userAudioStream) {
-      try {
-        global.userAudioStream.getTracks().forEach(track => track.stop());
-        global.userAudioStream = null;
-      } catch (error) {
-        console.error('[Cleanup] Error stopping user audio stream:', error);
-        Sentry.captureException(error);
-        global.userAudioStream = null;
-      }
-    }
-    
-    // 6. Stop prospect MediaRecorder
-    if (global.mediaRecorder) {
-      try {
-        global.mediaRecorder.stop();
-        global.mediaRecorder = null;
-      } catch (error) {
-        console.error('[Cleanup] Error stopping prospect MediaRecorder:', error);
-        Sentry.captureException(error);
-        global.mediaRecorder = null;
-      }
-    }
-    
-    // 7. Stop prospect audio stream tracks
-    if (global.prospectAudioStream) {
-      try {
-        global.prospectAudioStream.getTracks().forEach(track => track.stop());
-        global.prospectAudioStream = null;
-      } catch (error) {
-        console.error('[Cleanup] Error stopping prospect audio stream:', error);
-        Sentry.captureException(error);
-        global.prospectAudioStream = null;
-      }
-    }
-    
-    // 8. Stop legacy ScreenCaptureKit instance
-    if (global.screenCapture) {
-      try {
-        await global.screenCapture.stopSystemAudioCapture();
-        global.screenCapture = null;
-      } catch (error) {
-        console.error('[Cleanup] Error stopping ScreenCaptureKit:', error);
-        Sentry.captureException(error);
-        global.screenCapture = null;
-      }
-    }
-    
-    // 9. Stop Cue audio streamer
+    // 3. Stop Cue audio streamer
     if (cueAudioStreamer) {
       try {
         await cueAudioStreamer.stop(false);
@@ -1147,23 +1067,6 @@ async function cleanupAllAudioCapture() {
       }
     }
     
-    // 10. Stop regular audio streamer
-    if (audioStreamer) {
-      try {
-        await audioStreamer.stop(false);
-        audioStreamer = null;
-      } catch (error) {
-        console.error('[Cleanup] Error stopping audio streamer:', error);
-        Sentry.captureException(error);
-        audioStreamer = null;
-      }
-    }
-    
-    // Clear file path globals
-    global.userRecordingFile = null;
-    global.prospectRecordingFile = null;
-    global.userActualStartMs = null;
-    
     if (isDev) {
       console.log('[Cleanup] All audio capture cleaned up');
     }
@@ -1172,19 +1075,6 @@ async function cleanupAllAudioCapture() {
     Sentry.captureException(error);
   }
 }
-
-// Get streaming status
-ipcMain.handle('get-streaming-status', async () => {
-  if (!audioStreamer) {
-    return { isStreaming: false };
-  }
-  return {
-    isStreaming: audioStreamer.isStreamingActive(),
-    userState: audioStreamer.getUserState(),
-    prospectState: audioStreamer.getProspectState(),
-    sessionId: audioStreamer.sessionId
-  };
-});
 
 // Start Cue (handles 2 audio websockets: user + prospect)
 ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { sessionId, token }: { sessionId: string, token: string }) => {
@@ -1475,7 +1365,6 @@ async function ensureCueUserMicDeliversJsChunks(
   await waitForCueUserChunks(sessionId, CUE_MIC_JS_RESTART_WAIT_MS);
 }
 
-const audioQueue = require('./audioQueue');
 const { AudioStreamer } = require('./streaming/audioStreamer');
 // Add command line switches for better camera support
 app.commandLine.appendSwitch('enable-features', 'WebRTC,MediaDevices,MediaStream');
@@ -1668,32 +1557,6 @@ ipcMain.handle('permissions-complete', () => {
 
 // Returns whether the permissions-complete flag is set (for renderer routing)
 ipcMain.handle('permissions-get-flag', () => isPermissionsComplete());
-
-// --- Audio Queue Event Handlers ---
-audioQueue.on('failed', (item: AudioQueueItem) => {
-  console.error(`[Audio Queue] Failed to process audio chunk after ${item.retries} retries: ${item.filePath} (${item.speaker})`);
-  Sentry.captureMessage(`Audio queue failed: ${item.filePath} (${item.speaker}) after ${item.retries} retries`, 'error');
-});
-
-// Add IPC handler for getting queue status
-ipcMain.handle('get-audio-queue-status', () => {
-  return audioQueue.getStatus();
-});
-
-// Add IPC handler for reloading the page
-ipcMain.handle('reload-page', () => {
-  if (isDev) {
-    console.log('[MAIN] Reloading page...');
-  }
-  return { status: "Page reloaded" };
-});
-
-// Add a simple test handler to verify IPC is working
-ipcMain.handle('test-simple', () => {
-  return { success: true, message: 'Simple test handler works!' };
-});
-
-// Native Audio Module IPC Handlers moved to app.whenReady() after module loads
 
 // Set when a `launch-coach` deep link arrives before the app is ready (cold
 // launch via protocol). Flushed once `app.whenReady()` resolves — calling
@@ -1906,113 +1769,6 @@ app.whenReady().then(async () => {
     Sentry.captureException(error);
   }
 
-  // Register IPC handlers safely (even if module failed to load)
-  // This prevents "No handler registered" errors in the renderer
-  
-  // Initialize native audio module
-  ipcMain.handle('native-audio-initialize', async () => {
-    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
-    try {
-      await nativeAudio.initialize();
-      return { success: true };
-    } catch (error: any) {
-      console.error('[MAIN] Failed to initialize native audio:', error);
-      Sentry.captureException(error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // List output devices
-  ipcMain.handle('native-audio-list-devices', async () => {
-    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
-    try {
-      const devices = await nativeAudio.listOutputDevices();
-      return { success: true, devices };
-    } catch (error: any) {
-      console.error('[MAIN] Failed to list devices:', error);
-      Sentry.captureException(error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Create multi-output device
-  ipcMain.handle('native-audio-create-device', async (event: Electron.IpcMainInvokeEvent, { name, subDevices }: { name: string, subDevices: string[] }) => {
-    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
-    try {
-      const deviceId = await nativeAudio.createMultiOutputDevice(name, subDevices);
-      return { success: true, deviceId };
-    } catch (error: any) {
-      console.error('[MAIN] Failed to create device:', error);
-      Sentry.captureException(error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Delete multi-output device
-  ipcMain.handle('native-audio-delete-device', async (event: Electron.IpcMainInvokeEvent, { deviceId }: { deviceId: string }) => {
-    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
-    try {
-      const result = await nativeAudio.deleteMultiOutputDevice(deviceId);
-      return { success: result };
-    } catch (error: any) {
-      console.error('[MAIN] Failed to delete device:', error);
-      Sentry.captureException(error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Request screen recording permission
-  ipcMain.handle('native-audio-request-permission', async (): Promise<{ success: boolean, error?: string }> => {
-    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
-    try {
-      const result = await nativeAudio.requestScreenRecordingPermission();
-      return { success: result };
-    } catch (error: any) {
-      console.error('[MAIN] Failed to request permission:', error);
-      Sentry.captureException(error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Start system audio capture
-  ipcMain.handle('native-audio-start-capture', async (event: Electron.IpcMainInvokeEvent, options: AudioCaptureOptions = {}) => {
-    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded' };
-    try {
-      return await nativeAudio.startSystemAudioCapture(options);
-    } catch (error: any) {
-      console.error('[MAIN] Failed to start capture:', error);
-      Sentry.captureException(error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Stop system audio capture
-  ipcMain.handle('native-audio-stop-capture', async () => {
-    if (!nativeAudio) return { success: false, error: 'Native audio module not loaded', filePath: null };
-    try {
-      const result = await nativeAudio.stopSystemAudioCapture();
-      // Result is now {success, filePath}
-      return result;
-    } catch (error: any) {
-      console.error('[MAIN] Failed to stop capture:', error);
-      Sentry.captureException(error);
-      return { success: false, error: error.message, filePath: null };
-    }
-  });
-
-  // Check if system audio capture is active
-  ipcMain.handle('native-audio-is-capturing', async () => {
-    if (!nativeAudio) return { success: true, isCapturing: false };
-    try {
-      const result = await nativeAudio.isSystemAudioCaptureActive();
-      return { success: true, isCapturing: result };
-    } catch (error: any) {
-      console.error('[MAIN] Failed to check capture status:', error);
-      Sentry.captureException(error);
-      return { success: false, error: error.message };
-    }
-  });
-  
   // Always attempt silent auth via AuthManager first.
   // init() reads the persisted refresh token, exchanges it for a fresh access
   // token, and schedules the proactive refresh timer. If it fails or there is

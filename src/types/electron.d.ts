@@ -13,30 +13,6 @@ export interface ElectronIpcRenderer {
   off: (channel: string, callback: (...args: unknown[]) => void) => void;
 }
 
-export interface NativeAudioDevice {
-  id: string;
-  name: string;
-  isInput: boolean;
-}
-
-export interface NativeAudioAPI {
-  initialize: () => Promise<boolean>;
-  listDevices: () => Promise<NativeAudioDevice[]>;
-  createDevice: (name: string, subDevices: string[]) => Promise<{ deviceId: string }>;
-  deleteDevice: (deviceId: string) => Promise<boolean>;
-  requestPermission: () => Promise<boolean>;
-  startCapture: (options: AudioCaptureOptions) => Promise<boolean>;
-  stopCapture: () => Promise<boolean>;
-  isCapturing: () => Promise<boolean>;
-}
-
-export interface AudioCaptureOptions {
-  deviceId?: string;
-  sampleRate?: number;
-  channels?: number;
-}
-
-
 export interface CueParams {
   sessionId: string;
   token: string;
@@ -138,7 +114,6 @@ export interface AppSettingsAPI {
 export interface ElectronBridge {
   ipcRenderer: ElectronIpcRenderer;
   openExternal: (url: string) => void;
-  nativeAudio: NativeAudioAPI;
   cue: CueAPI;
   permissions: PermissionsAPI;
   autoUpdater: AutoUpdaterAPI;

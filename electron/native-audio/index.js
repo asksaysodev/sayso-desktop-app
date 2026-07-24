@@ -36,21 +36,6 @@ class AudioDeviceManager {
     }
   }
 
-  async listOutputDevices() {
-    await this.initialize();
-    return nativeAudio.listOutputDevices();
-  }
-
-  async createMultiOutputDevice(name, subDevices) {
-    await this.initialize();
-    return nativeAudio.createMultiOutputDevice(name, subDevices);
-  }
-
-  async deleteMultiOutputDevice(deviceId) {
-    await this.initialize();
-    return nativeAudio.deleteMultiOutputDevice(deviceId);
-  }
-
   async requestScreenRecordingPermission() {
     await this.initialize();
     return nativeAudio.requestScreenRecordingPermission();
@@ -82,7 +67,8 @@ class AudioDeviceManager {
   }
 
   /**
-   * Start system audio capture with optional streaming callback
+   * INTERNAL — start system audio capture. Not part of IAudioProvider; the public
+   * entry point is startProspectStreaming(), which calls this with streamingOnly.
    * @param {Object} options - Capture options
    * @param {Function} options.streamingCallback - Optional callback for audio chunks
    * @returns {Promise<{ success: boolean, error?: string }>} success when SCK audio output is attached and capture started
