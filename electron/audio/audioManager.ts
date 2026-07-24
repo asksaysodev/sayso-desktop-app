@@ -7,7 +7,10 @@ import type { IAudioProvider, AudioFormat } from './IAudioProvider';
 const { startUserStreaming, stopUserStreaming } = require('../recorder');
 const { AudioStreamer } = require('../streaming/audioStreamer');
 
-const isDev = process.env.NODE_ENV !== 'production';
+// Match main.ts: app.isPackaged is reliable at module-load time; NODE_ENV is not
+// yet set when this module is imported, so keying off it would leak dev logging
+// into packaged production builds.
+const isDev = !app.isPackaged;
 
 const CUE_MIC_JS_WARMUP_MS = 500;
 const CUE_MIC_JS_RESTART_WAIT_MS = 700;
