@@ -15,22 +15,6 @@ export interface AuthUser {
   [key: string]: unknown;
 }
 
-export interface AudioQueueItem {
-  filePath: string;
-  speaker: string;
-  retries: number;
-  status: string;
-  timestamp: number;
-  onChunk: (filePath: string, speaker: string) => Promise<void>;
-}
-
-// Audio capture options for native audio module
-export interface AudioCaptureOptions {
-  streamingCallback?: (audioData: Buffer, sampleRate: number) => void;
-  streamingOnly?: boolean;
-  [key: string]: unknown;
-}
-
 export interface CueInsight {
   insight: string;
   timestamp: number;
@@ -94,25 +78,8 @@ declare global {
   var authRefreshToken: string | null;
   var networkState: 'online' | 'reconnecting';
 
-  // Audio recording processes
+  // Audio streaming process
   var userStreamingProcess: ChildProcess | null;
-  var userFullRecordingProcess: ChildProcess | null;
-
-  // Media recorders (handles from renderer, typed loosely for main process)
-  var userMediaRecorder: { stop: () => void } | null;
-  var mediaRecorder: { stop: () => void } | null;
-
-  // Audio streams (handles from renderer, typed loosely for main process)
-  var userAudioStream: { getTracks: () => { stop: () => void }[] } | null;
-  var prospectAudioStream: { getTracks: () => { stop: () => void }[] } | null;
-
-  // Screen capture instance
-  var screenCapture: { stopSystemAudioCapture: () => Promise<void> } | null;
-
-  // Recording file paths
-  var userRecordingFile: string | null;
-  var prospectRecordingFile: string | null;
-  var userActualStartMs: number | null;
 }
 
 export {};

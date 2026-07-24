@@ -3,13 +3,6 @@ export interface AudioCaptureResult {
   error?: string;
 }
 
-export interface StopCaptureResult {
-  success: boolean;
-  filePath?: string | null;
-  actualStartMs?: number | null;
-  error?: string;
-}
-
 export interface AudioFormat {
   sampleRate: number;
   channels: number;
@@ -26,14 +19,10 @@ export interface IAudioProvider {
   checkScreenRecordingGranted(): boolean;
   requestScreenRecordingPermission(): Promise<void>;
 
-  // Virtual multi-output device management (macOS CoreAudio concept)
-  listOutputDevices(): Promise<any[]>;
-  createMultiOutputDevice(name: string, subDevices: string[]): Promise<any>;
-  deleteMultiOutputDevice(deviceId: any): Promise<any>;
-
-  // System audio capture (ScreenCaptureKit on Mac, WASAPI loopback on Windows)
-  startSystemAudioCapture(options?: Record<string, unknown>): Promise<AudioCaptureResult>;
-  stopSystemAudioCapture(): Promise<StopCaptureResult>;
+  // System audio capture (ScreenCaptureKit on Mac, WASAPI loopback on Windows).
+  // The public entry point is startProspectStreaming (below); the provider owns
+  // starting capture internally. These manage teardown and status only.
+  stopSystemAudioCapture(): Promise<AudioCaptureResult>;
   isSystemAudioCaptureActive(): Promise<boolean>;
 
   // Microphone capture
