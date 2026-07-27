@@ -11,7 +11,7 @@ import type {
   CueInsight
 } from './globals';
 
-import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu, nativeTheme, powerMonitor } from 'electron';
+import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, globalShortcut, dialog, Tray, Menu, nativeTheme, powerMonitor } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -25,6 +25,7 @@ import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 import * as audioManager from './audio/audioManager';
+import * as permissions from './permissions/permissionsManager';
 
 Sentry.init(sentryConfig);
 
@@ -60,63 +61,6 @@ if (IS_STAGING) {
   // Storage" item is left orphaned. Every existing user re-logs in once — intended.
   app.setName('Sayso');
   app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app'));
-}
-
-// ─── Permissions-complete flag ────────────────────────────────────────────────
-const getPermissionsCompletePath = () => path.join(app.getPath('userData'), 'permissions-complete');
-
-function isMacOSPermissionsComplete(): boolean {
-  const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
-  // CGPreflight is accurate for the running process (screen-recording grant is bound at launch).
-  const screen = audioManager.isScreenRecordingGranted();
-  // Live OS state is authoritative: if both are actually granted for this process, onboarding is
-  // complete regardless of the flag. This self-heals the case where the flag is missing but perms
-  // work — e.g. after the cert migration deletes the flag and the user re-grants + reopens. We only
-  // short-circuit on live grants, so an optimistically-written flag without a real SCK grant
-  // (screen === false) still routes back to /permissions.
-  if (mic && screen) {
-    if (!fs.existsSync(getPermissionsCompletePath())) {
-      try {
-        fs.writeFileSync(getPermissionsCompletePath(), '1');
-      } catch (e) {
-        console.warn('[Permissions] Failed to self-heal permissions-complete flag:', e);
-      }
-    }
-    return true;
-  }
-  return false;
-}
-
-// Platform dispatcher: are all OS permissions required to run granted (and onboarding flag set)?
-// Mirrors checkOSPermissionsGranted so main can stay platform-agnostic.
-function isPermissionsComplete(): boolean {
-  try {
-    if (process.platform === 'darwin') return isMacOSPermissionsComplete();
-    // Windows and other platforms: no permission gating yet
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-interface PermissionsResult {
-  granted: boolean;
-  mic: boolean;
-  screen: boolean;
-}
-
-async function checkMacOSPermissions(): Promise<PermissionsResult> {
-  const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
-  // Use CGPreflightScreenCaptureAccess (non-prompting) to READ status — never triggers the macOS
-  // dialog. The dialog is only shown on explicit user action via requestScreenRecordingPermission.
-  const screen = audioManager.isScreenRecordingGranted({ warnIfUnavailable: true });
-  return { granted: mic && screen, mic, screen };
-}
-
-async function checkOSPermissionsGranted(): Promise<PermissionsResult> {
-  if (process.platform === 'darwin') return checkMacOSPermissions();
-  // Windows and other platforms: no permission gating yet
-  return { granted: true, mic: true, screen: true };
 }
 
 // ─── Auth: single source of truth ────────────────────────────────────────────
@@ -1131,80 +1075,7 @@ ipcMain.on('open-external', (event: Electron.IpcMainInvokeEvent, url: string) =>
   }
 });
 
-// --- Permissions Handlers ---
-// Check current mic + screen status (non-interactive)
-ipcMain.handle('permissions-check', async () => {
-  try {
-    const result = await checkOSPermissionsGranted();
-    if (isDev) console.log('[Permissions] check:', result);
-    return { mic: result.mic, screen: result.screen };
-  } catch (e: any) {
-    console.error('[MAIN] [Permissions] Error checking permissions:', e);
-    Sentry.captureException(e);
-    return { mic: false, screen: false, error: e.message };
-  }
-});
-
-// Request microphone permission only (never triggers app restart)
-ipcMain.handle('permissions-request-mic', async () => {
-  try {
-    const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-    if (micStatus === 'granted') return { mic: true, action: 'already-granted' };
-    if (micStatus === 'not-determined') {
-      const granted = await systemPreferences.askForMediaAccess('microphone');
-      return { mic: granted, action: 'asked' };
-    }
-    // denied / restricted → open Microphone privacy pane directly
-    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
-    return { mic: false, action: 'open-settings' };
-  } catch (e: any) {
-    console.error('[MAIN] [Permissions] Error requesting mic:', e);
-    Sentry.captureException(e);
-    return { mic: false, action: 'error', error: e.message };
-  }
-});
-
-// Non-destructive poll: did the user grant screen recording?
-ipcMain.handle('permissions-check-screen', async () => {
-  try {
-    const result = await checkOSPermissionsGranted();
-    return result.screen;
-  } catch {
-    return false;
-  }
-});
-
-// Prompt macOS to surface the Screen Recording row in System Settings (fire-and-forget)
-ipcMain.handle('permissions-request-screen', () => {
-  audioManager.requestScreenRecordingPermission();
-});
-
-// Open Screen Recording privacy pane directly
-ipcMain.handle('permissions-open-screen-settings', async () => {
-  try {
-    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
-  } catch (e: any) {
-    console.warn('[MAIN] [Permissions] Could not open Screen Recording settings:', e?.message || e);
-  }
-});
-
-// Write permissions-complete flag then relaunch. Only relaunch if the write succeeded —
-// otherwise the next boot would route back to permissions (potential loop).
-ipcMain.handle('permissions-complete', () => {
-  try {
-    fs.writeFileSync(getPermissionsCompletePath(), '1');
-    console.log('[Permissions] permissions-complete flag written');
-  } catch (e: any) {
-    console.error('[MAIN] [Permissions] Failed to write permissions-complete flag:', e);
-    Sentry.captureException(e);
-    return { error: e.message };
-  }
-  app.relaunch();
-  app.quit();
-});
-
-// Returns whether the permissions-complete flag is set (for renderer routing)
-ipcMain.handle('permissions-get-flag', () => isPermissionsComplete());
+// Permissions IPC (permissions-*) is registered via permissions.registerPermissionsIpc().
 
 // Set when a `launch-coach` deep link arrives before the app is ready (cold
 // launch via protocol). Flushed once `app.whenReady()` resolves — calling
@@ -1413,10 +1284,11 @@ app.whenReady().then(async () => {
   // Load native audio module AFTER logging is set up, then register the Cue IPC.
   audioManager.initAudioProvider();
   audioManager.registerCueIpc({
-    checkOSPermissionsGranted,
+    checkOSPermissionsGranted: permissions.checkOSPermissionsGranted,
     createSplashWindow,
     sendToOnboardingWindow,
   });
+  permissions.registerPermissionsIpc();
 
   // Always attempt silent auth via AuthManager first.
   // init() reads the persisted refresh token, exchanges it for a fresh access
@@ -1445,7 +1317,7 @@ app.whenReady().then(async () => {
 
   const authState = authManager.getState();
   if (authState.isAuthenticated) {
-    if (!isPermissionsComplete()) {
+    if (!permissions.isPermissionsComplete()) {
       // Token restored but permissions flow was never completed — show splash.
       // PostAuthRedirect will see the user is authenticated and route to /permissions.
       console.log('[MAIN] Authenticated but permissions-complete flag missing — showing splash for permissions');
@@ -1758,10 +1630,12 @@ ipcMain.handle('get-app-settings-window-open-state', () => {
 })
 
 // Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow
-ipcMain.on('open-coach-window', () => {
+ipcMain.on('open-coach-window', async () => {
   if (global.networkState === 'reconnecting') return;
-  const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-  if (micStatus !== 'granted') {
+  // Route mic check through the permissions provider so platform behavior stays
+  // behind the abstraction (Windows reports its own contract, not the raw OS API).
+  const { mic } = await permissions.checkOSPermissionsGranted();
+  if (!mic) {
     createSplashWindow();
     return;
   }
