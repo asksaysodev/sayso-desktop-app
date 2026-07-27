@@ -25,6 +25,12 @@ export function checkOSPermissionsGranted(): Promise<PermissionsStatus> {
   return provider.checkGranted();
 }
 
+// IPC classification: every permissions-* channel is PLATFORM-DISPATCHED via the
+// active IPermissionsProvider (mac = real mic/screen gates; win32 = safe defaults,
+// with the Windows mic-privacy gate as a future win32-only addition behind the
+// same interface). Handlers stay thin — no process.platform here. See
+// docs/IPC_CONTRACT.md.
+
 /** Register the permissions-* IPC handlers. Call once during app init. */
 export function registerPermissionsIpc(): void {
   // Check current mic + screen status (non-interactive)
