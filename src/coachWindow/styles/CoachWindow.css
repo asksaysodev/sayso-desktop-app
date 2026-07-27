@@ -454,10 +454,14 @@ button {
     color: #fff;
     -webkit-app-region: no-drag;
     font-size: var(--cw-fs-zip-input-fs);
+    line-height: 1;
+    position: relative;
+    top: 1px;
 }
 
 .coach-window .zip-code-input.valid {
     width: var(--cw-fs-zip-input-width) !important;
+    padding: 0px !important;
 }
 
 .coach-window .zip-code-input::placeholder {
@@ -1165,8 +1169,8 @@ button {
 /* L */
 :root[data-font-size="l"] {
     --cw-fs-lead-type-initial-fs: 17px;
-    --cw-fs-lead-type-initial-height: 38px;
-    --cw-fs-container-height: 36px;
+    --cw-fs-lead-type-initial-height: 36px;
+    --cw-fs-container-height: 35px;
     --cw-fs-select-lead: 19.6px;
     --cw-fs-launch-btn: 19px;
     --cw-fs-insight: 18px;
