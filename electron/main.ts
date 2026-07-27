@@ -205,6 +205,7 @@ authManager.on('signed-out', () => {
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat for unmigrated windows
   broadcastToAllWindows('auth:session-expired');
+  tearDownSignedInWindows();
 });
 
 authManager.on('token-refreshed', async (state: AuthState) => {
@@ -260,13 +261,9 @@ authManager.on('session-expired', () => {
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat
   broadcastToAllWindows('auth:session-expired');
-  // Stop WebSocket reconnect loops — there is no valid token to reconnect with
-  if (cueAudioStreamer) { cueAudioStreamer.shouldReconnect = false; cueAudioStreamer.stop(false).catch(() => {}); }
-  if (audioStreamer)    { audioStreamer.shouldReconnect    = false; audioStreamer.stop(false).catch(() => {}); }
-  // Close secondary windows and route to the login screen so the user isn't
-  // left clicking around with broken auth
-  if (isCoachWindowOpen()) global.coachWindow!.close();
-  if (isPlaybookWindowOpen()) global.playbookWindow!.close();
+  // Stop reconnect loops that have no valid token, and close the secondary
+  // windows so the user isn't left clicking around with broken auth
+  tearDownSignedInWindows();
   createSplashWindow({ reason: 'session-expired' });
 });
 
@@ -667,6 +664,32 @@ function isAppSettingsWindowOpen() {
 }
 function isPlaybookWindowOpen() {
   return global.playbookWindow && !global.playbookWindow.isDestroyed();
+}
+
+/**
+ * Releases everything that only makes sense while a user is signed in: websocket
+ * reconnect loops that have no valid token to reconnect with, and the secondary
+ * windows that assume an authenticated session.
+ *
+ * Shared by both ways a session ends — an explicit logout and an expired session.
+ * Those two paths had drifted: only the expiry path closed the windows, so
+ * logging out left the coach window floating on screen after the user was
+ * already back at the login form. Keep them calling this, not their own copies.
+ *
+ * Idempotent: stop() early-returns when not streaming, and the window checks
+ * guard against destroyed handles.
+ */
+function tearDownSignedInWindows(): void {
+  if (cueAudioStreamer) {
+    cueAudioStreamer.shouldReconnect = false;
+    cueAudioStreamer.stop(false).catch(() => {});
+  }
+  if (audioStreamer) {
+    audioStreamer.shouldReconnect = false;
+    audioStreamer.stop(false).catch(() => {});
+  }
+  if (isCoachWindowOpen()) global.coachWindow!.close();
+  if (isPlaybookWindowOpen()) global.playbookWindow!.close();
 }
 function windowSourceFromEvent(event: Electron.IpcMainEvent): 'coach' | 'independent' {
   const coach = global.coachWindow;
