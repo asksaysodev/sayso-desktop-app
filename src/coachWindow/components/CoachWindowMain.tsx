@@ -4,7 +4,6 @@ import { useNetworkState } from '@/hooks/useNetworkState';
 import { MdDragIndicator } from 'react-icons/md';
 import { MdErrorOutline } from 'react-icons/md';
 import { LuX } from 'react-icons/lu';
-import * as Sentry from "@sentry/electron/renderer";
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import CoachButtons from './CoachButtons';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
@@ -16,7 +15,7 @@ import usePulseMarketProperty from '../hooks/usePulseMarketProperty';
 import ZipCodeDropdown from './ZipCodeDropdown';
 import { usePlaybookPrefetch } from '@/playbookWindow/hooks/usePlaybookPrefetch';
 import Pulse from './Pulse';
-import { isCuePermissionsDeniedError } from '../services/cueService';
+import { reportCoachError } from '../services/cueService';
 
 const WINDOW_WIDTH_SIZES = {
     s: { BASE: 380, MAX_WIDTH: 900 },
@@ -126,7 +125,7 @@ export default function CoachWindowMain() {
     
     const handleSessionExpired = useCallback(() => {
         useCoachWindowStore.setState({ error: 'Your session has expired. Please re-login from the main window.' });
-        if (isCoachActive) handleStopCue().catch((err) => Sentry.captureException(err));
+        if (isCoachActive) handleStopCue().catch(reportCoachError);
     }, [isCoachActive, handleStopCue]);
     useSessionExpiry(handleSessionExpired);
 
@@ -142,11 +141,7 @@ export default function CoachWindowMain() {
     }, [isReconnecting]);
 
     const runCueAction = useCallback((action: () => Promise<unknown>) => {
-        action().catch((err) => {
-            if (!isCuePermissionsDeniedError(err)) {
-                Sentry.captureException(err);
-            }
-        });
+        action().catch(reportCoachError);
     }, []);
 
     const handleRequestStop = useCallback(() => {
@@ -366,7 +361,7 @@ export default function CoachWindowMain() {
             try {
                 await handleStopCue();
             } catch (error) {
-                Sentry.captureException(error);
+                reportCoachError(error);
             } finally {
                 setShowSessionAutoStopped(true);
             }

@@ -1,3 +1,6 @@
+import * as Sentry from "@sentry/electron/renderer";
+import { isTransientApiError, isAuthTeardownError } from '@/utils/errorReporting';
+
 export const CUE_PERMISSIONS_DENIED = 'permissions_denied';
 
 /**
@@ -22,6 +25,23 @@ export class CueStartError extends Error {
 export const isCuePermissionsDeniedError = (error: unknown): boolean => (
     error instanceof CueStartError && error.code === CUE_PERMISSIONS_DENIED
 );
+
+/**
+ * Single entry point for coach-window error reporting. Swallows the three classes
+ * of failure that are expected state rather than bugs — OS permissions denied,
+ * transient network loss, and post-logout auth teardown — and reports the rest.
+ */
+export const reportCoachError = (error: unknown): void => {
+    if (
+        isCuePermissionsDeniedError(error) ||
+        isTransientApiError(error) ||
+        isAuthTeardownError(error)
+    ) {
+        console.warn('[Coach] expected failure, not reported:', error);
+        return;
+    }
+    Sentry.captureException(error);
+};
 
 export const cue_startStreaming = async (sessionId: string) => {
     try {

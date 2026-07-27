@@ -1,8 +1,7 @@
 import { LuLoader } from "react-icons/lu";
 import CoachActiveButtons from "./CoachActiveButtons";
 import { useCoachWindowStore } from "../../store/coachWindowStore";
-import { isCuePermissionsDeniedError } from "../services/cueService";
-import * as Sentry from "@sentry/electron/renderer";
+import { reportCoachError } from "../services/cueService";
 
 interface Props {
     setIsDropdownOpen: (isOpen: boolean) => void;
@@ -54,9 +53,7 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen, onRequ
 
         } catch (error) {
             console.error('Error in handleCoach:', error);
-            if (!isCuePermissionsDeniedError(error)) {
-                Sentry.captureException(error);
-            }
+            reportCoachError(error);
         }
     }
 
