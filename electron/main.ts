@@ -22,6 +22,7 @@ import { WindowManager } from './utils/windowManager';
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
+import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage } from './utils/transientErrors';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 
@@ -357,15 +358,6 @@ process.on('uncaughtException', (error) => {
   // so the auto-updater can still run or the user can see an error UI.
 });
 
-// Transient/environmental updater errors (offline, or a transient upstream
-// 502/503/504/429) that recover on the next check and shouldn't reach Sentry.
-function isSuppressibleUpdaterError(err: any): boolean {
-  const OFFLINE_PATTERNS = ['ERR_INTERNET_DISCONNECTED', 'ENOTFOUND', 'ENETUNREACH', 'EAI_AGAIN'];
-  if (OFFLINE_PATTERNS.some(p => `${err?.message ?? ''}`.includes(p))) return true;
-  const status = typeof err?.statusCode === 'number' ? err.statusCode : undefined;
-  return status === 502 || status === 503 || status === 504 || status === 429;
-}
-
 if (app.isPackaged) {
   const { autoUpdater: updater } = require('electron-updater');
   const log = require('electron-log');
@@ -419,19 +411,8 @@ if (app.isPackaged) {
 
   updater.on('error', (err: Error & { statusCode?: number }) => {
     log.error('Error in auto-updater:', err);
-    const OFFLINE_PATTERNS = ['ERR_INTERNET_DISCONNECTED', 'ENOTFOUND', 'ENETUNREACH', 'EAI_AGAIN'];
-    const isOffline = OFFLINE_PATTERNS.some(p => err.message.includes(p));
-    const status = typeof err.statusCode === 'number' ? err.statusCode : undefined;
-    const isTransientUpstream = status === 502 || status === 503 || status === 504 || status === 429;
-    if (!isOffline && !isTransientUpstream) Sentry.captureException(err);
-    setUpdateState({
-      phase: 'error',
-      errorMessage: isOffline
-        ? 'No internet connection. Please check your network and try again.'
-        : isTransientUpstream
-        ? 'Couldn’t reach the update server. Please try again shortly.'
-        : err.message,
-    });
+    if (classifyUpdaterError(err) === 'fatal') Sentry.captureException(err);
+    setUpdateState({ phase: 'error', errorMessage: updaterErrorMessage(err) });
   });
 
   updater.on('download-progress', (progressObj: { percent?: number; transferred?: number; total?: number; bytesPerSecond?: number }) => {
@@ -1669,13 +1650,6 @@ if (gotSingleInstanceLock) {
 // DNS/connection errors — so the first attempt lands after the network has settled.
 const RESUME_NETWORK_DELAY_MS = 4000;
 
-function isTransientNetworkError(err: any): boolean {
-  const status = typeof err?.statusCode === 'number' ? err.statusCode : undefined;
-  if (status === 502 || status === 503 || status === 504 || status === 429) return true;
-  const msg = `${err?.message ?? ''} ${err?.code ?? ''}`;
-  return /ERR_NAME_NOT_RESOLVED|ENOTFOUND|EAI_AGAIN|fetch failed|ECONNREFUSED|ETIMEDOUT/i.test(msg);
-}
-
 // Labels currently running under a given dedupe `key`, so that e.g. the
 // 'resume' and 'unlock-screen' events firing back-to-back (common when
 // closing a laptop lid) don't each spin up their own overlapping retry chain.
@@ -1684,7 +1658,19 @@ const inFlightNetworkSettleKeys = new Set<string>();
 function runAfterNetworkSettles(
   label: string,
   fn: () => Promise<unknown>,
-  { initialDelay = RESUME_NETWORK_DELAY_MS, retries = 3, backoff = 3000, key }: { initialDelay?: number; retries?: number; backoff?: number; key?: string } = {}
+  { 
+    initialDelay = RESUME_NETWORK_DELAY_MS,
+    retries = 3,
+    backoff = 3000,
+    key, 
+    report = true 
+  }: { 
+    initialDelay?: number; 
+    retries?: number; 
+    backoff?: number; 
+    key?: string; 
+    report?: boolean 
+  } = {}
 ): void {
   if (key) {
     if (inFlightNetworkSettleKeys.has(key)) {
@@ -1715,7 +1701,7 @@ function runAfterNetworkSettles(
         setTimeout(tryRun, wait);
       } else {
         console.warn(`[Resume] ${label} failed:`, err?.message);
-        if (!isTransientNetworkError(err)) Sentry.captureException(err);
+        if (report && !isTransientNetworkError(err)) Sentry.captureException(err);
         done();
       }
     });
@@ -1742,7 +1728,6 @@ app.whenReady().then(async () => {
     setTimeout(() => {
       autoUpdater.checkForUpdates().catch(err => {
         console.error('Failed to check for updates:', err);
-        if (!isSuppressibleUpdaterError(err)) Sentry.captureException(err);
       });
     }, 1000); // 1 second delay
     
@@ -1752,7 +1737,7 @@ app.whenReady().then(async () => {
     // for the network instead of hitting ERR_NAME_NOT_RESOLVED.
     setInterval(() => {
       if (!autoUpdater) return;
-      runAfterNetworkSettles('auto-updater check', () => autoUpdater!.checkForUpdates());
+      runAfterNetworkSettles('auto-updater check', () => autoUpdater!.checkForUpdates(), { report: false });
     }, 60 * 60 * 1000);
   }
 
@@ -2156,9 +2141,9 @@ ipcMain.on('update:start-download', () => {
   }
 
   autoUpdater.downloadUpdate().catch((err: Error) => {
+    // Reporting is owned by updater.on('error') — see the startup check.
     console.error('[Updater] Download failed:', err);
-    if (!isSuppressibleUpdaterError(err)) Sentry.captureException(err);
-    setUpdateState({ phase: 'error', errorMessage: err.message });
+    setUpdateState({ phase: 'error', errorMessage: updaterErrorMessage(err) });
   });
 });
 
@@ -2182,9 +2167,9 @@ ipcMain.on('update:check-for-updates', () => {
   }
 
   autoUpdater.checkForUpdates().catch((err: Error) => {
+    // Reporting is owned by updater.on('error') — see the startup check.
     console.error('[Updater] Check failed:', err);
-    if (!isSuppressibleUpdaterError(err)) Sentry.captureException(err);
-    setUpdateState({ phase: 'error', errorMessage: err.message });
+    setUpdateState({ phase: 'error', errorMessage: updaterErrorMessage(err) });
   });
 });
 
