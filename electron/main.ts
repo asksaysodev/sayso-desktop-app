@@ -1488,6 +1488,18 @@ app.on('web-contents-created', (event: Event, contents: WebContents) => {
 });
 
 
+// ════════════════════════════════════════════════════════════════════════════
+// IPC HANDLERS
+//
+// Every handler below is UNIVERSAL (identical behavior on darwin + win32) unless
+// tagged otherwise. Platform-specific channels live in their provider modules,
+// not here: audio/Cue → electron/audio/audioManager.ts (IAudioProvider);
+// permissions → electron/permissions/permissionsManager.ts (IPermissionsProvider).
+// Full classification: docs/IPC_CONTRACT.md. Do NOT branch on process.platform
+// inside a handler — put OS differences behind a provider interface, or use the
+// flags in utils/platform.ts for small presentational branches.
+// ════════════════════════════════════════════════════════════════════════════
+
 // Authenticated User
 global.authUser = false;
 /**
@@ -1614,7 +1626,8 @@ ipcMain.handle('get-app-settings-window-open-state', () => {
     return isAppSettingsWindowOpen();
 })
 
-// Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow
+// Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow.
+// Classification: universal (the mic pre-flight gate is platform-dispatched via the permissions provider).
 ipcMain.on('open-coach-window', async () => {
   if (global.networkState === 'reconnecting') return;
   // Route mic check through the permissions provider so platform behavior stays
