@@ -1,7 +1,6 @@
 import type {
   IAudioProvider,
   AudioCaptureResult,
-  StopCaptureResult,
   StreamingCallback,
 } from './IAudioProvider';
 
@@ -19,27 +18,8 @@ class WindowsAudioProvider implements IAudioProvider {
     // No-op: Windows has no equivalent permission model
   }
 
-  async listOutputDevices(): Promise<any[]> {
-    console.warn('[Audio] listOutputDevices not yet implemented on Windows');
-    return [];
-  }
-
-  async createMultiOutputDevice(_name: string, _subDevices: string[]): Promise<any> {
-    console.warn('[Audio] createMultiOutputDevice not yet implemented on Windows');
-    return null;
-  }
-
-  async deleteMultiOutputDevice(_deviceId: any): Promise<any> {
-    console.warn('[Audio] deleteMultiOutputDevice not yet implemented on Windows');
-    return null;
-  }
-
-  async startSystemAudioCapture(_options?: Record<string, unknown>): Promise<AudioCaptureResult> {
-    return { success: false, error: 'System audio capture not yet supported on Windows' };
-  }
-
-  async stopSystemAudioCapture(): Promise<StopCaptureResult> {
-    return { success: true, filePath: null, actualStartMs: null };
+  async stopSystemAudioCapture(): Promise<AudioCaptureResult> {
+    return { success: true };
   }
 
   async isSystemAudioCaptureActive(): Promise<boolean> {
