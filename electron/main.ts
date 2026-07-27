@@ -1361,7 +1361,12 @@ ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { session
 });
 
 // Stop Cue (closes all websockets)
-ipcMain.handle('stop-cue', async (_event: Electron.IpcMainInvokeEvent) => {
+/**
+ * Tears down the Cue capture stack behind the `cueStopInFlight` mutex, so
+ * overlapping callers (the stop-cue IPC and the pre-logout stop) await the same
+ * teardown instead of racing two native stops.
+ */
+async function stopCueCapture(): Promise<{ success: boolean; error?: string; deduped?: boolean }> {
   if (cueStopInFlight) {
     const result = await cueStopInFlight;
     return { ...result, deduped: true };
@@ -1390,7 +1395,54 @@ ipcMain.handle('stop-cue', async (_event: Electron.IpcMainInvokeEvent) => {
 
   cueStopInFlight = stopWork;
   return stopWork;
-});
+}
+
+ipcMain.handle('stop-cue', async (_event: Electron.IpcMainInvokeEvent) => stopCueCapture());
+
+const CUE_STOP_PERSIST_TIMEOUT_MS = 5000;
+
+/**
+ * Ends an active Cue session end-to-end from main: tears down the capture stack
+ * and persists the session server-side. `reason` is used for logging only.
+ *
+ * Until this existed, only the renderer could persist a session — POST
+ * /cue/session/stop/:id lived solely in the coach window's store. That made
+ * session teardown unreachable from any main-process lifecycle event. Logging
+ * out cleared the tokens first, so the renderer's stop call went out with no
+ * Authorization header; the 401 meant `updateSupabaseSession()` never ran and the
+ * session was lost when the Redis key expired two hours later. Main owns the
+ * streamer and the token, so it does the whole thing itself.
+ *
+ * Call this from any main-side path that ends a session while the user is still
+ * authenticated. Safe with no active session, and idempotent — the teardown
+ * clears `cueAudioStreamer`, so a second call returns immediately. SAYSO-335.
+ */
+async function stopAndPersistCueSession(reason: string): Promise<void> {
+  const sessionId = cueAudioStreamer?.sessionId;
+  if (!sessionId) return;
+
+  // Read the token before the teardown so we can't race our own credential clear.
+  const accessToken = global.authAccessToken;
+
+  await stopCueCapture();
+
+  if (!accessToken) {
+    console.warn(`[MAIN] ${reason}: no access token — cue session ${sessionId} not persisted`);
+    return;
+  }
+
+  const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+  try {
+    await axios.post(`${baseUrl}/cue/session/stop/${sessionId}`, null, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: CUE_STOP_PERSIST_TIMEOUT_MS,
+    });
+    console.log(`[MAIN] ${reason}: cue session ${sessionId} stopped and persisted`);
+  } catch (err: any) {
+    console.warn(`[MAIN] ${reason}: cue stop failed —`, err?.message);
+    if (!isTransientNetworkError(err)) Sentry.captureException(err);
+  }
+}
 
 
 // Function to load environment variables
@@ -2255,6 +2307,8 @@ ipcMain.handle('auth:verify-mfa', async (_event, { factorId, code }: { factorId:
 });
 
 ipcMain.handle('auth:sign-out', async () => {
+  // Persist any in-flight cue session while the token is still valid. SAYSO-335.
+  await stopAndPersistCueSession('sign-out');
   await authManager.signOut();
 });
 
@@ -2494,8 +2548,11 @@ ipcMain.on('tray-show-window', () => {
 });
 
 // Handler for triggering logout from the tray menu — opens splash window with sign-out flag
-ipcMain.on('tray-logout', () => {
+ipcMain.on('tray-logout', async () => {
   hideTrayMenu();
+  // Must run before clearRefreshToken(): once the refresh token is gone,
+  // getAccessToken() returns null and the stop call can only 401. SAYSO-335.
+  await stopAndPersistCueSession('tray-logout');
   clearRefreshToken();
   if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
     createSplashWindow({ logout: true });

@@ -15,7 +15,7 @@ import usePulseMarketProperty from '../hooks/usePulseMarketProperty';
 import ZipCodeDropdown from './ZipCodeDropdown';
 import { usePlaybookPrefetch } from '@/playbookWindow/hooks/usePlaybookPrefetch';
 import Pulse from './Pulse';
-import { reportCoachError } from '../services/cueService';
+import { cue_stopStreaming, reportCoachError } from '../services/cueService';
 
 const WINDOW_WIDTH_SIZES = {
     s: { BASE: 380, MAX_WIDTH: 900 },
@@ -123,10 +123,19 @@ export default function CoachWindowMain() {
         setInsightsListMaxHeight(prev => prev !== newMax ? newMax : prev);
     }, [isInsightsLayoutOpen, isSmartCaptureEnabled]);
     
+    // By the time this fires the credentials are already gone, so POST /cue/session/stop
+    // could only 401 — persisting the session is main's job now, before it tears auth
+    // down (stopAndPersistCueSession in electron/main.ts). Here we only release
+    // local resources. Reads the store directly so a stale closure can't skip the
+    // teardown. SAYSO-335.
     const handleSessionExpired = useCallback(() => {
         useCoachWindowStore.setState({ error: 'Your session has expired. Please re-login from the main window.' });
-        if (isCoachActive) handleStopCue().catch(reportCoachError);
-    }, [isCoachActive, handleStopCue]);
+        if (!useCoachWindowStore.getState().isCoachActive) return;
+        useCoachWindowStore.setState({ isCoachActive: false, isCoachLoading: false });
+        cue_stopStreaming()
+            .catch(reportCoachError)
+            .finally(() => useCoachWindowStore.getState().cue_resetStates());
+    }, []);
     useSessionExpiry(handleSessionExpired);
 
     // On transition from offline → online, clear any stale error left over from
