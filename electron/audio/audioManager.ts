@@ -213,6 +213,10 @@ export async function cleanupAllAudioCapture(): Promise<void> {
 
 // ─── IPC registration ─────────────────────────────────────────────────────────
 
+// IPC classification: start-cue / stop-cue are PLATFORM-DISPATCHED. All native
+// audio capture goes through the active IAudioProvider (mac = ScreenCaptureKit +
+// AVAudioEngine; win32 = the WASAPI native module). See docs/IPC_CONTRACT.md.
+
 /** Register the start-cue / stop-cue IPC handlers. Call once during app init. */
 export function registerCueIpc(deps: CueIpcDeps): void {
   const { checkOSPermissionsGranted, createSplashWindow, sendToOnboardingWindow } = deps;
