@@ -1,6 +1,7 @@
 import { LuLoader } from "react-icons/lu";
 import CoachActiveButtons from "./CoachActiveButtons";
 import { useCoachWindowStore } from "../../store/coachWindowStore";
+import { useNetworkState } from "@/hooks/useNetworkState";
 import { reportCoachError } from "../services/cueService";
 
 interface Props {
@@ -17,6 +18,8 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen, onRequ
 
     const cue_handleStartCue = useCoachWindowStore(state => state.cue_handleStartCue);
     const cue_handleStopCue = useCoachWindowStore(state => state.cue_handleStopCue);
+
+    const { isReconnecting } = useNetworkState();
 
     const COACH_ACTIONS = {
         cue: {
@@ -44,6 +47,7 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen, onRequ
                 }
                 await actions.stop();
             } else {
+                if (isReconnecting) return;
                 if (isDropdownOpen) {
                     setIsDropdownOpen(false);
                 }
