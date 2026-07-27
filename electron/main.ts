@@ -11,7 +11,7 @@ import type {
   CueInsight
 } from './globals';
 
-import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu, nativeTheme, powerMonitor } from 'electron';
+import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, globalShortcut, dialog, Tray, Menu, nativeTheme, powerMonitor } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -1615,10 +1615,12 @@ ipcMain.handle('get-app-settings-window-open-state', () => {
 })
 
 // Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow
-ipcMain.on('open-coach-window', () => {
+ipcMain.on('open-coach-window', async () => {
   if (global.networkState === 'reconnecting') return;
-  const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-  if (micStatus !== 'granted') {
+  // Route mic check through the permissions provider so platform behavior stays
+  // behind the abstraction (Windows reports its own contract, not the raw OS API).
+  const { mic } = await permissions.checkOSPermissionsGranted();
+  if (!mic) {
     createSplashWindow();
     return;
   }
