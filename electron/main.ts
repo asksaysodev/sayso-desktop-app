@@ -11,7 +11,7 @@ import type {
   CueInsight
 } from './globals';
 
-import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, systemPreferences, globalShortcut, dialog, Tray, Menu, nativeTheme, powerMonitor } from 'electron';
+import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, globalShortcut, dialog, Tray, Menu, nativeTheme, powerMonitor } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -25,6 +25,8 @@ import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
 import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage } from './utils/transientErrors';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
+import * as audioManager from './audio/audioManager';
+import * as permissions from './permissions/permissionsManager';
 
 Sentry.init(sentryConfig);
 
@@ -60,69 +62,6 @@ if (IS_STAGING) {
   // Storage" item is left orphaned. Every existing user re-logs in once — intended.
   app.setName('Sayso');
   app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app'));
-}
-
-// ─── Permissions-complete flag ────────────────────────────────────────────────
-const getPermissionsCompletePath = () => path.join(app.getPath('userData'), 'permissions-complete');
-
-function isMacOSPermissionsComplete(): boolean {
-  const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
-  // CGPreflight is accurate for the running process (screen-recording grant is bound at launch).
-  const screen = !!(nativeAudio && typeof nativeAudio.checkScreenRecordingGranted === 'function'
-    && nativeAudio.checkScreenRecordingGranted());
-  // Live OS state is authoritative: if both are actually granted for this process, onboarding is
-  // complete regardless of the flag. This self-heals the case where the flag is missing but perms
-  // work — e.g. after the cert migration deletes the flag and the user re-grants + reopens. We only
-  // short-circuit on live grants, so an optimistically-written flag without a real SCK grant
-  // (screen === false) still routes back to /permissions.
-  if (mic && screen) {
-    if (!fs.existsSync(getPermissionsCompletePath())) {
-      try {
-        fs.writeFileSync(getPermissionsCompletePath(), '1');
-      } catch (e) {
-        console.warn('[Permissions] Failed to self-heal permissions-complete flag:', e);
-      }
-    }
-    return true;
-  }
-  return false;
-}
-
-// Platform dispatcher: are all OS permissions required to run granted (and onboarding flag set)?
-// Mirrors checkOSPermissionsGranted so main can stay platform-agnostic.
-function isPermissionsComplete(): boolean {
-  try {
-    if (process.platform === 'darwin') return isMacOSPermissionsComplete();
-    // Windows and other platforms: no permission gating yet
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-interface PermissionsResult {
-  granted: boolean;
-  mic: boolean;
-  screen: boolean;
-}
-
-async function checkMacOSPermissions(): Promise<PermissionsResult> {
-  const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
-  // Use CGPreflightScreenCaptureAccess (non-prompting) to READ status — never triggers the macOS
-  // dialog. The dialog is only shown on explicit user action via requestScreenRecordingPermission.
-  let screen = false;
-  if (nativeAudio && typeof nativeAudio.checkScreenRecordingGranted === 'function') {
-    screen = !!nativeAudio.checkScreenRecordingGranted();
-  } else {
-    console.warn('[Permissions] checkScreenRecordingGranted not available on nativeAudio');
-  }
-  return { granted: mic && screen, mic, screen };
-}
-
-async function checkOSPermissionsGranted(): Promise<PermissionsResult> {
-  if (process.platform === 'darwin') return checkMacOSPermissions();
-  // Windows and other platforms: no permission gating yet
-  return { granted: true, mic: true, screen: true };
 }
 
 // ─── Auth: single source of truth ────────────────────────────────────────────
@@ -217,7 +156,7 @@ authManager.on('token-refreshed', async (state: AuthState) => {
   // don't fail with an expired JWT. updateToken() stores the value and the next
   // _connect() call will embed it in the WebSocket URL query string.
   if (state.accessToken) {
-    if (cueAudioStreamer) cueAudioStreamer.updateToken(state.accessToken);
+    audioManager.updateCueToken(state.accessToken);
   }
 
   // Startup-offline recovery: the first successful refresh after init() failed
@@ -259,7 +198,7 @@ authManager.on('session-expired', () => {
   broadcastToAllWindows('auth-session-expired');   // backward-compat
   broadcastToAllWindows('auth:session-expired');
   // Stop WebSocket reconnect loops — there is no valid token to reconnect with
-  if (cueAudioStreamer) { cueAudioStreamer.shouldReconnect = false; cueAudioStreamer.stop(false).catch(() => {}); }
+  audioManager.stopCueForSessionExpired();
   // Close secondary windows and route to the login screen so the user isn't
   // left clicking around with broken auth
   if (isCoachWindowOpen()) global.coachWindow!.close();
@@ -319,7 +258,7 @@ function broadcastUpdateState(): void {
 }
 
 function isCoachSessionActive(): boolean {
-  return cueAudioStreamer !== null;
+  return audioManager.isCueActive();
 }
 
 function openSplashForUpdate(): void {
@@ -487,9 +426,6 @@ if (app.isPackaged) {
 
   autoUpdater = updater;
 }
-
-// Native audio module - will be loaded after logging is set up
-let nativeAudio: any = null;
 
 // Add file logging for production
 function setupLogging() {
@@ -955,315 +891,6 @@ if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = 'production';
 }
 
-// Store active recording session metadata
-
-// Store Cue instances (separate from regular streaming)
-let cueAudioStreamer: any = null;
-
-/** Serialize stop-cue: overlapping IPC invokes await the same teardown (no double native stop). */
-let cueStopInFlight: Promise<{ success: boolean; error?: string; deduped?: boolean }> | null = null;
-
-/** Per-session telemetry: chunks + bytes forwarded from native callbacks into AudioStreamer */
-let cueCaptureStats = {
-  userChunks: 0,
-  prospectChunks: 0,
-  userBytes: 0,
-  prospectBytes: 0
-};
-
-let cueLowAudioTimer: ReturnType<typeof setTimeout> | null = null;
-
-function clearCueLowAudioTimer() {
-  if (cueLowAudioTimer) {
-    clearTimeout(cueLowAudioTimer);
-    cueLowAudioTimer = null;
-  }
-}
-
-function scheduleCueLowAudioCheck(sessionId: string) {
-  clearCueLowAudioTimer();
-  cueLowAudioTimer = setTimeout(() => {
-    cueLowAudioTimer = null;
-    if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
-    if (cueCaptureStats.userChunks > 0) return;
-    try {
-      if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-        global.coachWindow.webContents.send('cue-low-user-audio', { sessionId });
-      }
-    } catch {
-      /* ignore */
-    }
-  }, 4000);
-}
-
-/**
- * Stop Cue mic + SCK + websocket streamer (shared by stop-cue and defensive start-cue).
- * Does not touch cueStopInFlight mutex.
- */
-async function teardownCueStreamsAndNative(): Promise<void> {
-  clearCueLowAudioTimer();
-  if (cueAudioStreamer) {
-    await cueAudioStreamer.stop(false);
-    cueAudioStreamer = null;
-  }
-  await stopUserStreaming();
-  if (nativeAudio) {
-    await nativeAudio.stopSystemAudioCapture();
-    nativeAudio.setStreamingCallback(null);
-  }
-}
-
-/**
- * Cleanup all audio capture resources (screen capture, microphone, streams)
- * Called when coach window closes or app quits to ensure permissions are released
- */
-async function cleanupAllAudioCapture() {
-  if (isDev) {
-    console.log('[Cleanup] Starting audio capture cleanup...');
-  }
-  
-  try {
-    if (cueStopInFlight) {
-      await cueStopInFlight;
-    }
-
-    // 1. Stop user streaming (handles global.userStreamingProcess)
-    await stopUserStreaming();
-    
-    // 2. Stop system audio capture (screen recording) via native module
-    if (nativeAudio) {
-      await nativeAudio.stopSystemAudioCapture();
-      nativeAudio.setStreamingCallback(null);
-    }
-    
-    // 3. Stop Cue audio streamer
-    if (cueAudioStreamer) {
-      try {
-        await cueAudioStreamer.stop(false);
-        cueAudioStreamer = null;
-      } catch (error) {
-        console.error('[Cleanup] Error stopping cue audio streamer:', error);
-        Sentry.captureException(error);
-        cueAudioStreamer = null;
-      }
-    }
-    
-    if (isDev) {
-      console.log('[Cleanup] All audio capture cleaned up');
-    }
-  } catch (error) {
-    console.error('[Cleanup] Error during audio cleanup:', error);
-    Sentry.captureException(error);
-  }
-}
-
-// Start Cue (handles 2 audio websockets: user + prospect)
-ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { sessionId, token }: { sessionId: string, token: string }) => {
-  try {
-    
-    if (!token) {
-      throw new Error('Token is required');
-    }
-
-    if (!sessionId) {
-      throw new Error('SessionId is required');
-    }
-
-    if (!nativeAudio) {
-      throw new Error('Native audio module not loaded. Please wait for app initialization.');
-    }
-
-    const permsCheck = await checkOSPermissionsGranted();
-    if (!permsCheck.granted) {
-      console.warn('[Cue] OS permissions not granted — mic:', permsCheck.mic, 'screen:', permsCheck.screen);
-      // Surface the splash window; PostAuthRedirect sees permissions are incomplete and routes to /permissions.
-      createSplashWindow();
-      return { success: false, error: 'permissions_denied', mic: permsCheck.mic, screen: permsCheck.screen };
-    }
-
-    if (cueStopInFlight) {
-      await cueStopInFlight;
-    }
-
-    let systemCaptureActive = false;
-    let micCaptureActive = false;
-    try {
-      if (typeof nativeAudio.isSystemAudioCaptureActive === 'function') {
-        systemCaptureActive = !!(await nativeAudio.isSystemAudioCaptureActive());
-      }
-      if (typeof nativeAudio.isMicrophoneCaptureActive === 'function') {
-        micCaptureActive = !!(await nativeAudio.isMicrophoneCaptureActive());
-      }
-    } catch (probeErr) {
-      console.warn('[Cue] Could not probe native capture state:', probeErr);
-    }
-
-    if (cueAudioStreamer || systemCaptureActive || micCaptureActive) {
-      console.warn('[Cue] Guard: leftover streamer or native capture — running teardown before start', {
-        hadStreamer: !!cueAudioStreamer,
-        systemCaptureActive,
-        micCaptureActive
-      });
-      await teardownCueStreamsAndNative();
-    }
-
-    cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
-
-    // Create AudioStreamer for 2 audio websockets (user + prospect)
-    cueAudioStreamer = new AudioStreamer({
-      sessionId: sessionId, // Use provided sessionId from backend
-      onUserConnected: () => {
-        try {
-          if (!event.sender.isDestroyed()) {
-            event.sender.send('cue-status', { user: 'connected' });
-          }
-        } catch (error) {
-          console.error('[Cue] Error sending user connected status:', error);
-        }
-      },
-      onProspectConnected: () => {
-        try {
-          if (!event.sender.isDestroyed()) {
-            event.sender.send('cue-status', { prospect: 'connected' });
-          }
-        } catch (error) {
-          console.error('[Cue] Error sending prospect connected status:', error);
-        }
-      },
-      onError: (stream: string, error: Error) => {
-        console.error(`[Cue] ${stream} stream error:`, error);
-        try {
-          if (!event.sender.isDestroyed()) {
-            event.sender.send('cue-error', { stream, error: error.message });
-          }
-        } catch (err) {
-          console.error('[Cue] Error sending error status:', err);
-        }
-      },
-      onMessage: (message: any) => {
-        try {
-          // Forward insight messages to renderer process
-          if (message && message.type === 'insight' && message.data) {
-            // Forward to coach window if it exists
-            if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-              global.coachWindow.webContents.send('cue-insight', message.data);
-            }
-          }
-
-          if (message && message.type === 'smart_capture' && message.data) {
-            if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-              global.coachWindow.webContents.send('cue-smart-capture', message.data);
-            }
-          }
-
-          if (message && message.type === 'auto_stop') {
-            if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-              global.coachWindow.webContents.send('cue-auto-stop');
-              
-              if (process.platform === 'darwin') {
-                app.setBadgeCount(app.getBadgeCount() + 1);
-                if (app.dock) {
-                  app.dock.bounce('critical');
-                }
-              }
-            } 
-          }
-        } catch (error) {
-          console.error('[Cue] Error handling message:', error);
-        }
-      }
-    });
-
-    // Start audio streaming (2 websockets)
-    await cueAudioStreamer.start(token);
-
-    // Set up audio capture callbacks (streaming only - no file saving)
-    const cueUserStreamingCallback = (buffer: Buffer, format: unknown) => {
-      if (cueAudioStreamer) {
-        cueCaptureStats.userChunks += 1;
-        cueCaptureStats.userBytes += buffer?.length ?? 0;
-        cueAudioStreamer.addUserAudio(buffer, format);
-      }
-    };
-    await startUserStreaming({ streamingCallback: cueUserStreamingCallback });
-    await ensureCueUserMicDeliversJsChunks(sessionId, cueUserStreamingCallback);
-
-    if (!nativeAudio) {
-      throw new Error('Native audio module not loaded. Please wait for app initialization.');
-    }
-
-    if (typeof nativeAudio.startProspectStreaming !== 'function') {
-      throw new Error('startProspectStreaming method not available. Native module may need to be rebuilt.');
-    }
-
-    await nativeAudio.startProspectStreaming({
-      streamingCallback: (buffer: Buffer, format: string) => {
-        if (cueAudioStreamer) {
-          cueCaptureStats.prospectChunks += 1;
-          cueCaptureStats.prospectBytes += buffer?.length ?? 0;
-          cueAudioStreamer.addProspectAudio(buffer, format);
-        }
-      }
-    });
-
-    scheduleCueLowAudioCheck(sessionId);
-
-    if (isDev) {
-      console.log('[Cue] Started session', sessionId, '— stats reset; low-audio check in 4s if no user chunks');
-    }
-
-    sendToOnboardingWindow('onboarding:session-started');
-    return {
-      success: true,
-      sessionId: sessionId
-    };
-  } catch (error: any) {
-    console.error('[MAIN] Error starting Cue:', error);
-    Sentry.captureException(error);
-    clearCueLowAudioTimer();
-    try {
-      await teardownCueStreamsAndNative();
-    } catch (teardownErr: any) {
-      console.error('[Cue] Error tearing down after failed start:', teardownErr);
-      cueAudioStreamer = null;
-    }
-    return { success: false, error: error.message };
-  }
-});
-
-// Stop Cue (closes all websockets)
-ipcMain.handle('stop-cue', async (_event: Electron.IpcMainInvokeEvent) => {
-  if (cueStopInFlight) {
-    const result = await cueStopInFlight;
-    return { ...result, deduped: true };
-  }
-
-  const stopWork = (async (): Promise<{ success: boolean; error?: string }> => {
-    const statsAtStop = { ...cueCaptureStats };
-    try {
-      await teardownCueStreamsAndNative();
-      sendToOnboardingWindow('onboarding:session-stopped');
-      console.log(
-        `[Cue] Session teardown complete — capture stats: userChunks=${statsAtStop.userChunks} prospectChunks=${statsAtStop.prospectChunks} userBytes=${statsAtStop.userBytes} prospectBytes=${statsAtStop.prospectBytes}`
-      );
-      cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
-      return { success: true };
-    } catch (error: any) {
-      console.error('[MAIN] Error stopping Cue:', error);
-      Sentry.captureException(error);
-      cueAudioStreamer = null;
-      cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
-      return { success: false, error: error.message };
-    } finally {
-      cueStopInFlight = null;
-    }
-  })();
-
-  cueStopInFlight = stopWork;
-  return stopWork;
-});
-
-
 // Function to load environment variables
 function loadEnvironmentVariables() {
   const isDev = process.env.NODE_ENV !== 'production';
@@ -1312,41 +939,7 @@ loadEnvironmentVariables();
 const wav = require('wav');
 const NodeFormData = require('form-data');
 const axios = require('axios');
-const { 
-  stopUserStreaming,
-  startUserStreaming
-} = require('./recorder');
 
-const CUE_MIC_JS_WARMUP_MS = 500;
-const CUE_MIC_JS_RESTART_WAIT_MS = 700;
-
-async function waitForCueUserChunks(sessionId: string, maxMs: number): Promise<boolean> {
-  const deadline = Date.now() + maxMs;
-  while (Date.now() < deadline) {
-    if (cueCaptureStats.userChunks > 0) return true;
-    if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return false;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  }
-  return cueCaptureStats.userChunks > 0;
-}
-
-/** If Node never receives mic buffers after native start, stop/start mic once (belt-and-suspenders). */
-async function ensureCueUserMicDeliversJsChunks(
-  sessionId: string,
-  streamingCallback: (buffer: Buffer, format: unknown) => void
-): Promise<void> {
-  if (await waitForCueUserChunks(sessionId, CUE_MIC_JS_WARMUP_MS)) return;
-  if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
-  console.warn('[Cue] No user chunks on JS side after native mic start — restarting user streaming once', {
-    sessionId,
-  });
-  await stopUserStreaming();
-  if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
-  await startUserStreaming({ streamingCallback });
-  await waitForCueUserChunks(sessionId, CUE_MIC_JS_RESTART_WAIT_MS);
-}
-
-const { AudioStreamer } = require('./streaming/audioStreamer');
 // Add command line switches for better camera support
 app.commandLine.appendSwitch('enable-features', 'WebRTC,MediaDevices,MediaStream');
 app.commandLine.appendSwitch('enable-media-stream');
@@ -1463,81 +1056,7 @@ ipcMain.on('open-external', (event: Electron.IpcMainInvokeEvent, url: string) =>
   }
 });
 
-// --- Permissions Handlers ---
-// Check current mic + screen status (non-interactive)
-ipcMain.handle('permissions-check', async () => {
-  try {
-    const result = await checkOSPermissionsGranted();
-    if (isDev) console.log('[Permissions] check:', result);
-    return { mic: result.mic, screen: result.screen };
-  } catch (e: any) {
-    console.error('[MAIN] [Permissions] Error checking permissions:', e);
-    Sentry.captureException(e);
-    return { mic: false, screen: false, error: e.message };
-  }
-});
-
-// Request microphone permission only (never triggers app restart)
-ipcMain.handle('permissions-request-mic', async () => {
-  try {
-    const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-    if (micStatus === 'granted') return { mic: true, action: 'already-granted' };
-    if (micStatus === 'not-determined') {
-      const granted = await systemPreferences.askForMediaAccess('microphone');
-      return { mic: granted, action: 'asked' };
-    }
-    // denied / restricted → open Microphone privacy pane directly
-    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
-    return { mic: false, action: 'open-settings' };
-  } catch (e: any) {
-    console.error('[MAIN] [Permissions] Error requesting mic:', e);
-    Sentry.captureException(e);
-    return { mic: false, action: 'error', error: e.message };
-  }
-});
-
-// Non-destructive poll: did the user grant screen recording?
-ipcMain.handle('permissions-check-screen', async () => {
-  try {
-    const result = await checkOSPermissionsGranted();
-    return result.screen;
-  } catch {
-    return false;
-  }
-});
-
-// Prompt macOS to surface the Screen Recording row in System Settings (fire-and-forget)
-ipcMain.handle('permissions-request-screen', () => {
-  if (!nativeAudio || typeof nativeAudio.requestScreenRecordingPermission !== 'function') return;
-  try { nativeAudio.requestScreenRecordingPermission(); } catch { /* ignore */ }
-});
-
-// Open Screen Recording privacy pane directly
-ipcMain.handle('permissions-open-screen-settings', async () => {
-  try {
-    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
-  } catch (e: any) {
-    console.warn('[MAIN] [Permissions] Could not open Screen Recording settings:', e?.message || e);
-  }
-});
-
-// Write permissions-complete flag then relaunch. Only relaunch if the write succeeded —
-// otherwise the next boot would route back to permissions (potential loop).
-ipcMain.handle('permissions-complete', () => {
-  try {
-    fs.writeFileSync(getPermissionsCompletePath(), '1');
-    console.log('[Permissions] permissions-complete flag written');
-  } catch (e: any) {
-    console.error('[MAIN] [Permissions] Failed to write permissions-complete flag:', e);
-    Sentry.captureException(e);
-    return { error: e.message };
-  }
-  app.relaunch();
-  app.quit();
-});
-
-// Returns whether the permissions-complete flag is set (for renderer routing)
-ipcMain.handle('permissions-get-flag', () => isPermissionsComplete());
+// Permissions IPC (permissions-*) is registered via permissions.registerPermissionsIpc().
 
 // Set when a `launch-coach` deep link arrives before the app is ready (cold
 // launch via protocol). Flushed once `app.whenReady()` resolves — calling
@@ -1747,12 +1266,18 @@ app.whenReady().then(async () => {
     }
   });
   
-  // Load native audio module AFTER logging is set up
-  try {
-    nativeAudio = require('./audio').default;
-  } catch (error) {
-    Sentry.captureException(error);
-  }
+  // Load native audio module AFTER logging is set up, then register the Cue IPC.
+  // ORDERING CONSTRAINT: start-cue/stop-cue and permissions-* are registered here,
+  // inside app.whenReady() and BEFORE any renderer window is created below. Keep it
+  // that way — a window opened earlier in whenReady() would hit "No handler
+  // registered for '<channel>'" for these channels.
+  audioManager.initAudioProvider();
+  audioManager.registerCueIpc({
+    checkOSPermissionsGranted: permissions.checkOSPermissionsGranted,
+    createSplashWindow,
+    sendToOnboardingWindow,
+  });
+  permissions.registerPermissionsIpc();
 
   // Always attempt silent auth via AuthManager first.
   // init() reads the persisted refresh token, exchanges it for a fresh access
@@ -1781,7 +1306,7 @@ app.whenReady().then(async () => {
 
   const authState = authManager.getState();
   if (authState.isAuthenticated) {
-    if (!isPermissionsComplete()) {
+    if (!permissions.isPermissionsComplete()) {
       // Token restored but permissions flow was never completed — show splash.
       // PostAuthRedirect will see the user is authenticated and route to /permissions.
       console.log('[MAIN] Authenticated but permissions-complete flag missing — showing splash for permissions');
@@ -1867,7 +1392,7 @@ app.on('before-quit', async (event: Event) => {
   }
 
   // Force cleanup of all audio capture before quitting
-  await cleanupAllAudioCapture();
+  await audioManager.cleanupAllAudioCapture();
   unregisterGlobalShortcuts();
 });
 
@@ -1966,6 +1491,18 @@ app.on('web-contents-created', (event: Event, contents: WebContents) => {
   });
 });
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// IPC HANDLERS
+//
+// Every handler below is UNIVERSAL (identical behavior on darwin + win32) unless
+// tagged otherwise. Platform-specific channels live in their provider modules,
+// not here: audio/Cue → electron/audio/audioManager.ts (IAudioProvider);
+// permissions → electron/permissions/permissionsManager.ts (IPermissionsProvider).
+// Full classification: docs/IPC_CONTRACT.md. Do NOT branch on process.platform
+// inside a handler — put OS differences behind a provider interface, or use the
+// flags in utils/platform.ts for small presentational branches.
+// ════════════════════════════════════════════════════════════════════════════
 
 // Authenticated User
 global.authUser = false;
@@ -2093,11 +1630,22 @@ ipcMain.handle('get-app-settings-window-open-state', () => {
     return isAppSettingsWindowOpen();
 })
 
-// Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow
-ipcMain.on('open-coach-window', () => {
+// Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow.
+// Classification: universal (the mic pre-flight gate is platform-dispatched via the permissions provider).
+ipcMain.on('open-coach-window', async () => {
   if (global.networkState === 'reconnecting') return;
-  const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-  if (micStatus !== 'granted') {
+  // Mic-only gate, routed through the permissions provider (isMicGranted avoids
+  // the screen-recording preflight this handler doesn't need). Fail closed: any
+  // provider error routes to the splash/permissions flow rather than silently
+  // leaving the coach window unopened.
+  let micGranted = false;
+  try {
+    micGranted = await permissions.isMicGranted();
+  } catch (e) {
+    console.error('[MAIN] open-coach-window: mic permission check failed:', e);
+    Sentry.captureException(e);
+  }
+  if (!micGranted) {
     createSplashWindow();
     return;
   }
@@ -2440,7 +1988,7 @@ const createCoachWindow = () => {
     }
 
     // Force cleanup of all audio capture when coach window closes
-    await cleanupAllAudioCapture();
+    await audioManager.cleanupAllAudioCapture();
 
     global.coachWindow = null;
 
