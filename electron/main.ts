@@ -1267,6 +1267,10 @@ app.whenReady().then(async () => {
   });
   
   // Load native audio module AFTER logging is set up, then register the Cue IPC.
+  // ORDERING CONSTRAINT: start-cue/stop-cue and permissions-* are registered here,
+  // inside app.whenReady() and BEFORE any renderer window is created below. Keep it
+  // that way — a window opened earlier in whenReady() would hit "No handler
+  // registered for '<channel>'" for these channels.
   audioManager.initAudioProvider();
   audioManager.registerCueIpc({
     checkOSPermissionsGranted: permissions.checkOSPermissionsGranted,
@@ -1630,10 +1634,18 @@ ipcMain.handle('get-app-settings-window-open-state', () => {
 // Classification: universal (the mic pre-flight gate is platform-dispatched via the permissions provider).
 ipcMain.on('open-coach-window', async () => {
   if (global.networkState === 'reconnecting') return;
-  // Route mic check through the permissions provider so platform behavior stays
-  // behind the abstraction (Windows reports its own contract, not the raw OS API).
-  const { mic } = await permissions.checkOSPermissionsGranted();
-  if (!mic) {
+  // Mic-only gate, routed through the permissions provider (isMicGranted avoids
+  // the screen-recording preflight this handler doesn't need). Fail closed: any
+  // provider error routes to the splash/permissions flow rather than silently
+  // leaving the coach window unopened.
+  let micGranted = false;
+  try {
+    micGranted = await permissions.isMicGranted();
+  } catch (e) {
+    console.error('[MAIN] open-coach-window: mic permission check failed:', e);
+    Sentry.captureException(e);
+  }
+  if (!micGranted) {
     createSplashWindow();
     return;
   }

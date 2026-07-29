@@ -3,9 +3,20 @@ import * as Sentry from '@sentry/electron/main';
 
 import type { IAudioProvider, AudioFormat } from './IAudioProvider';
 
-// recorder + audioStreamer are CommonJS modules; keep require to match their style.
-const { startUserStreaming, stopUserStreaming } = require('../recorder');
-const { AudioStreamer } = require('../streaming/audioStreamer');
+// recorder + audioStreamer are CommonJS modules. Require them LAZILY (not at
+// module top): recorder.ts eagerly pulls in the native audio chain
+// (require('./audio') → MacAudioProvider → native-audio, which throws if the
+// native binary is missing / ABI-mismatched). This module is imported by main.ts
+// BEFORE Sentry.init() + setupLogging() run, so a top-level require here would
+// turn a bad native load into a silent, unreported pre-Sentry crash. Deferring to
+// first cue-start keeps that load inside initAudioProvider()'s guarded path (and
+// well after logging/Sentry are configured).
+function getRecorder(): { startUserStreaming: Function; stopUserStreaming: Function } {
+  return require('../recorder');
+}
+function getAudioStreamerCtor(): any {
+  return require('../streaming/audioStreamer').AudioStreamer;
+}
 
 // Match main.ts: app.isPackaged is reliable at module-load time; NODE_ENV is not
 // yet set when this module is imported, so keying off it would leak dev logging
@@ -16,8 +27,9 @@ const CUE_MIC_JS_WARMUP_MS = 500;
 const CUE_MIC_JS_RESTART_WAIT_MS = 700;
 
 // Platform audio provider (ScreenCaptureKit on macOS; stubbed on Windows).
-// Loaded lazily via initAudioProvider() so the native module loads after logging
-// is configured in main.
+// Loaded via initAudioProvider() (called from main after logging/Sentry are set
+// up) so the native module's first load happens inside a guarded, reported path
+// — see the lazy getRecorder/getAudioStreamerCtor note above.
 let provider: IAudioProvider | null = null;
 
 // Active Cue streamer (2 audio websockets: user + prospect). Null when idle.
@@ -142,9 +154,9 @@ async function ensureCueUserMicDeliversJsChunks(
   console.warn('[Cue] No user chunks on JS side after native mic start — restarting user streaming once', {
     sessionId,
   });
-  await stopUserStreaming();
+  await getRecorder().stopUserStreaming();
   if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
-  await startUserStreaming({ streamingCallback });
+  await getRecorder().startUserStreaming({ streamingCallback });
   await waitForCueUserChunks(sessionId, CUE_MIC_JS_RESTART_WAIT_MS);
 }
 
@@ -160,7 +172,7 @@ async function teardownCueStreamsAndNative(): Promise<void> {
     await cueAudioStreamer.stop(false);
     cueAudioStreamer = null;
   }
-  await stopUserStreaming();
+  await getRecorder().stopUserStreaming();
   if (provider) {
     await provider.stopSystemAudioCapture();
     provider.setStreamingCallback(null);
@@ -182,7 +194,7 @@ export async function cleanupAllAudioCapture(): Promise<void> {
     }
 
     // 1. Stop user streaming (handles global.userStreamingProcess)
-    await stopUserStreaming();
+    await getRecorder().stopUserStreaming();
 
     // 2. Stop system audio capture (screen recording) via native module
     if (provider) {
@@ -273,6 +285,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
 
       // Create AudioStreamer for 2 audio websockets (user + prospect)
+      const AudioStreamer = getAudioStreamerCtor();
       cueAudioStreamer = new AudioStreamer({
         sessionId: sessionId, // Use provided sessionId from backend
         onUserConnected: () => {
@@ -348,7 +361,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
           cueAudioStreamer.addUserAudio(buffer, format);
         }
       };
-      await startUserStreaming({ streamingCallback: cueUserStreamingCallback });
+      await getRecorder().startUserStreaming({ streamingCallback: cueUserStreamingCallback });
       await ensureCueUserMicDeliversJsChunks(sessionId, cueUserStreamingCallback);
 
       if (!provider) {

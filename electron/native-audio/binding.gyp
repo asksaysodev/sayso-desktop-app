@@ -19,17 +19,19 @@
             ]
           },
           "xcode_settings": {
-            "OTHER_CFLAGS": ["-std=c++20", "-stdlib=libc++"],
+            "OTHER_CPLUSPLUSFLAGS": ["-std=c++20", "-stdlib=libc++"],
             "MACOSX_DEPLOYMENT_TARGET": "13.0"
           }
         }],
         ["OS=='win'", {
           "sources": [ "src/audio_device_manager_win.cpp" ],
-          "libraries": [
-            "ole32.lib",
-            "mmdevapi.lib",
-            "ksuser.lib"
-          ],
+          "link_settings": {
+            "libraries": [
+              "ole32.lib",
+              "mmdevapi.lib",
+              "ksuser.lib"
+            ]
+          },
           "msvs_settings": {
             "VCCLCompilerTool": {
               "ExceptionHandling": 1,

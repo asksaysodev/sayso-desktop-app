@@ -18,6 +18,10 @@ class MacPermissionsProvider implements IPermissionsProvider {
     return { granted: mic && screen, mic, screen };
   }
 
+  async checkMic(): Promise<boolean> {
+    return systemPreferences.getMediaAccessStatus('microphone') === 'granted';
+  }
+
   isComplete(): boolean {
     const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
     // CGPreflight is accurate for the running process (screen-recording grant is bound at launch).

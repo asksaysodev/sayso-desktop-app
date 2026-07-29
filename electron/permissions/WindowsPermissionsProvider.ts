@@ -12,6 +12,11 @@ class WindowsPermissionsProvider implements IPermissionsProvider {
     return { granted: true, mic: true, screen: true };
   }
 
+  async checkMic(): Promise<boolean> {
+    // TODO (fast-follow): report the real Win10/11 per-app mic privacy status.
+    return true;
+  }
+
   isComplete(): boolean {
     return true;
   }

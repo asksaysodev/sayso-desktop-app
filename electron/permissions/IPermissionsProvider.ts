@@ -16,6 +16,10 @@ export interface IPermissionsProvider {
   // Live mic + screen grant status (non-prompting). Used for polling + the cue pre-flight.
   checkGranted(): Promise<PermissionsStatus>;
 
+  // Live microphone grant only (non-prompting). Cheaper than checkGranted() for
+  // mic-only gates — skips the screen-recording preflight (and its diagnostic).
+  checkMic(): Promise<boolean>;
+
   // Are all OS permissions required to run granted (and onboarding flag set)? For startup routing.
   // Self-heals the completion flag when live grants are present.
   isComplete(): boolean;

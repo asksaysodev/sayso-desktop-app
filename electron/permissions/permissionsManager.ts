@@ -25,6 +25,11 @@ export function checkOSPermissionsGranted(): Promise<PermissionsStatus> {
   return provider.checkGranted();
 }
 
+/** Live microphone grant only (non-prompting). Used by the coach-window gate. */
+export function isMicGranted(): Promise<boolean> {
+  return provider.checkMic();
+}
+
 // IPC classification: every permissions-* channel is PLATFORM-DISPATCHED via the
 // active IPermissionsProvider (mac = real mic/screen gates; win32 = safe defaults,
 // with the Windows mic-privacy gate as a future win32-only addition behind the
@@ -83,6 +88,10 @@ export function registerPermissionsIpc(): void {
 
   // Write permissions-complete flag then relaunch. Only relaunch if the write succeeded —
   // otherwise the next boot would route back to permissions (potential loop).
+  // This is the macOS onboarding flow (the relaunch lets SCK re-read a freshly
+  // granted screen-recording permission). On Windows markComplete() is a no-op and
+  // this channel isn't reached by the onboarding UI; if it ever were, the relaunch
+  // is harmless (no loop — WindowsPermissionsProvider.isComplete() is always true).
   ipcMain.handle('permissions-complete', () => {
     try {
       provider.markComplete();

@@ -1,11 +1,16 @@
 // ============================================================================
 // native_audio — Windows stub (WASAPI)
 //
-// Compiling scaffold for the Windows audio backend. Exports the SAME NAN surface
-// as the macOS module (src/audio_device_manager.mm) so native-audio/index.js can
-// load build/Release/native_audio.node identically on both platforms. Every
-// method is intentionally NOT IMPLEMENTED — it throws or returns a safe default —
-// until the WASAPI capture work lands.
+// Compiling scaffold for the Windows audio backend. Exports the LIVE NAN surface
+// index.js actually calls (11 methods) so native-audio/index.js can load
+// build/Release/native_audio.node identically on both platforms. Every method is
+// intentionally NOT IMPLEMENTED — it throws or returns a safe default — until the
+// WASAPI capture work lands.
+//
+// NOTE: the macOS .mm additionally exports listOutputDevices /
+// createMultiOutputDevice / deleteMultiOutputDevice — these are DEAD (zero JS
+// callers, removed in SAYSO-327) and deliberately NOT part of this surface. See
+// docs/NATIVE_AUDIO_CONTRACT.md ("do not implement these on Windows").
 //
 // Interface spec:            docs/NATIVE_AUDIO_CONTRACT.md
 // Architecture / WASAPI plan: docs/AUDIO_MODULE_WINDOWS_ASSESSMENT.md
@@ -46,9 +51,11 @@ NAN_METHOD(Initialize) {
 }
 
 // boolean (sync, non-prompting). Windows has no screen-recording gate for
-// loopback capture; the real implementation returns true. Stub: false.
+// loopback capture — return true, matching NATIVE_AUDIO_CONTRACT.md and the
+// WindowsAudioProvider it will replace. (This is the one method whose "real"
+// value is already known, so the stub returns it rather than a false default.)
 NAN_METHOD(CheckScreenRecordingGranted) {
-  info.GetReturnValue().Set(Nan::False());
+  info.GetReturnValue().Set(Nan::True());
 }
 
 // Promise<void>. No OS screen-recording prompt on Windows; likely a no-op once

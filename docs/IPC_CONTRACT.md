@@ -141,23 +141,62 @@ not a target.
 
 ## Outbound channels (main → renderer)
 
-All outbound events carry platform-agnostic payloads — **universal**.
+All outbound events carry platform-agnostic payloads — **universal**. Many are
+fan-out via the `broadcastToAllWindows(channel, payload)` /
+`sendToOnboardingWindow(channel)` helpers rather than a literal `.send()` at the
+call site.
+
+**Auth (broadcast to all windows)**
 
 | Channel | Purpose |
 |---|---|
-| `user-auth` | Auth-state push. |
+| `user-auth` | Auth-state push (legacy per-window). |
+| `auth:state` | Auth state (user / isAuthenticated / accessToken). |
+| `auth:token-refreshed` | Access token was refreshed (signal only). |
+| `auth-tokens-refreshed` | Refreshed tokens payload (backward-compat for unmigrated windows). |
+| `auth:session-expired` | Session expired. |
+| `auth-session-expired` | Session expired (backward-compat alias). |
+
+**Cue**
+
+| Channel | Purpose |
+|---|---|
 | `cue-status` | Per-stream connected/disconnected. |
 | `cue-insight` | Coaching insight. |
 | `cue-smart-capture` | Smart-capture items. |
 | `cue-error` | Stream error. |
 | `cue-auto-stop` | Server-driven auto-stop. |
 | `cue-low-user-audio` | Mic-silence warning. |
-| `update:state-changed` | Update lifecycle state. |
-| `update-check-complete` / `update-available` / `download-progress` / `update-downloaded` | Legacy update events (UpdateGate now uses `update:state-changed`). |
+
+**Network / update / windows / features**
+
+| Channel | Purpose |
+|---|---|
+| `network:state-changed` | Online/offline/reconnecting push. |
+| `update:state-changed` | Update lifecycle state (the current update channel). |
+| `update-check-complete` | Manual update-check finished. |
 | `coach-window-state` / `app-settings-window-state` / `playbook-window-state` | Window open/closed pushes. |
 | `enabled-features-changed` | Feature-flag push. |
-| `onboarding:coach-opened` | Onboarding step advance. |
+| `font-size-changed` | Font-size preference push. |
+| `playbooks-updated` | Playbooks cache changed. |
+| `reset-to-home` | Route the renderer back to home. |
 | `splash:show-reason` | Splash routing reason. |
+| `app-settings:navigate-to-update` | Focus the Update tab in app settings. |
+
+**Onboarding (`sendToOnboardingWindow`)**
+
+| Channel | Purpose |
+|---|---|
+| `onboarding:coach-opened` | Coach window opened. |
+| `onboarding:session-started` | Cue session started. |
+| `onboarding:session-stopped` | Cue session stopped. |
+| `onboarding:tray-clicked` | Tray icon clicked during onboarding. |
+| `onboarding:set-remind-later` | "Remind me later" set. |
+
+> `update-available`, `download-progress`, `update-downloaded` are **not** sent
+> by main — they exist only as electron-updater event names and as
+> `ipcRenderer.on` subscriptions in `preload.ts` (legacy `autoUpdater.*`
+> listeners). They're orphaned renderer subscriptions; see below.
 
 ---
 
@@ -183,5 +222,8 @@ engineer knows where the OS seams are outside the provider layer.
 Exposed in `preload.ts` but with **no** `ipcMain` handler — dead renderer API
 surface, safe to remove in a future cleanup, not part of the Windows contract:
 
-- `upload-file` (`window.electron.uploadFile`)
-- `upload-both-files` (`window.electron.uploadBothFiles`)
+- `upload-file` (`window.electron.uploadFile`) — no `ipcMain.handle`.
+- `upload-both-files` (`window.electron.uploadBothFiles`) — no `ipcMain.handle`.
+- `update-available` / `download-progress` / `update-downloaded`
+  (`window.electron.autoUpdater.on*`) — `ipcRenderer.on` subscriptions that main
+  never sends to (UpdateGate uses `update:state-changed` instead).
