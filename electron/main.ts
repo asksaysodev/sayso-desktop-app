@@ -98,17 +98,108 @@ function setAuthUser(user: AuthUser | null): void {
  * carries an explicit `null` status and still gets onboarding.
  */
 function shouldOpenOnboarding(): boolean {
+  if (onboardingStatusThisSession) return false;
   const profile = global.authUser || undefined;
   if (!profile) return false;
   const status = profile.onboarding_status;
   return status !== 'complete' && status !== 'dismissed';
 }
 
+// Onboarding status (SAYSO-338)
+type OnboardingStatus = 'complete' | 'dismissed';
+
+let onboardingStatusThisSession: OnboardingStatus | null = null;
+
+const ONBOARDING_PUT_RETRY_DELAYS_MS = [1000, 3000, 10000, 30000];
+
+const pendingOnboardingStatusPath = () =>
+  path.join(app.getPath('userData'), 'pending-onboarding-status.json');
+
+function writePendingOnboardingStatus(email: string, status: OnboardingStatus): void {
+  try {
+    fs.writeFileSync(pendingOnboardingStatusPath(), JSON.stringify({ email, status }));
+  } catch (err) {
+    console.warn('[onboarding] could not persist pending status:', (err as Error)?.message);
+  }
+}
+
+function clearPendingOnboardingStatus(): void {
+  try {
+    fs.rmSync(pendingOnboardingStatusPath(), { force: true });
+  } catch {}
+}
+
+async function pushOnboardingStatus(email: string, status: OnboardingStatus, attempt = 0): Promise<void> {
+  const token = await authManager.getAccessToken().catch(() => null);
+
+  if (token) {
+    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+    try {
+      await axios.put(
+        `${baseUrl}/accounts/update-account`,
+        { updateData: { onboarding_status: status } },
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 },
+      );
+      console.log(`[onboarding] status '${status}' persisted`);
+      clearPendingOnboardingStatus();
+      return;
+    } catch (err) {
+      console.warn(`[onboarding] persisting '${status}' failed (attempt ${attempt + 1}):`, (err as Error)?.message);
+      if (attempt === ONBOARDING_PUT_RETRY_DELAYS_MS.length - 1 && !isTransientNetworkError(err)) {
+        Sentry.captureException(err);
+      }
+    }
+  }
+
+  if (attempt >= ONBOARDING_PUT_RETRY_DELAYS_MS.length - 1) {
+    console.warn('[onboarding] giving up for now — the write will replay on next launch');
+    return;
+  }
+  setTimeout(() => {
+    void pushOnboardingStatus(email, status, attempt + 1);
+  }, ONBOARDING_PUT_RETRY_DELAYS_MS[attempt]);
+}
+
+function setOnboardingStatus(status: OnboardingStatus): void {
+  console.log(`[onboarding] status set to '${status}'`);
+  onboardingStatusThisSession = status;
+
+  const profile = global.authUser || undefined;
+  if (profile) setAuthUser({ ...profile, onboarding_status: status });
+
+  const email = authManager.getState().user?.email;
+  if (!email) return;
+  writePendingOnboardingStatus(email, status);
+  void pushOnboardingStatus(email, status);
+}
+
+function replayPendingOnboardingStatus(): void {
+  let pending: { email?: string; status?: OnboardingStatus } | null = null;
+  try {
+    pending = JSON.parse(fs.readFileSync(pendingOnboardingStatusPath(), 'utf8'));
+  } catch {
+    return;
+  }
+  if (pending?.status !== 'complete' && pending?.status !== 'dismissed') {
+    clearPendingOnboardingStatus();
+    return;
+  }
+  if (!pending.email || pending.email !== authManager.getState().user?.email) {
+    clearPendingOnboardingStatus();
+    return;
+  }
+  console.log(`[onboarding] replaying pending status '${pending.status}' from a previous session`);
+  onboardingStatusThisSession = pending.status;
+  const profile = global.authUser || undefined;
+  if (profile) setAuthUser({ ...profile, onboarding_status: pending.status });
+  void pushOnboardingStatus(pending.email, pending.status);
+}
+
 // Backoff schedule for re-fetching the account profile after a failed attempt.
 // The profile drives the tray's subscription-gated rows and the onboarding gate,
 // and a single failed shot at boot used to leave it missing for the entire
 // session — no retry, no re-broadcast, recoverable only by restarting.
-const PROFILE_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000];
+const PROFILE_RETRY_DELAYS_MS = [2000, 5000, 15000, 30000];
 
 function scheduleProfileRetry(email: string | undefined, attempt = 0): void {
   if (!email || attempt >= PROFILE_RETRY_DELAYS_MS.length) return;
@@ -1389,6 +1480,7 @@ app.whenReady().then(async () => {
 
 	  maybeReportAppVersion(baseUrl, authState.accessToken!, global.authUser);
 
+      replayPendingOnboardingStatus();
       // Open onboarding directly if not yet complete — no splash shown.
       if (shouldOpenOnboarding()) {
         console.log('[MAIN] Permissions complete but onboarding not done — opening onboarding window');
@@ -1799,6 +1891,11 @@ ipcMain.on('open-onboarding-window', () => {
   createOnboardingWindow();
 });
 
+ipcMain.on('onboarding:set-status', (_event, status: OnboardingStatus) => {
+  if (status !== 'complete' && status !== 'dismissed') return;
+  setOnboardingStatus(status);
+});
+
 ipcMain.on('close-onboarding-window', (_event) => {
   onboardingClosedIntentionally = true;
   const win = BrowserWindow.fromWebContents(_event.sender);
@@ -1912,20 +2009,10 @@ const createOnboardingWindow = (tab?: string) => {
 
   onboardingWindowInstance = onboardingWindow;
 
-  onboardingWindow.on('close', async (e) => {
+  onboardingWindow.on('close', (e) => {
     console.log('[onboarding] close event fired — intentionally:', onboardingClosedIntentionally, '| isAppQuitting:', isAppQuitting);
     if (!onboardingClosedIntentionally && !isAppQuitting) {
-      e.preventDefault();
-      await Promise.race([
-        new Promise<void>(resolve => {
-          ipcMain.once('onboarding:remind-later-ack', () => resolve());
-          onboardingWindow.webContents.send('onboarding:set-remind-later');
-        }),
-        new Promise<void>(resolve => setTimeout(resolve, 500)),
-      ]);
-      onboardingClosedIntentionally = true;
-      onboardingWindow.close();
-      return;
+      setOnboardingStatus('dismissed');
     }
     onboardingClosedIntentionally = false;
   });

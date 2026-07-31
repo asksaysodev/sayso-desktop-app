@@ -102,6 +102,7 @@ not a target.
 | `open-onboarding-window` | send | |
 | `close-onboarding-window` | send | |
 | `complete-onboarding` | send | |
+| `onboarding:set-status` | send | Records `'complete'`/`'dismissed'`. Main owns the API write so it survives the window closing. |
 | `splash-login-success` | send | |
 | `open-playbook-window` | send | |
 | `close-playbook-window` | send | |
@@ -191,7 +192,6 @@ call site.
 | `onboarding:session-started` | Cue session started. |
 | `onboarding:session-stopped` | Cue session stopped. |
 | `onboarding:tray-clicked` | Tray icon clicked during onboarding. |
-| `onboarding:set-remind-later` | "Remind me later" set. |
 
 > `update-available`, `download-progress`, `update-downloaded` are **not** sent
 > by main — they exist only as electron-updater event names and as
