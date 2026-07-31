@@ -4,7 +4,6 @@ import { useNetworkState } from '@/hooks/useNetworkState';
 import { MdDragIndicator } from 'react-icons/md';
 import { MdErrorOutline } from 'react-icons/md';
 import { LuX } from 'react-icons/lu';
-import * as Sentry from "@sentry/electron/renderer";
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import CoachButtons from './CoachButtons';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
@@ -16,7 +15,7 @@ import usePulseMarketProperty from '../hooks/usePulseMarketProperty';
 import ZipCodeDropdown from './ZipCodeDropdown';
 import { usePlaybookPrefetch } from '@/playbookWindow/hooks/usePlaybookPrefetch';
 import Pulse from './Pulse';
-import { isCuePermissionsDeniedError } from '../services/cueService';
+import { reportCoachError } from '@/utils/errorReporting';
 
 const WINDOW_WIDTH_SIZES = {
     s: { BASE: 380, MAX_WIDTH: 900 },
@@ -124,10 +123,15 @@ export default function CoachWindowMain() {
         setInsightsListMaxHeight(prev => prev !== newMax ? newMax : prev);
     }, [isInsightsLayoutOpen, isSmartCaptureEnabled]);
     
+    // By the time this fires the credentials are already gone, so POST /cue/session/stop
+    // could only 401 — persisting the session is main's job now, before it tears auth
+    // down (stopAndPersistCueSession in electron/main.ts). Here we only release
+    // local resources. Reads the store directly so a stale closure can't skip the
+    // teardown. SAYSO-335.
     const handleSessionExpired = useCallback(() => {
         useCoachWindowStore.setState({ error: 'Your session has expired. Please re-login from the main window.' });
-        if (isCoachActive) handleStopCue().catch((err) => Sentry.captureException(err));
-    }, [isCoachActive, handleStopCue]);
+        useCoachWindowStore.getState().cue_handleLocalTeardown().catch(reportCoachError);
+    }, []);
     useSessionExpiry(handleSessionExpired);
 
     // On transition from offline → online, clear any stale error left over from
@@ -142,11 +146,7 @@ export default function CoachWindowMain() {
     }, [isReconnecting]);
 
     const runCueAction = useCallback((action: () => Promise<unknown>) => {
-        action().catch((err) => {
-            if (!isCuePermissionsDeniedError(err)) {
-                Sentry.captureException(err);
-            }
-        });
+        action().catch(reportCoachError);
     }, []);
 
     const handleRequestStop = useCallback(() => {
@@ -366,7 +366,7 @@ export default function CoachWindowMain() {
             try {
                 await handleStopCue();
             } catch (error) {
-                Sentry.captureException(error);
+                reportCoachError(error);
             } finally {
                 setShowSessionAutoStopped(true);
             }

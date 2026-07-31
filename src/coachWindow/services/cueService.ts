@@ -1,27 +1,4 @@
-export const CUE_PERMISSIONS_DENIED = 'permissions_denied';
-
-/**
- * Carries the `error` string returned by the main-process `start-cue` handler,
- * so callers can branch on the reason instead of parsing the message.
- */
-export class CueStartError extends Error {
-    readonly code?: string;
-
-    constructor(code?: string) {
-        super(code ? `Failed to start cue streaming: ${code}` : 'Failed to start cue streaming');
-        this.name = 'CueStartError';
-        this.code = code;
-    }
-}
-
-/**
- * True when the start failed only because the OS permissions aren't granted.
- * Main already returns early and routes the user to the permissions UI, so this
- * is expected state — not an exception worth reporting.
- */
-export const isCuePermissionsDeniedError = (error: unknown): boolean => (
-    error instanceof CueStartError && error.code === CUE_PERMISSIONS_DENIED
-);
+import { CueStartError } from '@/utils/errorReporting';
 
 export const cue_startStreaming = async (sessionId: string) => {
     try {

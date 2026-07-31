@@ -505,7 +505,6 @@ These files contain references to the old Supabase JS SDK auth methods but are n
 | `src/config/supabase.ts` | Old Supabase JS client with `cryptoStorage`. Still imported by the dead files below. |
 | `src/utils/tokenEncryption.ts` | XOR-with-bundled-key "encryption". Theatrical security; keys live in the bundle. |
 | `src/utils/supabaseClient.ts` | Re-export wrapper. Nothing imports it. |
-| `src/components/StreamingTest.tsx` | Dev/test component. Nothing imports it. |
 | `src/services/mfaServices.ts` | MFA enrollment helpers used by the Account settings page. **NOTE:** if/when MFA enrollment is re-tested, these need to be migrated to IPC the same way auth was — or moved to the main process entirely. |
 | `src/utils/debugStorage.ts` | Dev debug helper. |
 
