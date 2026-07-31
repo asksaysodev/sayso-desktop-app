@@ -19,7 +19,7 @@ import { nativeImage } from 'electron/common';
 import * as Sentry from '@sentry/electron/main';
 import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
-import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
+import { loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
 import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage } from './utils/transientErrors';
@@ -242,10 +242,16 @@ const PROFILE_RETRY_DELAYS_MS = [2000, 5000, 15000, 30000];
 let profileRetryInFlight = false;
 
 function scheduleProfileRetry(email: string | undefined, attempt = 0): void {
-  if (!email || attempt >= PROFILE_RETRY_DELAYS_MS.length) {
+  // Only exhaustion releases the guard. A no-op call with no email must not,
+  // or scheduleProfileRetry(state.user?.email) with an undefined email would
+  // clear the flag out from under a chain that is still running and let the
+  // next attempt-0 call start a second one — the exact duplication the flag
+  // exists to prevent.
+  if (attempt >= PROFILE_RETRY_DELAYS_MS.length) {
     profileRetryInFlight = false;
     return;
   }
+  if (!email) return;
   if (attempt === 0 && profileRetryInFlight) {
     console.log('[MAIN] Profile retry already in flight — not starting a second chain');
     return;
@@ -287,12 +293,14 @@ function scheduleProfileRetry(email: string | undefined, attempt = 0): void {
 
 /**
  * Re-evaluates the onboarding gate after a late-arriving profile. Deliberately
- * conservative: it never steals focus from a splash or a window that is already
- * showing the tour.
+ * conservative: a profile can land up to ~52 s after boot, or later still after
+ * a reconnect, so it never pops the tour over a splash, a tour already showing,
+ * or a coach/playbook window the user is actively working in.
  */
 function maybeOpenOnboardingLate(): void {
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) return;
   if (onboardingWindowInstance && !onboardingWindowInstance.isDestroyed()) return;
+  if (isCoachWindowOpen() || isPlaybookWindowOpen()) return;
   if (!shouldOpenOnboarding()) return;
   console.log('[MAIN] Profile arrived late and onboarding is pending — opening onboarding window');
   createOnboardingWindow();
@@ -378,6 +386,11 @@ authManager.on('token-refreshed', async (state: AuthState) => {
     if (profileResult.status === 'fulfilled') {
       setAuthUser(profileResult.value.data.data);
 	  maybeReportAppVersion(backendBaseUrl(), state.accessToken!, profileResult.value.data.data);
+      // This was the one profile-success path that skipped the gate — its own
+      // failure branch reaches it via scheduleProfileRetry, so launching offline
+      // and recovering left the user with no onboarding for the whole session.
+      replayPendingOnboardingStatus();
+      maybeOpenOnboardingLate();
     } else {
       console.warn('[MAIN] Startup-offline recovery: profile fetch failed — retrying in background', profileResult.reason);
       if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
@@ -1158,8 +1171,8 @@ async function stopAndPersistCueSession(reason: string): Promise<void> {
 
   // Fetch a fresh token (refreshes if within 60s of expiry, shares the in-flight
   // refresh mutex) so the POST can't 401 on a stale cached global. Both callers still
-  // hold a refresh token here (tray-logout before clearRefreshToken; auth:sign-out
-  // before authManager.signOut()).
+  // hold a refresh token here — both callers run before their authManager.signOut()
+  // (tray-logout and the auth:sign-out handler).
   const accessToken = await authManager.getAccessToken();
   if (!accessToken) {
     console.warn(`[MAIN] ${reason}: no access token — cue session ${sessionId} not persisted`);
@@ -2105,21 +2118,22 @@ ipcMain.on('tray-show-window', () => {
 // Handler for triggering logout from the tray menu — opens splash window with sign-out flag
 ipcMain.on('tray-logout', async () => {
   hideTrayMenu();
-  // Must run before clearRefreshToken(): once the refresh token is gone,
+  // Must run before the session is torn down: once the refresh token is gone,
   // getAccessToken() returns null and the stop call can only 401. SAYSO-335.
   await stopAndPersistCueSession('tray-logout');
-  clearRefreshToken();
-  // Close the coach/playbook/onboarding windows here rather than waiting for the
-  // splash's LogoutGate to round-trip auth:sign-out — clearRefreshToken() does not
-  // emit signed-out, so if the splash fails to load the coach window would otherwise
-  // be left open with dead auth. Idempotent, safe to call directly. SAYSO-335.
-  tearDownSignedInWindows();
-  // For the same reason, clear the cached profile and the in-session onboarding
-  // flag here rather than relying on the signed-out handler: if the splash never
-  // round-trips auth:sign-out, the profile would outlive the session it belongs
-  // to and the next user would inherit this one's skipped onboarding. SAYSO-338.
-  setAuthUser(null);
-  onboardingStatusThisSession = null;
+  // End the session through AuthManager rather than clearing the token store
+  // behind its back. clearRefreshToken() wiped the persisted token and nothing
+  // else — AuthManager kept reporting isAuthenticated, and since the tray now
+  // derives its logged-in state from auth:state / auth:get-state (SAYSO-338),
+  // it went on rendering a logged-in menu for a dead session with no Log In row
+  // to click. The tray window is built once and only hidden on blur, so its
+  // one-shot auth:get-state never re-ran and nothing corrected it short of a
+  // restart. signOut() clears the session, clears the token and emits
+  // 'signed-out', whose handler already does the profile clear, the onboarding
+  // flag reset, tearDownSignedInWindows() and the auth:state broadcast — so the
+  // splash's LogoutGate round-trip is now a redundant no-op rather than the
+  // only thing standing between a logout and a coherent state. SAYSO-335/338.
+  await authManager.signOut();
   if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
     createSplashWindow({ logout: true });
   } else {

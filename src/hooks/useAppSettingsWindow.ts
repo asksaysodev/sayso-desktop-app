@@ -11,11 +11,11 @@ export function useAppSettingsWindow() {
             setIsAppSettingsWindowOpen((state as { isOpen: boolean }).isOpen);
         };
 
-        ipcRenderer.on('app-settings-window-state', handleAppSettingsWindowState);
+        const offAppSettingsWindowState = ipcRenderer.on('app-settings-window-state', handleAppSettingsWindowState);
         ipcRenderer.send('get-app-settings-window-state');
 
         return () => {
-            ipcRenderer.off('app-settings-window-state', handleAppSettingsWindowState);
+            offAppSettingsWindowState?.();
         };
     }, []);
 

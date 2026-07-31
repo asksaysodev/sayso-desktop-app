@@ -11,11 +11,11 @@ export function useEnabledFeatures() {
             setEnabledFeatures((data as { enabledFeatures: string[] }).enabledFeatures ?? []);
         };
 
-        ipcRenderer.on('enabled-features-changed', handleFeaturesChanged);
+        const offFeaturesChanged = ipcRenderer.on('enabled-features-changed', handleFeaturesChanged);
         ipcRenderer.send('get-enabled-features');
 
         return () => {
-            ipcRenderer.off('enabled-features-changed', handleFeaturesChanged);
+            offFeaturesChanged?.();
         };
     }, []);
 
