@@ -15,7 +15,7 @@ import usePulseMarketProperty from '../hooks/usePulseMarketProperty';
 import ZipCodeDropdown from './ZipCodeDropdown';
 import { usePlaybookPrefetch } from '@/playbookWindow/hooks/usePlaybookPrefetch';
 import Pulse from './Pulse';
-import { cue_stopStreaming, reportCoachError } from '../services/cueService';
+import { reportCoachError } from '@/utils/errorReporting';
 
 const WINDOW_WIDTH_SIZES = {
     s: { BASE: 380, MAX_WIDTH: 900 },
@@ -130,11 +130,7 @@ export default function CoachWindowMain() {
     // teardown. SAYSO-335.
     const handleSessionExpired = useCallback(() => {
         useCoachWindowStore.setState({ error: 'Your session has expired. Please re-login from the main window.' });
-        if (!useCoachWindowStore.getState().isCoachActive) return;
-        useCoachWindowStore.setState({ isCoachActive: false, isCoachLoading: false });
-        cue_stopStreaming()
-            .catch(reportCoachError)
-            .finally(() => useCoachWindowStore.getState().cue_resetStates());
+        useCoachWindowStore.getState().cue_handleLocalTeardown().catch(reportCoachError);
     }, []);
     useSessionExpiry(handleSessionExpired);
 

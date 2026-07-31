@@ -2,7 +2,7 @@ import { LuLoader } from "react-icons/lu";
 import CoachActiveButtons from "./CoachActiveButtons";
 import { useCoachWindowStore } from "../../store/coachWindowStore";
 import { useNetworkState } from "@/hooks/useNetworkState";
-import { reportCoachError } from "../services/cueService";
+import { reportCoachError } from "@/utils/errorReporting";
 
 interface Props {
     setIsDropdownOpen: (isOpen: boolean) => void;
@@ -47,10 +47,13 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen, onRequ
                 }
                 await actions.stop();
             } else {
-                if (isReconnecting) return;
                 if (isDropdownOpen) {
                     setIsDropdownOpen(false);
                 }
+                // Backstop for the `disabled` prop below — the button is the only
+                // caller, so offline can't get past here. Placed after the dropdown
+                // close so a stray call still leaves the UI in a sane state.
+                if (isReconnecting) return;
                 if (!actions.validate()) return;
                 await actions.start();
             }
@@ -72,7 +75,15 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen, onRequ
                     />
                 ) : (
                     <>
-                        <button className={`start-coach-button ${isCoachLoading ? 'loading' : ''}`} onClick={handleCoach}>
+                        {/* Disabled while offline: start needs the network, and a bare
+                            no-op click gave no feedback. An error can't be surfaced here —
+                            CoachWindowMain renders coachWindowError only when !isReconnecting,
+                            and shows its own "No internet connection" banner instead. */}
+                        <button
+                            className={`start-coach-button ${isCoachLoading ? 'loading' : ''}`}
+                            onClick={handleCoach}
+                            disabled={isReconnecting}
+                        >
                             
                             {
                                 isCoachLoading && (

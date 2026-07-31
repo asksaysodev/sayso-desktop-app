@@ -1,47 +1,4 @@
-import * as Sentry from "@sentry/electron/renderer";
-import { isTransientApiError, isAuthTeardownError } from '@/utils/errorReporting';
-
-export const CUE_PERMISSIONS_DENIED = 'permissions_denied';
-
-/**
- * Carries the `error` string returned by the main-process `start-cue` handler,
- * so callers can branch on the reason instead of parsing the message.
- */
-export class CueStartError extends Error {
-    readonly code?: string;
-
-    constructor(code?: string) {
-        super(code ? `Failed to start cue streaming: ${code}` : 'Failed to start cue streaming');
-        this.name = 'CueStartError';
-        this.code = code;
-    }
-}
-
-/**
- * True when the start failed only because the OS permissions aren't granted.
- * Main already returns early and routes the user to the permissions UI, so this
- * is expected state — not an exception worth reporting.
- */
-export const isCuePermissionsDeniedError = (error: unknown): boolean => (
-    error instanceof CueStartError && error.code === CUE_PERMISSIONS_DENIED
-);
-
-/**
- * Single entry point for coach-window error reporting. Swallows the three classes
- * of failure that are expected state rather than bugs — OS permissions denied,
- * transient network loss, and post-logout auth teardown — and reports the rest.
- */
-export const reportCoachError = (error: unknown): void => {
-    if (
-        isCuePermissionsDeniedError(error) ||
-        isTransientApiError(error) ||
-        isAuthTeardownError(error)
-    ) {
-        console.warn('[Coach] expected failure, not reported:', error);
-        return;
-    }
-    Sentry.captureException(error);
-};
+import { CueStartError } from '@/utils/errorReporting';
 
 export const cue_startStreaming = async (sessionId: string) => {
     try {
