@@ -31,10 +31,11 @@ try {
       },
       removeAllListeners: (channel: string) => {
         ipcRenderer.removeAllListeners(channel);
-      },
-      off: (channel: string, callback: (...args: unknown[]) => void) => {
-        ipcRenderer.removeListener(channel, callback);
       }
+      // No off(): `on` above registers an internal wrapper, so removeListener
+      // could never match the caller's callback — it was broken by construction
+      // at every call site, silently leaking listeners. Use the disposer that
+      // `on` returns instead. SAYSO-338.
     },
     // Add openExternal method for opening URLs in external browser
     openExternal: (url: string) => {

@@ -11,11 +11,11 @@ export function usePlaybookWindow() {
             setIsPlaybookWindowOpen((state as { isOpen: boolean }).isOpen);
         };
 
-        ipcRenderer.on('playbook-window-state', handlePlaybookWindowState);
+        const offPlaybookWindowState = ipcRenderer.on('playbook-window-state', handlePlaybookWindowState);
         ipcRenderer.send('get-playbook-window-state');
 
         return () => {
-            ipcRenderer.off('playbook-window-state', handlePlaybookWindowState);
+            offPlaybookWindowState?.();
         };
     }, []);
 

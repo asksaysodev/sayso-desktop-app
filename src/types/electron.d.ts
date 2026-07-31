@@ -10,7 +10,8 @@ export interface ElectronIpcRenderer {
   on: (channel: string, callback: (data: unknown) => void) => () => void;
   send: (channel: string, ...args: unknown[]) => void;
   removeAllListeners: (channel: string) => void;
-  off: (channel: string, callback: (...args: unknown[]) => void) => void;
+  // No off(): preload's `on` registers an internal wrapper, so it could never
+  // match the caller's callback. Use the disposer `on` returns. SAYSO-338.
 }
 
 export interface CueParams {

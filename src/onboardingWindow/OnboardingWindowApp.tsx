@@ -8,7 +8,10 @@ import CompletionScreen from './components/CompletionScreen';
 import IntroScreen from './components/IntroScreen';
 import MenuBarMock from './components/animations/MenuBarMock';
 import { useOnboardingProgress } from './hooks/useOnboardingProgress';
-import updateOnboardingStatus from './services/updateOnboardingStatus';
+
+const setOnboardingStatus = (status: 'complete' | 'dismissed') => {
+    window.electron?.ipcRenderer?.send('onboarding:set-status', status);
+};
 
 const STEPS = [
     {
@@ -42,16 +45,6 @@ export default function OnboardingWindowApp() {
     const currentStepRef = useRef(currentStep);
     useEffect(() => { currentStepRef.current = currentStep; }, [currentStep]);
 
-    useEffect(() => {
-        const ipc = window.electron?.ipcRenderer;
-        if (!ipc) return;
-        return ipc.on('onboarding:set-remind-later', () => {
-            console.log('[onboarding renderer] set-remind-later received, setting key');
-            localStorage.setItem('onboarding_remind_after', String(Date.now() + 24 * 60 * 60 * 1000));
-            ipc.send('onboarding:remind-later-ack');
-        });
-    }, []);
-
     const advanceFrom = (step: number) => {
         if (step === 0) {
             setZoomTransition(true);
@@ -64,7 +57,7 @@ export default function OnboardingWindowApp() {
         if (step < STEPS.length - 1) {
             setCurrentStep(step + 1);
         } else {
-            updateOnboardingStatus('complete').catch(() => {});
+            setOnboardingStatus('complete');
             setIsComplete(true);
         }
     };
@@ -77,7 +70,7 @@ export default function OnboardingWindowApp() {
     const handleNext = () => advanceFrom(currentStep);
 
     const handleDismiss = () => {
-        updateOnboardingStatus('dismissed').catch(() => {});
+        setOnboardingStatus('dismissed');
         window.electron?.ipcRenderer?.send('close-onboarding-window');
     };
 
