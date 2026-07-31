@@ -37,7 +37,13 @@ const TrayMenuApp = () => {
       setAccount(state.authUser || null);
     };
 
+    // The auth:get-state reply is computed in main before a concurrent sign-out
+    // broadcast is emitted, so a late reply can flip us back to authenticated
+    // after the event correctly cleared it. Once an event has been seen, it wins.
+    let sawAuthStateEvent = false;
+
     const handleAuthState = (state: { isAuthenticated?: boolean }) => {
+      sawAuthStateEvent = true;
       setIsAuthenticated(!!state?.isAuthenticated);
     };
 
@@ -53,7 +59,10 @@ const TrayMenuApp = () => {
 
     const offAuthState = ipcRenderer.on('auth:state', handleAuthState as any);
     ipcRenderer.invoke('auth:get-state')
-      .then((state: any) => setIsAuthenticated(!!state?.isAuthenticated))
+      .then((state: any) => {
+        if (sawAuthStateEvent) return;
+        setIsAuthenticated(!!state?.isAuthenticated);
+      })
       .catch(Sentry.captureException);
 
     return () => {

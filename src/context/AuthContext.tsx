@@ -205,8 +205,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const ipcRenderer = window.electron?.ipcRenderer
     if (!ipcRenderer) return
-    ipcRenderer.on('trigger-logout', handleSignOut as any)
-    return () => { ipcRenderer.off('trigger-logout', handleSignOut as any) }
+    // Use the disposer on() returns: preload registers an internal wrapper, so
+    // off(channel, callback) matches nothing and would leak this listener on
+    // every remount. Same defect fixed in the tray. SAYSO-338.
+    const offTriggerLogout = ipcRenderer.on('trigger-logout', handleSignOut as any)
+    return () => offTriggerLogout?.()
   }, [])
 
   // ─── Load account profile whenever user changes ───────────────────────────
