@@ -271,12 +271,14 @@ authManager.on('signed-out', () => {
   global.authAccessToken = null;
   global.authRefreshToken = null;
   setAuthUser(null);
+  onboardingStatusThisSession = null;
   cachedEnabledFeatures = [];
   global.playbooksCache = null;
   broadcastEnabledFeatures();
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat for unmigrated windows
   broadcastToAllWindows('auth:session-expired');
+  closeOnboardingWindowForSignOut();
 });
 
 authManager.on('token-refreshed', async (state: AuthState) => {
@@ -327,6 +329,7 @@ authManager.on('session-expired', () => {
   global.authAccessToken = null;
   global.authRefreshToken = null;
   setAuthUser(null);
+  onboardingStatusThisSession = null;
   cachedEnabledFeatures = [];
   global.playbooksCache = null;
   broadcastEnabledFeatures();
@@ -339,6 +342,7 @@ authManager.on('session-expired', () => {
   // left clicking around with broken auth
   if (isCoachWindowOpen()) global.coachWindow!.close();
   if (isPlaybookWindowOpen()) global.playbookWindow!.close();
+  closeOnboardingWindowForSignOut();
   createSplashWindow({ reason: 'session-expired' });
 });
 
@@ -763,6 +767,12 @@ function sendToOnboardingWindow(channel: string) {
   }
 }
 
+function closeOnboardingWindowForSignOut(): void {
+  if (!onboardingWindowInstance || onboardingWindowInstance.isDestroyed()) return;
+  console.log('[onboarding] closing — session ended');
+  onboardingClosedIntentionally = true;
+  onboardingWindowInstance.close();
+}
 /**
  * Creates and positions the custom tray menu window near the tray icon
  */
@@ -1943,6 +1953,7 @@ ipcMain.on('tray-show-window', () => {
 ipcMain.on('tray-logout', () => {
   hideTrayMenu();
   clearRefreshToken();
+  closeOnboardingWindowForSignOut();
   if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
     createSplashWindow({ logout: true });
   } else {
