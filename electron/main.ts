@@ -30,6 +30,7 @@ import * as permissions from './permissions/permissionsManager';
 
 Sentry.init(sentryConfig);
 
+const BACKEND_BASE_URL = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
 const IS_STAGING = (require('../package.json') as { build_env?: string }).build_env === 'staging';
 
 if (IS_STAGING) {
@@ -130,13 +131,16 @@ function clearPendingOnboardingStatus(): void {
 }
 
 async function pushOnboardingStatus(email: string, status: OnboardingStatus, attempt = 0): Promise<void> {
+  if (authManager.getState().user?.email !== email) {
+    return;
+  }
+
   const token = await authManager.getAccessToken().catch(() => null);
 
   if (token) {
-    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
     try {
       await axios.put(
-        `${baseUrl}/accounts/update-account`,
+        `${BACKEND_BASE_URL}/accounts/update-account`,
         { updateData: { onboarding_status: status } },
         { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 },
       );
@@ -161,6 +165,11 @@ async function pushOnboardingStatus(email: string, status: OnboardingStatus, att
 }
 
 function setOnboardingStatus(status: OnboardingStatus): void {
+  if (onboardingStatusThisSession === 'complete' && status === 'dismissed') {
+    console.log("[onboarding] ignoring 'dismissed' — already completed this session");
+    return;
+  }
+
   console.log(`[onboarding] status set to '${status}'`);
   onboardingStatusThisSession = status;
 
@@ -205,16 +214,15 @@ function scheduleProfileRetry(email: string | undefined, attempt = 0): void {
   if (!email || attempt >= PROFILE_RETRY_DELAYS_MS.length) return;
   setTimeout(async () => {
     if (global.authUser) return;
-    if (!authManager.getState().isAuthenticated) return;
+    if (authManager.getState().user?.email !== email) return;
 
     const token = await authManager.getAccessToken().catch(() => null);
     if (!token) {
       scheduleProfileRetry(email, attempt + 1);
       return;
     }
-    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
     try {
-      const res = await axios.get(`${baseUrl}/accounts/${email}`, {
+      const res = await axios.get(`${BACKEND_BASE_URL}/accounts/${email}`, {
         headers: { Authorization: `Bearer ${token}` },
         timeout: 5000,
       });
@@ -235,14 +243,13 @@ let authUserReady: Promise<void> = Promise.resolve();
 // back to its logged-out state, same as the restore path.
 async function loadAuthUserProfile(accessToken: string, email: string | undefined): Promise<void> {
   if (!email) return;
-  const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
   try {
-    const res = await axios.get(`${baseUrl}/accounts/${email}`, {
+    const res = await axios.get(`${BACKEND_BASE_URL}/accounts/${email}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       timeout: 5000,
     });
     setAuthUser(res.data.data);
-	maybeReportAppVersion(baseUrl, accessToken, res.data.data);
+	maybeReportAppVersion(BACKEND_BASE_URL, accessToken, res.data.data);
   } catch (err) {
     console.warn('[MAIN] sign-in: profile fetch failed — retrying in background', (err as Error)?.message);
     if (!isTransientNetworkError(err)) Sentry.captureException(err);
@@ -258,8 +265,7 @@ authManager.on('signed-in', (state: AuthState) => {
     // Load the account profile into global.authUser now, so the tray shows the
     // logged-in state and the onboarding gate sees the real onboarding_status.
     authUserReady = loadAuthUserProfile(state.accessToken, state.user?.email);
-    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
-    fetchAndCacheEnabledFeatures(baseUrl, state.accessToken).catch((err) => {
+    fetchAndCacheEnabledFeatures(BACKEND_BASE_URL, state.accessToken).catch((err) => {
       console.warn('[AuthManager] signed-in: features fetch failed', err?.message);
       if (!isTransientNetworkError(err)) Sentry.captureException(err);
     });
@@ -278,7 +284,7 @@ authManager.on('signed-out', () => {
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat for unmigrated windows
   broadcastToAllWindows('auth:session-expired');
-  closeOnboardingWindowForSignOut();
+  tearDownSignedInWindows();
 });
 
 authManager.on('token-refreshed', async (state: AuthState) => {
@@ -300,16 +306,15 @@ authManager.on('token-refreshed', async (state: AuthState) => {
   if (startupOfflinePending && state.isAuthenticated) {
     startupOfflinePending = false;
     console.log('[MAIN] Startup-offline recovery — fetching profile and features');
-    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
     const headers = { Authorization: `Bearer ${state.accessToken}` };
     const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
-      axios.get(`${baseUrl}/accounts/${state.user?.email}`, { headers, timeout: 5000 }),
-      fetchAndCacheFontSize(baseUrl, state.accessToken!),
-      fetchAndCacheEnabledFeatures(baseUrl, state.accessToken!),
+      axios.get(`${BACKEND_BASE_URL}/accounts/${state.user?.email}`, { headers, timeout: 5000 }),
+      fetchAndCacheFontSize(BACKEND_BASE_URL, state.accessToken!),
+      fetchAndCacheEnabledFeatures(BACKEND_BASE_URL, state.accessToken!),
     ]);
     if (profileResult.status === 'fulfilled') {
       setAuthUser(profileResult.value.data.data);
-	  maybeReportAppVersion(baseUrl, state.accessToken!, profileResult.value.data.data);
+	  maybeReportAppVersion(BACKEND_BASE_URL, state.accessToken!, profileResult.value.data.data);
     } else {
       console.warn('[MAIN] Startup-offline recovery: profile fetch failed — retrying in background', profileResult.reason);
       if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
@@ -336,13 +341,9 @@ authManager.on('session-expired', () => {
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat
   broadcastToAllWindows('auth:session-expired');
-  // Stop WebSocket reconnect loops — there is no valid token to reconnect with
-  audioManager.stopCueForSessionExpired();
-  // Close secondary windows and route to the login screen so the user isn't
-  // left clicking around with broken auth
-  if (isCoachWindowOpen()) global.coachWindow!.close();
-  if (isPlaybookWindowOpen()) global.playbookWindow!.close();
-  closeOnboardingWindowForSignOut();
+  // Stop reconnect loops that have no valid token, and close the secondary
+  // windows so the user isn't left clicking around with broken auth
+  tearDownSignedInWindows();
   createSplashWindow({ reason: 'session-expired' });
 });
 
@@ -721,6 +722,28 @@ function isAppSettingsWindowOpen() {
 function isPlaybookWindowOpen() {
   return global.playbookWindow && !global.playbookWindow.isDestroyed();
 }
+
+/**
+ * Releases everything that only makes sense while a user is signed in: the Cue
+ * websocket reconnect loop, which has no valid token to reconnect with, and the
+ * secondary windows that assume an authenticated session.
+ *
+ * Shared by both ways a session ends — an explicit logout and an expired session.
+ * Those two paths had drifted: only the expiry path closed the windows, so
+ * logging out left the coach window floating on screen after the user was
+ * already back at the login form. Keep them calling this, not their own copies.
+ *
+ * Idempotent: stop() early-returns when not streaming, and the window checks
+ * guard against destroyed handles.
+ */
+function tearDownSignedInWindows(): void {
+  // Stop the Cue reconnect loop (no valid token to reconnect with). The streamer
+  // lives in audioManager now; this is the same shouldReconnect=false + stop(false).
+  audioManager.stopCueForSessionExpired();
+  if (isCoachWindowOpen()) global.coachWindow!.close();
+  if (isPlaybookWindowOpen()) global.playbookWindow!.close();
+  closeOnboardingWindowForSignOut();
+}
 function windowSourceFromEvent(event: Electron.IpcMainEvent): 'coach' | 'independent' {
   const coach = global.coachWindow;
   if (coach && !coach.isDestroyed() && event.sender === coach.webContents) {
@@ -1037,6 +1060,60 @@ if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = 'production';
 }
 
+
+const CUE_STOP_PERSIST_TIMEOUT_MS = 5000;
+
+/**
+ * Ends an active Cue session end-to-end from main: tears down the capture stack
+ * (via audioManager.stopCue) and persists the session server-side. `reason` is for
+ * logging only.
+ *
+ * Until this existed, only the renderer could persist a session — POST
+ * /cue/session/stop/:id lived solely in the coach window's store, so teardown was
+ * unreachable from any main-process lifecycle event. Logging out cleared the tokens
+ * first, so the renderer's stop went out with no Authorization header; the 401 meant
+ * updateSupabaseSession() never ran and the session was lost when the Redis key
+ * expired two hours later. Main owns the streamer and the token, so it does it here.
+ *
+ * Safe with no active session, and idempotent — audioManager.stopCue() dedupes via
+ * its in-flight mutex and clears the streamer, so a second call returns immediately.
+ * SAYSO-335.
+ */
+async function stopAndPersistCueSession(reason: string): Promise<void> {
+  const sessionId = audioManager.getActiveCueSessionId();
+  if (!sessionId) return;
+
+  // Tear down capture first (local + fast), regardless of connectivity.
+  await audioManager.stopCue();
+
+  // Offline: skip the server persist rather than stall logout on a 5s POST that
+  // can't succeed. The session reconciles server-side when the Redis key expires.
+  if (global.networkState === 'reconnecting') {
+    console.warn(`[MAIN] ${reason}: offline — cue session ${sessionId} not persisted`);
+    return;
+  }
+
+  // Fetch a fresh token (refreshes if within 60s of expiry, shares the in-flight
+  // refresh mutex) so the POST can't 401 on a stale cached global. Both callers still
+  // hold a refresh token here (tray-logout before clearRefreshToken; auth:sign-out
+  // before authManager.signOut()).
+  const accessToken = await authManager.getAccessToken();
+  if (!accessToken) {
+    console.warn(`[MAIN] ${reason}: no access token — cue session ${sessionId} not persisted`);
+    return;
+  }
+
+  try {
+    await axios.post(`${BACKEND_BASE_URL}/cue/session/stop/${sessionId}`, null, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: CUE_STOP_PERSIST_TIMEOUT_MS,
+    });
+    console.log(`[MAIN] ${reason}: cue session ${sessionId} stopped and persisted`);
+  } catch (err: any) {
+    console.warn(`[MAIN] ${reason}: cue stop failed —`, err?.message);
+    if (!isTransientNetworkError(err)) Sentry.captureException(err);
+  }
+}
 // Function to load environment variables
 function loadEnvironmentVariables() {
   const isDev = process.env.NODE_ENV !== 'production';
@@ -1458,14 +1535,13 @@ app.whenReady().then(async () => {
       console.log('[MAIN] Authenticated but permissions-complete flag missing — showing splash for permissions');
       createSplashWindow();
     } else {
-      const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
       const headers = { Authorization: `Bearer ${authState.accessToken}` };
 
       // Fetch profile, font size, and enabled features in parallel before any window opens.
       const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
-        axios.get(`${baseUrl}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
-        fetchAndCacheFontSize(baseUrl, authState.accessToken!),
-        fetchAndCacheEnabledFeatures(baseUrl, authState.accessToken!),
+        axios.get(`${BACKEND_BASE_URL}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
+        fetchAndCacheFontSize(BACKEND_BASE_URL, authState.accessToken!),
+        fetchAndCacheEnabledFeatures(BACKEND_BASE_URL, authState.accessToken!),
       ]);
 
       if (profileResult.status === 'fulfilled') {
@@ -1488,7 +1564,7 @@ app.whenReady().then(async () => {
         if (!isTransientNetworkError(featuresResult.reason)) Sentry.captureException(featuresResult.reason);
       }
 
-	  maybeReportAppVersion(baseUrl, authState.accessToken!, global.authUser);
+	  maybeReportAppVersion(BACKEND_BASE_URL, authState.accessToken!, global.authUser);
 
       replayPendingOnboardingStatus();
       // Open onboarding directly if not yet complete — no splash shown.
@@ -1682,6 +1758,8 @@ ipcMain.handle('auth:verify-mfa', async (_event, { factorId, code }: { factorId:
 });
 
 ipcMain.handle('auth:sign-out', async () => {
+  // Persist any in-flight cue session while the token is still valid. SAYSO-335.
+  await stopAndPersistCueSession('sign-out');
   await authManager.signOut();
 });
 
@@ -1950,10 +2028,17 @@ ipcMain.on('tray-show-window', () => {
 });
 
 // Handler for triggering logout from the tray menu — opens splash window with sign-out flag
-ipcMain.on('tray-logout', () => {
+ipcMain.on('tray-logout', async () => {
   hideTrayMenu();
+  // Must run before clearRefreshToken(): once the refresh token is gone,
+  // getAccessToken() returns null and the stop call can only 401. SAYSO-335.
+  await stopAndPersistCueSession('tray-logout');
   clearRefreshToken();
-  closeOnboardingWindowForSignOut();
+  // Close the coach/playbook/onboarding windows here rather than waiting for the
+  // splash's LogoutGate to round-trip auth:sign-out — clearRefreshToken() does not
+  // emit signed-out, so if the splash fails to load the coach window would otherwise
+  // be left open with dead auth. Idempotent, safe to call directly. SAYSO-335.
+  tearDownSignedInWindows();
   if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
     createSplashWindow({ logout: true });
   } else {

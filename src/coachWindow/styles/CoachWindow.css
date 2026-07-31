@@ -583,6 +583,15 @@ button {
     opacity: 0.9;
 }
 
+.coach-buttons-container .start-coach-button:disabled{
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.coach-buttons-container .start-coach-button:disabled:hover{
+    opacity: 0.35;
+}
+
 .coach-buttons-container .hidden{
     opacity: 0;
     visibility: hidden;
