@@ -372,7 +372,7 @@ button {
 }
 
 .coach-window-selected-prospect-button{
-    height: 32px;
+    height: var(--cw-fs-container-height);
     border: none;
     display: flex;
     align-items: center;
@@ -384,8 +384,8 @@ button {
     cursor: not-allowed !important;
 }
 .coach-window-selected-prospect-button .coach-window-selected-prospect-initials-container{
-    width: var(--cw-fs-lead-type-initial-height);
-    height: var(--cw-fs-lead-type-initial-height);
+    width: var(--cw-fs-container-height);
+    height: var(--cw-fs-container-height);
     aspect-ratio: 1/1;
     border-radius: 100px;
     z-index: 1000;
@@ -402,6 +402,9 @@ button {
 }
 .coach-window .coach-window-selected-prospect-button-text-container{
     height: var(--cw-fs-container-height);
+    /* No global border-box reset in this window — without this the 1px border
+       stacks on top of the height and the pill outgrows the Start button. */
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: start;
@@ -1120,7 +1123,6 @@ button {
 /* S — default */
 :root {
     --cw-fs-lead-type-initial-fs: 14px;
-    --cw-fs-lead-type-initial-height: 38px;
     --cw-fs-container-height: 36px;
     --cw-fs-toolbar-control: 14px;
     --cw-fs-launch-btn: 14px;
@@ -1147,7 +1149,6 @@ button {
 /* M */
 :root[data-font-size="m"] {
     --cw-fs-lead-type-initial-fs: 16px;
-    --cw-fs-lead-type-initial-height: 38px;
     --cw-fs-container-height: 36px;
     --cw-fs-toolbar-control: 17px;
     --cw-fs-launch-btn: 16px;
@@ -1174,7 +1175,6 @@ button {
 /* L */
 :root[data-font-size="l"] {
     --cw-fs-lead-type-initial-fs: 17px;
-    --cw-fs-lead-type-initial-height: 36px;
     --cw-fs-container-height: 35px;
     --cw-fs-toolbar-control: 19px;
     --cw-fs-launch-btn: 19px;
