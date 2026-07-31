@@ -10,7 +10,8 @@ import { UpdatePhase } from '@/types/update';
 
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
-  const [userAuthenticated, setUserAuthenticated] = useState<Account | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [account, setAccount] = useState<Account | null>(null);
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('idle');
   const { isReconnecting } = useNetworkState();
   const { toggleAppSettingsWindow } = useAppSettingsWindow();
@@ -18,12 +19,12 @@ const TrayMenuApp = () => {
   const { hasFeature } = useEnabledFeatures();
 
   const disableToggleCoach = useMemo(() => {
-    return !userAuthenticated || userAuthenticated?.subscription_plan_id === null;
-  }, [userAuthenticated]);
+    return !isAuthenticated || !account || account.subscription_plan_id === null;
+  }, [isAuthenticated, account]);
 
   const showPlaybooksRow = useMemo(() => {
-    return userAuthenticated && userAuthenticated?.subscription_plan_id !== null && hasFeature('playbooks');
-  }, [userAuthenticated, hasFeature]);
+    return isAuthenticated && !!account && account.subscription_plan_id !== null && hasFeature('playbooks');
+  }, [isAuthenticated, account, hasFeature]);
 
   const isUpdating: boolean = updatePhase === 'downloading' || updatePhase === 'downloaded';
   const showUpdateRow: boolean = updatePhase === 'available' || isUpdating;
@@ -33,22 +34,32 @@ const TrayMenuApp = () => {
     if (!ipcRenderer) return;
 
     const handleUserAuth = (state: { authUser: Account | null }) => {
-      setUserAuthenticated(state.authUser);
+      setAccount(state.authUser || null);
+    };
+
+    const handleAuthState = (state: { isAuthenticated?: boolean }) => {
+      setIsAuthenticated(!!state?.isAuthenticated);
     };
 
     const handleCoachWindowState = (state: { isOpen: boolean }) => {
       setIsCoachOpen(state.isOpen);
     };
 
-    ipcRenderer.on('coach-window-state', handleCoachWindowState as any);
+    const offCoachWindowState = ipcRenderer.on('coach-window-state', handleCoachWindowState as any);
     ipcRenderer.send('get-coach-window-state');
 
-    ipcRenderer.on('user-auth', handleUserAuth as any);
+    const offUserAuth = ipcRenderer.on('user-auth', handleUserAuth as any);
     ipcRenderer.send('get-user-auth');
 
+    const offAuthState = ipcRenderer.on('auth:state', handleAuthState as any);
+    ipcRenderer.invoke('auth:get-state')
+      .then((state: any) => setIsAuthenticated(!!state?.isAuthenticated))
+      .catch(Sentry.captureException);
+
     return () => {
-      ipcRenderer.off('coach-window-state', handleCoachWindowState as any);
-      ipcRenderer.off('user-auth', handleUserAuth as any);
+      offCoachWindowState?.();
+      offUserAuth?.();
+      offAuthState?.();
     };
   }, []);
 
@@ -70,7 +81,7 @@ const TrayMenuApp = () => {
     // Base height: Quit/Log In bottom row (42) + bottom padding
     // Each row is ~42px. Logged-out: just bottom row = 46px.
     let height: number;
-    if (!userAuthenticated) {
+    if (!isAuthenticated) {
       height = 46;
     } else if (disableToggleCoach) {
       // My Account + Settings + bottom row
@@ -84,7 +95,7 @@ const TrayMenuApp = () => {
     height += 42; // Help Center row (always visible)
 
     ipcRenderer.send('set-tray-menu-height', height);
-  }, [disableToggleCoach, userAuthenticated, showPlaybooksRow, showUpdateRow]);
+  }, [disableToggleCoach, isAuthenticated, showPlaybooksRow, showUpdateRow]);
 
   const handleToggleCoach = () => {
     const ipcRenderer = window.electron?.ipcRenderer;
@@ -111,7 +122,7 @@ const TrayMenuApp = () => {
   const handleAuthPress = () => {
     const ipc = window.electron?.ipcRenderer;
     if (!ipc) return;
-    if (userAuthenticated) {
+    if (isAuthenticated) {
       ipc.send('tray-logout');
     } else {
       ipc.send('tray-show-window');
@@ -165,7 +176,7 @@ const TrayMenuApp = () => {
           </>
         )}
 
-        {userAuthenticated && (
+        {isAuthenticated && (
           <>
             <button
               className="tray-menu-item"
@@ -220,7 +231,7 @@ const TrayMenuApp = () => {
             onClick={handleAuthPress}
           >
             <span className="tray-menu-item-label bottom-item">
-              {userAuthenticated ? 'Log Out' : 'Log In'}
+              {isAuthenticated ? 'Log Out' : 'Log In'}
             </span>
           </button>
         </div>

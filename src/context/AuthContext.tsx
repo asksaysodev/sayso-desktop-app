@@ -2,7 +2,6 @@ import { createContext, useContext, useCallback, useEffect, useState, useRef } f
 import { useSessionExpiry } from '@/hooks/useSessionExpiry'
 import * as Sentry from "@sentry/electron/renderer"
 import { useAccounts } from '../hooks/useAccounts'
-import { useLocation } from 'react-router-dom'
 import { Account, AuthResult, SignInData, User } from '@/types/user'
 import { AALLevel, MFAServiceError } from '@/types/supabaseMFA'
 import type { Factor } from '@supabase/supabase-js'
@@ -37,7 +36,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [currentAAL, setCurrentAAL] = useState<AALLevel | null>(null)
   const [mfaFactors, setMfaFactors] = useState<Factor[]>([])
 
-  const { createAccount, getAccount } = useAccounts()
+  const { getAccount } = useAccounts()
 
   const updateGlobalUserState = (newGlobalUser: any) => {
     const ipcRenderer = window.electron?.ipcRenderer
@@ -214,6 +213,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     let timeoutId: NodeJS.Timeout | undefined
 
+    if (loading) return
+
     setUserLoading(true)
 
     if (user) {
@@ -247,7 +248,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
 
     return () => { if (timeoutId) clearTimeout(timeoutId) }
-  }, [user])
+  }, [user, loading])
 
   const values: AuthContextValue = {
     signIn,

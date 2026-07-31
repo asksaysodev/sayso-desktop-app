@@ -88,13 +88,54 @@ function setAuthUser(user: AuthUser | null): void {
   }
 }
 
-// Tracks the in-flight profile fetch started on the most recent sign-in so the
-// onboarding gate (splash-login-success) can await a fresh `global.authUser`
-// before deciding whether to show onboarding. Without this, the renderer's
-// debounced account fetch (AuthContext) races the gate — and the splash often
-// closes before it lands — leaving global.authUser stale (`false`). That made
-// the tray show a logged-out state and re-opened onboarding even when the
-// account already had onboarding_status === 'complete'.
+/**
+ * Whether the onboarding window should be opened for the current account.
+ *
+ * SAYSO-338: a missing profile reads as `undefined`, which is NOT the same as
+ * "onboarding is pending". Treating them alike meant any moment where main had
+ * no profile forced onboarding open — including the reopen loop this issue is
+ * about. Only a profile we actually hold gets to decide; a genuinely new user
+ * carries an explicit `null` status and still gets onboarding.
+ */
+function shouldOpenOnboarding(): boolean {
+  const profile = global.authUser || undefined;
+  if (!profile) return false;
+  const status = profile.onboarding_status;
+  return status !== 'complete' && status !== 'dismissed';
+}
+
+// Backoff schedule for re-fetching the account profile after a failed attempt.
+// The profile drives the tray's subscription-gated rows and the onboarding gate,
+// and a single failed shot at boot used to leave it missing for the entire
+// session — no retry, no re-broadcast, recoverable only by restarting.
+const PROFILE_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000];
+
+function scheduleProfileRetry(email: string | undefined, attempt = 0): void {
+  if (!email || attempt >= PROFILE_RETRY_DELAYS_MS.length) return;
+  setTimeout(async () => {
+    if (global.authUser) return;
+    if (!authManager.getState().isAuthenticated) return;
+
+    const token = await authManager.getAccessToken().catch(() => null);
+    if (!token) {
+      scheduleProfileRetry(email, attempt + 1);
+      return;
+    }
+    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+    try {
+      const res = await axios.get(`${baseUrl}/accounts/${email}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 5000,
+      });
+      setAuthUser(res.data.data);
+      console.log('[MAIN] Profile retry succeeded — tray and onboarding gate now have the account');
+    } catch (err) {
+      console.warn(`[MAIN] Profile retry ${attempt + 1}/${PROFILE_RETRY_DELAYS_MS.length} failed:`, (err as Error)?.message);
+      scheduleProfileRetry(email, attempt + 1);
+    }
+  }, PROFILE_RETRY_DELAYS_MS[attempt]);
+}
+
 let authUserReady: Promise<void> = Promise.resolve();
 
 // Fetches the full account profile into global.authUser (main's source of truth
@@ -112,8 +153,9 @@ async function loadAuthUserProfile(accessToken: string, email: string | undefine
     setAuthUser(res.data.data);
 	maybeReportAppVersion(baseUrl, accessToken, res.data.data);
   } catch (err) {
-    console.warn('[MAIN] sign-in: profile fetch failed — tray will show logged-out state', (err as Error)?.message);
+    console.warn('[MAIN] sign-in: profile fetch failed — retrying in background', (err as Error)?.message);
     if (!isTransientNetworkError(err)) Sentry.captureException(err);
+    scheduleProfileRetry(email);
   }
 }
 
@@ -137,6 +179,7 @@ authManager.on('signed-out', () => {
   console.log('[AuthManager] signed-out');
   global.authAccessToken = null;
   global.authRefreshToken = null;
+  setAuthUser(null);
   cachedEnabledFeatures = [];
   global.playbooksCache = null;
   broadcastEnabledFeatures();
@@ -175,8 +218,9 @@ authManager.on('token-refreshed', async (state: AuthState) => {
       setAuthUser(profileResult.value.data.data);
 	  maybeReportAppVersion(baseUrl, state.accessToken!, profileResult.value.data.data);
     } else {
-      console.warn('[MAIN] Startup-offline recovery: profile fetch failed', profileResult.reason);
+      console.warn('[MAIN] Startup-offline recovery: profile fetch failed — retrying in background', profileResult.reason);
       if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
+      scheduleProfileRetry(state.user?.email);
     }
     if (fontSizeResult.status === 'rejected') {
       console.warn('[MAIN] Startup-offline recovery: font_size fetch failed', fontSizeResult.reason);
@@ -191,6 +235,7 @@ authManager.on('session-expired', () => {
   console.log('[AuthManager] session-expired');
   global.authAccessToken = null;
   global.authRefreshToken = null;
+  setAuthUser(null);
   cachedEnabledFeatures = [];
   global.playbooksCache = null;
   broadcastEnabledFeatures();
@@ -1323,10 +1368,13 @@ app.whenReady().then(async () => {
       ]);
 
       if (profileResult.status === 'fulfilled') {
-        global.authUser = profileResult.value.data.data;
+        // Route through setAuthUser so the tray is told, rather than assigning
+        // global.authUser directly and leaving every listener stale.
+        setAuthUser(profileResult.value.data.data);
       } else {
-        console.warn('[MAIN] Silent auth succeeded but profile fetch failed — tray will show logged-out state', profileResult.reason);
+        console.warn('[MAIN] Silent auth succeeded but profile fetch failed — retrying in background', profileResult.reason);
         if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
+        scheduleProfileRetry(authState.user?.email);
       }
 
       if (fontSizeResult.status === 'rejected') {
@@ -1342,8 +1390,7 @@ app.whenReady().then(async () => {
 	  maybeReportAppVersion(baseUrl, authState.accessToken!, global.authUser);
 
       // Open onboarding directly if not yet complete — no splash shown.
-      const onboardingStatus = (global.authUser || undefined)?.onboarding_status;
-      if (onboardingStatus !== 'complete' && onboardingStatus !== 'dismissed') {
+      if (shouldOpenOnboarding()) {
         console.log('[MAIN] Permissions complete but onboarding not done — opening onboarding window');
         createOnboardingWindow();
       }
@@ -1595,8 +1642,21 @@ ipcMain.handle('network:get-state', () => global.networkState);
 
 /**
  * Handler for updating user auth state
+ *
+ * SAYSO-338: a renderer is never the authority on whether a session exists.
+ * The splash's AuthProvider mounts with `user === null` — it has to read the
+ * real state from main over async IPC — and an effect reports that initial
+ * null up here before the answer arrives. That wiped a perfectly good profile
+ * and logged the tray out on a valid session, with no path back short of a
+ * restart. Ignore any clearing update while AuthManager still holds a session;
+ * genuine clears (sign-out, session-expired) always run after AuthManager has
+ * already dropped it, so they still get through.
  */
 ipcMain.on('update-user-auth', (_event: Electron.IpcMainInvokeEvent, { userAuthenticated }: { userAuthenticated: AuthUser | null }) => {
+  if (!userAuthenticated && authManager.getState().isAuthenticated) {
+    console.log('[MAIN] update-user-auth: ignored a null from a renderer — AuthManager still holds a session');
+    return;
+  }
   setAuthUser(userAuthenticated);
 })
 // Handle for opening Coach settings window
@@ -1756,17 +1816,17 @@ ipcMain.on('splash-login-success', async () => {
   // Wait for the sign-in profile fetch so the gate reads a fresh
   // onboarding_status rather than a stale `false` from before login.
   await authUserReady;
-  const status = (global.authUser || undefined)?.onboarding_status;
-  const shouldOpenOnboarding = status !== 'complete' && status !== 'dismissed';
+  const openOnboarding = shouldOpenOnboarding();
+  console.log('[MAIN] splash-login-success — profile:', global.authUser ? 'present' : 'missing', '| opening onboarding:', openOnboarding);
 
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
     splashWindowInstance.once('closed', () => {
-      if (shouldOpenOnboarding) {
+      if (openOnboarding) {
         createOnboardingWindow();
       }
     });
     splashWindowInstance.close();
-  } else if (shouldOpenOnboarding) {
+  } else if (openOnboarding) {
     createOnboardingWindow();
   }
 });
