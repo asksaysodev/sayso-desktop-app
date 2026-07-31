@@ -48,6 +48,9 @@ let cueCaptureStats = {
 
 let cueLowAudioTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** Onboarding-window notifier, injected via registerCueIpc. Used by stopCue(). */
+let notifyOnboarding: (channel: string) => void = () => {};
+
 /** Dependencies injected by main so this module stays free of window/permission internals. */
 export interface CueIpcDeps {
   checkOSPermissionsGranted: () => Promise<{ granted: boolean; mic: boolean; screen: boolean }>;
@@ -92,6 +95,11 @@ export function requestScreenRecordingPermission(): void {
 /** True while a Cue session is active. */
 export function isCueActive(): boolean {
   return cueAudioStreamer !== null;
+}
+
+/** Session id of the active Cue session, or null when idle. */
+export function getActiveCueSessionId(): string | null {
+  return cueAudioStreamer?.sessionId ?? null;
 }
 
 /** Keep the active Cue websocket token current across auth refreshes. */
@@ -229,9 +237,47 @@ export async function cleanupAllAudioCapture(): Promise<void> {
 // audio capture goes through the active IAudioProvider (mac = ScreenCaptureKit +
 // AVAudioEngine; win32 = the WASAPI native module). See docs/IPC_CONTRACT.md.
 
+/**
+ * Stop the Cue capture stack behind the cueStopInFlight mutex, so overlapping
+ * callers — the stop-cue IPC and the pre-logout persist in main — await the same
+ * teardown instead of racing two native stops. Idempotent: dedupes via
+ * cueStopInFlight and clears the streamer, so a second call returns immediately.
+ */
+export async function stopCue(): Promise<{ success: boolean; error?: string; deduped?: boolean }> {
+  if (cueStopInFlight) {
+    const result = await cueStopInFlight;
+    return { ...result, deduped: true };
+  }
+
+  const stopWork = (async (): Promise<{ success: boolean; error?: string }> => {
+    const statsAtStop = { ...cueCaptureStats };
+    try {
+      await teardownCueStreamsAndNative();
+      notifyOnboarding('onboarding:session-stopped');
+      console.log(
+        `[Cue] Session teardown complete — capture stats: userChunks=${statsAtStop.userChunks} prospectChunks=${statsAtStop.prospectChunks} userBytes=${statsAtStop.userBytes} prospectBytes=${statsAtStop.prospectBytes}`
+      );
+      cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
+      return { success: true };
+    } catch (error: any) {
+      console.error('[MAIN] Error stopping Cue:', error);
+      Sentry.captureException(error);
+      cueAudioStreamer = null;
+      cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
+      return { success: false, error: error.message };
+    } finally {
+      cueStopInFlight = null;
+    }
+  })();
+
+  cueStopInFlight = stopWork;
+  return stopWork;
+}
+
 /** Register the start-cue / stop-cue IPC handlers. Call once during app init. */
 export function registerCueIpc(deps: CueIpcDeps): void {
   const { checkOSPermissionsGranted, createSplashWindow, sendToOnboardingWindow } = deps;
+  notifyOnboarding = sendToOnboardingWindow;
 
   // Start Cue (handles 2 audio websockets: user + prospect)
   ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { sessionId, token }: { sessionId: string, token: string }) => {
@@ -408,34 +454,5 @@ export function registerCueIpc(deps: CueIpcDeps): void {
   });
 
   // Stop Cue (closes all websockets)
-  ipcMain.handle('stop-cue', async (_event: Electron.IpcMainInvokeEvent) => {
-    if (cueStopInFlight) {
-      const result = await cueStopInFlight;
-      return { ...result, deduped: true };
-    }
-
-    const stopWork = (async (): Promise<{ success: boolean; error?: string }> => {
-      const statsAtStop = { ...cueCaptureStats };
-      try {
-        await teardownCueStreamsAndNative();
-        sendToOnboardingWindow('onboarding:session-stopped');
-        console.log(
-          `[Cue] Session teardown complete — capture stats: userChunks=${statsAtStop.userChunks} prospectChunks=${statsAtStop.prospectChunks} userBytes=${statsAtStop.userBytes} prospectBytes=${statsAtStop.prospectBytes}`
-        );
-        cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
-        return { success: true };
-      } catch (error: any) {
-        console.error('[MAIN] Error stopping Cue:', error);
-        Sentry.captureException(error);
-        cueAudioStreamer = null;
-        cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
-        return { success: false, error: error.message };
-      } finally {
-        cueStopInFlight = null;
-      }
-    })();
-
-    cueStopInFlight = stopWork;
-    return stopWork;
-  });
+  ipcMain.handle('stop-cue', async (_event: Electron.IpcMainInvokeEvent) => stopCue());
 }

@@ -143,6 +143,7 @@ authManager.on('signed-out', () => {
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat for unmigrated windows
   broadcastToAllWindows('auth:session-expired');
+  tearDownSignedInWindows();
 });
 
 authManager.on('token-refreshed', async (state: AuthState) => {
@@ -197,12 +198,9 @@ authManager.on('session-expired', () => {
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat
   broadcastToAllWindows('auth:session-expired');
-  // Stop WebSocket reconnect loops — there is no valid token to reconnect with
-  audioManager.stopCueForSessionExpired();
-  // Close secondary windows and route to the login screen so the user isn't
-  // left clicking around with broken auth
-  if (isCoachWindowOpen()) global.coachWindow!.close();
-  if (isPlaybookWindowOpen()) global.playbookWindow!.close();
+  // Stop reconnect loops that have no valid token, and close the secondary
+  // windows so the user isn't left clicking around with broken auth
+  tearDownSignedInWindows();
   createSplashWindow({ reason: 'session-expired' });
 });
 
@@ -581,6 +579,27 @@ function isAppSettingsWindowOpen() {
 function isPlaybookWindowOpen() {
   return global.playbookWindow && !global.playbookWindow.isDestroyed();
 }
+
+/**
+ * Releases everything that only makes sense while a user is signed in: the Cue
+ * websocket reconnect loop, which has no valid token to reconnect with, and the
+ * secondary windows that assume an authenticated session.
+ *
+ * Shared by both ways a session ends — an explicit logout and an expired session.
+ * Those two paths had drifted: only the expiry path closed the windows, so
+ * logging out left the coach window floating on screen after the user was
+ * already back at the login form. Keep them calling this, not their own copies.
+ *
+ * Idempotent: stop() early-returns when not streaming, and the window checks
+ * guard against destroyed handles.
+ */
+function tearDownSignedInWindows(): void {
+  // Stop the Cue reconnect loop (no valid token to reconnect with). The streamer
+  // lives in audioManager now; this is the same shouldReconnect=false + stop(false).
+  audioManager.stopCueForSessionExpired();
+  if (isCoachWindowOpen()) global.coachWindow!.close();
+  if (isPlaybookWindowOpen()) global.playbookWindow!.close();
+}
 function windowSourceFromEvent(event: Electron.IpcMainEvent): 'coach' | 'independent' {
   const coach = global.coachWindow;
   if (coach && !coach.isDestroyed() && event.sender === coach.webContents) {
@@ -891,6 +910,61 @@ if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = 'production';
 }
 
+
+const CUE_STOP_PERSIST_TIMEOUT_MS = 5000;
+
+/**
+ * Ends an active Cue session end-to-end from main: tears down the capture stack
+ * (via audioManager.stopCue) and persists the session server-side. `reason` is for
+ * logging only.
+ *
+ * Until this existed, only the renderer could persist a session — POST
+ * /cue/session/stop/:id lived solely in the coach window's store, so teardown was
+ * unreachable from any main-process lifecycle event. Logging out cleared the tokens
+ * first, so the renderer's stop went out with no Authorization header; the 401 meant
+ * updateSupabaseSession() never ran and the session was lost when the Redis key
+ * expired two hours later. Main owns the streamer and the token, so it does it here.
+ *
+ * Safe with no active session, and idempotent — audioManager.stopCue() dedupes via
+ * its in-flight mutex and clears the streamer, so a second call returns immediately.
+ * SAYSO-335.
+ */
+async function stopAndPersistCueSession(reason: string): Promise<void> {
+  const sessionId = audioManager.getActiveCueSessionId();
+  if (!sessionId) return;
+
+  // Tear down capture first (local + fast), regardless of connectivity.
+  await audioManager.stopCue();
+
+  // Offline: skip the server persist rather than stall logout on a 5s POST that
+  // can't succeed. The session reconciles server-side when the Redis key expires.
+  if (global.networkState === 'reconnecting') {
+    console.warn(`[MAIN] ${reason}: offline — cue session ${sessionId} not persisted`);
+    return;
+  }
+
+  // Fetch a fresh token (refreshes if within 60s of expiry, shares the in-flight
+  // refresh mutex) so the POST can't 401 on a stale cached global. Both callers still
+  // hold a refresh token here (tray-logout before clearRefreshToken; auth:sign-out
+  // before authManager.signOut()).
+  const accessToken = await authManager.getAccessToken();
+  if (!accessToken) {
+    console.warn(`[MAIN] ${reason}: no access token — cue session ${sessionId} not persisted`);
+    return;
+  }
+
+  const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
+  try {
+    await axios.post(`${baseUrl}/cue/session/stop/${sessionId}`, null, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: CUE_STOP_PERSIST_TIMEOUT_MS,
+    });
+    console.log(`[MAIN] ${reason}: cue session ${sessionId} stopped and persisted`);
+  } catch (err: any) {
+    console.warn(`[MAIN] ${reason}: cue stop failed —`, err?.message);
+    if (!isTransientNetworkError(err)) Sentry.captureException(err);
+  }
+}
 // Function to load environment variables
 function loadEnvironmentVariables() {
   const isDev = process.env.NODE_ENV !== 'production';
@@ -1533,6 +1607,8 @@ ipcMain.handle('auth:verify-mfa', async (_event, { factorId, code }: { factorId:
 });
 
 ipcMain.handle('auth:sign-out', async () => {
+  // Persist any in-flight cue session while the token is still valid. SAYSO-335.
+  await stopAndPersistCueSession('sign-out');
   await authManager.signOut();
 });
 
@@ -1783,9 +1859,17 @@ ipcMain.on('tray-show-window', () => {
 });
 
 // Handler for triggering logout from the tray menu — opens splash window with sign-out flag
-ipcMain.on('tray-logout', () => {
+ipcMain.on('tray-logout', async () => {
   hideTrayMenu();
+  // Must run before clearRefreshToken(): once the refresh token is gone,
+  // getAccessToken() returns null and the stop call can only 401. SAYSO-335.
+  await stopAndPersistCueSession('tray-logout');
   clearRefreshToken();
+  // Close the coach/playbook windows here rather than waiting for the splash's
+  // LogoutGate to round-trip auth:sign-out — clearRefreshToken() does not emit
+  // signed-out, so if the splash fails to load the coach window would otherwise be
+  // left open with dead auth. Idempotent, safe to call directly. SAYSO-335.
+  tearDownSignedInWindows();
   if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
     createSplashWindow({ logout: true });
   } else {

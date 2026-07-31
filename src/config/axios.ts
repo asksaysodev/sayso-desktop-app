@@ -6,6 +6,18 @@ const apiClient = axios.create({
 	timeout: 15000,
 });
 
+// ─── Network state mirror ────────────────────────────────────────────────────
+// Kept as a module-level cache rather than an IPC round-trip, because it's read
+// from inside the failure path of a request that has already timed out. Main
+// only ever reports these two values (electron/main.ts, network:report-status).
+
+let networkState: 'online' | 'reconnecting' = 'online';
+const setNetworkState = (state: unknown) => {
+	if (state === 'online' || state === 'reconnecting') networkState = state;
+};
+window.electron?.ipcRenderer?.invoke('network:get-state').then(setNetworkState).catch(() => {});
+window.electron?.ipcRenderer?.on('network:state-changed', setNetworkState);
+
 // ─── Request interceptor ─────────────────────────────────────────────────────
 // Always fetch the token from main. main's AuthManager proactively refreshes
 // 60 s before expiry, so this almost always returns a fresh token with zero
@@ -100,6 +112,13 @@ apiClient.interceptors.response.use(
 			originalRequest &&
 			(originalRequest._retryCount ?? 0) < 3
 		) {
+			// Once the app knows it's offline, further backoff rounds only keep the
+			// user on a spinner for a result we can already predict. Fail fast — the
+			// offline banner explains the state better than a delayed error does.
+			// Checked after the eligibility test so every attempt still leaves a
+			// breadcrumb above. SAYSO-336.
+			if (networkState === 'reconnecting') return Promise.reject(error);
+
 			originalRequest._retryCount = (originalRequest._retryCount ?? 0) + 1;
 			await new Promise(resolve => setTimeout(resolve, 1000 * originalRequest._retryCount));
 			return apiClient(originalRequest);

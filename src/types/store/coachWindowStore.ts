@@ -68,6 +68,7 @@ export interface CoachWindowStore {
     cue_createNewSession: (leadType: LeadType | null) => Promise<SessionData>;
     cue_handleStartCue: () => Promise<void>;
     cue_handleStopCue: () => Promise<void>;
+    cue_handleLocalTeardown: () => Promise<void>;
     cue_stopSession: (sessionId: string) => Promise<SessionData>;
     cue_resetStates: () => void;
     cue_onPressResetSession: () => Promise<void>;

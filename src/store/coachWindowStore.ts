@@ -249,6 +249,28 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
         }
     },
 
+    /**
+     * The local half of cue_handleStopCue — releases the capture stack and resets
+     * state without the POST /cue/session/stop call. For paths where the session is
+     * already being persisted elsewhere, or where the credentials are gone and the
+     * request could only 401: main persists on logout via stopAndPersistCueSession()
+     * (electron/main.ts), so the renderer only has to let go of its own resources.
+     *
+     * Kept here rather than inlined at the call site so there is one copy of the
+     * teardown sequence to keep in step with cue_handleStopCue. Rethrows like
+     * cue_handleStopCue does; callers report via reportCoachError.
+     */
+    cue_handleLocalTeardown: async () => {
+        if(!get().isCoachActive) return;
+
+        set({ isCoachActive: false, isCoachLoading: false });
+        try {
+            await cue_stopStreaming();
+        } finally {
+            get().cue_resetStates();
+        }
+    },
+
     cue_stopSession: async (sessionId) => {
 
         try {
