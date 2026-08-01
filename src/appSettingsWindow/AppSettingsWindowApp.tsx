@@ -71,8 +71,8 @@ function AppSettingsContent() {
         const ipc = window.electron?.ipcRenderer;
         if (!ipc) return;
         const handler = () => setActive('software-update');
-        ipc.on('app-settings:navigate-to-update', handler);
-        return () => ipc.off('app-settings:navigate-to-update', handler);
+        const offNavigateToUpdate = ipc.on('app-settings:navigate-to-update', handler);
+        return () => offNavigateToUpdate?.();
     }, []);
 
     const searchResults: SettingsRegistryEntry[] = searchValue

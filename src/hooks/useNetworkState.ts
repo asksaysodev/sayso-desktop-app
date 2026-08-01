@@ -11,13 +11,13 @@ export function useNetworkState(): { isReconnecting: boolean } {
       setIsReconnecting((state as string) === 'reconnecting');
     };
 
-    ipc.on('network:state-changed', handleNetworkState);
+    const offNetworkState = ipc.on('network:state-changed', handleNetworkState);
     ipc.invoke('network:get-state')
       .then((s: unknown) => setIsReconnecting((s as string) === 'reconnecting'))
       .catch(() => {});
 
     return () => {
-      ipc.off('network:state-changed', handleNetworkState);
+      offNetworkState?.();
     };
   }, []);
 

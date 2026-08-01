@@ -2,7 +2,6 @@ import { createContext, useContext, useCallback, useEffect, useState, useRef } f
 import { useSessionExpiry } from '@/hooks/useSessionExpiry'
 import * as Sentry from "@sentry/electron/renderer"
 import { useAccounts } from '../hooks/useAccounts'
-import { useLocation } from 'react-router-dom'
 import { Account, AuthResult, SignInData, User } from '@/types/user'
 import { AALLevel, MFAServiceError } from '@/types/supabaseMFA'
 import type { Factor } from '@supabase/supabase-js'
@@ -37,7 +36,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [currentAAL, setCurrentAAL] = useState<AALLevel | null>(null)
   const [mfaFactors, setMfaFactors] = useState<Factor[]>([])
 
-  const { createAccount, getAccount } = useAccounts()
+  const { getAccount } = useAccounts()
 
   const updateGlobalUserState = (newGlobalUser: any) => {
     const ipcRenderer = window.electron?.ipcRenderer
@@ -206,13 +205,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const ipcRenderer = window.electron?.ipcRenderer
     if (!ipcRenderer) return
-    ipcRenderer.on('trigger-logout', handleSignOut as any)
-    return () => { ipcRenderer.off('trigger-logout', handleSignOut as any) }
+    // Use the disposer on() returns: preload registers an internal wrapper, so
+    // off(channel, callback) matches nothing and would leak this listener on
+    // every remount. Same defect fixed in the tray. SAYSO-338.
+    const offTriggerLogout = ipcRenderer.on('trigger-logout', handleSignOut as any)
+    return () => offTriggerLogout?.()
   }, [])
 
   // ─── Load account profile whenever user changes ───────────────────────────
   useEffect(() => {
     let timeoutId: NodeJS.Timeout | undefined
+
+    if (loading) return
 
     setUserLoading(true)
 
@@ -247,7 +251,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
 
     return () => { if (timeoutId) clearTimeout(timeoutId) }
-  }, [user])
+  }, [user, loading])
 
   const values: AuthContextValue = {
     signIn,

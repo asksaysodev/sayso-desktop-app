@@ -30,11 +30,11 @@ export function usePlaybooksCache(): UsePlaybooksCacheResult {
             setError(cache.error);
         };
 
-        ipcRenderer.on('playbooks-updated', handleUpdate);
+        const offPlaybooksUpdated = ipcRenderer.on('playbooks-updated', handleUpdate);
 
         return () => {
             cancelled = true;
-            ipcRenderer.off('playbooks-updated', handleUpdate);
+            offPlaybooksUpdated?.();
         };
     }, []);
 

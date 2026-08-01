@@ -19,7 +19,7 @@ import { nativeImage } from 'electron/common';
 import * as Sentry from '@sentry/electron/main';
 import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
-import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
+import { loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
 import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage } from './utils/transientErrors';
@@ -30,6 +30,11 @@ import * as permissions from './permissions/permissionsManager';
 
 Sentry.init(sentryConfig);
 
+// Read lazily, never captured at module scope: loadEnvironmentVariables() runs
+// ~1100 lines below this point, so anything evaluated here sees an unset
+// VITE_BACKEND_BASE_URL and would pin every main-process call to localhost in
+// packaged builds. A getter keeps the DRY win without the ordering dependency.
+const backendBaseUrl = () => process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
 const IS_STAGING = (require('../package.json') as { build_env?: string }).build_env === 'staging';
 
 if (IS_STAGING) {
@@ -88,13 +93,219 @@ function setAuthUser(user: AuthUser | null): void {
   }
 }
 
-// Tracks the in-flight profile fetch started on the most recent sign-in so the
-// onboarding gate (splash-login-success) can await a fresh `global.authUser`
-// before deciding whether to show onboarding. Without this, the renderer's
-// debounced account fetch (AuthContext) races the gate — and the splash often
-// closes before it lands — leaving global.authUser stale (`false`). That made
-// the tray show a logged-out state and re-opened onboarding even when the
-// account already had onboarding_status === 'complete'.
+/**
+ * Whether the onboarding window should be opened for the current account.
+ *
+ * SAYSO-338: a missing profile reads as `undefined`, which is NOT the same as
+ * "onboarding is pending". Treating them alike meant any moment where main had
+ * no profile forced onboarding open — including the reopen loop this issue is
+ * about. Only a profile we actually hold gets to decide; a genuinely new user
+ * carries an explicit `null` status and still gets onboarding.
+ */
+function shouldOpenOnboarding(): boolean {
+  if (onboardingStatusThisSession) return false;
+  const profile = global.authUser || undefined;
+  if (!profile) return false;
+  const status = profile.onboarding_status;
+  return status !== 'complete' && status !== 'dismissed';
+}
+
+// Onboarding status (SAYSO-338)
+type OnboardingStatus = 'complete' | 'dismissed';
+
+let onboardingStatusThisSession: OnboardingStatus | null = null;
+
+const ONBOARDING_PUT_RETRY_DELAYS_MS = [1000, 3000, 10000, 30000];
+
+const pendingOnboardingStatusPath = () =>
+  path.join(app.getPath('userData'), 'pending-onboarding-status.json');
+
+function writePendingOnboardingStatus(email: string, status: OnboardingStatus): void {
+  try {
+    fs.writeFileSync(pendingOnboardingStatusPath(), JSON.stringify({ email, status }));
+  } catch (err) {
+    console.warn('[onboarding] could not persist pending status:', (err as Error)?.message);
+  }
+}
+
+function clearPendingOnboardingStatus(): void {
+  try {
+    fs.rmSync(pendingOnboardingStatusPath(), { force: true });
+  } catch {}
+}
+
+// Bumped by every setOnboardingStatus() call. A retry chain carries the
+// generation it was started with and stands down as soon as a newer write
+// exists, so a slow 'dismissed' chain can't land after — and overwrite — a
+// 'complete' that was decided later.
+let onboardingStatusGeneration = 0;
+
+async function pushOnboardingStatus(
+  email: string,
+  status: OnboardingStatus,
+  generation: number,
+  attempt = 0,
+): Promise<void> {
+  if (authManager.getState().user?.email !== email) {
+    return;
+  }
+  if (generation !== onboardingStatusGeneration) {
+    console.log(`[onboarding] dropping superseded '${status}' write`);
+    return;
+  }
+
+  const token = await authManager.getAccessToken().catch(() => null);
+
+  if (token) {
+    // Re-check after the await — a newer status may have been set while the
+    // token request was in flight.
+    if (generation !== onboardingStatusGeneration) {
+      console.log(`[onboarding] dropping superseded '${status}' write`);
+      return;
+    }
+    try {
+      await axios.put(
+        `${backendBaseUrl()}/accounts/update-account`,
+        { updateData: { onboarding_status: status } },
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 },
+      );
+      console.log(`[onboarding] status '${status}' persisted`);
+      if (generation === onboardingStatusGeneration) clearPendingOnboardingStatus();
+      return;
+    } catch (err) {
+      console.warn(`[onboarding] persisting '${status}' failed (attempt ${attempt + 1}):`, (err as Error)?.message);
+      if (attempt >= ONBOARDING_PUT_RETRY_DELAYS_MS.length && !isTransientNetworkError(err)) {
+        Sentry.captureException(err);
+      }
+    }
+  }
+
+  if (attempt >= ONBOARDING_PUT_RETRY_DELAYS_MS.length) {
+    console.warn('[onboarding] giving up for now — the write will replay on next launch');
+    return;
+  }
+  setTimeout(() => {
+    void pushOnboardingStatus(email, status, generation, attempt + 1);
+  }, ONBOARDING_PUT_RETRY_DELAYS_MS[attempt]);
+}
+
+function setOnboardingStatus(status: OnboardingStatus): void {
+  if (onboardingStatusThisSession === 'complete' && status === 'dismissed') {
+    console.log("[onboarding] ignoring 'dismissed' — already completed this session");
+    return;
+  }
+
+  console.log(`[onboarding] status set to '${status}'`);
+  onboardingStatusThisSession = status;
+
+  const profile = global.authUser || undefined;
+  if (profile) setAuthUser({ ...profile, onboarding_status: status });
+
+  const email = authManager.getState().user?.email;
+  if (!email) return;
+  const generation = ++onboardingStatusGeneration;
+  writePendingOnboardingStatus(email, status);
+  void pushOnboardingStatus(email, status, generation);
+}
+
+function replayPendingOnboardingStatus(): void {
+  let pending: { email?: string; status?: OnboardingStatus } | null = null;
+  try {
+    pending = JSON.parse(fs.readFileSync(pendingOnboardingStatusPath(), 'utf8'));
+  } catch {
+    return;
+  }
+  if (pending?.status !== 'complete' && pending?.status !== 'dismissed') {
+    clearPendingOnboardingStatus();
+    return;
+  }
+  if (!pending.email || pending.email !== authManager.getState().user?.email) {
+    clearPendingOnboardingStatus();
+    return;
+  }
+  console.log(`[onboarding] replaying pending status '${pending.status}' from a previous session`);
+  onboardingStatusThisSession = pending.status;
+  const profile = global.authUser || undefined;
+  if (profile) setAuthUser({ ...profile, onboarding_status: pending.status });
+  void pushOnboardingStatus(pending.email, pending.status, ++onboardingStatusGeneration);
+}
+
+// Backoff schedule for re-fetching the account profile after a failed attempt.
+// The profile drives the tray's subscription-gated rows and the onboarding gate,
+// and a single failed shot at boot used to leave it missing for the entire
+// session — no retry, no re-broadcast, recoverable only by restarting.
+const PROFILE_RETRY_DELAYS_MS = [2000, 5000, 15000, 30000];
+
+// The boot fetch and the startup-offline recovery both call scheduleProfileRetry
+// independently. The `global.authUser` guard keeps two chains correct, but they
+// double the request volume on exactly the flaky network that triggered them.
+let profileRetryInFlight = false;
+
+function scheduleProfileRetry(email: string | undefined, attempt = 0): void {
+  // Only exhaustion releases the guard. A no-op call with no email must not,
+  // or scheduleProfileRetry(state.user?.email) with an undefined email would
+  // clear the flag out from under a chain that is still running and let the
+  // next attempt-0 call start a second one — the exact duplication the flag
+  // exists to prevent.
+  if (attempt >= PROFILE_RETRY_DELAYS_MS.length) {
+    profileRetryInFlight = false;
+    return;
+  }
+  if (!email) return;
+  if (attempt === 0 && profileRetryInFlight) {
+    console.log('[MAIN] Profile retry already in flight — not starting a second chain');
+    return;
+  }
+  profileRetryInFlight = true;
+  setTimeout(async () => {
+    if (global.authUser) {
+      profileRetryInFlight = false;
+      return;
+    }
+    if (authManager.getState().user?.email !== email) {
+      profileRetryInFlight = false;
+      return;
+    }
+
+    const token = await authManager.getAccessToken().catch(() => null);
+    if (!token) {
+      scheduleProfileRetry(email, attempt + 1);
+      return;
+    }
+    try {
+      const res = await axios.get(`${backendBaseUrl()}/accounts/${email}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 5000,
+      });
+      profileRetryInFlight = false;
+      setAuthUser(res.data.data);
+      console.log('[MAIN] Profile retry succeeded — tray and onboarding gate now have the account');
+      // The gate is otherwise consulted once, at whenReady or splash-login-success.
+      // Without this a boot fetch that only lands on retry leaves the user with no
+      // onboarding for the entire session, even though their profile says pending.
+      maybeOpenOnboardingLate();
+    } catch (err) {
+      console.warn(`[MAIN] Profile retry ${attempt + 1}/${PROFILE_RETRY_DELAYS_MS.length} failed:`, (err as Error)?.message);
+      scheduleProfileRetry(email, attempt + 1);
+    }
+  }, PROFILE_RETRY_DELAYS_MS[attempt]);
+}
+
+/**
+ * Re-evaluates the onboarding gate after a late-arriving profile. Deliberately
+ * conservative: a profile can land up to ~52 s after boot, or later still after
+ * a reconnect, so it never pops the tour over a splash, a tour already showing,
+ * or a coach/playbook window the user is actively working in.
+ */
+function maybeOpenOnboardingLate(): void {
+  if (splashWindowInstance && !splashWindowInstance.isDestroyed()) return;
+  if (onboardingWindowInstance && !onboardingWindowInstance.isDestroyed()) return;
+  if (isCoachWindowOpen() || isPlaybookWindowOpen()) return;
+  if (!shouldOpenOnboarding()) return;
+  console.log('[MAIN] Profile arrived late and onboarding is pending — opening onboarding window');
+  createOnboardingWindow();
+}
+
 let authUserReady: Promise<void> = Promise.resolve();
 
 // Fetches the full account profile into global.authUser (main's source of truth
@@ -103,17 +314,17 @@ let authUserReady: Promise<void> = Promise.resolve();
 // back to its logged-out state, same as the restore path.
 async function loadAuthUserProfile(accessToken: string, email: string | undefined): Promise<void> {
   if (!email) return;
-  const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
   try {
-    const res = await axios.get(`${baseUrl}/accounts/${email}`, {
+    const res = await axios.get(`${backendBaseUrl()}/accounts/${email}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       timeout: 5000,
     });
     setAuthUser(res.data.data);
-	maybeReportAppVersion(baseUrl, accessToken, res.data.data);
+	maybeReportAppVersion(backendBaseUrl(), accessToken, res.data.data);
   } catch (err) {
-    console.warn('[MAIN] sign-in: profile fetch failed — tray will show logged-out state', (err as Error)?.message);
+    console.warn('[MAIN] sign-in: profile fetch failed — retrying in background', (err as Error)?.message);
     if (!isTransientNetworkError(err)) Sentry.captureException(err);
+    scheduleProfileRetry(email);
   }
 }
 
@@ -125,8 +336,7 @@ authManager.on('signed-in', (state: AuthState) => {
     // Load the account profile into global.authUser now, so the tray shows the
     // logged-in state and the onboarding gate sees the real onboarding_status.
     authUserReady = loadAuthUserProfile(state.accessToken, state.user?.email);
-    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
-    fetchAndCacheEnabledFeatures(baseUrl, state.accessToken).catch((err) => {
+    fetchAndCacheEnabledFeatures(backendBaseUrl(), state.accessToken).catch((err) => {
       console.warn('[AuthManager] signed-in: features fetch failed', err?.message);
       if (!isTransientNetworkError(err)) Sentry.captureException(err);
     });
@@ -137,6 +347,8 @@ authManager.on('signed-out', () => {
   console.log('[AuthManager] signed-out');
   global.authAccessToken = null;
   global.authRefreshToken = null;
+  setAuthUser(null);
+  onboardingStatusThisSession = null;
   cachedEnabledFeatures = [];
   global.playbooksCache = null;
   broadcastEnabledFeatures();
@@ -165,19 +377,24 @@ authManager.on('token-refreshed', async (state: AuthState) => {
   if (startupOfflinePending && state.isAuthenticated) {
     startupOfflinePending = false;
     console.log('[MAIN] Startup-offline recovery — fetching profile and features');
-    const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
     const headers = { Authorization: `Bearer ${state.accessToken}` };
     const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
-      axios.get(`${baseUrl}/accounts/${state.user?.email}`, { headers, timeout: 5000 }),
-      fetchAndCacheFontSize(baseUrl, state.accessToken!),
-      fetchAndCacheEnabledFeatures(baseUrl, state.accessToken!),
+      axios.get(`${backendBaseUrl()}/accounts/${state.user?.email}`, { headers, timeout: 5000 }),
+      fetchAndCacheFontSize(backendBaseUrl(), state.accessToken!),
+      fetchAndCacheEnabledFeatures(backendBaseUrl(), state.accessToken!),
     ]);
     if (profileResult.status === 'fulfilled') {
       setAuthUser(profileResult.value.data.data);
-	  maybeReportAppVersion(baseUrl, state.accessToken!, profileResult.value.data.data);
+	  maybeReportAppVersion(backendBaseUrl(), state.accessToken!, profileResult.value.data.data);
+      // This was the one profile-success path that skipped the gate — its own
+      // failure branch reaches it via scheduleProfileRetry, so launching offline
+      // and recovering left the user with no onboarding for the whole session.
+      replayPendingOnboardingStatus();
+      maybeOpenOnboardingLate();
     } else {
-      console.warn('[MAIN] Startup-offline recovery: profile fetch failed', profileResult.reason);
+      console.warn('[MAIN] Startup-offline recovery: profile fetch failed — retrying in background', profileResult.reason);
       if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
+      scheduleProfileRetry(state.user?.email);
     }
     if (fontSizeResult.status === 'rejected') {
       console.warn('[MAIN] Startup-offline recovery: font_size fetch failed', fontSizeResult.reason);
@@ -192,6 +409,8 @@ authManager.on('session-expired', () => {
   console.log('[AuthManager] session-expired');
   global.authAccessToken = null;
   global.authRefreshToken = null;
+  setAuthUser(null);
+  onboardingStatusThisSession = null;
   cachedEnabledFeatures = [];
   global.playbooksCache = null;
   broadcastEnabledFeatures();
@@ -599,6 +818,7 @@ function tearDownSignedInWindows(): void {
   audioManager.stopCueForSessionExpired();
   if (isCoachWindowOpen()) global.coachWindow!.close();
   if (isPlaybookWindowOpen()) global.playbookWindow!.close();
+  closeOnboardingWindowForSignOut();
 }
 function windowSourceFromEvent(event: Electron.IpcMainEvent): 'coach' | 'independent' {
   const coach = global.coachWindow;
@@ -646,6 +866,12 @@ function sendToOnboardingWindow(channel: string) {
   }
 }
 
+function closeOnboardingWindowForSignOut(): void {
+  if (!onboardingWindowInstance || onboardingWindowInstance.isDestroyed()) return;
+  console.log('[onboarding] closing — session ended');
+  onboardingClosedIntentionally = true;
+  onboardingWindowInstance.close();
+}
 /**
  * Creates and positions the custom tray menu window near the tray icon
  */
@@ -945,17 +1171,16 @@ async function stopAndPersistCueSession(reason: string): Promise<void> {
 
   // Fetch a fresh token (refreshes if within 60s of expiry, shares the in-flight
   // refresh mutex) so the POST can't 401 on a stale cached global. Both callers still
-  // hold a refresh token here (tray-logout before clearRefreshToken; auth:sign-out
-  // before authManager.signOut()).
+  // hold a refresh token here — both callers run before their authManager.signOut()
+  // (tray-logout and the auth:sign-out handler).
   const accessToken = await authManager.getAccessToken();
   if (!accessToken) {
     console.warn(`[MAIN] ${reason}: no access token — cue session ${sessionId} not persisted`);
     return;
   }
 
-  const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
   try {
-    await axios.post(`${baseUrl}/cue/session/stop/${sessionId}`, null, {
+    await axios.post(`${backendBaseUrl()}/cue/session/stop/${sessionId}`, null, {
       headers: { Authorization: `Bearer ${accessToken}` },
       timeout: CUE_STOP_PERSIST_TIMEOUT_MS,
     });
@@ -1386,21 +1611,23 @@ app.whenReady().then(async () => {
       console.log('[MAIN] Authenticated but permissions-complete flag missing — showing splash for permissions');
       createSplashWindow();
     } else {
-      const baseUrl = process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
       const headers = { Authorization: `Bearer ${authState.accessToken}` };
 
       // Fetch profile, font size, and enabled features in parallel before any window opens.
       const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
-        axios.get(`${baseUrl}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
-        fetchAndCacheFontSize(baseUrl, authState.accessToken!),
-        fetchAndCacheEnabledFeatures(baseUrl, authState.accessToken!),
+        axios.get(`${backendBaseUrl()}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
+        fetchAndCacheFontSize(backendBaseUrl(), authState.accessToken!),
+        fetchAndCacheEnabledFeatures(backendBaseUrl(), authState.accessToken!),
       ]);
 
       if (profileResult.status === 'fulfilled') {
-        global.authUser = profileResult.value.data.data;
+        // Route through setAuthUser so the tray is told, rather than assigning
+        // global.authUser directly and leaving every listener stale.
+        setAuthUser(profileResult.value.data.data);
       } else {
-        console.warn('[MAIN] Silent auth succeeded but profile fetch failed — tray will show logged-out state', profileResult.reason);
+        console.warn('[MAIN] Silent auth succeeded but profile fetch failed — retrying in background', profileResult.reason);
         if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
+        scheduleProfileRetry(authState.user?.email);
       }
 
       if (fontSizeResult.status === 'rejected') {
@@ -1413,11 +1640,11 @@ app.whenReady().then(async () => {
         if (!isTransientNetworkError(featuresResult.reason)) Sentry.captureException(featuresResult.reason);
       }
 
-	  maybeReportAppVersion(baseUrl, authState.accessToken!, global.authUser);
+	  maybeReportAppVersion(backendBaseUrl(), authState.accessToken!, global.authUser);
 
+      replayPendingOnboardingStatus();
       // Open onboarding directly if not yet complete — no splash shown.
-      const onboardingStatus = (global.authUser || undefined)?.onboarding_status;
-      if (onboardingStatus !== 'complete' && onboardingStatus !== 'dismissed') {
+      if (shouldOpenOnboarding()) {
         console.log('[MAIN] Permissions complete but onboarding not done — opening onboarding window');
         createOnboardingWindow();
       }
@@ -1662,6 +1889,14 @@ ipcMain.on('network:report-status', (_event, status: 'online' | 'offline') => {
     authManager.forceRefresh().catch((err) => {
       console.warn('[Network] forceRefresh on reconnect failed:', err?.message);
     });
+    // The profile backoff gives up permanently after ~52 s. If we were offline
+    // for longer than that at boot the session would stay profile-less until
+    // restart, which is the state SAYSO-338 is about. Re-arm it here for free.
+    const authState = authManager.getState();
+    if (authState.isAuthenticated && !global.authUser) {
+      console.log('[Network] Back online without a profile — re-arming the profile retry');
+      scheduleProfileRetry(authState.user?.email);
+    }
   }
 });
 
@@ -1671,8 +1906,21 @@ ipcMain.handle('network:get-state', () => global.networkState);
 
 /**
  * Handler for updating user auth state
+ *
+ * SAYSO-338: a renderer is never the authority on whether a session exists.
+ * The splash's AuthProvider mounts with `user === null` — it has to read the
+ * real state from main over async IPC — and an effect reports that initial
+ * null up here before the answer arrives. That wiped a perfectly good profile
+ * and logged the tray out on a valid session, with no path back short of a
+ * restart. Ignore any clearing update while AuthManager still holds a session;
+ * genuine clears (sign-out, session-expired) always run after AuthManager has
+ * already dropped it, so they still get through.
  */
 ipcMain.on('update-user-auth', (_event: Electron.IpcMainInvokeEvent, { userAuthenticated }: { userAuthenticated: AuthUser | null }) => {
+  if (!userAuthenticated && authManager.getState().isAuthenticated) {
+    console.log('[MAIN] update-user-auth: ignored a null from a renderer — AuthManager still holds a session');
+    return;
+  }
   setAuthUser(userAuthenticated);
 })
 // Handle for opening Coach settings window
@@ -1815,6 +2063,11 @@ ipcMain.on('open-onboarding-window', () => {
   createOnboardingWindow();
 });
 
+ipcMain.on('onboarding:set-status', (_event, status: OnboardingStatus) => {
+  if (status !== 'complete' && status !== 'dismissed') return;
+  setOnboardingStatus(status);
+});
+
 ipcMain.on('close-onboarding-window', (_event) => {
   onboardingClosedIntentionally = true;
   const win = BrowserWindow.fromWebContents(_event.sender);
@@ -1832,17 +2085,21 @@ ipcMain.on('splash-login-success', async () => {
   // Wait for the sign-in profile fetch so the gate reads a fresh
   // onboarding_status rather than a stale `false` from before login.
   await authUserReady;
-  const status = (global.authUser || undefined)?.onboarding_status;
-  const shouldOpenOnboarding = status !== 'complete' && status !== 'dismissed';
+  // A status written in a previous session that never reached the server would
+  // otherwise only replay on a launch that happens to go through silent auth,
+  // leaving the pending file to sit in userData indefinitely. SAYSO-338.
+  replayPendingOnboardingStatus();
+  const openOnboarding = shouldOpenOnboarding();
+  console.log('[MAIN] splash-login-success — profile:', global.authUser ? 'present' : 'missing', '| opening onboarding:', openOnboarding);
 
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
     splashWindowInstance.once('closed', () => {
-      if (shouldOpenOnboarding) {
+      if (openOnboarding) {
         createOnboardingWindow();
       }
     });
     splashWindowInstance.close();
-  } else if (shouldOpenOnboarding) {
+  } else if (openOnboarding) {
     createOnboardingWindow();
   }
 });
@@ -1861,15 +2118,22 @@ ipcMain.on('tray-show-window', () => {
 // Handler for triggering logout from the tray menu — opens splash window with sign-out flag
 ipcMain.on('tray-logout', async () => {
   hideTrayMenu();
-  // Must run before clearRefreshToken(): once the refresh token is gone,
+  // Must run before the session is torn down: once the refresh token is gone,
   // getAccessToken() returns null and the stop call can only 401. SAYSO-335.
   await stopAndPersistCueSession('tray-logout');
-  clearRefreshToken();
-  // Close the coach/playbook windows here rather than waiting for the splash's
-  // LogoutGate to round-trip auth:sign-out — clearRefreshToken() does not emit
-  // signed-out, so if the splash fails to load the coach window would otherwise be
-  // left open with dead auth. Idempotent, safe to call directly. SAYSO-335.
-  tearDownSignedInWindows();
+  // End the session through AuthManager rather than clearing the token store
+  // behind its back. clearRefreshToken() wiped the persisted token and nothing
+  // else — AuthManager kept reporting isAuthenticated, and since the tray now
+  // derives its logged-in state from auth:state / auth:get-state (SAYSO-338),
+  // it went on rendering a logged-in menu for a dead session with no Log In row
+  // to click. The tray window is built once and only hidden on blur, so its
+  // one-shot auth:get-state never re-ran and nothing corrected it short of a
+  // restart. signOut() clears the session, clears the token and emits
+  // 'signed-out', whose handler already does the profile clear, the onboarding
+  // flag reset, tearDownSignedInWindows() and the auth:state broadcast — so the
+  // splash's LogoutGate round-trip is now a redundant no-op rather than the
+  // only thing standing between a logout and a coherent state. SAYSO-335/338.
+  await authManager.signOut();
   if (!splashWindowInstance || splashWindowInstance.isDestroyed()) {
     createSplashWindow({ logout: true });
   } else {
@@ -1936,20 +2200,10 @@ const createOnboardingWindow = (tab?: string) => {
 
   onboardingWindowInstance = onboardingWindow;
 
-  onboardingWindow.on('close', async (e) => {
+  onboardingWindow.on('close', (e) => {
     console.log('[onboarding] close event fired — intentionally:', onboardingClosedIntentionally, '| isAppQuitting:', isAppQuitting);
     if (!onboardingClosedIntentionally && !isAppQuitting) {
-      e.preventDefault();
-      await Promise.race([
-        new Promise<void>(resolve => {
-          ipcMain.once('onboarding:remind-later-ack', () => resolve());
-          onboardingWindow.webContents.send('onboarding:set-remind-later');
-        }),
-        new Promise<void>(resolve => setTimeout(resolve, 500)),
-      ]);
-      onboardingClosedIntentionally = true;
-      onboardingWindow.close();
-      return;
+      setOnboardingStatus('dismissed');
     }
     onboardingClosedIntentionally = false;
   });
