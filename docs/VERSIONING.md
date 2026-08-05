@@ -10,21 +10,26 @@ npm version minor   # new features: 1.1.1 → 1.2.0
 npm version major   # breaking changes: 1.1.1 → 2.0.0
 ```
 
-**When to bump:** once, on the `development` branch, before merging into `staging`. Never bump directly on `staging` or `main`.
+**When to bump:** once, on the `development` branch, before merging into `staging`. Never bump directly on `staging`.
+
+Bumping on `staging` is what broke the 1.2.5 production build: the bump commit stayed on `staging`, `development` still read 1.2.4, and a release built from a development-based branch produced 1.2.4 artifacts, a 1.2.4 `latest-mac.yml`, and a 1.2.4 tag. If a bump does land on `staging` by mistake, merge it back into `development` immediately so the two branches agree.
 
 ---
 
 ## Branch flow
 
 ```
-feature/* → development → (npm version patch) → staging → main
+feature/* → development → (npm version patch) → staging
 ```
+
+There is no `main` branch. `staging` is the release branch — both the staging
+pre-release and the production release are built from it.
 
 1. Merge all features into `development`
 2. Bump version on `development`
 3. Merge `development → staging`
-4. Build and publish staging release
-5. Once validated, merge `staging → main` and build production release
+4. Build and publish the staging release from `staging`
+5. Once validated, build the production release from the same `staging` commit
 
 ---
 
@@ -71,13 +76,20 @@ For production releases (tagged `v{version}`), same flow but uncheck **This is a
 ## Production release
 
 ```bash
-# On staging branch, after validation
-git checkout main
-git merge staging
-git push origin main
+# After the staging build has been validated
+git checkout staging
+git pull origin staging
 
 npm run fresh-export   # builds production DMGs and creates GitHub draft
 ```
+
+Both release scripts pass `--target staging` to `gh release create`, so the tag
+lands on `staging`. Without it, GitHub tags the repo's default branch
+(`development`) — a tree whose `package.json` may still hold the pre-bump version.
+
+`fresh-export` also aborts if the local `package.json` version doesn't match
+`origin/staging`, which is the guard against building production from the wrong
+branch. Override with `SKIP_RELEASE_BRANCH_CHECK=1` only when you know why.
 
 Then follow the same publish steps above on the production draft.
 

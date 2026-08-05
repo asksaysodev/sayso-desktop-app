@@ -23,6 +23,10 @@ To get a GitHub token:
 
 ### 1. Update Version Number
 
+Bump on `development`, before merging into `staging` — never on `staging` itself.
+See [VERSIONING.md](VERSIONING.md) for why. Production builds run from `staging`
+and abort if the local version doesn't match `origin/staging`.
+
 Edit `package.json` and bump the version:
 
 ```
