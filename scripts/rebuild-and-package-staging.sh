@@ -18,6 +18,9 @@ fi
 APP_NAME="Sayso-Beta"
 NOTARY_PROFILE="NotaryProfile"
 RELEASE_DIR="release-staging"
+# Tag the release against staging. Without --target, gh tags the repo's default
+# branch (development), so the tag lands on a tree without the version bump.
+RELEASE_BRANCH="staging"
 
 APP_VERSION=$(node -p "require('./package.json').version")
 echo "📦 Building staging version: ${APP_VERSION}"
@@ -168,6 +171,7 @@ GH_RELEASE_FILES=(
 )
 
 gh release create "${RELEASE_TAG}" \
+  --target "${RELEASE_BRANCH}" \
   --title "${RELEASE_TAG}" \
   --prerelease \
   --draft \
