@@ -17,7 +17,6 @@ export default function CoachActiveButtons({ coachFeature, handleCoach, onReques
     const isCoachLoading = useCoachWindowStore(state => state.isCoachLoading);
     const isResettingCueSession = useCoachWindowStore(state => state.cue.isResettingCueSession);
 
-    const showTimer = coachFeature === 'recall' || coachFeature === 'cue';
     const disableButtons = isCoachLoading || isResettingCueSession;
 
     return (
@@ -45,9 +44,7 @@ export default function CoachActiveButtons({ coachFeature, handleCoach, onReques
                 <FaStop size={ICON_SIZE} className={`${isCoachLoading ? 'hidden' : ''}`} />
             </button>
 
-            {showTimer &&
-                <CallTimer shouldStopTimer={disableButtons}/>
-            }
+            <CallTimer shouldStopTimer={disableButtons}/>
         </>
     )
 }

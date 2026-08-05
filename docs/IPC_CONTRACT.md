@@ -115,7 +115,6 @@ not a target.
 | `tray-show-window` | send | |
 | `tray-logout` | send | |
 | `quit-app` | send | |
-| `demo-insight` | send | Dev/test insight injection. |
 
 ### Updates — **universal** (Electron autoUpdater abstracts the platform)
 
@@ -193,10 +192,11 @@ call site.
 | `onboarding:session-stopped` | Cue session stopped. |
 | `onboarding:tray-clicked` | Tray icon clicked during onboarding. |
 
-> `update-available`, `download-progress`, `update-downloaded` are **not** sent
-> by main — they exist only as electron-updater event names and as
-> `ipcRenderer.on` subscriptions in `preload.ts` (legacy `autoUpdater.*`
-> listeners). They're orphaned renderer subscriptions; see below.
+> `update-available`, `download-progress`, `update-downloaded` are **not** IPC
+> channels — they are electron-updater's own event names, consumed by main in
+> `setupAutoUpdater()` and folded into the `update:state-changed` broadcast.
+> Don't add `ipcRenderer.on` subscriptions for them; renderers read update
+> state through `update:get-state` / `update:state-changed`.
 
 ---
 
@@ -219,11 +219,7 @@ engineer knows where the OS seams are outside the provider layer.
 
 ## Orphaned bridges (no main handler)
 
-Exposed in `preload.ts` but with **no** `ipcMain` handler — dead renderer API
-surface, safe to remove in a future cleanup, not part of the Windows contract:
-
-- `upload-file` (`window.electron.uploadFile`) — no `ipcMain.handle`.
-- `upload-both-files` (`window.electron.uploadBothFiles`) — no `ipcMain.handle`.
-- `update-available` / `download-progress` / `update-downloaded`
-  (`window.electron.autoUpdater.on*`) — `ipcRenderer.on` subscriptions that main
-  never sends to (UpdateGate uses `update:state-changed` instead).
+None. `upload-file`, `upload-both-files`, `demo-insight` and the legacy
+`autoUpdater.on*` subscriptions were removed in the SAYSO-354 cleanup. Every
+channel exposed in `preload.ts` now has a main-side counterpart — keep it that
+way, and record new channels in the tables above.

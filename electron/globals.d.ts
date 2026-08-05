@@ -29,29 +29,6 @@ export interface CueParams {
   token: string;
 }
 
-export interface UploadFileOptions {
-  filePath: string;
-  type: string;
-  parentId: string;
-  accessToken: string;
-  fileName: string;
-  data?: Record<string, unknown>;
-  contentType?: string;
-}
-
-export interface UploadBothFilesOptions {
-  user: {
-    file: string;
-    actualStartMs: number;
-  };
-  prospect: {
-    file: string;
-    actualStartMs: number;
-  };
-  sessionId: string;
-  accessToken: string;
-}
-
 export interface UploadAudioChunkMetadata {
   accountId?: string;
   prospectId?: string;

@@ -477,6 +477,9 @@ Pre-rewrite, `updateToken` existed but was never called, so reconnects after a r
 
 These files used to call `supabase.auth.getSession()` to extract a JWT; they now call `auth:get-token` IPC.
 
+> Historical record. Some rows below (`useCue.tsx`, `AuthGuard.tsx`) name files
+> that were since deleted as dead code in SAYSO-354.
+
 | File | What it does |
 |---|---|
 | `src/coachWindow/services/cueService.ts` | Starts the cue WS streaming session; needs a JWT for auth on the WS URL. |
@@ -496,17 +499,14 @@ In `electron/main.ts`:
 - The `refresh-auth-tokens` IPC handler with its `isRefreshingTokens` / `pendingRefreshResolvers` queue (the April 2026 partial fix).
 - `const { refreshAuthTokens } = require('./utils/authTokens')` import.
 
-### Dead but not deleted (left in place for now)
+### Deleted in the SAYSO-354 cleanup (August 2026)
 
-These files contain references to the old Supabase JS SDK auth methods but are not imported by any active code path. They can be deleted in a future cleanup PR.
+The Supabase JS SDK leftovers listed here as "dead but not deleted" are now gone:
+`src/config/supabase.ts`, `src/utils/tokenEncryption.ts`, `src/utils/supabaseClient.ts`,
+`src/utils/debugStorage.ts`, `src/utils/authDebug.ts` and `src/services/mfaServices.ts`.
 
-| File | Status |
-|---|---|
-| `src/config/supabase.ts` | Old Supabase JS client with `cryptoStorage`. Still imported by the dead files below. |
-| `src/utils/tokenEncryption.ts` | XOR-with-bundled-key "encryption". Theatrical security; keys live in the bundle. |
-| `src/utils/supabaseClient.ts` | Re-export wrapper. Nothing imports it. |
-| `src/services/mfaServices.ts` | MFA enrollment helpers used by the Account settings page. **NOTE:** if/when MFA enrollment is re-tested, these need to be migrated to IPC the same way auth was — or moved to the main process entirely. |
-| `src/utils/debugStorage.ts` | Dev debug helper. |
+The SDK is no longer imported for runtime auth anywhere — the only remaining
+reference is a `import type { Factor }` in `src/context/AuthContext.tsx`.
 
 ### Touched but otherwise unchanged
 
@@ -579,9 +579,15 @@ When you can identify a class of bug rather than an instance, fix the class.
 
 ### MFA enrollment
 
-The MFA enrollment flow on the Account settings page (`mfaServices.ts` + UI) was **not** migrated to the new architecture — it still calls `supabase.auth.mfa.enroll()` etc. on the old SDK. Since the SDK no longer has a session set in the renderer, **MFA enrollment is currently broken**. Either:
-- Migrate `mfaServices.ts` to call IPC handlers backed by `AuthManager` methods (recommended), or
-- If MFA enrollment is dormant, mark this as known-broken and leave a TODO.
+**There is no MFA enrollment in the desktop app.** `mfaServices.ts` — an unused
+SDK-based `enroll`/`unenroll` wrapper that no screen ever called — was deleted in
+SAYSO-354. Users enroll through the web app; the desktop app only *verifies* at
+login, via `AuthManager.verifyMFA()` (`/auth/v1/factors/{id}/challenge` +
+`/verify`), which is unaffected.
+
+If desktop enrollment is ever wanted, build it on `AuthManager` with a new IPC
+handler — not on the renderer-side SDK, which no longer holds a session and must
+not (see the "never push tokens from the renderer" rule above).
 
 ### Session lifetime
 

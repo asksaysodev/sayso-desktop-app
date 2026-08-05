@@ -2377,25 +2377,6 @@ ipcMain.on('set-window-position', (event: Electron.IpcMainInvokeEvent, x: number
   }
 });
 
-// Handler for demo insights from AdminPanel - forwards to coach window
-ipcMain.on('demo-insight', (event: Electron.IpcMainInvokeEvent, insightData: CueInsight) => {
-  if (isDev) {
-    console.log('[MAIN] Received demo-insight:', insightData);
-  }
-
-  // Forward to coach window if it exists and is not destroyed
-  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-    global.coachWindow.webContents.send('cue-insight', insightData);
-    if (isDev) {
-      console.log('[MAIN] Demo insight forwarded to coach window');
-    }
-  } else {
-    if (isDev) {
-      console.warn('[MAIN] Coach window not available, cannot forward demo insight');
-    }
-  }
-});
-
 // --- Playbook Window ---
 const createPlaybookWindow = (source: 'coach' | 'independent' = 'independent') => {
   if (global.playbookWindow && !global.playbookWindow.isDestroyed()) {

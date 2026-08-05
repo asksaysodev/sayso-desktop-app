@@ -83,7 +83,7 @@ Because a mid-session SCK grant can't be detected live, the permissions screen s
 - Returns `{ success: false, error: 'permissions_denied', mic, screen }`
 - Calls `createSplashWindow()` → `PostAuthRedirect` → `/permissions`
 
-The renderer (`useCue.tsx`) treats the failed result as a thrown error — it logs to console and does **not** show a toast (silent fail by design); the surfaced permissions window is the user-facing signal.
+The renderer (`src/store/coachWindowStore.ts`, via the `CUE_PERMISSIONS_DENIED` code in `src/utils/errorReporting.ts`) treats the failed result as a thrown error — it logs to console and does **not** show a toast (silent fail by design); the surfaced permissions window is the user-facing signal.
 
 ---
 

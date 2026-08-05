@@ -82,18 +82,8 @@ export interface PermissionsStatus {
   screen: boolean;
 }
 
-export interface AutoUpdaterDownloadProgress {
-  percent: number;
-  bytesPerSecond: number;
-  transferred: number;
-  total: number;
-}
-
 export interface AutoUpdaterAPI {
   onUpdateCheckComplete: (callback: () => void) => () => void;
-  onUpdateAvailable: (callback: (data: { version: string }) => void) => () => void;
-  onDownloadProgress: (callback: (data: AutoUpdaterDownloadProgress) => void) => () => void;
-  onUpdateDownloaded: (callback: (data: { version: string }) => void) => () => void;
 }
 
 export interface UpdateAPI {
