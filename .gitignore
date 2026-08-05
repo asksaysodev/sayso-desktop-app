@@ -65,3 +65,5 @@ tsconfig.electron.tsbuildinfo
 # Personal auth mastery notes (do not commit)
 docs/AUTH_MASTERY.md
 docs/AUTH_MASTERY_ESP.md
+
+CLAUDE.md
