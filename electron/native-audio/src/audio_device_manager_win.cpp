@@ -17,9 +17,9 @@
 //
 // Implementation notes for whoever fills this in:
 //   * System audio  = WASAPI loopback on the default render endpoint
-//                     ("what the prospect says"). Must exclude Sayso's own
-//                     render session (self-exclusion), mirroring macOS
-//                     excludesCurrentProcessAudio.
+//                     ("what the prospect says"). Plain render-endpoint loopback
+//                     is fine — NO self-exclusion needed (Sayso emits no audio,
+//                     so there is nothing of ours to exclude).
 //   * Microphone    = WASAPI capture on the default capture endpoint
 //                     ("what the user says"), delivered on a SEPARATE callback.
 //   * Deliver PCM to JS ONLY via uv_async_send onto the libuv loop thread —
@@ -67,8 +67,8 @@ NAN_METHOD(RequestScreenRecordingPermission) {
 // ── System audio (loopback / "prospect") ───────────────────────────────────
 
 // Promise<boolean>. Start WASAPI loopback; resolve true once audio flows.
-// Reject on failure or when a start/stop is already in flight. Self-exclude
-// Sayso's own render session.
+// Reject on failure or when a start/stop is already in flight. Plain
+// render-endpoint loopback — no self-exclusion needed (Sayso emits no audio).
 NAN_METHOD(StartSystemAudioCapture) {
   NotImplemented("startSystemAudioCapture");
 }
