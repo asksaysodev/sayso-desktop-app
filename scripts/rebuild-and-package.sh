@@ -17,11 +17,31 @@ APP_NAME="Sayso"                   # The .app bundle name without .app
 NOTARY_PROFILE="NotaryProfile"     # Keychain profile created via: xcrun notarytool store-credentials ...
 DMG_NAME="${APP_NAME}.dmg"
 RELEASE_DIR="release"
+# Tag the release against staging. Without --target, gh tags the repo's default
+# branch (development), so the tag lands on a tree without the version bump.
+RELEASE_BRANCH="staging"
 
 # Read version from package.json
 APP_VERSION=$(node -p "require('./package.json').version")
 echo "📦 Building version: ${APP_VERSION}"
 # -----------------------------
+
+# Production builds must come from the release branch. Building from a
+# development-based branch silently ships the pre-bump version, because every
+# artifact name, latest-mac.yml and the git tag derive from APP_VERSION above.
+# Set SKIP_RELEASE_BRANCH_CHECK=1 to bypass (e.g. hotfix from a detached tag).
+if [ "${SKIP_RELEASE_BRANCH_CHECK:-0}" != "1" ]; then
+  git fetch --quiet origin "${RELEASE_BRANCH}"
+  BRANCH_VERSION=$(git show "origin/${RELEASE_BRANCH}:package.json" | node -p "JSON.parse(require('fs').readFileSync(0)).version")
+  if [ "${APP_VERSION}" != "${BRANCH_VERSION}" ]; then
+    echo "❌ Version mismatch: local package.json is ${APP_VERSION}, origin/${RELEASE_BRANCH} is ${BRANCH_VERSION}"
+    echo "   Production releases are built from ${RELEASE_BRANCH}. Check out that branch, or"
+    echo "   merge the version bump into your tree, then re-run."
+    echo "   Override with SKIP_RELEASE_BRANCH_CHECK=1 if this is intentional."
+    exit 1
+  fi
+  echo "✅ Version matches origin/${RELEASE_BRANCH} (${BRANCH_VERSION})"
+fi
 
 # No validation needed - we're using electron-builder's DMGs directly
 
@@ -232,6 +252,7 @@ for f in "${RELEASE_FILES[@]}"; do
 done
 
 gh release create "v${APP_VERSION}" \
+  --target "${RELEASE_BRANCH}" \
   --title "v${APP_VERSION}" \
   --draft \
   --notes "Release v${APP_VERSION}" \
