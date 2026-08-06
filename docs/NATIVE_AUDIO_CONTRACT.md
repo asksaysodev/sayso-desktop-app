@@ -18,7 +18,7 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 
 ---
 
-## The NAN surface (11 methods)
+## The NAN surface (12 methods)
 
 `Init` (`NAN_MODULE_INIT`) must export exactly these. Names are case-sensitive.
 
@@ -35,6 +35,7 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 | 9 | `isMicrophoneCaptureActive` | `boolean` | no (sync) |
 | 10 | `setStreamingCallback` | `void` | no (sync) |
 | 11 | `setMicrophoneStreamingCallback` | `void` | no (sync) |
+| 12 | `setLifecycleEventCallback` | `void` | no (sync) |
 
 > The macOS `.mm` also still exports the dead trio `listOutputDevices`,
 > `createMultiOutputDevice`, `deleteMultiOutputDevice` — **do not implement
@@ -98,7 +99,11 @@ the next `startSystemAudioCapture` is safe to call immediately.
   see the macOS idle-stop branch.
 
 ### `isSystemAudioCaptureActive()` → `boolean`
-Sync liveness flag for the system-audio path.
+Sync liveness flag for the system-audio path. **Includes a start still settling**
+(SAYSO-355): callers use this probe to decide whether teardown is needed before a
+fresh start, and a pending start needs teardown. `stopSystemAudioCapture()` must
+be able to cancel such a pending start (reject its promise with
+`sck_start_canceled_by_stop…`), never report idle around it.
 
 ### `startMicrophoneCapture(options)` → `boolean`
 Starts capture of the **agent's microphone** ("what the user says"). macOS uses
@@ -123,6 +128,19 @@ with `(buffer, format)` — see below. Passing `null` must be safe at any time.
 ### `setMicrophoneStreamingCallback(fn | null)`
 Same, for **microphone** chunks. Kept separate so stopping one path doesn't
 silence the other. `null` clears only the mic callback.
+
+### `setLifecycleEventCallback(fn | null)`
+Diagnostics channel (SAYSO-355). Registers a JS callback invoked with a single
+short snake_case string per capture-lifecycle anomaly — e.g.
+`sck_start_watchdog_fired gen=3 timeout_ms=10000`, `sck_orphan_stream_stopped
+gen=3`. Events ending in `_failed` are escalated by the consumer (Sentry).
+`null` clears the callback but must NOT free the underlying async plumbing —
+freeing on callback-clear is the UAF class documented in SAYSO-349. JS callers
+must tolerate the method being absent (older native builds): guard with a
+feature check, never call unconditionally. Start/settle failures themselves are
+NOT delivered here — they travel in the start promise rejection message
+(`sck_start_timeout…`, `sck_start_canceled_by_stop…`); this channel is for
+events that occur after a promise has already settled.
 
 ---
 
@@ -199,6 +217,50 @@ Windows/WASAPI equivalent: subscribe to `IMMNotificationClient`
 (`OnDefaultDeviceChanged` / `OnDeviceStateChanged`), debounce/coalesce the same
 way, and re-initialize the affected capture client without interrupting the other
 path. Aim to match the "user swaps devices mid-call and Cue keeps running" bar.
+
+---
+
+## Error & observability
+
+Failures must be **legible across the boundary** so the JS layer can escalate
+them. The native module does not call Sentry itself — it makes each failure
+*identifiable*; `audio/audioManager.ts` and `src/config/sentry.ts` own the actual
+reporting, severity, and transient-vs-fatal filtering.
+
+There are **two error channels, split by timing:**
+
+1. **Start / settle failures travel in the start-promise rejection.**
+   `initialize` and `startSystemAudioCapture` reject with a specific snake_case
+   reason in the message (`sck_start_timeout…`, `sck_start_canceled_by_stop…`) so
+   the caller's `catch` can report it. One failure mode → one reason string.
+2. **Post-settle anomalies travel on `setLifecycleEventCallback`.** Once a start
+   promise has resolved, later trouble (watchdog fired, orphaned stream stopped,
+   an unrecoverable restart) is emitted as a short snake_case event. Events ending
+   in `_failed` are escalated to Sentry by the consumer; the rest are
+   breadcrumb-level diagnostics.
+
+The bar, learned from real macOS incidents:
+
+- **One failure mode, one identity (SAYSO-347).** Never flatten distinct failures
+  into a bare `false`. If `startMicrophoneCapture` can fail three ways (device
+  open denied, format negotiation failed, no buffers within the cold-start
+  window), those are three *distinguishable* reasons — surfaced via a `_failed`
+  lifecycle event or a rejection message — not one opaque boolean.
+- **No silent latch-off (SAYSO-353).** If a running path dies and cannot recover
+  (a device change kills the mic and it never comes back), emit a `_failed`
+  lifecycle event — do not merely stop delivering buffers. A path that goes quiet
+  with no signal is the worst case: the session ends looking clean while half the
+  audio is missing.
+- **Never free async plumbing on callback-clear (SAYSO-349).** Passing `null` to
+  a callback setter clears the callback only; the `uv_async_t` handles are torn
+  down on Stop, not on clear. Freeing them on clear is a use-after-free.
+- **Distinguish transient from fatal.** A single dropped buffer or a mid-swap gap
+  is transient (the resilience layer recovers — no Sentry); an unrecoverable
+  teardown is fatal (`_failed` → Sentry). Labeling them keeps the signal clean.
+
+> Observability is a prerequisite for the device-change resilience bar above:
+> "survives a mid-call swap" is only *testable* if a failed recovery emits a
+> visible `_failed` event. Build the two together.
 
 ---
 

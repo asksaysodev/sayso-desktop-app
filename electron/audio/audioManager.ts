@@ -38,6 +38,10 @@ let cueAudioStreamer: any = null;
 /** Serialize stop-cue: overlapping IPC invokes await the same teardown (no double native stop). */
 let cueStopInFlight: Promise<{ success: boolean; error?: string; deduped?: boolean }> | null = null;
 
+/** Serialize start-cue: overlapping invokes (double-click, renderer retry) dedupe onto the same
+ *  in-flight start instead of interleaving through its multi-await body (SAYSO-355). */
+let cueStartInFlight: Promise<{ success: boolean; error?: string; sessionId?: string; mic?: boolean; screen?: boolean }> | null = null;
+
 /** Per-session telemetry: chunks + bytes forwarded from native callbacks into AudioStreamer */
 let cueCaptureStats = {
   userChunks: 0,
@@ -64,6 +68,17 @@ export interface CueIpcDeps {
 export function initAudioProvider(): void {
   try {
     provider = require('./index').default;
+    // Native lifecycle diagnostics (SAYSO-355): route to console so the prod file logger captures
+    // them, and escalate `_failed` events (e.g. an orphaned SCK stream that would not stop — a
+    // zombie capture holding the screen-recording indicator) to Sentry.
+    if (provider && typeof provider.setLifecycleEventCallback === 'function') {
+      provider.setLifecycleEventCallback((event: string) => {
+        console.warn(`[NativeAudio] lifecycle: ${event}`);
+        if (event.includes('_failed')) {
+          Sentry.captureMessage(`[native-audio] ${event}`, 'warning');
+        }
+      });
+    }
   } catch (error) {
     Sentry.captureException(error);
   }
@@ -281,6 +296,12 @@ export function registerCueIpc(deps: CueIpcDeps): void {
 
   // Start Cue (handles 2 audio websockets: user + prospect)
   ipcMain.handle('start-cue', async (event: Electron.IpcMainInvokeEvent, { sessionId, token }: { sessionId: string, token: string }) => {
+    if (cueStartInFlight) {
+      console.warn('[Cue] start-cue invoked while a start is already in flight — deduping onto it');
+      const result = await cueStartInFlight;
+      return { ...result, deduped: true };
+    }
+    const startWork = (async (): Promise<{ success: boolean; error?: string; sessionId?: string; mic?: boolean; screen?: boolean }> => {
     try {
       if (!token) {
         throw new Error('Token is required');
@@ -450,7 +471,12 @@ export function registerCueIpc(deps: CueIpcDeps): void {
         cueAudioStreamer = null;
       }
       return { success: false, error: error.message };
+    } finally {
+      cueStartInFlight = null;
     }
+    })();
+    cueStartInFlight = startWork;
+    return startWork;
   });
 
   // Stop Cue (closes all websockets)
