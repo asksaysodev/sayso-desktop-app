@@ -69,6 +69,11 @@ class WindowsAudioProvider implements IAudioProvider {
     //                   (native.startSystemAudioCapture is internal; startProspectStreaming is the public entry)
     return { success: false, error: 'Prospect streaming not yet supported on Windows' };
   }
+
+  setLifecycleEventCallback(_callback: ((event: string) => void) | null): void {
+    // TODO(win-native): native.setLifecycleEventCallback(callback) — diagnostics channel (SAYSO-355)
+    // No-op until Windows audio capture is implemented
+  }
 }
 
 export default new WindowsAudioProvider();

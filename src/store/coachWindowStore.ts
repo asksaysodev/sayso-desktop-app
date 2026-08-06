@@ -198,12 +198,24 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
             }
 
             const sessionData = await get().cue_createNewSession(currentLeadType);
-            
+
             if (!sessionData || !sessionData.sessionId) {
                 throw new Error('Failed to create new cue session');
             }
 
-            await cue_startStreaming(sessionData.sessionId);
+            try {
+                await cue_startStreaming(sessionData.sessionId);
+            } catch (streamError) {
+                // Streaming never started: close the just-created server session so every failed
+                // start doesn't strand an orphaned coach_session row (SAYSO-355). Best-effort —
+                // the streaming error is the one worth surfacing.
+                try {
+                    await get().cue_stopSession(sessionData.sessionId);
+                } catch {
+                    // ignore rollback failure
+                }
+                throw streamError;
+            }
 
             set({
                 sessionData,

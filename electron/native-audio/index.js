@@ -74,6 +74,10 @@ class AudioDeviceManager {
    * @returns {Promise<{ success: boolean, error?: string }>} success when SCK audio output is attached and capture started
    */
   async startSystemAudioCapture(options = {}) {
+    // Lifecycle logs are deliberately unconditional: in packaged builds main's console is wrapped
+    // into the file logger, and SCK start/settle timing is the evidence SAYSO-355 lacked.
+    const startedAt = Date.now();
+    console.log('🎤 [AUDIO MANAGER] SCK start requested');
     try {
       await this.initialize();
       const { streamingCallback, ...captureOptions } = options;
@@ -82,6 +86,7 @@ class AudioDeviceManager {
       }
       const nativeResult = await nativeAudio.startSystemAudioCapture(captureOptions);
       if (nativeResult) {
+        console.log(`🎤 [AUDIO MANAGER] SCK start settled ok in ${Date.now() - startedAt}ms`);
         return { success: true };
       }
       return {
@@ -90,6 +95,7 @@ class AudioDeviceManager {
       };
     } catch (err) {
       const message = err && err.message ? err.message : String(err);
+      console.warn(`🎤 [AUDIO MANAGER] SCK start failed after ${Date.now() - startedAt}ms: ${message}`);
       return { success: false, error: message };
     }
   }
@@ -121,16 +127,33 @@ class AudioDeviceManager {
    * @returns {Promise<{ success: boolean, filePath?: string|null, actualStartMs?: number|null, error?: string }>}
    */
   async stopSystemAudioCapture() {
+    const startedAt = Date.now();
+    console.log('🎤 [AUDIO MANAGER] SCK stop requested');
     await this.initialize();
 
     this.setStreamingCallback(null);
 
-    return await nativeAudio.stopSystemAudioCapture();
+    const result = await nativeAudio.stopSystemAudioCapture();
+    console.log(`🎤 [AUDIO MANAGER] SCK stop settled in ${Date.now() - startedAt}ms (success=${result && result.success})`);
+    return result;
   }
 
   async isSystemAudioCaptureActive() {
     await this.initialize();
     return nativeAudio.isSystemAudioCaptureActive();
+  }
+
+  /**
+   * Register a callback for native lifecycle diagnostics (SAYSO-355). Events are short snake_case
+   * strings, e.g. "sck_start_watchdog_fired gen=3 timeout_ms=10000"; events ending in `_failed`
+   * should be escalated by the caller. Pass null to clear. No-op on native builds that predate
+   * the method.
+   * @param {((event: string) => void)|null} callback
+   */
+  setLifecycleEventCallback(callback) {
+    if (nativeAudio.setLifecycleEventCallback) {
+      nativeAudio.setLifecycleEventCallback(callback);
+    }
   }
 
   /**

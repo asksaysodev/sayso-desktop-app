@@ -33,4 +33,10 @@ export interface IAudioProvider {
   // Streaming
   setStreamingCallback(callback: StreamingCallback | null): void;
   startProspectStreaming(options: { streamingCallback: StreamingCallback }): Promise<AudioCaptureResult>;
+
+  // Native lifecycle diagnostics (SAYSO-355): short snake_case event strings emitted for
+  // capture-lifecycle anomalies (watchdog fired, orphaned stream, late callbacks). Optional so a
+  // stale native build without the method stays contract-compatible; events ending in `_failed`
+  // should be escalated by the consumer.
+  setLifecycleEventCallback?(callback: ((event: string) => void) | null): void;
 }

@@ -52,6 +52,16 @@ static uv_async_t* g_streamingAsyncHandle = nullptr;
 static Nan::Persistent<v8::Function> g_micStreamingCallback;
 static uv_async_t* g_micStreamingAsyncHandle = nullptr;
 
+// Native→JS lifecycle diagnostics channel (SAYSO-355; also the transport for SAYSO-353's mic
+// route events). Deliberately NOT the handle->data pattern: producers append strings to a
+// mutex-guarded queue from any thread and the JS-thread drain swaps it out, so there is no
+// ownership race. The uv_async_t is allocated once and never freed (uv handles are cheap;
+// freeing on callback-clear is the exact UAF class SAYSO-349 documents).
+static std::mutex g_lifecycleMutex;
+static std::vector<std::string> g_lifecycleQueue;    // guarded by g_lifecycleMutex
+static uv_async_t* g_lifecycleAsyncHandle = nullptr; // allocated once, never freed
+static Nan::Persistent<v8::Function> g_lifecycleCallback;
+
 // Global variables for microphone capture
 static AVAudioEngine* g_micEngine = nullptr;
 static AVAudioInputNode* g_micInputNode = nullptr;
@@ -136,10 +146,42 @@ static void MicStreamingAsyncCallback(uv_async_t* handle) {
     Local<Function> callback = Nan::New(g_micStreamingCallback);
     Local<Value> argv[2] = {buffer, format};
     Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
-    
+
     // Clean up
     delete data;
     handle->data = nullptr;
+}
+
+// JS-thread drain for the lifecycle queue. Swap-then-invoke so producers never block on V8.
+static void LifecycleAsyncCallback(uv_async_t* /*handle*/) {
+    std::vector<std::string> events;
+    {
+        std::lock_guard<std::mutex> lk(g_lifecycleMutex);
+        events.swap(g_lifecycleQueue);
+    }
+    if (g_lifecycleCallback.IsEmpty()) {
+        return;
+    }
+    Nan::HandleScope scope;
+    Local<Function> callback = Nan::New(g_lifecycleCallback);
+    for (const auto& event : events) {
+        Local<Value> argv[1] = { Nan::New<v8::String>(event.c_str()).ToLocalChecked() };
+        Nan::Call(callback, Nan::GetCurrentContext()->Global(), 1, argv);
+    }
+}
+
+// Emit a lifecycle diagnostic. Safe from any thread. Always NSLogs (dev terminal); additionally
+// forwards to JS when the channel is wired, so packaged builds get it in the file log / Sentry.
+// Message vocabulary: snake_case event token first, then `key=value` pairs; events ending in
+// `_failed` are escalated by the JS side.
+static void EmitLifecycleEvent(const std::string& message) {
+    NSLog(@"🔎 [NATIVE] %s", message.c_str());
+    std::lock_guard<std::mutex> lk(g_lifecycleMutex);
+    if (!g_lifecycleAsyncHandle) {
+        return; // channel not wired (older JS) — NSLog above is the only sink
+    }
+    g_lifecycleQueue.push_back(message);
+    uv_async_send(g_lifecycleAsyncHandle);
 }
 
 // Audio conversion function for 32-bit integer to float
@@ -705,6 +747,11 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
     didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer 
     ofType:(SCStreamOutputType)type {
     if (type == SCStreamOutputTypeAudio) {
+        if (stream != g_stream) {
+            // Buffer from a stream that isn't the published pipeline (orphaned late start, or a
+            // stream mid-teardown) — drop rather than contaminate the active session (SAYSO-355).
+            return;
+        }
         // Record actual start time at the first audio buffer
         if (g_actualStartMs == 0.0) {
             NSTimeInterval nowMs = [[NSDate date] timeIntervalSince1970] * 1000.0;
@@ -733,14 +780,23 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
 static AudioCaptureDelegate* g_delegate = nil;
 
 // ScreenCaptureKit async start: Promise settled on libuv thread when addStreamOutput / startCapture completes.
+// Settlement is generation-guarded and settle-once: the SCK completion blocks, the watchdog timeout and
+// stop-cancel all race to settle the same start, and every loser must become a harmless no-op — never a
+// double-settle and never a write into a freed PendingSckStart (SAYSO-355; UAF discipline per SAYSO-349).
+// Blocks capture the generation VALUE, never the pending pointer, so a late callback can outlive the
+// struct safely.
 struct PendingSckStart {
     uv_async_t async;
     Nan::Persistent<v8::Promise::Resolver> resolver;
+    uint64_t generation;
+    bool settled;   // guarded by g_sckStartMutex
     bool reject;
     std::string message;
 };
 
 static PendingSckStart* g_sckStartPending = nullptr;
+static std::mutex g_sckStartMutex;             // guards g_sckStartPending + settled transitions
+static uint64_t g_sckStartNextGeneration = 0;  // bumped per start (JS thread only)
 
 // Async system-audio stop: JS Promise resolves on libuv thread after SCK stopCapture completes.
 struct PendingSckStop {
@@ -767,22 +823,17 @@ static Local<Promise> MakeRejectedPromise(Isolate* isolate, const char* msg) {
     return resolver->GetPromise();
 }
 
-static void ResetSCKPipelineAfterFailedStart() {
-    if (g_delegate) {
-        g_delegate.audioCallback = nil;
-    }
-    g_stream = nil;
-    g_filter = nil;
-    g_config = nil;
-    g_isCapturing = false;
-}
-
 static void SckStartSettledCb(uv_async_t* handle) {
     PendingSckStart* p = static_cast<PendingSckStart*>(handle->data);
     if (!p) {
         return;
     }
-    g_sckStartPending = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(g_sckStartMutex);
+        if (g_sckStartPending == p) {
+            g_sckStartPending = nullptr;
+        }
+    }
 
     Nan::HandleScope scope;
     Isolate* isolate = Isolate::GetCurrent();
@@ -803,10 +854,31 @@ static void SckStartSettledCb(uv_async_t* handle) {
     });
 }
 
-static void ScheduleSckStartSettle(PendingSckStart* pending, bool reject, const std::string& message) {
-    pending->reject = reject;
-    pending->message = message;
-    uv_async_send(&pending->async);
+// Settle the pending SCK start for `generation` exactly once. Returns false when that start is no
+// longer current (already settled by a competing path, superseded, or gone) — callers must treat
+// false as "you were abandoned": clean up anything created locally and touch no globals.
+static bool SettleSckStartForGeneration(uint64_t generation, bool reject, const std::string& message) {
+    PendingSckStart* winner = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(g_sckStartMutex);
+        if (!g_sckStartPending || g_sckStartPending->generation != generation || g_sckStartPending->settled) {
+            return false;
+        }
+        g_sckStartPending->settled = true;
+        winner = g_sckStartPending;
+        winner->reject = reject;
+        winner->message = message;
+    }
+    // Safe outside the lock: only the single winner ever sends on this handle, and deletion happens
+    // strictly after SckStartSettledCb consumes this send on the JS thread.
+    uv_async_send(&winner->async);
+    return true;
+}
+
+// True when the start identified by `generation` has been abandoned (timed out, canceled, superseded).
+static bool SckStartAbandoned(uint64_t generation) {
+    std::lock_guard<std::mutex> lk(g_sckStartMutex);
+    return !g_sckStartPending || g_sckStartPending->generation != generation || g_sckStartPending->settled;
 }
 
 static void SckStopSettledCb(uv_async_t* handle) {
@@ -1021,10 +1093,14 @@ NAN_METHOD(StartSystemAudioCapture) {
         info.GetReturnValue().Set(MakeRejectedPromise(isolate, "System audio capture already active"));
         return;
     }
-    if (g_sckStartPending != nullptr) {
-        NSLog(@"⚠️ [NATIVE] System audio capture start already in progress");
-        info.GetReturnValue().Set(MakeRejectedPromise(isolate, "System audio capture start already in progress"));
-        return;
+    {
+        std::lock_guard<std::mutex> lk(g_sckStartMutex);
+        if (g_sckStartPending != nullptr) {
+            NSLog(@"⚠️ [NATIVE] System audio capture start already in progress (gen=%llu)",
+                  (unsigned long long)g_sckStartPending->generation);
+            info.GetReturnValue().Set(MakeRejectedPromise(isolate, "System audio capture start already in progress"));
+            return;
+        }
     }
     if (g_sckStopPending != nullptr) {
         NSLog(@"⚠️ [NATIVE] System audio stop still in progress");
@@ -1078,6 +1154,7 @@ NAN_METHOD(StartSystemAudioCapture) {
     
     PendingSckStart* pending = new PendingSckStart();
     pending->async.data = pending;
+    pending->settled = false;
     pending->reject = false;
     int uvErr = uv_async_init(uv_default_loop(), &pending->async, SckStartSettledCb);
     if (uvErr != 0) {
@@ -1086,68 +1163,87 @@ NAN_METHOD(StartSystemAudioCapture) {
         return;
     }
     pending->resolver.Reset(resolver);
-    g_sckStartPending = pending;
-    
+    pending->generation = ++g_sckStartNextGeneration;
+    const uint64_t startGen = pending->generation;
+    {
+        std::lock_guard<std::mutex> lk(g_sckStartMutex);
+        g_sckStartPending = pending;
+    }
+    NSLog(@"🎤 [NATIVE] SCK start pending (gen=%llu)", (unsigned long long)startGen);
+
+    // Watchdog: SCK completion handlers are not guaranteed to fire (SAYSO-355 saw a start wedge for
+    // the process lifetime). If nothing settles this generation in time, reject it so Cue can retry
+    // without an app relaunch. Captures the generation VALUE — safe after the struct is freed.
+    const int64_t kSckStartWatchdogNs = 10 * NSEC_PER_SEC;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kSckStartWatchdogNs), dispatch_get_main_queue(), ^{
+        if (SettleSckStartForGeneration(startGen, true,
+                "sck_start_timeout: ScreenCaptureKit start did not settle within 10s")) {
+            EmitLifecycleEvent("sck_start_watchdog_fired gen=" + std::to_string(startGen) + " timeout_ms=10000");
+        }
+    });
+
+    // The blocks below deliberately build the pipeline in LOCALS and publish to globals only after
+    // winning settlement. An abandoned (timed-out/canceled) start must never clobber the globals of a
+    // newer start, and must stop any stream it managed to create.
     [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
+        if (SckStartAbandoned(startGen)) {
+            EmitLifecycleEvent("sck_start_late_callback_ignored gen=" + std::to_string(startGen) +
+                               " stage=shareable_content");
+            return;
+        }
         if (error) {
             NSLog(@"❌ [NATIVE] Failed to get shareable content: %@", error.localizedDescription);
             std::string msg([[error localizedDescription] UTF8String]);
             if (msg.empty()) {
                 msg = "Failed to get shareable content (screen recording permission?)";
             }
-            ScheduleSckStartSettle(pending, true, msg);
+            SettleSckStartForGeneration(startGen, true, msg);
             return;
         }
-        
+
         if (content.displays.count == 0) {
             NSLog(@"❌ [NATIVE] No displays available");
-            ScheduleSckStartSettle(pending, true, "No displays available for system audio capture");
+            SettleSckStartForGeneration(startGen, true, "No displays available for system audio capture");
             return;
         }
-        
+
         SCDisplay *display = content.displays.firstObject;
         NSLog(@"🎤 [NATIVE] Using display: %u", display.displayID);
-        
-        g_filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
-        
-        g_config = [[SCStreamConfiguration alloc] init];
+
+        SCContentFilter* filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
+
+        SCStreamConfiguration* config = [[SCStreamConfiguration alloc] init];
 
         if (@available(macOS 13.0, *)) {
-            g_config.capturesAudio = YES;
-            g_config.channelCount = 2;
+            config.capturesAudio = YES;
+            config.channelCount = 2;
         } else {
-            ScheduleSckStartSettle(pending, true, "System audio capture requires macOS 13 or later");
+            SettleSckStartForGeneration(startGen, true, "System audio capture requires macOS 13 or later");
             return;
         }
 
         if (@available(macOS 14.0, *)) {
-            g_config.excludesCurrentProcessAudio = YES;
+            config.excludesCurrentProcessAudio = YES;
         }
 
-        NSLog(@"🎤 [NATIVE] Stream configuration: Audio=YES, Channels=%ld (system will decide sample rate)", (long)g_config.channelCount);
+        config.minimumFrameInterval = CMTimeMake(1, 60);
+        config.queueDepth = 10;
 
-        g_config.minimumFrameInterval = CMTimeMake(1, 60);
-        g_config.queueDepth = 10;
-        
         NSLog(@"🎤 [NATIVE] Stream configuration: Audio=%@, SampleRate=%ld, Channels=%ld",
-              g_config.capturesAudio ? @"YES" : @"NO",
-              (long)g_config.sampleRate,
-              (long)g_config.channelCount);
-        
-        g_stream = [[SCStream alloc] initWithFilter:g_filter
-                                       configuration:g_config
-                                             delegate:g_delegate];
-        
-        g_delegate.audioCallback = ^(CMSampleBufferRef sampleBuffer) {
-            audioCallback(sampleBuffer);
-        };
-        
+              config.capturesAudio ? @"YES" : @"NO",
+              (long)config.sampleRate,
+              (long)config.channelCount);
+
+        SCStream* stream = [[SCStream alloc] initWithFilter:filter
+                                              configuration:config
+                                                   delegate:g_delegate];
+
         NSError *streamError = nil;
-        BOOL outputOk = [g_stream addStreamOutput:g_delegate
-                                             type:SCStreamOutputTypeAudio
-                              sampleHandlerQueue:g_audioQueue
-                                           error:&streamError];
-        
+        BOOL outputOk = [stream addStreamOutput:g_delegate
+                                           type:SCStreamOutputTypeAudio
+                             sampleHandlerQueue:g_audioQueue
+                                          error:&streamError];
+
         if (!outputOk) {
             NSString* desc = streamError ? streamError.localizedDescription : @"Unknown error";
             NSLog(@"❌ [NATIVE] Failed to add stream output: %@", desc);
@@ -1155,26 +1251,47 @@ NAN_METHOD(StartSystemAudioCapture) {
             if (msg.empty()) {
                 msg = "Failed to add ScreenCaptureKit audio stream output";
             }
-            ResetSCKPipelineAfterFailedStart();
-            ScheduleSckStartSettle(pending, true, msg);
+            SettleSckStartForGeneration(startGen, true, msg);
             return;
         }
-        
+
         NSLog(@"✅ [NATIVE] Stream output added successfully");
-        
-        [g_stream startCaptureWithCompletionHandler:^(NSError *startErr) {
+
+        [stream startCaptureWithCompletionHandler:^(NSError *startErr) {
             if (startErr) {
                 NSLog(@"❌ [NATIVE] Failed to start capture: %@", startErr.localizedDescription);
                 std::string msg([[startErr localizedDescription] UTF8String]);
                 if (msg.empty()) {
                     msg = "Failed to start system audio capture";
                 }
-                ResetSCKPipelineAfterFailedStart();
-                ScheduleSckStartSettle(pending, true, msg);
-            } else {
-                NSLog(@"✅ [NATIVE] System audio capture started successfully");
+                SettleSckStartForGeneration(startGen, true, msg);
+                return;
+            }
+            if (SettleSckStartForGeneration(startGen, false, "")) {
+                // We won: publish the pipeline. g_stream non-null ⟺ capture owned + running.
+                g_stream = stream;
+                g_filter = filter;
+                g_config = config;
+                g_delegate.audioCallback = ^(CMSampleBufferRef sampleBuffer) {
+                    audioCallback(sampleBuffer);
+                };
                 g_isCapturing = true;
-                ScheduleSckStartSettle(pending, false, "");
+                NSLog(@"✅ [NATIVE] System audio capture started successfully (gen=%llu)",
+                      (unsigned long long)startGen);
+            } else {
+                // Abandoned start that nevertheless reached running: orphaned stream — stop it, touch
+                // no globals (they may belong to a newer start by now). If this stop fails we have a
+                // zombie SCK capture (purple indicator, no owner): _failed is escalated JS-side.
+                EmitLifecycleEvent("sck_orphan_stream_stopping gen=" + std::to_string(startGen));
+                [stream stopCaptureWithCompletionHandler:^(NSError *stopErr) {
+                    if (stopErr) {
+                        std::string desc([[stopErr localizedDescription] UTF8String]);
+                        EmitLifecycleEvent("sck_orphan_stream_stop_failed gen=" + std::to_string(startGen) +
+                                           " error=" + desc);
+                    } else {
+                        EmitLifecycleEvent("sck_orphan_stream_stopped gen=" + std::to_string(startGen));
+                    }
+                }];
             }
         }];
     }];
@@ -1187,7 +1304,27 @@ NAN_METHOD(StopSystemAudioCapture) {
     Isolate* isolate = info.GetIsolate();
     Local<Context> context = isolate->GetCurrentContext();
     
-    // Idle: no stream object (covers "not capturing" and avoids mis-reporting mid-start as inactive)
+    // A start may be pending (SCK callbacks not yet settled). Cancel it so a wedged start cannot
+    // outlive a stop: reject its promise now; the late completion (if it ever fires) sees the
+    // abandoned generation and stops its own orphaned stream (SAYSO-355).
+    {
+        uint64_t pendingGen = 0;
+        bool hasPending = false;
+        {
+            std::lock_guard<std::mutex> lk(g_sckStartMutex);
+            if (g_sckStartPending && !g_sckStartPending->settled) {
+                hasPending = true;
+                pendingGen = g_sckStartPending->generation;
+            }
+        }
+        if (hasPending &&
+            SettleSckStartForGeneration(pendingGen, true,
+                "sck_start_canceled_by_stop: stop requested while start still pending")) {
+            EmitLifecycleEvent("sck_start_canceled_by_stop gen=" + std::to_string(pendingGen));
+        }
+    }
+
+    // Idle: no stream object (covers "not capturing"; a pending start was just canceled above)
     if (!g_stream) {
         NSLog(@"⚠️ [NATIVE] System audio capture not active (no stream)");
         MaybeLocal<Promise::Resolver> maybeIdle = Promise::Resolver::New(context);
@@ -1697,7 +1834,39 @@ NAN_METHOD(SetMicrophoneStreamingCallback) {
 
 // Check if system audio capture is active
 NAN_METHOD(IsSystemAudioCaptureActive) {
-    info.GetReturnValue().Set(Nan::New<v8::Boolean>(g_isCapturing));
+    // "Active" includes a start still settling: callers use this probe to decide whether teardown
+    // is needed before a fresh start, and a pending start absolutely needs teardown (SAYSO-355 —
+    // the wedge was invisible precisely because this returned false while a start was stuck).
+    bool pendingStart = false;
+    {
+        std::lock_guard<std::mutex> lk(g_sckStartMutex);
+        pendingStart = (g_sckStartPending != nullptr && !g_sckStartPending->settled);
+    }
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(g_isCapturing || pendingStart));
+}
+
+// Register the native→JS lifecycle diagnostics callback (pass null to clear).
+// The uv_async_t is created once on first registration and intentionally never closed — freeing
+// it on callback-clear is the UAF class documented in SAYSO-349.
+NAN_METHOD(SetLifecycleEventCallback) {
+    if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
+        g_lifecycleCallback.Reset();
+        info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
+        return;
+    }
+    if (!info[0]->IsFunction()) {
+        Nan::ThrowTypeError("Callback must be a function");
+        return;
+    }
+    g_lifecycleCallback.Reset(Nan::To<Function>(info[0]).ToLocalChecked());
+    {
+        std::lock_guard<std::mutex> lk(g_lifecycleMutex);
+        if (!g_lifecycleAsyncHandle) {
+            g_lifecycleAsyncHandle = new uv_async_t();
+            uv_async_init(uv_default_loop(), g_lifecycleAsyncHandle, LifecycleAsyncCallback);
+        }
+    }
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
 // List output devices (CoreAudio implementation)
@@ -1910,6 +2079,9 @@ NAN_MODULE_INIT(Init) {
     
     Nan::Set(target, Nan::New("isMicrophoneCaptureActive").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(IsMicrophoneCaptureActive)).ToLocalChecked());
+
+    Nan::Set(target, Nan::New("setLifecycleEventCallback").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(SetLifecycleEventCallback)).ToLocalChecked());
 }
 
 NODE_MODULE(native_audio, Init)
