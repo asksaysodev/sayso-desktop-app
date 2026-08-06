@@ -35,7 +35,10 @@ export default function CoachButtons({ setIsDropdownOpen, isDropdownOpen, onRequ
     
     const handleCoach = async () => {
         try {
-            if (!coachFeature || isCoachLoading) return;
+            // Call-time read: the render-closure isCoachLoading can be stale under a fast
+            // double-click, letting two starts through (SAYSO-355). The subscribed value above
+            // still drives the spinner/disabled UI.
+            if (!coachFeature || useCoachWindowStore.getState().isCoachLoading) return;
 
             const actions = COACH_ACTIONS[coachFeature];
             if (!actions) return;
