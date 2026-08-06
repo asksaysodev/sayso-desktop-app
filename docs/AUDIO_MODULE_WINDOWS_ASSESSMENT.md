@@ -13,7 +13,7 @@ Captures the macOS system audio output — what the lead hears — using **Scree
 | API | `SCStream` with audio-only configuration |
 | Format | 48 kHz, stereo, 32-bit PCM |
 | Permission | Screen Recording (required by Apple for SCK) |
-| Self-exclusion | `excludesCurrentProcessAudio = YES` prevents Sayso's own audio from looping back |
+| Self-exclusion | macOS sets `excludesCurrentProcessAudio = YES` as a defensive default — Sayso emits no audio, so it's effectively a no-op. **Not needed on Windows**: use plain render-endpoint loopback (no per-process exclusion). |
 | Callback path | SCK dispatch queue → `uv_async_send` → Node.js event loop → JS callback |
 
 Key globals: `g_stream`, `g_config`, `g_filter`, `g_isCapturing`, `g_streamingCallback`, `g_streamingAsyncHandle`.

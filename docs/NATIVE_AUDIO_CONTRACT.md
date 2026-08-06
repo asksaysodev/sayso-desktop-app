@@ -78,10 +78,13 @@ far-end call audio). `options.streamingOnly` is always `true` from JS.
   is already in flight ("already active", "start already in progress", "stop
   still in progress") — mirror this guard so overlapping `start-cue` calls can't
   corrupt state.
-- **Self-exclusion is mandatory:** the module must NOT capture Sayso's own audio
-  output (otherwise the app's own coaching/UI sounds loop back into the
-  transcript). macOS sets `excludesCurrentProcessAudio = YES`. The Windows
-  loopback path must exclude Sayso's own render session equivalently.
+- **Self-exclusion — NOT required on Windows.** Sayso emits no audio of its own
+  (coaching is visual/text only), so there is nothing for a loopback capture to
+  exclude. macOS sets `excludesCurrentProcessAudio = YES` as a defensive default
+  — a no-op today given no Sayso audio. Windows should use **plain
+  render-endpoint loopback** and does **not** need the per-process exclusion API
+  (`ActivateAudioInterfaceAsync` + `PROCESS_LOOPBACK`). Revisit only if Sayso
+  ever starts emitting audio.
 - Delivers audio via the streaming callback (see **Buffer format** + **Callback
   threading** below).
 
