@@ -1591,16 +1591,21 @@ app.whenReady().then(async () => {
   // macOS and Windows only — Electron never emits it on Linux. Closing the
   // lid on mac/Windows commonly fires both in quick succession, which is why
   // they share the 'token-refresh' dedupe key below.
+  //
+  // retries:0 is deliberate — AuthManager arms its own backoff ladder
+  // (1/3/10/30/60 s) on any transient refresh failure, so retrying here too
+  // would run two independent chains for the same wake. We keep the initial
+  // delay, which is the part AuthManager can't do, and let it own the rest.
   powerMonitor.on('resume', () => {
     if (global.networkState === 'reconnecting') return;
     console.log('[PowerMonitor] System resumed — scheduling delayed token refresh');
-    runAfterNetworkSettles('token refresh (resume)', () => authManager.forceRefresh(), { key: 'token-refresh' });
+    runAfterNetworkSettles('token refresh (resume)', () => authManager.forceRefresh(), { key: 'token-refresh', retries: 0 });
   });
 
   powerMonitor.on('unlock-screen', () => {
     if (global.networkState === 'reconnecting') return;
     console.log('[PowerMonitor] Screen unlocked — scheduling delayed token refresh');
-    runAfterNetworkSettles('token refresh (unlock)', () => authManager.forceRefresh(), { key: 'token-refresh' });
+    runAfterNetworkSettles('token refresh (unlock)', () => authManager.forceRefresh(), { key: 'token-refresh', retries: 0 });
   });
 
   const authState = authManager.getState();
