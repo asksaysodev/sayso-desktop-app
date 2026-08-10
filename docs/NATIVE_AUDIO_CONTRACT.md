@@ -30,7 +30,7 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 | 4 | `startSystemAudioCapture` | `Promise<boolean>` | yes |
 | 5 | `stopSystemAudioCapture` | `Promise<{success, filePath?, actualStartMs?, error?}>` | yes |
 | 6 | `isSystemAudioCaptureActive` | `boolean` | no (sync) |
-| 7 | `startMicrophoneCapture` | `Promise<boolean>` \| `boolean` | native returns sync bool; JS awaits |
+| 7 | `startMicrophoneCapture` | `Promise<boolean \| { ok: false, reason? }>` | native returns sync value; JS awaits |
 | 8 | `stopMicrophoneCapture` | `boolean` | JS awaits |
 | 9 | `isMicrophoneCaptureActive` | `boolean` | no (sync) |
 | 10 | `setStreamingCallback` | `void` | no (sync) |
@@ -114,14 +114,25 @@ Starts capture of the **agent's microphone** ("what the user says"). macOS uses
 Returns `true` when the tap is delivering buffers.
 
 **SAYSO-347:** on failure, returns `{ ok: false, reason }` instead of a bare
-`false` — `reason` is one of `'callback_empty'` (mic streaming callback never
-set — a wiring bug), `'already_active'` (`g_isMicCapturing` already true — a
-teardown/lifecycle race), or `'no_tap_buffers'` (engine started but no tap
-buffers after retry — an audio-route problem, e.g. Bluetooth/AirPods). These
-three causes need different fixes; collapsing them into one boolean made the
-mic-start path undiagnosable from Sentry. JS callers must still tolerate a
-bare `false` (a native build predating this change) — check `result !== true`
-rather than assuming the object shape.
+`false`. `reason` is one of:
+
+| `reason` | Cause |
+|---|---|
+| `callback_empty` | mic streaming callback never set — a wiring bug |
+| `already_active` | `g_isMicCapturing` already `true` — a teardown/lifecycle race |
+| `no_input_node` | `AVAudioEngine.inputNode` came back nil — no audio hardware reachable |
+| `tap_install_failed` | `installTapOnBus` threw (format/route mismatch, e.g. right after SCK) |
+| `engine_start_failed` | `AVAudioEngine.startAndReturnError` failed — carries a real `NSError`, logged with its code |
+| `no_tap_buffers` | engine started cleanly but delivered no buffers within the cold-start window — an audio-route problem, e.g. Bluetooth/AirPods |
+
+Each of these needs a different fix — `engine_start_failed` in particular means
+the OS refused to open the device, which is a materially different situation
+from `no_tap_buffers` (device accepted, but silent). Collapsing them made the
+mic-start path undiagnosable from Sentry; collapsing the last four into a
+single `no_tap_buffers` (an earlier version of this fix did exactly that, one
+level down) would have reproduced the same bug it was fixing. JS callers must
+still tolerate a bare `false` (a native build predating this change) — check
+`result !== true` rather than assuming the object shape.
 
 Mic chunks are delivered through the **microphone** callback
 (`setMicrophoneStreamingCallback`), a separate channel from the system-audio
@@ -256,10 +267,12 @@ There are **two error channels, split by timing:**
 The bar, learned from real macOS incidents:
 
 - **One failure mode, one identity (SAYSO-347).** Never flatten distinct failures
-  into a bare `false`. If `startMicrophoneCapture` can fail three ways (device
-  open denied, format negotiation failed, no buffers within the cold-start
-  window), those are three *distinguishable* reasons — surfaced via a `_failed`
-  lifecycle event or a rejection message — not one opaque boolean.
+  into a bare `false`. `startMicrophoneCapture` alone fails six *distinguishable*
+  ways (see its method contract above) — surfaced via a `_failed` lifecycle event
+  or a rejection message — not one opaque boolean. Watch for this bug
+  reappearing one level down: an earlier revision of the 347 fix still
+  collapsed four of those six into a single `no_tap_buffers`, reproducing the
+  exact problem it was meant to fix.
 - **No silent latch-off (SAYSO-353).** If a running path dies and cannot recover
   (a device change kills the mic and it never comes back), emit a `_failed`
   lifecycle event — do not merely stop delivering buffers. A path that goes quiet

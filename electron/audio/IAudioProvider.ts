@@ -4,9 +4,17 @@ export interface AudioCaptureResult {
 }
 
 // SAYSO-347: distinct, greppable reasons for a mic start failure — previously collapsed into a
-// bare `false`, indistinguishable in Sentry between a wiring bug, a teardown race, and a genuine
-// audio-route problem (e.g. Bluetooth/AirPods).
-export type MicStartFailureReason = 'callback_empty' | 'already_active' | 'no_tap_buffers';
+// bare `false`, indistinguishable in Sentry between a wiring bug, a teardown race, and the three
+// genuinely different ways the audio engine itself can fail to come up (no input node at all, a
+// format/route mismatch on tap install, or the engine's own start call erroring — vs. the engine
+// starting cleanly but silently delivering nothing).
+export type MicStartFailureReason =
+  | 'callback_empty'
+  | 'already_active'
+  | 'no_input_node'
+  | 'tap_install_failed'
+  | 'engine_start_failed'
+  | 'no_tap_buffers';
 
 export interface MicStartFailure {
   ok: false;

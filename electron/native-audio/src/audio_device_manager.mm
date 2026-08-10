@@ -1458,15 +1458,22 @@ static bool WaitForMicFirstTapMs(int timeoutMs) {
 }
 
 // Starts engine and blocks until the realtime tap enqueues at least one buffer (or timeout).
-static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs) {
+// SAYSO-347: `failReason`, when non-null, is set to one of "no_input_node" / "tap_install_failed" /
+// "engine_start_failed" / "no_tap_buffers" on failure — the same collapsing bug this ticket fixed one
+// level up (all four used to report as a single StartMicrophoneCapture-level "no_tap_buffers"), most
+// importantly "engine_start_failed" carrying a real NSError that was previously NSLog'd and discarded.
+// Default nullptr keeps the SaysoPerformMicRestartIfCapturing call site (which only needs the bool)
+// unaffected.
+static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** failReason = nullptr) {
     g_micFirstTapSeen.store(false, std::memory_order_release);
-    
+
     g_micEngine = [[AVAudioEngine alloc] init];
     g_micInputNode = [g_micEngine inputNode];
-    
+
     if (!g_micInputNode) {
         NSLog(@"❌ [NATIVE] Failed to get input node from audio engine");
         g_micEngine = nullptr;
+        if (failReason) *failReason = "no_input_node";
         return false;
     }
     
@@ -1528,25 +1535,29 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs) {
     } @catch (NSException *ex) {
         NSLog(@"❌ [NATIVE] installTapOnBus failed: %@ — %@", ex.name, ex.reason);
         MicEngineTeardownOnly();
+        if (failReason) *failReason = "tap_install_failed";
         return false;
     }
-    
+
     NSError* error = nil;
     BOOL ok = [g_micEngine startAndReturnError:&error];
-    
+
     if (!ok) {
-        NSLog(@"❌ [NATIVE] Failed to start microphone capture: %@", error.localizedDescription);
+        NSLog(@"❌ [NATIVE] Failed to start microphone capture: %@ (code=%ld)",
+              error.localizedDescription, (long)error.code);
         MicEngineTeardownOnly();
+        if (failReason) *failReason = "engine_start_failed";
         return false;
     }
-    
+
     if (!WaitForMicFirstTapMs(waitForFirstTapMs)) {
         NSLog(@"⚠️ [NATIVE] Mic engine started but no tap buffers within %d ms — tearing down for retry",
               waitForFirstTapMs);
         MicEngineTeardownOnly();
+        if (failReason) *failReason = "no_tap_buffers";
         return false;
     }
-    
+
     return true;
 }
 
@@ -1727,12 +1738,14 @@ NAN_METHOD(StartMicrophoneCapture) {
     const int kFirstTapWaitMs = 1200;
     const int kRetryTapWaitMs = 1500;
 
-    if (!TryStartMicrophoneCaptureOnce(kFirstTapWaitMs)) {
-        NSLog(@"🎤 [NATIVE] Mic: repeating capture once (cold start / Bluetooth input path)");
-        if (!TryStartMicrophoneCaptureOnce(kRetryTapWaitMs)) {
-            NSLog(@"❌ [NATIVE] Microphone capture failed after retry: no tap buffers");
+    const char* failReason = nullptr;
+    if (!TryStartMicrophoneCaptureOnce(kFirstTapWaitMs, &failReason)) {
+        NSLog(@"🎤 [NATIVE] Mic: repeating capture once (cold start / Bluetooth input path) — first attempt failed: %s",
+              failReason ? failReason : "unknown");
+        if (!TryStartMicrophoneCaptureOnce(kRetryTapWaitMs, &failReason)) {
+            NSLog(@"❌ [NATIVE] Microphone capture failed after retry: %s", failReason ? failReason : "unknown");
             g_micOpenedInputDeviceId = kAudioObjectUnknown;
-            info.GetReturnValue().Set(MicStartResult(false, "no_tap_buffers"));
+            info.GetReturnValue().Set(MicStartResult(false, failReason ? failReason : "no_tap_buffers"));
             return;
         }
     }
