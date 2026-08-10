@@ -145,7 +145,8 @@ class AudioDeviceManager {
 
   /**
    * Register a callback for native lifecycle diagnostics (SAYSO-355). Events are short snake_case
-   * strings, e.g. "sck_start_watchdog_fired gen=3 timeout_ms=10000"; events ending in `_failed`
+   * strings, e.g. "sck_start_watchdog_fired gen=3 stage=getting_shareable_content timeout_ms=10000";
+   * events ending in `_failed`
    * should be escalated by the caller. Pass null to clear. No-op on native builds that predate
    * the method.
    * @param {((event: string) => void)|null} callback

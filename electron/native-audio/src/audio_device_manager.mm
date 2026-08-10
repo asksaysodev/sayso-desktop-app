@@ -779,29 +779,37 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
 
 static AudioCaptureDelegate* g_delegate = nil;
 
-// SAYSO-359: furthest stage reached in the SCK start sequence. A blanket 10s timeout only ever told
-// us THAT the start hung, never WHERE — this distinguishes "getShareableContent never called back"
-// (matches the documented external ScreenCaptureKit/replayd daemon hang) from a hang somewhere later
-// in our own pipeline setup, which would need a completely different fix.
+// SAYSO-359: what's currently OUTSTANDING in the SCK start sequence. A blanket 10s timeout only ever
+// told us THAT the start hung, never WHERE — this distinguishes "getShareableContent never called
+// back" (matches the documented external ScreenCaptureKit/replayd daemon hang) from a hang in
+// startCapture, or from a stall in our own synchronous pipeline setup between the two.
+//
+// Every value names the operation IN FLIGHT when a timeout/cancel catches it, set immediately before
+// that operation begins — never a "this step just finished" marker. That uniform convention matters:
+// a mid-sequence value that means "completed" rather than "outstanding" (an earlier revision had
+// several) is easy to misread under time pressure. It also means only points with real,
+// watchdog-observable duration get their own value — filter/config allocation between receiving
+// content and building the stream is synchronous, in-process, sub-microsecond, and genuinely cannot
+// be caught mid-flight, so it doesn't get one; `addStreamOutput` does, since unlike the allocations
+// around it, it plausibly performs real work.
 enum class SckStartStage {
-    NotStarted,
-    GettingShareableContent,
-    ContentReceived,
-    StreamCreated,
-    OutputAdded,
-    CaptureCalled,
+    not_started,
+    getting_shareable_content,  // outstanding: async getShareableContentWithCompletionHandler
+    adding_stream_output,       // outstanding: filter/config/SCStream build through addStreamOutput
+    starting_capture,           // outstanding: async startCaptureWithCompletionHandler
 };
 
+// snake_case to match the lifecycle-event convention (docs/NATIVE_AUDIO_CONTRACT.md) and the existing
+// `stage=shareable_content` at the late-callback-ignored site below, which now reuses this directly
+// instead of a second, independently-spelled literal.
 static const char* SckStartStageName(SckStartStage stage) {
     switch (stage) {
-        case SckStartStage::NotStarted: return "NotStarted";
-        case SckStartStage::GettingShareableContent: return "GettingShareableContent";
-        case SckStartStage::ContentReceived: return "ContentReceived";
-        case SckStartStage::StreamCreated: return "StreamCreated";
-        case SckStartStage::OutputAdded: return "OutputAdded";
-        case SckStartStage::CaptureCalled: return "CaptureCalled";
+        case SckStartStage::not_started: return "not_started";
+        case SckStartStage::getting_shareable_content: return "getting_shareable_content";
+        case SckStartStage::adding_stream_output: return "adding_stream_output";
+        case SckStartStage::starting_capture: return "starting_capture";
     }
-    return "Unknown";
+    return "unknown";
 }
 
 // ScreenCaptureKit async start: Promise settled on libuv thread when addStreamOutput / startCapture completes.
@@ -924,7 +932,7 @@ static SckStartStage SckStartPeekStage(uint64_t generation) {
     if (g_sckStartPending && g_sckStartPending->generation == generation) {
         return g_sckStartPending->stage;
     }
-    return SckStartStage::NotStarted;
+    return SckStartStage::not_started;
 }
 
 static void SckStopSettledCb(uv_async_t* handle) {
@@ -1202,7 +1210,7 @@ NAN_METHOD(StartSystemAudioCapture) {
     pending->async.data = pending;
     pending->settled = false;
     pending->reject = false;
-    pending->stage = SckStartStage::NotStarted;
+    pending->stage = SckStartStage::not_started;
     int uvErr = uv_async_init(uv_default_loop(), &pending->async, SckStartSettledCb);
     if (uvErr != 0) {
         delete pending;
@@ -1237,11 +1245,11 @@ NAN_METHOD(StartSystemAudioCapture) {
     // The blocks below deliberately build the pipeline in LOCALS and publish to globals only after
     // winning settlement. An abandoned (timed-out/canceled) start must never clobber the globals of a
     // newer start, and must stop any stream it managed to create.
-    SckStartAdvanceStage(startGen, SckStartStage::GettingShareableContent);
+    SckStartAdvanceStage(startGen, SckStartStage::getting_shareable_content);
     [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
         if (SckStartAbandoned(startGen)) {
             EmitLifecycleEvent("sck_start_late_callback_ignored gen=" + std::to_string(startGen) +
-                               " stage=shareable_content");
+                               " stage=" + SckStartStageName(SckStartStage::getting_shareable_content));
             return;
         }
         if (error) {
@@ -1262,7 +1270,7 @@ NAN_METHOD(StartSystemAudioCapture) {
 
         SCDisplay *display = content.displays.firstObject;
         NSLog(@"🎤 [NATIVE] Using display: %u", display.displayID);
-        SckStartAdvanceStage(startGen, SckStartStage::ContentReceived);
+        SckStartAdvanceStage(startGen, SckStartStage::adding_stream_output);
 
         SCContentFilter* filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
 
@@ -1291,7 +1299,6 @@ NAN_METHOD(StartSystemAudioCapture) {
         SCStream* stream = [[SCStream alloc] initWithFilter:filter
                                               configuration:config
                                                    delegate:g_delegate];
-        SckStartAdvanceStage(startGen, SckStartStage::StreamCreated);
 
         NSError *streamError = nil;
         BOOL outputOk = [stream addStreamOutput:g_delegate
@@ -1311,9 +1318,7 @@ NAN_METHOD(StartSystemAudioCapture) {
         }
 
         NSLog(@"✅ [NATIVE] Stream output added successfully");
-        SckStartAdvanceStage(startGen, SckStartStage::OutputAdded);
-
-        SckStartAdvanceStage(startGen, SckStartStage::CaptureCalled);
+        SckStartAdvanceStage(startGen, SckStartStage::starting_capture);
         [stream startCaptureWithCompletionHandler:^(NSError *startErr) {
             if (startErr) {
                 NSLog(@"❌ [NATIVE] Failed to start capture: %@", startErr.localizedDescription);
