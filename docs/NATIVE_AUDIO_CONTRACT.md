@@ -108,10 +108,21 @@ fresh start, and a pending start needs teardown. `stopSystemAudioCapture()` must
 be able to cancel such a pending start (reject its promise with
 `sck_start_canceled_by_stop…`), never report idle around it.
 
-### `startMicrophoneCapture(options)` → `boolean`
+### `startMicrophoneCapture(options)` → `boolean | { ok: false, reason? }`
 Starts capture of the **agent's microphone** ("what the user says"). macOS uses
 `AVAudioEngine` with an input-node tap (4096-frame buffer, nil/auto format).
-Returns `true` when the tap is delivering buffers, `false` if it can't start.
+Returns `true` when the tap is delivering buffers.
+
+**SAYSO-347:** on failure, returns `{ ok: false, reason }` instead of a bare
+`false` — `reason` is one of `'callback_empty'` (mic streaming callback never
+set — a wiring bug), `'already_active'` (`g_isMicCapturing` already true — a
+teardown/lifecycle race), or `'no_tap_buffers'` (engine started but no tap
+buffers after retry — an audio-route problem, e.g. Bluetooth/AirPods). These
+three causes need different fixes; collapsing them into one boolean made the
+mic-start path undiagnosable from Sentry. JS callers must still tolerate a
+bare `false` (a native build predating this change) — check `result !== true`
+rather than assuming the object shape.
+
 Mic chunks are delivered through the **microphone** callback
 (`setMicrophoneStreamingCallback`), a separate channel from the system-audio
 callback — the two capture paths stream independently.

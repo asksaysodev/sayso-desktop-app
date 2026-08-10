@@ -33,15 +33,22 @@ async function startUserStreaming({ streamingCallback }: { streamingCallback: (a
   setUserStreamingCallback(streamingCallback);
   
   try {
-    // Use native module for microphone capture
-    const success = await nativeAudio.startMicrophoneCapture({ streamingCallback });
-    
-    if (!success) {
-      throw new Error('Failed to start microphone capture');
+    // Use native module for microphone capture. SAYSO-347: native returns plain `true` on success
+    // (unchanged) but on failure now returns { ok: false, reason } instead of a bare `false` — the
+    // reason distinguishes wiring bug (callback_empty) / teardown race (already_active) / audio-route
+    // problem (no_tap_buffers), previously indistinguishable in Sentry. Still tolerate a bare `false`
+    // for a stale native build that predates this change (falls back to the old generic message).
+    const result = await nativeAudio.startMicrophoneCapture({ streamingCallback });
+
+    if (result !== true) {
+      const reason = result && typeof result === 'object' ? result.reason : undefined;
+      const error: any = new Error(reason ? `mic_start_failed reason=${reason}` : 'Failed to start microphone capture');
+      if (reason) error.code = reason;
+      throw error;
     }
-      
-      return { success: true };
-    
+
+    return { success: true };
+
   } catch (error: any) {
     console.error('🎤 [RECORDER] ❌ Error starting user streaming:', error);
     Sentry.captureException(error);

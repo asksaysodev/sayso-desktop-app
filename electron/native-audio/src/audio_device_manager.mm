@@ -1685,13 +1685,29 @@ static void SaysoScheduleMicRouteDebouncedRestart() {
     });
 }
 
+// SAYSO-347: StartMicrophoneCapture used to collapse three distinct failure modes (wiring bug,
+// teardown/lifecycle race, audio-route problem) into a bare `false`, indistinguishable in Sentry.
+// Success still returns plain `true` for JS-side backward compatibility with a stale native build;
+// failure now returns { ok: false, reason } so callers can propagate a specific, greppable cause.
+static Local<Value> MicStartResult(bool ok, const char* reason = nullptr) {
+    if (ok) {
+        return Nan::New<v8::Boolean>(true);
+    }
+    Local<Object> result = Nan::New<Object>();
+    Nan::Set(result, Nan::New("ok").ToLocalChecked(), Nan::New<v8::Boolean>(false));
+    if (reason) {
+        Nan::Set(result, Nan::New("reason").ToLocalChecked(), Nan::New<String>(reason).ToLocalChecked());
+    }
+    return result;
+}
+
 // Start microphone capture for streaming
 NAN_METHOD(StartMicrophoneCapture) {
     NSLog(@"🎤 [NATIVE] Starting microphone capture");
 
     if (g_micStreamingCallback.IsEmpty()) {
         NSLog(@"⚠️ [NATIVE] Microphone streaming callback is empty - cannot capture microphone");
-        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        info.GetReturnValue().Set(MicStartResult(false, "callback_empty"));
         return;
     }
 
@@ -1704,7 +1720,7 @@ NAN_METHOD(StartMicrophoneCapture) {
 
     if (g_isMicCapturing) {
         NSLog(@"⚠️ [NATIVE] Microphone capture already active");
-        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        info.GetReturnValue().Set(MicStartResult(false, "already_active"));
         return;
     }
 
@@ -1716,7 +1732,7 @@ NAN_METHOD(StartMicrophoneCapture) {
         if (!TryStartMicrophoneCaptureOnce(kRetryTapWaitMs)) {
             NSLog(@"❌ [NATIVE] Microphone capture failed after retry: no tap buffers");
             g_micOpenedInputDeviceId = kAudioObjectUnknown;
-            info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+            info.GetReturnValue().Set(MicStartResult(false, "no_tap_buffers"));
             return;
         }
     }
@@ -1725,7 +1741,7 @@ NAN_METHOD(StartMicrophoneCapture) {
     g_micOpenedInputDeviceId = SaysoGetCurrentDefaultInputDeviceID();
     NSLog(@"✅ [NATIVE] Microphone capture started successfully (first tap received); default input id=%u",
           (unsigned)g_micOpenedInputDeviceId);
-    info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
+    info.GetReturnValue().Set(MicStartResult(true));
 }
 
 // Stop microphone capture

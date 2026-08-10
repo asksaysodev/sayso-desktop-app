@@ -2,6 +2,7 @@ import type {
   IAudioProvider,
   AudioCaptureResult,
   StreamingCallback,
+  MicStartFailure,
 } from './IAudioProvider';
 
 /**
@@ -43,10 +44,13 @@ class WindowsAudioProvider implements IAudioProvider {
     return false;
   }
 
-  async startMicrophoneCapture(_options?: { streamingCallback?: StreamingCallback; [key: string]: unknown }): Promise<boolean> {
-    // TODO(win-native): native.startMicrophoneCapture(options) — mic chunks via native.setMicrophoneStreamingCallback
+  async startMicrophoneCapture(_options?: { streamingCallback?: StreamingCallback; [key: string]: unknown }): Promise<boolean | MicStartFailure> {
+    // TODO(win-native): native.startMicrophoneCapture(options) — mic chunks via native.setMicrophoneStreamingCallback.
+    // SAYSO-347: once implemented, mirror the Mac reason codes ('callback_empty' | 'already_active' |
+    // 'no_tap_buffers') where they map to a real WASAPI failure mode, or a Windows-specific reason
+    // otherwise — don't silently fall back to a bare `false` now that the diagnosability exists.
     console.warn('[Audio] startMicrophoneCapture not yet implemented on Windows');
-    return false;
+    return { ok: false };
   }
 
   async stopMicrophoneCapture(): Promise<boolean> {
