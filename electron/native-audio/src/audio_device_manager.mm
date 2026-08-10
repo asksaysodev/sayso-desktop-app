@@ -779,6 +779,31 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
 
 static AudioCaptureDelegate* g_delegate = nil;
 
+// SAYSO-359: furthest stage reached in the SCK start sequence. A blanket 10s timeout only ever told
+// us THAT the start hung, never WHERE — this distinguishes "getShareableContent never called back"
+// (matches the documented external ScreenCaptureKit/replayd daemon hang) from a hang somewhere later
+// in our own pipeline setup, which would need a completely different fix.
+enum class SckStartStage {
+    NotStarted,
+    GettingShareableContent,
+    ContentReceived,
+    StreamCreated,
+    OutputAdded,
+    CaptureCalled,
+};
+
+static const char* SckStartStageName(SckStartStage stage) {
+    switch (stage) {
+        case SckStartStage::NotStarted: return "NotStarted";
+        case SckStartStage::GettingShareableContent: return "GettingShareableContent";
+        case SckStartStage::ContentReceived: return "ContentReceived";
+        case SckStartStage::StreamCreated: return "StreamCreated";
+        case SckStartStage::OutputAdded: return "OutputAdded";
+        case SckStartStage::CaptureCalled: return "CaptureCalled";
+    }
+    return "Unknown";
+}
+
 // ScreenCaptureKit async start: Promise settled on libuv thread when addStreamOutput / startCapture completes.
 // Settlement is generation-guarded and settle-once: the SCK completion blocks, the watchdog timeout and
 // stop-cancel all race to settle the same start, and every loser must become a harmless no-op — never a
@@ -792,6 +817,7 @@ struct PendingSckStart {
     bool settled;   // guarded by g_sckStartMutex
     bool reject;
     std::string message;
+    SckStartStage stage;   // guarded by g_sckStartMutex; SAYSO-359
 };
 
 static PendingSckStart* g_sckStartPending = nullptr;
@@ -879,6 +905,26 @@ static bool SettleSckStartForGeneration(uint64_t generation, bool reject, const 
 static bool SckStartAbandoned(uint64_t generation) {
     std::lock_guard<std::mutex> lk(g_sckStartMutex);
     return !g_sckStartPending || g_sckStartPending->generation != generation || g_sckStartPending->settled;
+}
+
+// SAYSO-359: advance the stage marker for `generation`. A no-op for an abandoned/superseded/already-
+// settled generation — never touches a newer start's stage, mirroring SckStartAbandoned's guard.
+static void SckStartAdvanceStage(uint64_t generation, SckStartStage stage) {
+    std::lock_guard<std::mutex> lk(g_sckStartMutex);
+    if (g_sckStartPending && g_sckStartPending->generation == generation && !g_sckStartPending->settled) {
+        g_sckStartPending->stage = stage;
+    }
+}
+
+// Peek the current stage for `generation` (NotStarted if it's no longer the pending start). Used to
+// enrich a message that must be built *before* calling SettleSckStartForGeneration — the watchdog and
+// stop-cancel paths, which fire asynchronously and otherwise have no idea which stage was in flight.
+static SckStartStage SckStartPeekStage(uint64_t generation) {
+    std::lock_guard<std::mutex> lk(g_sckStartMutex);
+    if (g_sckStartPending && g_sckStartPending->generation == generation) {
+        return g_sckStartPending->stage;
+    }
+    return SckStartStage::NotStarted;
 }
 
 static void SckStopSettledCb(uv_async_t* handle) {
@@ -1156,6 +1202,7 @@ NAN_METHOD(StartSystemAudioCapture) {
     pending->async.data = pending;
     pending->settled = false;
     pending->reject = false;
+    pending->stage = SckStartStage::NotStarted;
     int uvErr = uv_async_init(uv_default_loop(), &pending->async, SckStartSettledCb);
     if (uvErr != 0) {
         delete pending;
@@ -1176,15 +1223,21 @@ NAN_METHOD(StartSystemAudioCapture) {
     // without an app relaunch. Captures the generation VALUE — safe after the struct is freed.
     const int64_t kSckStartWatchdogNs = 10 * NSEC_PER_SEC;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kSckStartWatchdogNs), dispatch_get_main_queue(), ^{
-        if (SettleSckStartForGeneration(startGen, true,
-                "sck_start_timeout: ScreenCaptureKit start did not settle within 10s")) {
-            EmitLifecycleEvent("sck_start_watchdog_fired gen=" + std::to_string(startGen) + " timeout_ms=10000");
+        // SAYSO-359: peek the stage BEFORE settling — the watchdog fires from an independent timer
+        // with no idea which async step was in flight, so this is the only chance to capture it.
+        SckStartStage stage = SckStartPeekStage(startGen);
+        std::string msg = std::string("sck_start_timeout stage=") + SckStartStageName(stage) +
+            ": ScreenCaptureKit start did not settle within 10s";
+        if (SettleSckStartForGeneration(startGen, true, msg)) {
+            EmitLifecycleEvent("sck_start_watchdog_fired gen=" + std::to_string(startGen) +
+                               " stage=" + SckStartStageName(stage) + " timeout_ms=10000");
         }
     });
 
     // The blocks below deliberately build the pipeline in LOCALS and publish to globals only after
     // winning settlement. An abandoned (timed-out/canceled) start must never clobber the globals of a
     // newer start, and must stop any stream it managed to create.
+    SckStartAdvanceStage(startGen, SckStartStage::GettingShareableContent);
     [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
         if (SckStartAbandoned(startGen)) {
             EmitLifecycleEvent("sck_start_late_callback_ignored gen=" + std::to_string(startGen) +
@@ -1209,6 +1262,7 @@ NAN_METHOD(StartSystemAudioCapture) {
 
         SCDisplay *display = content.displays.firstObject;
         NSLog(@"🎤 [NATIVE] Using display: %u", display.displayID);
+        SckStartAdvanceStage(startGen, SckStartStage::ContentReceived);
 
         SCContentFilter* filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
 
@@ -1237,6 +1291,7 @@ NAN_METHOD(StartSystemAudioCapture) {
         SCStream* stream = [[SCStream alloc] initWithFilter:filter
                                               configuration:config
                                                    delegate:g_delegate];
+        SckStartAdvanceStage(startGen, SckStartStage::StreamCreated);
 
         NSError *streamError = nil;
         BOOL outputOk = [stream addStreamOutput:g_delegate
@@ -1256,7 +1311,9 @@ NAN_METHOD(StartSystemAudioCapture) {
         }
 
         NSLog(@"✅ [NATIVE] Stream output added successfully");
+        SckStartAdvanceStage(startGen, SckStartStage::OutputAdded);
 
+        SckStartAdvanceStage(startGen, SckStartStage::CaptureCalled);
         [stream startCaptureWithCompletionHandler:^(NSError *startErr) {
             if (startErr) {
                 NSLog(@"❌ [NATIVE] Failed to start capture: %@", startErr.localizedDescription);
@@ -1317,10 +1374,16 @@ NAN_METHOD(StopSystemAudioCapture) {
                 pendingGen = g_sckStartPending->generation;
             }
         }
-        if (hasPending &&
-            SettleSckStartForGeneration(pendingGen, true,
-                "sck_start_canceled_by_stop: stop requested while start still pending")) {
-            EmitLifecycleEvent("sck_start_canceled_by_stop gen=" + std::to_string(pendingGen));
+        if (hasPending) {
+            // SAYSO-359: same reasoning as the watchdog — stop-cancel fires from a separate call path
+            // with no idea which stage the pending start had reached, so peek it before settling.
+            SckStartStage stage = SckStartPeekStage(pendingGen);
+            std::string msg = std::string("sck_start_canceled_by_stop stage=") + SckStartStageName(stage) +
+                ": stop requested while start still pending";
+            if (SettleSckStartForGeneration(pendingGen, true, msg)) {
+                EmitLifecycleEvent("sck_start_canceled_by_stop gen=" + std::to_string(pendingGen) +
+                                   " stage=" + SckStartStageName(stage));
+            }
         }
     }
 

@@ -30,14 +30,12 @@ def apply(src: str) -> str:
     #    node host (no NSApplication run loop pumping it). Route to a global
     #    queue in that mode — same cross-thread race geometry as production,
     #    where the watchdog fires from a different thread than JS/uv anyway.
-    old = '''    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kSckStartWatchdogNs), dispatch_get_main_queue(), ^{
-        if (SettleSckStartForGeneration(startGen, true,'''
+    old = '''    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kSckStartWatchdogNs), dispatch_get_main_queue(), ^{'''
     new = '''    dispatch_queue_t wdQueue = dispatch_get_main_queue();
     if (getenv("SAYSO_TEST_DISPATCH_GLOBAL")) {   // TEST HARNESS ONLY: node host pumps no main queue
         wdQueue = dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0);
     }
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kSckStartWatchdogNs), wdQueue, ^{
-        if (SettleSckStartForGeneration(startGen, true,'''
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kSckStartWatchdogNs), wdQueue, ^{'''
     assert src.count(old) == 1, "watchdog-queue anchor not found — source has drifted, update this script"
     src = src.replace(old, new)
 
