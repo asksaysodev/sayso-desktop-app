@@ -160,7 +160,8 @@ class AudioDeviceManager {
    * Start microphone capture for streaming
    * @param {Object} options - Capture options
    * @param {Function} options.streamingCallback - Optional callback for audio chunks
-   * @returns {Promise<boolean>} - Success status
+   * @returns {Promise<boolean|{ok: false, reason?: string}>} - `true` on success; on failure,
+   *   { ok: false, reason } (SAYSO-347) or a bare `false` from a native build predating that change.
    */
   async startMicrophoneCapture(options = {}) {
     await this.initialize();
