@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, app } from 'electron';
 import type { Event } from 'electron';
-import { CueParams, UploadBothFilesOptions, UploadFileOptions } from './globals';
+import { CueParams } from './globals';
 
 try {
   if (document.documentElement) {
@@ -75,10 +75,6 @@ try {
       }
     },
     
-    // File Upload API
-    uploadFile: (options: UploadFileOptions) => ipcRenderer.invoke('upload-file', { ...options }),
-    uploadBothFiles: (options: UploadBothFilesOptions) => ipcRenderer.invoke('upload-both-files', { ...options }),
-
     // Permissions API
     permissions: {
       check: () => ipcRenderer.invoke('permissions-check'),
@@ -94,19 +90,6 @@ try {
         onUpdateCheckComplete: (callback: () => void) => {
             ipcRenderer.on('update-check-complete', () => callback());
             return () => ipcRenderer.removeAllListeners('update-check-complete');
-        },
-        // Legacy listeners kept for backward-compat (UpdateGate now uses update.onStateChanged)
-        onUpdateAvailable: (callback: (data: { version: string }) => void) => {
-            ipcRenderer.on('update-available', (_event: Event, data: { version: string }) => callback(data));
-            return () => ipcRenderer.removeAllListeners('update-available');
-        },
-        onDownloadProgress: (callback: (data: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => {
-            ipcRenderer.on('download-progress', (_event: Event, data: any) => callback(data));
-            return () => ipcRenderer.removeAllListeners('download-progress');
-        },
-        onUpdateDownloaded: (callback: (data: { version: string }) => void) => {
-            ipcRenderer.on('update-downloaded', (_event: Event, data: { version: string }) => callback(data));
-            return () => ipcRenderer.removeAllListeners('update-downloaded');
         },
     },
 
