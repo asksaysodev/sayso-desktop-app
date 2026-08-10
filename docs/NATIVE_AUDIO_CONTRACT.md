@@ -157,8 +157,9 @@ silence the other. `null` clears only the mic callback.
 ### `setLifecycleEventCallback(fn | null)`
 Diagnostics channel (SAYSO-355). Registers a JS callback invoked with a single
 short snake_case string per capture-lifecycle anomaly — e.g.
-`sck_start_watchdog_fired gen=3 timeout_ms=10000`, `sck_orphan_stream_stopped
-gen=3`. Events ending in `_failed` are escalated by the consumer (Sentry).
+`sck_start_watchdog_fired gen=3 stage=getting_shareable_content timeout_ms=10000`,
+`sck_orphan_stream_stopped gen=3`. Events ending in `_failed` are escalated by
+the consumer (Sentry).
 `null` clears the callback but must NOT free the underlying async plumbing —
 freeing on callback-clear is the UAF class documented in SAYSO-349. JS callers
 must tolerate the method being absent (older native builds): guard with a
