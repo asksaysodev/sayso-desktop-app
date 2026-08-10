@@ -57,7 +57,19 @@ When `phase === 'available'`:
 - **Update Available** entry appears (clickable → opens Settings → Software Update tab)
 - All other items remain enabled
 
-### 10. Single source of truth in main process
+### 10. macOS: the app must live in /Applications (SAYSO-356)
+
+Squirrel cannot write to a bundle running from a read-only volume, which happens two ways on macOS: launching straight out of the mounted `.dmg`, or **App Translocation** (the bundle was opened from `~/Downloads` without being moved into Applications via Finder, so Gatekeeper runs a quarantined copy from a randomized read-only mount under `/private/var/folders/…/AppTranslocation/…`). Either way the install is permanently stuck, and translocation additionally binds screen-recording permission to a path that vanishes when the user moves the app.
+
+Two layers:
+
+**Launch guard** — `enforceApplicationsFolderLocation()` (`electron/utils/applicationsFolder.ts`), called in `app.whenReady()` immediately after the single-instance-lock check and **before any window is created**. On `app.isPackaged && IS_MAC && !IS_STAGING`, an `app.isInApplicationsFolder()` miss shows a native `dialog.showMessageBoxSync` with **Move to Applications** / **Quit** and no continue-anyway path. A native dialog rather than a window: this runs before any renderer exists, and reusing the splash would kick off an auth refresh for a user who is about to be blocked. On `moveToApplicationsFolder()` throwing (the usual outcome from a translocated or DMG path) a second dialog gives manual Finder instructions plus **Show in Finder**, then quits. A `false` return means the user cancelled macOS's authorization prompt → quit. Staging is excluded so staging builds stay runnable from wherever they were unzipped.
+
+**Update gate** — `isUpdateBlockedByLocation()` in `main.ts` fronts both entry points (the startup check and the `update:check-for-updates` IPC handler) with the same `isInApplicationsFolder()` probe, and sets `phase: 'blocked'` instead of letting the call reach Squirrel. When blocked at startup, neither the immediate check nor the hourly interval is armed. This layer applies to staging too — the launch guard skips staging, so this is what staging testers actually see. It is defence in depth for production: with the guard shipped, no production user should reach it.
+
+If a read-only failure ever does reach `electron-updater`, `classifyUpdaterError()` classifies it as `'read-only-volume'` — non-fatal, so it is not reported to Sentry, and `updaterErrorMessage()` returns the same actionable copy instead of Squirrel's raw text and GitHub link.
+
+### 11. Single source of truth in main process
 `updateState` in `main.ts` is the only authoritative update state. All UI surfaces (splash `UpdateGate`, tray `TrayMenuApp`, App Settings `SoftwareUpdateSettings`) subscribe via `update:state-changed` IPC and hydrate via `update:get-state` on mount.
 
 ---
@@ -82,10 +94,13 @@ When `phase === 'available'`:
 
 ```
 idle ──update-available──▶ available ──user clicks Update Now──▶ downloading ──▶ downloaded (auto-quit)
-                                │                                       │
-                                │ user clicks Not Now                   │ error
-                                ▼                                       ▼
-                           (stays available)                         error
+  │                             │                                       │
+  │                             │ user clicks Not Now                   │ error
+  │                             ▼                                       ▼
+  │                        (stays available)                         error
+  │
+  └──app outside /Applications (macOS)──▶ blocked  (terminal — no check is attempted,
+                                                    no retry offered; fixed by moving the app)
 ```
 
 ---
@@ -94,7 +109,9 @@ idle ──update-available──▶ available ──user clicks Update Now─�
 
 | File | Role |
 |---|---|
-| `electron/main.ts` | State machine, autoUpdater wiring, IPC handlers, deferral logic |
+| `electron/main.ts` | State machine, autoUpdater wiring, IPC handlers, deferral logic, location gate |
+| `electron/utils/applicationsFolder.ts` | macOS launch guard + `isOutsideApplicationsFolder()` probe |
+| `electron/utils/transientErrors.ts` | Updater error classification and user-facing copy |
 | `electron/preload.ts` | Exposes `update.*`, `app.*`, `appSettings.*` to renderers |
 | `src/types/update.ts` | Shared `UpdateState` / `UpdatePhase` types |
 | `src/splashWindow/UpdateGate.tsx` | Intercepts splash routes when update is pending |

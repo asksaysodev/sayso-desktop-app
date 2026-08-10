@@ -75,6 +75,17 @@ export default function SoftwareUpdateSettings() {
                         <p className="su-status-label">Applying update, restarting…</p>
                     </div>
                 );
+            case 'blocked':
+                return (
+                    <div className="su-status-block">
+                        <p className="su-status-label su-status-error">
+                            {state?.errorMessage ?? 'Move Sayso to Applications to install updates.'}
+                        </p>
+                        <p className="su-description">
+                            Quit Sayso, drag it into your Applications folder, then open it from there.
+                        </p>
+                    </div>
+                );
             case 'error':
                 return (
                     <div className="su-status-block">

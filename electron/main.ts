@@ -22,7 +22,9 @@ import { WindowManager } from './utils/windowManager';
 import { loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
-import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage } from './utils/transientErrors';
+import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage, READ_ONLY_VOLUME_MESSAGE } from './utils/transientErrors';
+import { enforceApplicationsFolderLocation, isOutsideApplicationsFolder } from './utils/applicationsFolder';
+import type { UpdateState } from './shared/update';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 import * as audioManager from './audio/audioManager';
@@ -436,16 +438,6 @@ function semverGt(a: string, b: string): boolean {
 }
 
 // ─── Update State Machine ─────────────────────────────────────────────────────
-type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
-
-interface UpdateState {
-  phase: UpdatePhase;
-  currentVersion: string;
-  newVersion: string | null;
-  progressPercent: number;
-  errorMessage: string | null;
-}
-
 let updateState: UpdateState = {
   phase: 'idle',
   currentVersion: app.getVersion(),
@@ -472,6 +464,38 @@ function broadcastUpdateState(): void {
       win.webContents.send('update:state-changed', updateState);
     }
   }
+}
+
+/**
+ * Single funnel for every updater failure. electron-updater reports the same
+ * failure twice (it emits 'error' *and* rejects the promise), so all call sites
+ * race to write this state — routing them through one function is what keeps
+ * the phase and the message consistent no matter which one lands last.
+ *
+ * 'read-only-volume' gets its own phase rather than 'error': the update didn't
+ * fail, the app is in the wrong place, and no amount of retrying fixes that.
+ */
+function setUpdateError(err: any): void {
+  setUpdateState({
+    phase: classifyUpdaterError(err) === 'read-only-volume' ? 'blocked' : 'error',
+    errorMessage: updaterErrorMessage(err),
+  });
+}
+
+/**
+ * Pre-flight gate for both update entry points. Squirrel can't write to a
+ * bundle running from a .dmg or an App Translocation mount, so calling into
+ * electron-updater from there only produces a raw Squirrel error — answer with
+ * the actionable message instead of letting the call through.
+ *
+ * Defence in depth: enforceApplicationsFolderLocation() in whenReady() means no
+ * production user should ever be here. Staging skips that guard by design, so
+ * this is the layer staging testers actually see.
+ */
+function isUpdateBlockedByLocation(): boolean {
+  if (!isOutsideApplicationsFolder()) return false;
+  setUpdateState({ phase: 'blocked', errorMessage: READ_ONLY_VOLUME_MESSAGE });
+  return true;
 }
 
 function isCoachSessionActive(): boolean {
@@ -568,7 +592,7 @@ if (app.isPackaged) {
   updater.on('error', (err: Error & { statusCode?: number }) => {
     log.error('Error in auto-updater:', err);
     if (classifyUpdaterError(err) === 'fatal') Sentry.captureException(err);
-    setUpdateState({ phase: 'error', errorMessage: updaterErrorMessage(err) });
+    setUpdateError(err);
   });
 
   updater.on('download-progress', (progressObj: { percent?: number; transferred?: number; total?: number; bytesPerSecond?: number }) => {
@@ -1534,21 +1558,31 @@ app.whenReady().then(async () => {
   // Second instance is quitting (lock not acquired) — don't boot/create windows.
   if (!gotSingleInstanceLock) return;
 
+  // macOS-only seam: a bundle running from a .dmg or an App Translocation mount
+  // can never update itself, and any permission granted from there is bound to
+  // a path that disappears the moment the user moves the app. Block before ANY
+  // window exists — this must stay the first thing after the instance lock.
+  if (!enforceApplicationsFolderLocation(IS_STAGING)) return;
+
   global.appSettingsWindowSource = null;
   global.playbookWindowSource = null;
 
   setupLogging();
   resetPermissionsIfCertChanged();
 
-  // Run auto-updater check FIRST, before any potential native module crashes
-  if (autoUpdater) {
+  // Run auto-updater check FIRST, before any potential native module crashes.
+  // Skipped entirely from a read-only location (staging only in practice — the
+  // guard above already sent production users to Applications or to quit):
+  // both the immediate check and the hourly one would fail the same way, so
+  // arm neither and leave the state on the actionable message.
+  if (autoUpdater && !isUpdateBlockedByLocation()) {
     // Check immediately (with small delay to ensure network is ready)
     setTimeout(() => {
       autoUpdater.checkForUpdates().catch(err => {
         console.error('Failed to check for updates:', err);
       });
     }, 1000); // 1 second delay
-    
+
     // Check every hour. JS timers are driven by wall-clock time, so on any OS
     // a setInterval whose tick elapsed during sleep fires the instant the
     // system wakes — route it through the resume-settle helper so it waits
@@ -2020,7 +2054,7 @@ ipcMain.on('update:start-download', () => {
   autoUpdater.downloadUpdate().catch((err: Error) => {
     // Reporting is owned by updater.on('error') — see the startup check.
     console.error('[Updater] Download failed:', err);
-    setUpdateState({ phase: 'error', errorMessage: updaterErrorMessage(err) });
+    setUpdateError(err);
   });
 });
 
@@ -2030,6 +2064,11 @@ ipcMain.on('update:dismiss', () => {
 
 ipcMain.on('update:check-for-updates', () => {
   if (updateState.phase === 'downloading' || updateState.phase === 'downloaded') return;
+
+  // Before 'checking', so the tab never shows a spinner for a check that can't
+  // succeed. Re-probed on every click rather than cached: the user may have
+  // moved the app since launch.
+  if (isUpdateBlockedByLocation()) return;
 
   // Flip to 'checking' immediately so the UI reflects the click without depending
   // on autoUpdater's 'checking-for-update' event timing (which can race against
@@ -2046,7 +2085,7 @@ ipcMain.on('update:check-for-updates', () => {
   autoUpdater.checkForUpdates().catch((err: Error) => {
     // Reporting is owned by updater.on('error') — see the startup check.
     console.error('[Updater] Check failed:', err);
-    setUpdateState({ phase: 'error', errorMessage: updaterErrorMessage(err) });
+    setUpdateError(err);
   });
 });
 
