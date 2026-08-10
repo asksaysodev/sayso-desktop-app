@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import * as Sentry from '@sentry/electron/main';
 import { loadRefreshToken, saveRefreshToken, clearRefreshToken } from '../utils/tokenStore';
+import { isTransientNetworkError, isTransientUpstreamStatus } from '../utils/transientErrors';
 import type { AuthUser } from '../globals';
 
 interface JwtPayload {
@@ -49,6 +50,23 @@ class AuthError extends Error {
     super(message);
     this.name = 'AuthError';
   }
+}
+
+/**
+ * Whether a refresh failure is environmental noise we deliberately absorb — the
+ * machine is offline, DNS wasn't warm yet after a wake, or the upstream returned
+ * a self-healing 5xx — rather than a defect worth a Sentry event. The transient
+ * path keeps the session alive and schedules a retry, so reporting these only
+ * produces one error per failed attempt for a case we already handle by design.
+ *
+ * AuthError is classified on its own fields: isTransientNetworkError() reads
+ * `statusCode`, which AuthError doesn't carry (it names that field `status`).
+ */
+function isExpectedRefreshFailure(error: unknown): boolean {
+  if (error instanceof AuthError) {
+    return error.kind === 'network' || isTransientUpstreamStatus(error.status);
+  }
+  return isTransientNetworkError(error);
 }
 
 // Backoff delays (ms) for transient refresh failures: 1s, 3s, 10s, 30s, 60s cap
@@ -320,7 +338,7 @@ export class AuthManager extends EventEmitter {
       const remaining = this.expiresAt ? this.expiresAt - Math.floor(Date.now() / 1000) : 0;
       console.log(`[AuthManager] Token refreshed — next expiry in ${remaining}s`);
     } catch (error: any) {
-      Sentry.captureException(error);
+      if (!isExpectedRefreshFailure(error)) Sentry.captureException(error);
       if (error instanceof AuthError && error.kind === 'invalid_grant') {
         // Refresh token is permanently invalid — treat as a true logout
         console.error('[AuthManager] Refresh token rejected by server — ending session');
