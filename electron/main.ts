@@ -7,8 +7,7 @@ import type {
 } from 'electron';
 import type { Event } from 'electron';
 import type {
-  AuthUser,
-  CueInsight
+  AuthUser
 } from './globals';
 
 import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, globalShortcut, dialog, Tray, Menu, nativeTheme, powerMonitor } from 'electron';
@@ -1235,8 +1234,6 @@ function loadEnvironmentVariables() {
 loadEnvironmentVariables();
 
 // Now require other modules that depend on environment variables
-const wav = require('wav');
-const NodeFormData = require('form-data');
 const axios = require('axios');
 
 // Add command line switches for better camera support
@@ -2379,25 +2376,6 @@ ipcMain.handle('get-window-position', () => {
 ipcMain.on('set-window-position', (event: Electron.IpcMainInvokeEvent, x: number, y: number) => {
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
     global.coachWindow.setPosition(Math.round(x), Math.round(y));
-  }
-});
-
-// Handler for demo insights from AdminPanel - forwards to coach window
-ipcMain.on('demo-insight', (event: Electron.IpcMainInvokeEvent, insightData: CueInsight) => {
-  if (isDev) {
-    console.log('[MAIN] Received demo-insight:', insightData);
-  }
-
-  // Forward to coach window if it exists and is not destroyed
-  if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-    global.coachWindow.webContents.send('cue-insight', insightData);
-    if (isDev) {
-      console.log('[MAIN] Demo insight forwarded to coach window');
-    }
-  } else {
-    if (isDev) {
-      console.warn('[MAIN] Coach window not available, cannot forward demo insight');
-    }
   }
 });
 
