@@ -779,6 +779,39 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
 
 static AudioCaptureDelegate* g_delegate = nil;
 
+// SAYSO-359: what's currently OUTSTANDING in the SCK start sequence. A blanket 10s timeout only ever
+// told us THAT the start hung, never WHERE — this distinguishes "getShareableContent never called
+// back" (matches the documented external ScreenCaptureKit/replayd daemon hang) from a hang in
+// startCapture, or from a stall in our own synchronous pipeline setup between the two.
+//
+// Every value names the operation IN FLIGHT when a timeout/cancel catches it, set immediately before
+// that operation begins — never a "this step just finished" marker. That uniform convention matters:
+// a mid-sequence value that means "completed" rather than "outstanding" (an earlier revision had
+// several) is easy to misread under time pressure. It also means only points with real,
+// watchdog-observable duration get their own value — filter/config allocation between receiving
+// content and building the stream is synchronous, in-process, sub-microsecond, and genuinely cannot
+// be caught mid-flight, so it doesn't get one; `addStreamOutput` does, since unlike the allocations
+// around it, it plausibly performs real work.
+enum class SckStartStage {
+    not_started,
+    getting_shareable_content,  // outstanding: async getShareableContentWithCompletionHandler
+    adding_stream_output,       // outstanding: filter/config/SCStream build through addStreamOutput
+    starting_capture,           // outstanding: async startCaptureWithCompletionHandler
+};
+
+// snake_case to match the lifecycle-event convention (docs/NATIVE_AUDIO_CONTRACT.md) and the existing
+// `stage=shareable_content` at the late-callback-ignored site below, which now reuses this directly
+// instead of a second, independently-spelled literal.
+static const char* SckStartStageName(SckStartStage stage) {
+    switch (stage) {
+        case SckStartStage::not_started: return "not_started";
+        case SckStartStage::getting_shareable_content: return "getting_shareable_content";
+        case SckStartStage::adding_stream_output: return "adding_stream_output";
+        case SckStartStage::starting_capture: return "starting_capture";
+    }
+    return "unknown";
+}
+
 // ScreenCaptureKit async start: Promise settled on libuv thread when addStreamOutput / startCapture completes.
 // Settlement is generation-guarded and settle-once: the SCK completion blocks, the watchdog timeout and
 // stop-cancel all race to settle the same start, and every loser must become a harmless no-op — never a
@@ -792,6 +825,7 @@ struct PendingSckStart {
     bool settled;   // guarded by g_sckStartMutex
     bool reject;
     std::string message;
+    SckStartStage stage;   // guarded by g_sckStartMutex; SAYSO-359
 };
 
 static PendingSckStart* g_sckStartPending = nullptr;
@@ -879,6 +913,26 @@ static bool SettleSckStartForGeneration(uint64_t generation, bool reject, const 
 static bool SckStartAbandoned(uint64_t generation) {
     std::lock_guard<std::mutex> lk(g_sckStartMutex);
     return !g_sckStartPending || g_sckStartPending->generation != generation || g_sckStartPending->settled;
+}
+
+// SAYSO-359: advance the stage marker for `generation`. A no-op for an abandoned/superseded/already-
+// settled generation — never touches a newer start's stage, mirroring SckStartAbandoned's guard.
+static void SckStartAdvanceStage(uint64_t generation, SckStartStage stage) {
+    std::lock_guard<std::mutex> lk(g_sckStartMutex);
+    if (g_sckStartPending && g_sckStartPending->generation == generation && !g_sckStartPending->settled) {
+        g_sckStartPending->stage = stage;
+    }
+}
+
+// Peek the current stage for `generation` (NotStarted if it's no longer the pending start). Used to
+// enrich a message that must be built *before* calling SettleSckStartForGeneration — the watchdog and
+// stop-cancel paths, which fire asynchronously and otherwise have no idea which stage was in flight.
+static SckStartStage SckStartPeekStage(uint64_t generation) {
+    std::lock_guard<std::mutex> lk(g_sckStartMutex);
+    if (g_sckStartPending && g_sckStartPending->generation == generation) {
+        return g_sckStartPending->stage;
+    }
+    return SckStartStage::not_started;
 }
 
 static void SckStopSettledCb(uv_async_t* handle) {
@@ -1156,6 +1210,7 @@ NAN_METHOD(StartSystemAudioCapture) {
     pending->async.data = pending;
     pending->settled = false;
     pending->reject = false;
+    pending->stage = SckStartStage::not_started;
     int uvErr = uv_async_init(uv_default_loop(), &pending->async, SckStartSettledCb);
     if (uvErr != 0) {
         delete pending;
@@ -1176,19 +1231,25 @@ NAN_METHOD(StartSystemAudioCapture) {
     // without an app relaunch. Captures the generation VALUE — safe after the struct is freed.
     const int64_t kSckStartWatchdogNs = 10 * NSEC_PER_SEC;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kSckStartWatchdogNs), dispatch_get_main_queue(), ^{
-        if (SettleSckStartForGeneration(startGen, true,
-                "sck_start_timeout: ScreenCaptureKit start did not settle within 10s")) {
-            EmitLifecycleEvent("sck_start_watchdog_fired gen=" + std::to_string(startGen) + " timeout_ms=10000");
+        // SAYSO-359: peek the stage BEFORE settling — the watchdog fires from an independent timer
+        // with no idea which async step was in flight, so this is the only chance to capture it.
+        SckStartStage stage = SckStartPeekStage(startGen);
+        std::string msg = std::string("sck_start_timeout stage=") + SckStartStageName(stage) +
+            ": ScreenCaptureKit start did not settle within 10s";
+        if (SettleSckStartForGeneration(startGen, true, msg)) {
+            EmitLifecycleEvent("sck_start_watchdog_fired gen=" + std::to_string(startGen) +
+                               " stage=" + SckStartStageName(stage) + " timeout_ms=10000");
         }
     });
 
     // The blocks below deliberately build the pipeline in LOCALS and publish to globals only after
     // winning settlement. An abandoned (timed-out/canceled) start must never clobber the globals of a
     // newer start, and must stop any stream it managed to create.
+    SckStartAdvanceStage(startGen, SckStartStage::getting_shareable_content);
     [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
         if (SckStartAbandoned(startGen)) {
             EmitLifecycleEvent("sck_start_late_callback_ignored gen=" + std::to_string(startGen) +
-                               " stage=shareable_content");
+                               " stage=" + SckStartStageName(SckStartStage::getting_shareable_content));
             return;
         }
         if (error) {
@@ -1209,6 +1270,7 @@ NAN_METHOD(StartSystemAudioCapture) {
 
         SCDisplay *display = content.displays.firstObject;
         NSLog(@"🎤 [NATIVE] Using display: %u", display.displayID);
+        SckStartAdvanceStage(startGen, SckStartStage::adding_stream_output);
 
         SCContentFilter* filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
 
@@ -1256,7 +1318,7 @@ NAN_METHOD(StartSystemAudioCapture) {
         }
 
         NSLog(@"✅ [NATIVE] Stream output added successfully");
-
+        SckStartAdvanceStage(startGen, SckStartStage::starting_capture);
         [stream startCaptureWithCompletionHandler:^(NSError *startErr) {
             if (startErr) {
                 NSLog(@"❌ [NATIVE] Failed to start capture: %@", startErr.localizedDescription);
@@ -1317,10 +1379,16 @@ NAN_METHOD(StopSystemAudioCapture) {
                 pendingGen = g_sckStartPending->generation;
             }
         }
-        if (hasPending &&
-            SettleSckStartForGeneration(pendingGen, true,
-                "sck_start_canceled_by_stop: stop requested while start still pending")) {
-            EmitLifecycleEvent("sck_start_canceled_by_stop gen=" + std::to_string(pendingGen));
+        if (hasPending) {
+            // SAYSO-359: same reasoning as the watchdog — stop-cancel fires from a separate call path
+            // with no idea which stage the pending start had reached, so peek it before settling.
+            SckStartStage stage = SckStartPeekStage(pendingGen);
+            std::string msg = std::string("sck_start_canceled_by_stop stage=") + SckStartStageName(stage) +
+                ": stop requested while start still pending";
+            if (SettleSckStartForGeneration(pendingGen, true, msg)) {
+                EmitLifecycleEvent("sck_start_canceled_by_stop gen=" + std::to_string(pendingGen) +
+                                   " stage=" + SckStartStageName(stage));
+            }
         }
     }
 
@@ -1458,15 +1526,22 @@ static bool WaitForMicFirstTapMs(int timeoutMs) {
 }
 
 // Starts engine and blocks until the realtime tap enqueues at least one buffer (or timeout).
-static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs) {
+// SAYSO-347: `failReason`, when non-null, is set to one of "no_input_node" / "tap_install_failed" /
+// "engine_start_failed" / "no_tap_buffers" on failure — the same collapsing bug this ticket fixed one
+// level up (all four used to report as a single StartMicrophoneCapture-level "no_tap_buffers"), most
+// importantly "engine_start_failed" carrying a real NSError that was previously NSLog'd and discarded.
+// Default nullptr keeps the SaysoPerformMicRestartIfCapturing call site (which only needs the bool)
+// unaffected.
+static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** failReason = nullptr) {
     g_micFirstTapSeen.store(false, std::memory_order_release);
-    
+
     g_micEngine = [[AVAudioEngine alloc] init];
     g_micInputNode = [g_micEngine inputNode];
-    
+
     if (!g_micInputNode) {
         NSLog(@"❌ [NATIVE] Failed to get input node from audio engine");
         g_micEngine = nullptr;
+        if (failReason) *failReason = "no_input_node";
         return false;
     }
     
@@ -1528,25 +1603,29 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs) {
     } @catch (NSException *ex) {
         NSLog(@"❌ [NATIVE] installTapOnBus failed: %@ — %@", ex.name, ex.reason);
         MicEngineTeardownOnly();
+        if (failReason) *failReason = "tap_install_failed";
         return false;
     }
-    
+
     NSError* error = nil;
     BOOL ok = [g_micEngine startAndReturnError:&error];
-    
+
     if (!ok) {
-        NSLog(@"❌ [NATIVE] Failed to start microphone capture: %@", error.localizedDescription);
+        NSLog(@"❌ [NATIVE] Failed to start microphone capture: %@ (code=%ld)",
+              error.localizedDescription, (long)error.code);
         MicEngineTeardownOnly();
+        if (failReason) *failReason = "engine_start_failed";
         return false;
     }
-    
+
     if (!WaitForMicFirstTapMs(waitForFirstTapMs)) {
         NSLog(@"⚠️ [NATIVE] Mic engine started but no tap buffers within %d ms — tearing down for retry",
               waitForFirstTapMs);
         MicEngineTeardownOnly();
+        if (failReason) *failReason = "no_tap_buffers";
         return false;
     }
-    
+
     return true;
 }
 
@@ -1685,13 +1764,29 @@ static void SaysoScheduleMicRouteDebouncedRestart() {
     });
 }
 
+// SAYSO-347: StartMicrophoneCapture used to collapse three distinct failure modes (wiring bug,
+// teardown/lifecycle race, audio-route problem) into a bare `false`, indistinguishable in Sentry.
+// Success still returns plain `true` for JS-side backward compatibility with a stale native build;
+// failure now returns { ok: false, reason } so callers can propagate a specific, greppable cause.
+static Local<Value> MicStartResult(bool ok, const char* reason = nullptr) {
+    if (ok) {
+        return Nan::New<v8::Boolean>(true);
+    }
+    Local<Object> result = Nan::New<Object>();
+    Nan::Set(result, Nan::New("ok").ToLocalChecked(), Nan::New<v8::Boolean>(false));
+    if (reason) {
+        Nan::Set(result, Nan::New("reason").ToLocalChecked(), Nan::New<String>(reason).ToLocalChecked());
+    }
+    return result;
+}
+
 // Start microphone capture for streaming
 NAN_METHOD(StartMicrophoneCapture) {
     NSLog(@"🎤 [NATIVE] Starting microphone capture");
 
     if (g_micStreamingCallback.IsEmpty()) {
         NSLog(@"⚠️ [NATIVE] Microphone streaming callback is empty - cannot capture microphone");
-        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        info.GetReturnValue().Set(MicStartResult(false, "callback_empty"));
         return;
     }
 
@@ -1704,19 +1799,21 @@ NAN_METHOD(StartMicrophoneCapture) {
 
     if (g_isMicCapturing) {
         NSLog(@"⚠️ [NATIVE] Microphone capture already active");
-        info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+        info.GetReturnValue().Set(MicStartResult(false, "already_active"));
         return;
     }
 
     const int kFirstTapWaitMs = 1200;
     const int kRetryTapWaitMs = 1500;
 
-    if (!TryStartMicrophoneCaptureOnce(kFirstTapWaitMs)) {
-        NSLog(@"🎤 [NATIVE] Mic: repeating capture once (cold start / Bluetooth input path)");
-        if (!TryStartMicrophoneCaptureOnce(kRetryTapWaitMs)) {
-            NSLog(@"❌ [NATIVE] Microphone capture failed after retry: no tap buffers");
+    const char* failReason = nullptr;
+    if (!TryStartMicrophoneCaptureOnce(kFirstTapWaitMs, &failReason)) {
+        NSLog(@"🎤 [NATIVE] Mic: repeating capture once (cold start / Bluetooth input path) — first attempt failed: %s",
+              failReason ? failReason : "unknown");
+        if (!TryStartMicrophoneCaptureOnce(kRetryTapWaitMs, &failReason)) {
+            NSLog(@"❌ [NATIVE] Microphone capture failed after retry: %s", failReason ? failReason : "unknown");
             g_micOpenedInputDeviceId = kAudioObjectUnknown;
-            info.GetReturnValue().Set(Nan::New<v8::Boolean>(false));
+            info.GetReturnValue().Set(MicStartResult(false, failReason ? failReason : "no_tap_buffers"));
             return;
         }
     }
@@ -1725,7 +1822,7 @@ NAN_METHOD(StartMicrophoneCapture) {
     g_micOpenedInputDeviceId = SaysoGetCurrentDefaultInputDeviceID();
     NSLog(@"✅ [NATIVE] Microphone capture started successfully (first tap received); default input id=%u",
           (unsigned)g_micOpenedInputDeviceId);
-    info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
+    info.GetReturnValue().Set(MicStartResult(true));
 }
 
 // Stop microphone capture
