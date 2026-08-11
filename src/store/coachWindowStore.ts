@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { v4 } from 'uuid';
 import { cue_startStreaming, cue_stopStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
+import { CUE_STOP_MESSAGE, cueStartErrorMessage } from '../coachWindow/helpers/cueErrorMessage';
 import apiClient from '../config/axios';
 import { CoachFeature, CoachWindowStore, EnabledFeature, LpmamData } from '@/types/store/coachWindowStore';
 import { Prospect } from '@/types/coach';
@@ -182,7 +183,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
     },
 
     cue_handleStartCue: async () => {
-        set({ isCoachLoading: true });
+        set({ isCoachLoading: true, error: null });
 
         try {
             const currentLeadType = get().cue.leadType;
@@ -225,9 +226,13 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
                     enabledFeatures: sessionData?.enabled_features ?? ['cue'],
                 },
             });
-        } catch (error) {
-            console.error('Error starting cue:', error);
-            throw error;
+        } catch (err) {
+            console.error('Error starting cue:', err);
+            if (!get().error) {
+                const message = cueStartErrorMessage(err);
+                if (message) set({ error: message });
+            }
+            throw err;
         } finally {
             set({ isCoachLoading: false })
         }
@@ -255,6 +260,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
         } catch (error) {
             console.error('Error stopping cue:', error);
             get().cue_resetStates();
+            set({ error: CUE_STOP_MESSAGE });
             throw error;
         } finally {
 			set({ isCoachLoading: false })
