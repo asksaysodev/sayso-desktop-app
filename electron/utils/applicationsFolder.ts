@@ -110,8 +110,9 @@ export function enforceApplicationsFolderLocation(isStagingBuild: boolean): bool
     try {
       if (app.moveToApplicationsFolder()) return false;
     } catch {
-      showManualInstructions();
+      // fall through to showManualInstructions() below
     }
+    showManualInstructions();
   }
 
   app.quit();
