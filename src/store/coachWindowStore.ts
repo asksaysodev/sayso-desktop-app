@@ -56,8 +56,8 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
     isCoachLoading: false,
     callDurationInSeconds: 0,
     sessionData: null,
-    coachFeature: 'cue', // 'cue' or 'recall'
-    error: null, // string | null
+    coachFeature: 'cue',
+    error: null,
 
     cue: {...CUE_INITIAL_STATE},
 
