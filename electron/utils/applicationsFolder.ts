@@ -1,4 +1,5 @@
 import { app, dialog, shell } from 'electron';
+import * as Sentry from '@sentry/electron/main';
 import path from 'node:path';
 import { IS_MAC } from './platform';
 
@@ -37,13 +38,18 @@ function isTranslocated(): boolean {
  * darwin-only, and an unpackaged dev run lives in the repo by definition.
  * Answering `false` everywhere else keeps every caller free of its own
  * platform branch.
+ *
+ * Fails closed: if the native check itself throws, we can't confirm the
+ * location is safe, so we treat it as outside rather than silently letting
+ * a DMG/translocated launch through uncaught.
  */
 export function isOutsideApplicationsFolder(): boolean {
   if (!IS_MAC || !app.isPackaged) return false;
   try {
     return !app.isInApplicationsFolder();
-  } catch {
-    return false;
+  } catch (err) {
+    Sentry.captureException(err);
+    return true;
   }
 }
 
