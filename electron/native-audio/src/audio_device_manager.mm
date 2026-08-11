@@ -1288,8 +1288,10 @@ NAN_METHOD(StartSystemAudioCapture) {
             config.excludesCurrentProcessAudio = YES;
         }
 
-        config.minimumFrameInterval = CMTimeMake(1, 60);
-        config.queueDepth = 10;
+        config.width = 2;
+        config.height = 2;
+        config.minimumFrameInterval = CMTimeMake(1, 1);
+        config.queueDepth = 3;
 
         NSLog(@"🎤 [NATIVE] Stream configuration: Audio=%@, SampleRate=%ld, Channels=%ld",
               config.capturesAudio ? @"YES" : @"NO",
