@@ -42,8 +42,6 @@
     "electron-log": "^5.1.2",
     "electron-squirrel-startup": "^1.0.1",
     "electron-updater": "^6.1.8",
-    "form-data": "^4.0.2",
-    "wav": "^1.0.2",
     "ws": "^8.18.2"
   },
   "devDependencies": {

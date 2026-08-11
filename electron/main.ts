@@ -7,8 +7,7 @@ import type {
 } from 'electron';
 import type { Event } from 'electron';
 import type {
-  AuthUser,
-  CueInsight
+  AuthUser
 } from './globals';
 
 import { app, BrowserWindow, ipcMain, screen as electronScreen, shell, globalShortcut, dialog, Tray, Menu, nativeTheme, powerMonitor } from 'electron';
@@ -1235,8 +1234,6 @@ function loadEnvironmentVariables() {
 loadEnvironmentVariables();
 
 // Now require other modules that depend on environment variables
-const wav = require('wav');
-const NodeFormData = require('form-data');
 const axios = require('axios');
 
 // Add command line switches for better camera support
