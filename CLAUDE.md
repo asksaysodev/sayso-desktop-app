@@ -101,7 +101,7 @@ Only `darwin` and `win32` are targets. `docs/IPC_CONTRACT.md` classifies every c
 
 - **Never branch on `process.platform` inline inside an IPC handler.** Per-OS behavior goes behind a provider interface — `electron/audio/` (`IAudioProvider`) and `electron/permissions/` (`IPermissionsProvider`) — dispatched in that module's `index.ts`. Handlers stay thin.
 - For small presentational differences use the flags in `electron/utils/platform.ts` (`IS_MAC`, `IS_WINDOWS`, `ALLOW_VIBRANCY`), never a raw `'darwin'`/`'win32'` literal.
-- Known macOS-only seams in `main.ts`: dock badge reset, the `window-all-closed` quit rule, tray positioning, vibrancy, and the ShipIt `launchctl kickstart` watchdog on update install.
+- Known macOS-only seams in `main.ts`: dock badge reset, the `window-all-closed` quit rule, tray positioning, vibrancy, the ShipIt `launchctl kickstart` watchdog on update install, and the `/Applications` launch guard (`electron/utils/applicationsFolder.ts`, called first thing in `whenReady()`).
 
 ## Permissions
 

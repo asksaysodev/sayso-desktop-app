@@ -53,14 +53,32 @@ function matchesAny(err: any, patterns: string[]): boolean {
   return patterns.some(p => haystack.includes(p.toLowerCase()));
 }
 
-export type UpdaterErrorKind = 'offline' | 'transient' | 'fatal';
+// Squirrel refusing to update a bundle it can't write to — the app is running
+// from a mounted .dmg or an App Translocation mount. Not a failure of the
+// update at all: the app is in the wrong place, and no retry will change that.
+// Matched on message text because electron-updater surfaces Squirrel's string
+// verbatim, with no code to key off.
+const READ_ONLY_VOLUME_PATTERNS = [
+  'read-only volume',
+  'Squirrel.Mac/issues/182',
+];
+
+/**
+ * The one place this copy is written. Shared with the pre-flight gate in
+ * main.ts so the message a user sees is identical whether the check was
+ * blocked up front or slipped through to Squirrel.
+ */
+export const READ_ONLY_VOLUME_MESSAGE = 'Move Sayso to Applications to install updates.';
+
+export type UpdaterErrorKind = 'offline' | 'transient' | 'read-only-volume' | 'fatal';
 
 /**
  * Classify an auto-updater error for both Sentry-suppression and the
  * user-facing message:
- *  - 'offline'   → user has no connection; suppress from Sentry, show a network hint
- *  - 'transient' → upstream/CDN hiccup that self-heals; suppress, show "try again shortly"
- *  - 'fatal'     → a real error; report to Sentry and surface the raw message
+ *  - 'offline'          → user has no connection; suppress from Sentry, show a network hint
+ *  - 'transient'        → upstream/CDN hiccup that self-heals; suppress, show "try again shortly"
+ *  - 'read-only-volume' → app isn't in /Applications; suppress, tell the user to move it
+ *  - 'fatal'            → a real error; report to Sentry and surface the raw message
  *
  * The `jwt:expired` message guard is a belt-and-suspenders fallback for the
  * 618 case in case `statusCode` isn't populated on some code path.
@@ -69,6 +87,7 @@ export function classifyUpdaterError(err: any): UpdaterErrorKind {
   if (matchesAny(err, OFFLINE_PATTERNS)) return 'offline';
   if (matchesAny(err, FLAKY_NETWORK_PATTERNS)) return 'transient';
   if (isTransientUpstreamStatus(getStatus(err)) || matchesAny(err, ['jwt:expired'])) return 'transient';
+  if (matchesAny(err, READ_ONLY_VOLUME_PATTERNS)) return 'read-only-volume';
   return 'fatal';
 }
 
@@ -88,6 +107,8 @@ export function updaterErrorMessage(err: any): string {
       return 'No internet connection. Please check your network and try again.';
     case 'transient':
       return 'Couldn’t reach the update server. Please try again shortly.';
+    case 'read-only-volume':
+      return READ_ONLY_VOLUME_MESSAGE;
     default:
       return `${err?.message ?? ''}`;
   }

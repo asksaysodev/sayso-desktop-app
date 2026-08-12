@@ -27,7 +27,8 @@ const TrayMenuApp = () => {
   }, [isAuthenticated, account, hasFeature]);
 
   const isUpdating: boolean = updatePhase === 'downloading' || updatePhase === 'downloaded';
-  const showUpdateRow: boolean = updatePhase === 'available' || isUpdating;
+  const isBlocked: boolean = updatePhase === 'blocked';
+  const showUpdateRow: boolean = updatePhase === 'available' || isBlocked || isUpdating;
 
   useEffect(() => {
     const ipcRenderer = window.electron?.ipcRenderer;
@@ -213,12 +214,12 @@ const TrayMenuApp = () => {
           <>
             <button
               className="tray-menu-item"
-              onClick={isUpdating || isReconnecting ? undefined : handleOpenUpdateTab}
-              disabled={isUpdating || isReconnecting}
+              onClick={isUpdating || isReconnecting || isBlocked ? undefined : handleOpenUpdateTab}
+              disabled={isUpdating || isReconnecting || isBlocked}
             >
               {updatePhase === 'available' && <span className="tray-update-dot" />}
               <span className="tray-menu-item-label">
-                {isUpdating ? 'Update in progress…' : 'Update Available'}
+                {isBlocked ? 'Move to Applications Folder' : isUpdating ? 'Update in progress…' : 'Update Available'}
               </span>
             </button>
             <div className="tray-menu-separator" />
