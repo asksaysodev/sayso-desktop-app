@@ -16,6 +16,7 @@ import ZipCodeDropdown from './ZipCodeDropdown';
 import { usePlaybookPrefetch } from '@/playbookWindow/hooks/usePlaybookPrefetch';
 import Pulse from './Pulse';
 import { reportCoachError } from '@/utils/errorReporting';
+import { CUE_CONNECTIVITY_MESSAGE } from '../helpers/cueErrorMessage';
 
 const WINDOW_WIDTH_SIZES = {
     s: { BASE: 380, MAX_WIDTH: 900 },
@@ -348,6 +349,38 @@ export default function CoachWindowMain() {
                 error:
                     "Sayso isn't receiving microphone audio yet. Check your input device, or wait a few seconds after stopping before starting again.",
             });
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [isCoachActive, coachFeature]);
+
+    /**
+     * Consumes `cue-error` (audioManager.ts:380). Until now nothing did, so a streaming
+     * socket that died mid-session was silent (SAYSO-346).
+     *
+     * Scoped to a live session on purpose. A socket failure *at start* rejects
+     * audioStreamer.start() as well, so cue_handleStartCue already surfaces it — without
+     * the isCoachActive gate the same failure would arrive twice, and the second one
+     * would land after the store had reset.
+     *
+     * The every-attempt firing is why `notified` exists: websocketClient re-emits on each
+     * reconnect, and the closure resets per session because this effect re-subscribes
+     * when isCoachActive flips.
+     */
+    useEffect(() => {
+        if (!isCoachActive || coachFeature !== 'cue') return;
+        if (!window.electron?.cue?.onError) return;
+
+        let notified = false;
+        const unsubscribe = window.electron.cue.onError(() => {
+            if (notified) return;
+            notified = true;
+            // The only producer is a WebSocket failure, so the reason is always
+            // connectivity — and the raw payload is an ENOTFOUND-class string that
+            // means nothing to the user.
+            useCoachWindowStore.setState({ error: CUE_CONNECTIVITY_MESSAGE });
         });
 
         return () => {
