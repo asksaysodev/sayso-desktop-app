@@ -487,9 +487,10 @@ function setUpdateError(err: any): void {
  * electron-updater from there only produces a raw Squirrel error — answer with
  * the actionable message instead of letting the call through.
  *
- * Defence in depth: enforceApplicationsFolderLocation() in whenReady() means no
- * production user should ever be here. Staging skips that guard by design, so
- * this is the layer staging testers actually see.
+ * Defence in depth: enforceApplicationsFolderLocation() in whenReady() means
+ * no user, staging or production, should ever be here under normal operation —
+ * this only fires if that check itself failed (see the fail-closed handling
+ * in isOutsideApplicationsFolder()).
  */
 function isUpdateBlockedByLocation(): boolean {
   if (!isOutsideApplicationsFolder()) return false;
@@ -1559,7 +1560,7 @@ app.whenReady().then(async () => {
   // can never update itself, and any permission granted from there is bound to
   // a path that disappears the moment the user moves the app. Block before ANY
   // window exists — this must stay the first thing after the instance lock.
-  if (!enforceApplicationsFolderLocation(IS_STAGING)) return;
+  if (!enforceApplicationsFolderLocation()) return;
 
   global.appSettingsWindowSource = null;
   global.playbookWindowSource = null;

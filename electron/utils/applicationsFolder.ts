@@ -78,21 +78,21 @@ function showManualInstructions(): void {
 }
 
 /**
- * Hard-block launch from outside /Applications on packaged production macOS
- * builds. Returns `false` when the caller must stop booting — the app is
- * either quitting or relaunching from its new home.
+ * Hard-block launch from outside /Applications on packaged macOS builds.
+ * Returns `false` when the caller must stop booting — the app is either
+ * quitting or relaunching from its new home.
  *
  * Must run inside `app.whenReady()` *before any window is created*: the point
  * is that a user in this state never reaches onboarding and grants permissions
  * against a path that's about to disappear. There is deliberately no
  * "continue anyway" path.
  *
- * Staging is excluded so staging builds stay runnable from wherever they were
- * unzipped for testing; they still get the update gate in main.ts, which is
- * what actually prevents the doomed Squirrel call.
+ * Applies to staging too — staging is installed and updated the same way
+ * production is (DMG, /Applications, auto-updater), not unzipped ad hoc, so
+ * there's no reason to exempt it. Doing so would also mean this dialog and
+ * the move flow never get exercised until they hit a real production user.
  */
-export function enforceApplicationsFolderLocation(isStagingBuild: boolean): boolean {
-  if (isStagingBuild) return true;
+export function enforceApplicationsFolderLocation(): boolean {
   if (!isOutsideApplicationsFolder()) return true;
 
   const choice = dialog.showMessageBoxSync({
