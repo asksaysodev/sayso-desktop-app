@@ -1288,13 +1288,25 @@ NAN_METHOD(StartSystemAudioCapture) {
             config.excludesCurrentProcessAudio = YES;
         }
 
-        config.minimumFrameInterval = CMTimeMake(1, 60);
-        config.queueDepth = 10;
+        // SAYSO-337: we only consume SCStreamOutputTypeAudio, but SCK still runs an internal
+        // video pipeline under the hood even when nothing subscribes to it. Left at defaults
+        // (full display resolution, 60fps, queueDepth 10) that pipeline drove a system-wide
+        // WindowServer/GPU slowdown. Shrinking the frame to 2x2, capping to 1fps, and trimming
+        // the IOSurface queue eliminates that overhead without affecting audio delivery.
+        config.width = 2;
+        config.height = 2;
+        config.minimumFrameInterval = CMTimeMake(1, 1);
+        config.queueDepth = 3;
 
-        NSLog(@"🎤 [NATIVE] Stream configuration: Audio=%@, SampleRate=%ld, Channels=%ld",
+        NSLog(@"🎤 [NATIVE] Stream configuration: Audio=%@, SampleRate=%ld, Channels=%ld, Video=%ldx%ld, MinFrameInterval=%lld/%d, QueueDepth=%ld",
               config.capturesAudio ? @"YES" : @"NO",
               (long)config.sampleRate,
-              (long)config.channelCount);
+              (long)config.channelCount,
+              (long)config.width,
+              (long)config.height,
+              config.minimumFrameInterval.value,
+              config.minimumFrameInterval.timescale,
+              (long)config.queueDepth);
 
         SCStream* stream = [[SCStream alloc] initWithFilter:filter
                                               configuration:config
