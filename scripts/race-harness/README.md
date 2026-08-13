@@ -72,6 +72,7 @@ proves nothing — `run.sh` will refuse to proceed past canary failure.
 | **C** (30% of `race`) | Clean start/stop, no injected delay | Common-path regression watch — this is the 99.9% path every real session takes |
 | **D** (`orphan`) | Watchdog wins *after* `SCStream` is genuinely running (real capture), must self-stop without touching globals that may belong to a newer start | The one branch `race` mode structurally cannot reach — needs a live SCK session |
 | **E** (`mic`) | Mic `startMicrophoneCapture`/`stopMicrophoneCapture` cycling, interleaved with a synthetic device-change trigger (`triggerMicRouteRestart`, a test-only export that calls the real `SaysoScheduleMicRouteDebouncedRestart` entry point) landing before, during, and right up against start/stop calls; one branch forces the `no_input_node` failure path deterministically | SAYSO-361's target: the 3 `AVAudioEngine` leak-then-release sites and the single-canonical-queue refactor (`StartMicrophoneCapture`/`StopMicrophoneCapture` now `dispatch_sync` onto the same queue `SaysoPerformMicRestartIfCapturing` uses) |
+| **E-RT / E-RS** (`mic`, sub-scenarios) | Force both immediate restart attempts to fail so the real restart falls into SAYSO-353's backoff recovery loop. RT shrinks the ceiling and drives it to terminal failure, then clears the force-fail and fires a fresh notification — must still recover (the "never permanently latches" AC). RS clears the force-fail mid-backoff so a scheduled retry step succeeds for real. | SAYSO-353's target: the backoff/recovery state machine (`SaysoScheduleMicRouteRecoveryRetry`/`SaysoAttemptMicRouteRecovery`) and the new `AVAudioEngineConfigurationChangeNotification` observer add/remove pairing, which every cycle in every scenario now exercises incidentally |
 
 Each scenario's pass condition is "the process didn't crash under the
 detector" — not "the promise resolved a particular way." Rejections
@@ -116,6 +117,31 @@ microphone permission granted):**
   per cycle (primary attempt + internal retry) — 72 cycles × 2 = 144
   deterministic hits on that path alone, on top of whatever real hardware
   failures happened to occur elsewhere.
+
+## SAYSO-353 (recovery scenario)
+
+Added E-RT/E-RS sub-scenarios exercising the backoff/recovery state machine
+and the new `AVAudioEngineConfigurationChangeNotification` observer.
+
+**Baseline results (2026-08-13, macOS, Apple clang, real AVAudioEngine +
+microphone permission granted):**
+
+- Canary: use-after-free caught, SIGSEGV, exit 139.
+- `mic`: 400 cycles, 161 real `mic_route_restart_attempt` events (121 ok, 40
+  failed → entered backoff recovery), zero detector findings. ~5.5 min wall
+  time.
+- **31/31 terminal-failure cycles (E-RT) confirmed not permanently latched**:
+  each one reached `mic_route_recovery_failed` (ceiling exhausted) and then
+  successfully triggered a fresh, non-forced restart attempt afterward — the
+  ticket's core AC, that a restart failure never permanently disables
+  recovery, verified 31 times under a memory-error detector, not just reasoned
+  about.
+- 9/9 mid-backoff recoveries (E-RS) succeeded once the forced failure was
+  cleared, emitting `mic_route_recovery_succeeded`.
+- Every cycle in every scenario (A–D plus E-RT/E-RS) now incidentally
+  exercises the `AVAudioEngineConfigurationChangeNotification` observer's
+  add/remove pairing (registered in `TryStartMicrophoneCaptureOnce`, removed
+  in `MicEngineTeardownOnly`) — zero detector findings there either.
 
 Still open for a future ticket: the `uv_async_t` lifetime / `handle->data`
 races (SAYSO-362/363) aren't covered by any scenario here yet — scenario E

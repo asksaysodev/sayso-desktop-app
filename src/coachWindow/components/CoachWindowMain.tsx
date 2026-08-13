@@ -357,6 +357,28 @@ export default function CoachWindowMain() {
     }, [isCoachActive, coachFeature]);
 
     /**
+     * SAYSO-353: consumes `cue-mic-recovery-failed` — the native mic route lost the microphone
+     * mid-session (e.g. AirPods removed) and exhausted its ~30s backoff without recovering.
+     * Distinct from onLowUserAudio above: that one is a session that never got audio and can
+     * plausibly fix itself by waiting; this one already retried for ~30s and gave up, so the
+     * copy points at Reset instead of suggesting the user wait.
+     */
+    useEffect(() => {
+        if (!isCoachActive || coachFeature !== 'cue') return;
+        if (!window.electron?.cue?.onMicRecoveryFailed) return;
+
+        const unsubscribe = window.electron.cue.onMicRecoveryFailed(() => {
+            useCoachWindowStore.setState({
+                error: "Sayso lost your microphone and couldn't reconnect it. Click Reset to start a new session.",
+            });
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [isCoachActive, coachFeature]);
+
+    /**
      * Consumes `cue-error` (audioManager.ts:380). Until now nothing did, so a streaming
      * socket that died mid-session was silent (SAYSO-346).
      *

@@ -167,6 +167,7 @@ call site.
 | `cue-error` | Stream error. |
 | `cue-auto-stop` | Server-driven auto-stop. |
 | `cue-low-user-audio` | Mic-silence warning. |
+| `cue-mic-recovery-failed` | Mid-session mic route recovery exhausted its backoff (SAYSO-353) — mic audio is permanently lost for the rest of the session, user must Reset. |
 
 **Network / update / windows / features**
 

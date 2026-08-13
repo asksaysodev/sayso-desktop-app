@@ -65,6 +65,11 @@ static Nan::Persistent<v8::Function> g_lifecycleCallback;
 // Global variables for microphone capture
 static AVAudioEngine* g_micEngine = nullptr;
 static AVAudioInputNode* g_micInputNode = nullptr;
+// SAYSO-353: NSObjectProtocol observer token from addObserverForName, scoped to whichever engine is
+// currently g_micEngine. Only ever set/cleared on SaysoMicRouteRestartQueue (created in
+// TryStartMicrophoneCaptureOnce, torn down in MicEngineTeardownOnly), so no separate lock needed —
+// same reasoning as g_micEngine itself.
+static id<NSObject> g_micEngineConfigChangeObserver = nil;
 // SAYSO-361: atomic because it's read from dispatch_get_main_queue() (the default-input listener,
 // :1069) and from the V8 thread (IsMicrophoneCaptureActive) without going through
 // SaysoMicRouteRestartQueue, while every writer runs on that queue. A plain bool made those reads
@@ -87,6 +92,15 @@ static std::atomic<uint64_t> g_micRouteRestartGeneration{0};
 
 // Set from the realtime mic tap when the first buffer is enqueued (Bluetooth / cold-start can delay taps).
 static std::atomic<bool> g_micFirstTapSeen{false};
+
+// SAYSO-353: true while a backoff recovery sequence is in flight after the immediate restart
+// attempts in SaysoPerformMicRestartIfCapturing both failed. Distinct from g_isMicCapturing, which
+// stays true throughout — capture is still conceptually active/intended, just not currently
+// producing tap data. Only touched on SaysoMicRouteRestartQueue.
+static std::atomic<bool> g_micRouteRecovering{false};
+// Wall-clock ms (via SaysoNowMs) when the current recovery sequence began — used to enforce the
+// ~30s ceiling regardless of how many backoff steps that spans. Only touched on the queue.
+static int64_t g_micRouteRecoveryStartMs = 0;
 
 static void SaysoScheduleMicRouteDebouncedRestart();
 
@@ -1041,6 +1055,36 @@ static AudioDeviceID SaysoGetCurrentDefaultInputDeviceID() {
     return dev;
 }
 
+// SAYSO-353: wall-clock milliseconds, used to enforce the mic-route-recovery backoff ceiling
+// (dispatch_time deltas alone can't express "give up 30s after the ORIGINAL failure" across a
+// chain of independently-scheduled dispatch_after calls).
+static int64_t SaysoNowMs() {
+    return (int64_t)([[NSDate date] timeIntervalSince1970] * 1000.0);
+}
+
+// SAYSO-353: true if `deviceID` is a Bluetooth device (HFP mic/headset). The removal-path settle
+// delay only applies when leaving Bluetooth — the HFP teardown continues in the background for a
+// few hundred ms after the HAL default has already flipped to the fallback device, and a fresh
+// engine can transiently fail to get tap buffers during that window even though it's not bound to
+// the Bluetooth device at all. Wired/built-in transitions don't have this failure mode.
+static bool SaysoIsBluetoothInputDevice(AudioDeviceID deviceID) {
+    if (deviceID == kAudioObjectUnknown) {
+        return false;
+    }
+    UInt32 transportType = 0;
+    UInt32 sz = sizeof(transportType);
+    AudioObjectPropertyAddress pa = {
+        kAudioDevicePropertyTransportType,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    if (AudioObjectGetPropertyData(deviceID, &pa, 0, nullptr, &sz, &transportType) != noErr) {
+        return false;
+    }
+    return transportType == kAudioDeviceTransportTypeBluetooth ||
+           transportType == kAudioDeviceTransportTypeBluetoothLE;
+}
+
 static OSStatus SaysoDefaultInputDeviceListenerProc(AudioObjectID /*inObjectID*/,
                                                     UInt32 inNumberAddresses,
                                                     const AudioObjectPropertyAddress* inAddresses,
@@ -1520,6 +1564,39 @@ NAN_METHOD(StopSystemAudioCapture) {
     info.GetReturnValue().Set(firstResolver->GetPromise());
 }
 
+// SAYSO-353: observe AVFoundation's own "engine config changed, graph stopped, rebuild it" signal
+// on top of the existing Core Audio default-input-device listener. The two are not redundant: the
+// HAL default-device notification only fires when the OS *default input* changes, but AVAudioEngine
+// can also be stopped by AirPods ear-detection routing audio away while remaining the default
+// device, or by other mid-session route churn the HAL listener never sees. Feeds into the same
+// debounced restart path either way.
+static void SaysoObserveMicEngineConfigChange(AVAudioEngine* engine) {
+    if (!engine) {
+        return;
+    }
+    // ARC is off in this file: addObserverForName:... returns an autoreleased token (it doesn't
+    // match the alloc/new/copy/mutableCopy ownership-transfer convention), so it must be retained
+    // explicitly to survive past the next autorelease pool drain — otherwise g_micEngineConfigChangeObserver
+    // dangles the moment the run loop next turns, and removeObserver: in MicEngineTeardownOnly later
+    // touches freed memory. Same discipline as g_micEngine's explicit release (SAYSO-361).
+    g_micEngineConfigChangeObserver = [[[NSNotificationCenter defaultCenter]
+        addObserverForName:AVAudioEngineConfigurationChangeNotification
+                    object:engine
+                     queue:nil
+                usingBlock:^(NSNotification* _Nonnull note) {
+                    NSLog(@"🔊 [NATIVE] AVAudioEngineConfigurationChangeNotification received");
+                    SaysoScheduleMicRouteDebouncedRestart();
+                }] retain];
+}
+
+static void SaysoRemoveMicEngineConfigChangeObserver() {
+    if (g_micEngineConfigChangeObserver) {
+        [[NSNotificationCenter defaultCenter] removeObserver:g_micEngineConfigChangeObserver];
+        [g_micEngineConfigChangeObserver release];
+        g_micEngineConfigChangeObserver = nil;
+    }
+}
+
 // Tear down mic engine + tap without clearing Node callbacks (internal retry path).
 // SAYSO-361: ARC is off in this file (binding.gyp has no -fobjc-arc), so the explicit release
 // below is required — without it g_micEngine leaks on every call, and the leaked AVAudioEngine's
@@ -1527,6 +1604,7 @@ NAN_METHOD(StopSystemAudioCapture) {
 // hardware-format-changed callback (any device/route change, not necessarily on this engine) then
 // fires at the dead listener and frees an already-recycled PartitionAlloc slot — see SAYSO-APP-5T.
 static void MicEngineTeardownOnly() {
+    SaysoRemoveMicEngineConfigChangeObserver();
     if (g_micInputNode) {
         [g_micInputNode removeTapOnBus:0];
         g_micInputNode = nullptr;
@@ -1571,7 +1649,9 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
         if (failReason) *failReason = "no_input_node";
         return false;
     }
-    
+
+    SaysoObserveMicEngineConfigChange(g_micEngine);
+
     // Use nil format so the tap matches the hardware connection. Passing inputFormatForBus:0 can
     // raise NSException "Failed to create tap due to format mismatch" on some routes (e.g. after SCK).
     @try {
@@ -1665,6 +1745,70 @@ static dispatch_queue_t SaysoMicRouteRestartQueue() {
     return q;
 }
 
+// SAYSO-353: backoff schedule after SaysoPerformMicRestartIfCapturing's two immediate attempts both
+// fail. Retries continue at the last (4s) step once the list is exhausted, until the ~30s ceiling
+// (measured from g_micRouteRecoveryStartMs, not from each individual retry) is reached. Replaces
+// the old behavior of permanently latching g_isMicCapturing false after one failed attempt pair.
+static const int64_t kMicRouteRecoveryBackoffMs[] = {250, 500, 1000, 2000, 4000};
+static const size_t kMicRouteRecoveryBackoffSteps =
+    sizeof(kMicRouteRecoveryBackoffMs) / sizeof(kMicRouteRecoveryBackoffMs[0]);
+static const int64_t kMicRouteRecoveryCeilingMs = 30000;
+
+static void SaysoAttemptMicRouteRecovery(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave);
+
+// Schedules the next backoff attempt, or gives up and reports terminal failure once the ~30s
+// ceiling is reached. `wave` pins this chain to the generation it started under — a newer
+// device-change notification bumping the generation invalidates it, same mechanism
+// SaysoScheduleMicRouteDebouncedRestart already uses for its own debounce chain, so an in-flight
+// recovery for a stale target device doesn't fight a fresh one for the current target.
+static void SaysoScheduleMicRouteRecoveryRetry(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave) {
+    int64_t elapsedMs = SaysoNowMs() - g_micRouteRecoveryStartMs;
+    if (elapsedMs >= kMicRouteRecoveryCeilingMs) {
+        g_micRouteRecovering = false;
+        NSLog(@"❌ [NATIVE] Mic route recovery FAILED after %lldms (ceiling reached) — mic capture remains "
+              @"logically active but not producing audio; a future device change will retry",
+              (long long)elapsedMs);
+        EmitLifecycleEvent("mic_route_recovery_failed elapsedMs=" + std::to_string(elapsedMs));
+        return;
+    }
+
+    int64_t delayMs = kMicRouteRecoveryBackoffMs[std::min(stepIndex, kMicRouteRecoveryBackoffSteps - 1)];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC), SaysoMicRouteRestartQueue(), ^{
+        if (!g_isMicCapturing) {
+            g_micRouteRecovering = false;
+            return;
+        }
+        if (wave != g_micRouteRestartGeneration.load(std::memory_order_acquire)) {
+            // Superseded by a newer device-change notification — that notification's own debounce
+            // chain drives recovery for the new target; don't fight it.
+            return;
+        }
+        SaysoAttemptMicRouteRecovery(targetDevice, stepIndex, wave);
+    });
+}
+
+// One retry attempt in the backoff sequence. Runs on SaysoMicRouteRestartQueue.
+static void SaysoAttemptMicRouteRecovery(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave) {
+    NSLog(@"🔁 [NATIVE] Mic route recovery: attempt %zu for default input id=%u (elapsed=%lldms)",
+          stepIndex + 1, (unsigned)targetDevice, (long long)(SaysoNowMs() - g_micRouteRecoveryStartMs));
+
+    MicEngineTeardownOnly();
+    bool ok = TryStartMicrophoneCaptureOnce(1200);
+
+    if (ok) {
+        g_micOpenedInputDeviceId = targetDevice;
+        g_micRouteRecovering = false;
+        int64_t elapsedMs = SaysoNowMs() - g_micRouteRecoveryStartMs;
+        NSLog(@"✅ [NATIVE] Mic route recovery succeeded on attempt %zu (%lldms); now following default input "
+              @"id=%u", stepIndex + 1, (long long)elapsedMs, (unsigned)targetDevice);
+        EmitLifecycleEvent("mic_route_recovery_succeeded elapsedMs=" + std::to_string(elapsedMs) +
+                            " attempts=" + std::to_string(stepIndex + 1));
+        return;
+    }
+
+    SaysoScheduleMicRouteRecoveryRetry(targetDevice, stepIndex + 1, wave);
+}
+
 // Runs on SaysoMicRouteRestartQueue. Restarts AVAudioEngine so capture follows the new OS default input.
 // When `forcedAfterDefaultInputNotification` is YES, always teardown+restart if capture is active: Core Audio
 // can fire default-input changes for route/format churn where the HAL default id still matches
@@ -1697,12 +1841,19 @@ static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotifi
               (unsigned)currentDefault);
     }
 
-    NSLog(@"🔊 [NATIVE] Mic route: restarting engine for default input id=%u (previous opened id=%u)",
-          (unsigned)currentDefault, (unsigned)g_micOpenedInputDeviceId);
+    // SAYSO-353: check before teardown — leaving Bluetooth needs a longer first tap-wait. The HFP
+    // path can still be collapsing in the background for a few hundred ms even though the HAL
+    // default has already flipped to the fallback device, and a fresh engine can transiently fail
+    // to get tap buffers during that window despite not being bound to the Bluetooth device at all.
+    const bool leavingBluetooth = SaysoIsBluetoothInputDevice(g_micOpenedInputDeviceId);
+
+    NSLog(@"🔊 [NATIVE] Mic route: restarting engine for default input id=%u (previous opened id=%u)%s",
+          (unsigned)currentDefault, (unsigned)g_micOpenedInputDeviceId,
+          leavingBluetooth ? " [leaving Bluetooth — widened first attempt]" : "");
 
     MicEngineTeardownOnly();
 
-    const int kFirstTapWaitMs = 1200;
+    const int kFirstTapWaitMs = leavingBluetooth ? 2500 : 1200;
     const int kRetryTapWaitMs = 1500;
     bool ok = TryStartMicrophoneCaptureOnce(kFirstTapWaitMs);
     if (!ok) {
@@ -1715,9 +1866,16 @@ static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotifi
         NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
               (unsigned)currentDefault);
     } else {
-        g_isMicCapturing = false;
+        // SAYSO-353: no longer latches g_isMicCapturing off. Capture stays logically active and
+        // hands off to the backoff recovery loop instead of giving up after ~2.9s.
+        NSLog(@"⚠️ [NATIVE] Mic route: immediate attempts failed for default input id=%u — entering backoff "
+              @"recovery", (unsigned)currentDefault);
         g_micOpenedInputDeviceId = kAudioObjectUnknown;
-        NSLog(@"❌ [NATIVE] Mic route restart FAILED after OS default change — mic capture marked inactive");
+        g_micRouteRecovering = true;
+        g_micRouteRecoveryStartMs = SaysoNowMs();
+        EmitLifecycleEvent("mic_route_recovery_started");
+        SaysoScheduleMicRouteRecoveryRetry(currentDefault, 0,
+                                            g_micRouteRestartGeneration.load(std::memory_order_acquire));
     }
 }
 
@@ -1725,6 +1883,9 @@ static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotifi
 // so earlier timers no-op.
 // Fast path: HAL default id != id we opened the engine against → short delays so we don't leave the
 // tap on a dead Bluetooth path for hundreds of ms while the user is already on built-in mic.
+// Leaving-Bluetooth path (SAYSO-353): id changed AND the device being left was Bluetooth → the HFP
+// teardown continues in the background past the fast-path window, so widen the delay to ~400-600ms
+// rather than treat it identically to a wired/built-in switch.
 // Slow path: same id (stuck engine / spurious notify) → longer debounce + stability to absorb flap.
 static void SaysoScheduleMicRouteDebouncedRestart() {
     dispatch_async(SaysoMicRouteRestartQueue(), ^{
@@ -1733,18 +1894,25 @@ static void SaysoScheduleMicRouteDebouncedRestart() {
         }
 
         AudioDeviceID halNow = SaysoGetCurrentDefaultInputDeviceID();
-        const bool fastPath =
+        const bool changed =
             (halNow != kAudioObjectUnknown && g_micOpenedInputDeviceId != kAudioObjectUnknown &&
              halNow != g_micOpenedInputDeviceId);
+        const bool leavingBluetooth = changed && SaysoIsBluetoothInputDevice(g_micOpenedInputDeviceId);
+        const bool fastPath = changed && !leavingBluetooth;
 
         const int64_t debounceNs =
-            fastPath ? (80 * NSEC_PER_MSEC) : (600 * NSEC_PER_MSEC);
+            fastPath ? (80 * NSEC_PER_MSEC) : leavingBluetooth ? (450 * NSEC_PER_MSEC) : (600 * NSEC_PER_MSEC);
         const int64_t stabilityDelayNs =
             fastPath ? (60 * NSEC_PER_MSEC) : (150 * NSEC_PER_MSEC);
 
         if (fastPath) {
             NSLog(@"🔊 [NATIVE] Mic route: fast-path schedule (HAL default %u ≠ opened %u) debounce=%lldms "
                   @"stability=%lldms",
+                  (unsigned)halNow, (unsigned)g_micOpenedInputDeviceId, (long long)(debounceNs / NSEC_PER_MSEC),
+                  (long long)(stabilityDelayNs / NSEC_PER_MSEC));
+        } else if (leavingBluetooth) {
+            NSLog(@"🔊 [NATIVE] Mic route: leaving-Bluetooth schedule (HAL default %u ≠ opened %u, opened was "
+                  @"Bluetooth) debounce=%lldms stability=%lldms",
                   (unsigned)halNow, (unsigned)g_micOpenedInputDeviceId, (long long)(debounceNs / NSEC_PER_MSEC),
                   (long long)(stabilityDelayNs / NSEC_PER_MSEC));
         }
