@@ -43,18 +43,20 @@ ASan dylib — the harness scripts and hooks don't need to change.
 ## Usage
 
 ```bash
-./scripts/race-harness/run.sh              # canary + all scenarios (~5 min)
+./scripts/race-harness/run.sh              # canary + all scenarios (~8 min)
 ./scripts/race-harness/run.sh canary       # just prove the detector works (~5s)
 ./scripts/race-harness/run.sh race         # scenarios A/B/C (~90s @ 300 cycles)
 ./scripts/race-harness/run.sh orphan       # scenario D (~3 min @ 60 cycles, needs screen-recording permission)
+./scripts/race-harness/run.sh mic          # scenario E (~3 min @ 200 cycles, needs mic permission)
 HARNESS_CYCLES=1000 ./scripts/race-harness/run.sh race
 ```
 
-The first screen-recording permission prompt will be for a binary named
-`node-unhardened` (a resigned copy of your system `node`, used because stock
-node's hardened-runtime entitlement strips `DYLD_INSERT_LIBRARIES`). Grant or
-deny — `race` mode needs no permission at all; `orphan` mode needs it granted
-to reach real ScreenCaptureKit capture.
+The first permission prompt will be for a binary named `node-unhardened` (a
+resigned copy of your system `node`, used because stock node's
+hardened-runtime entitlement strips `DYLD_INSERT_LIBRARIES`). Grant or deny —
+`race` mode needs no permission at all; `orphan` mode needs screen-recording
+granted to reach real ScreenCaptureKit capture; `mic` mode needs microphone
+granted to reach real `AVAudioEngine` capture.
 
 **Always run canary first** (`run.sh` does this automatically in every mode).
 It deliberately triggers a use-after-free and must crash. If it doesn't, the
@@ -69,6 +71,7 @@ proves nothing — `run.sh` will refuse to proceed past canary failure.
 | **B** (30% of `race`) | `stopSystemAudioCapture` cancels a start while it's still pending, with the SCK callback landing afterward | Stop-cancel racing a pending start |
 | **C** (30% of `race`) | Clean start/stop, no injected delay | Common-path regression watch — this is the 99.9% path every real session takes |
 | **D** (`orphan`) | Watchdog wins *after* `SCStream` is genuinely running (real capture), must self-stop without touching globals that may belong to a newer start | The one branch `race` mode structurally cannot reach — needs a live SCK session |
+| **E** (`mic`) | Mic `startMicrophoneCapture`/`stopMicrophoneCapture` cycling, interleaved with a synthetic device-change trigger (`triggerMicRouteRestart`, a test-only export that calls the real `SaysoScheduleMicRouteDebouncedRestart` entry point) landing before, during, and right up against start/stop calls; one branch forces the `no_input_node` failure path deterministically | SAYSO-361's target: the 3 `AVAudioEngine` leak-then-release sites and the single-canonical-queue refactor (`StartMicrophoneCapture`/`StopMicrophoneCapture` now `dispatch_sync` onto the same queue `SaysoPerformMicRestartIfCapturing` uses) |
 
 Each scenario's pass condition is "the process didn't crash under the
 detector" — not "the promise resolved a particular way." Rejections
@@ -94,11 +97,27 @@ guard.
   (`sck_orphan_stream_stopped`), including 24 overlapped by a concurrent
   clean start, zero `stop_failed`, zero detector findings.
 
-## Extending for SAYSO-349
+## SAYSO-361 (mic scenario)
 
-349's verification AC needs the same harness with a mic-path scenario added
-(rapid `startMicrophoneCapture`/`stopMicrophoneCapture` cycling plus an
-injected device-change notification, targeting the `uv_async_t` lifetime and
-`AVAudioEngine` release issues in that ticket). `apply-test-hooks.py` and
-`run.sh` are written to make that an additive scenario + hook, not a new
-harness — see the `getenv`-gated pattern already used for the SCK hooks.
+Added scenario E / `mic` mode: rapid `startMicrophoneCapture`/
+`stopMicrophoneCapture` cycling plus a synthetic device-change trigger,
+targeting the `AVAudioEngine` leak-then-release sites and the
+single-canonical-queue refactor from SAYSO-361 (split off SAYSO-349).
+
+**Baseline results (2026-08-13, macOS, Apple clang, real AVAudioEngine +
+microphone permission granted):**
+
+- Canary: use-after-free caught, SIGSEGV, exit 139.
+- `mic`: 400 cycles (126 clean start/stop, 142 restart-then-stop, 72
+  forced-`no_input_node`-failure, 60 restart-racing-stop), 98 real
+  `mic_route_restart_attempt` events observed (via `triggerMicRouteRestart`),
+  98/98 succeeded, 0 failed, zero detector findings. ~4.5 min wall time.
+- The forced-failure branch (E-C) exercises the early-release leak site twice
+  per cycle (primary attempt + internal retry) — 72 cycles × 2 = 144
+  deterministic hits on that path alone, on top of whatever real hardware
+  failures happened to occur elsewhere.
+
+Still open for a future ticket: the `uv_async_t` lifetime / `handle->data`
+races (SAYSO-362/363) aren't covered by any scenario here yet — scenario E
+deliberately sets the mic streaming callback once and never clears it, so it
+does not exercise the delete-on-clear path those tickets fix.

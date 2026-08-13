@@ -98,9 +98,94 @@ NAN_METHOD(AsanCanaryUAF) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
+// TEST HARNESS ONLY (SAYSO-361): lets the driver simulate a HAL default-input-device
+// notification landing at an arbitrary moment relative to Start/StopMicrophoneCapture calls,
+// without needing a real device to plug/unplug. Calls the exact entry point the real
+// AudioObjectAddPropertyListener callback uses (SaysoDefaultInputDeviceListenerProc ->
+// SaysoScheduleMicRouteDebouncedRestart), so the debounce/generation/forced-restart logic all
+// runs for real — only the trigger is synthetic. Fire-and-forget: the real function is
+// dispatch_async-based and returns immediately; the restart itself lands on
+// SaysoMicRouteRestartQueue after its debounce delay, same as production.
+NAN_METHOD(TriggerMicRouteRestart) {
+    SaysoScheduleMicRouteDebouncedRestart();
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
+}
+
 // Initialize the native module'''
     assert src.count(old) == 1, "Initialize anchor not found — source has drifted, update this script"
     src = src.replace(old, new, 1)
+
+    # 6. SAYSO-361: force the "no_input_node" failure branch on demand, so the harness can
+    #    deterministically exercise TryStartMicrophoneCaptureOnce's early-release path (one of
+    #    the 3 leak sites this ticket fixes) instead of relying on it happening to fail for real.
+    old = '''    g_micEngine = [[AVAudioEngine alloc] init];
+    g_micInputNode = [g_micEngine inputNode];
+
+    if (!g_micInputNode) {'''
+    new = '''    g_micEngine = [[AVAudioEngine alloc] init];
+    g_micInputNode = [g_micEngine inputNode];
+
+    if (getenv("SAYSO_TEST_MIC_FORCE_NO_INPUT_NODE")) {   // TEST HARNESS ONLY
+        g_micInputNode = nullptr;
+    }
+
+    if (!g_micInputNode) {'''
+    assert src.count(old) == 1, "mic input-node anchor not found — source has drifted, update this script"
+    src = src.replace(old, new)
+
+    # 7. SAYSO-361: emit lifecycle events around the mic route-restart attempt so the harness can
+    #    count real outcomes (attempted/succeeded/failed) instead of only "process didn't crash".
+    #    Test-harness-only — the real mic path doesn't emit lifecycle events yet (that's SAYSO-353's
+    #    job); reuses the existing EmitLifecycleEvent channel already compiled into the binary.
+    old = '''    NSLog(@"🔊 [NATIVE] Mic route: restarting engine for default input id=%u (previous opened id=%u)",
+          (unsigned)currentDefault, (unsigned)g_micOpenedInputDeviceId);
+
+    MicEngineTeardownOnly();'''
+    new = '''    NSLog(@"🔊 [NATIVE] Mic route: restarting engine for default input id=%u (previous opened id=%u)",
+          (unsigned)currentDefault, (unsigned)g_micOpenedInputDeviceId);
+
+    EmitLifecycleEvent("mic_route_restart_attempt");   // TEST HARNESS ONLY
+    MicEngineTeardownOnly();'''
+    assert src.count(old) == 1, "mic restart-attempt anchor not found — source has drifted, update this script"
+    src = src.replace(old, new)
+
+    old = '''    if (ok) {
+        g_micOpenedInputDeviceId = currentDefault;
+        NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
+              (unsigned)currentDefault);
+    } else {
+        g_isMicCapturing = false;
+        g_micOpenedInputDeviceId = kAudioObjectUnknown;
+        NSLog(@"❌ [NATIVE] Mic route restart FAILED after OS default change — mic capture marked inactive");
+    }'''
+    new = '''    if (ok) {
+        g_micOpenedInputDeviceId = currentDefault;
+        NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
+              (unsigned)currentDefault);
+        EmitLifecycleEvent("mic_route_restart_ok");   // TEST HARNESS ONLY
+    } else {
+        g_isMicCapturing = false;
+        g_micOpenedInputDeviceId = kAudioObjectUnknown;
+        NSLog(@"❌ [NATIVE] Mic route restart FAILED after OS default change — mic capture marked inactive");
+        EmitLifecycleEvent("mic_route_restart_failed");   // TEST HARNESS ONLY
+    }'''
+    assert src.count(old) == 1, "mic restart-outcome anchor not found — source has drifted, update this script"
+    src = src.replace(old, new)
+
+    # 8. SAYSO-361: register the TriggerMicRouteRestart export (defined in step 5's insertion,
+    #    alongside asanCanaryUAF). Anchored on the asanCanaryUAF registration line so this only
+    #    needs to run after step 5 has already inserted it — see apply() call order below.
+    old = '''    Nan::Set(target, Nan::New("asanCanaryUAF").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(AsanCanaryUAF)).ToLocalChecked());
+}'''
+    new = '''    Nan::Set(target, Nan::New("asanCanaryUAF").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(AsanCanaryUAF)).ToLocalChecked());
+
+    Nan::Set(target, Nan::New("triggerMicRouteRestart").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(TriggerMicRouteRestart)).ToLocalChecked());
+}'''
+    assert src.count(old) == 1, "asanCanaryUAF export anchor not found — source has drifted, update this script"
+    src = src.replace(old, new)
 
     return src
 

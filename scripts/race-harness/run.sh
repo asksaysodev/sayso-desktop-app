@@ -13,10 +13,11 @@
 # instruction, no different in evidentiary value than an ASan report for this bug class.
 #
 # Usage:
-#   ./scripts/race-harness/run.sh              # full run: canary + both scenario sets
+#   ./scripts/race-harness/run.sh              # full run: canary + all scenario sets
 #   ./scripts/race-harness/run.sh canary        # canary only (~5s)
 #   ./scripts/race-harness/run.sh race          # scenarios A/B/C only (~90s, no SCK permission needed)
 #   ./scripts/race-harness/run.sh orphan        # scenario D only (~3min, needs screen-recording permission)
+#   ./scripts/race-harness/run.sh mic           # scenario E only (~3min, needs mic permission) — SAYSO-361
 #   HARNESS_CYCLES=1000 ./scripts/race-harness/run.sh race
 set -euo pipefail
 
@@ -32,7 +33,7 @@ trap cleanup EXIT
 mkdir -p "$SCRATCH/src"
 cp "$NATIVE_SRC/binding.gyp" "$SCRATCH/binding.gyp"
 ln -sfn "$NATIVE_SRC/node_modules" "$SCRATCH/node_modules"   # nan lives here, not client root
-cp "$HERE/harness-node.js" "$HERE/harness-orphan.js" "$SCRATCH/"
+cp "$HERE/harness-node.js" "$HERE/harness-orphan.js" "$HERE/harness-mic.js" "$SCRATCH/"
 
 python3 "$HERE/apply-test-hooks.py" "$NATIVE_SRC/src/audio_device_manager.mm" "$SCRATCH/src/audio_device_manager.mm"
 
@@ -81,12 +82,19 @@ run_orphan() {
   ( cd "$SCRATCH" && DYLD_INSERT_LIBRARIES="$GMALLOC" ./node-unhardened harness-orphan.js )
 }
 
+run_mic() {
+  echo "[run] === scenario E: mic engine leak/release + route-restart stress (${HARNESS_CYCLES:-200} cycles) ==="
+  echo "[run] uses real AVAudioEngine — grant microphone permission to node-unhardened if prompted"
+  ( cd "$SCRATCH" && DYLD_INSERT_LIBRARIES="$GMALLOC" ./node-unhardened harness-mic.js )
+}
+
 case "$MODE" in
   canary) run_canary ;;
   race)   run_canary; run_race ;;
   orphan) run_canary; run_orphan ;;
-  all)    run_canary; run_race; run_orphan ;;
-  *) echo "unknown mode: $MODE (expected canary|race|orphan|all)"; exit 1 ;;
+  mic)    run_canary; run_mic ;;
+  all)    run_canary; run_race; run_orphan; run_mic ;;
+  *) echo "unknown mode: $MODE (expected canary|race|orphan|mic|all)"; exit 1 ;;
 esac
 
 echo "[run] all requested scenarios completed with zero memory-error detector findings."
