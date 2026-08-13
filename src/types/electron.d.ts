@@ -64,6 +64,7 @@ export interface CueAPI {
   onAutoStop: (callback: (data: unknown) => void) => () => void;
   onLowUserAudio: (callback: (data: CueLowUserAudioData) => void) => () => void;
   onMicRecoveryFailed: (callback: () => void) => () => void;
+  onMicRecoverySucceeded: (callback: () => void) => () => void;
   onSmartCapture: (callback: (data: CueSmartCaptureItem[]) => void) => () => void;
 }
 

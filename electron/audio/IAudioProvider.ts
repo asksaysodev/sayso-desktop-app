@@ -50,6 +50,11 @@ export interface IAudioProvider {
   stopMicrophoneCapture(): Promise<boolean>;
   isMicrophoneCaptureActive(): Promise<boolean>;
 
+  // SAYSO-353: true while native's own backoff recovery loop is retrying a mic route restart.
+  // Optional so a stale native build without the method stays contract-compatible — callers
+  // should treat its absence as "not recovering" (fail open, don't block on it).
+  isMicRouteRecovering?(): Promise<boolean>;
+
   // Streaming
   setStreamingCallback(callback: StreamingCallback | null): void;
   startProspectStreaming(options: { streamingCallback: StreamingCallback }): Promise<AudioCaptureResult>;

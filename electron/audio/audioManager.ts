@@ -97,6 +97,20 @@ export function initAudioProvider(): void {
           return;
         }
 
+        if (event.startsWith('mic_route_recovery_succeeded')) {
+          // SAYSO-353: native can self-heal *after* the terminal-failure banner above was already
+          // shown (a later device-change notification succeeds on its own). Without this, the
+          // banner telling the user to Reset stays on screen over an already-working session.
+          try {
+            if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+              global.coachWindow.webContents.send('cue-mic-recovery-succeeded');
+            }
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+
         if (event.includes('_failed')) {
           Sentry.captureMessage(`[native-audio] ${event}`, 'warning');
         }
@@ -214,6 +228,22 @@ function startCueMicStallWatchdog(sessionId: string, streamingCallback: (buffer:
       return;
     }
 
+    // SAYSO-353: native's own backoff recovery may already be mid-retry for this exact stall —
+    // its cumulative backoff can reach several seconds by the time this 8s check fires. Stepping
+    // in here would interrupt an in-flight native attempt (which knows about Bluetooth-aware
+    // widened timing this JS-triggered restart doesn't) with a generic cold restart. Skip this
+    // tick and let native keep trying; we'll check again next interval.
+    if (provider && typeof provider.isMicRouteRecovering === 'function') {
+      try {
+        if (await provider.isMicRouteRecovering()) {
+          console.warn('[Cue] User audio stalled but native recovery already in flight — deferring', { sessionId });
+          return;
+        }
+      } catch {
+        /* treat as not-recovering and fall through to the JS-side restart below */
+      }
+    }
+
     cueMicStallRecovering = true;
     console.warn('[Cue] User audio stalled — no new chunks in', CUE_MIC_STALL_CHECK_MS, 'ms, attempting one restart', {
       sessionId,
@@ -227,8 +257,13 @@ function startCueMicStallWatchdog(sessionId: string, streamingCallback: (buffer:
       console.error('[Cue] Error restarting user streaming after stall:', error);
       Sentry.captureException(error);
     } finally {
-      cueMicStallLastUserChunks = cueCaptureStats.userChunks;
-      cueMicStallRecovering = false;
+      // Only touch the module-level guard if we're still looking at the same session — a stale
+      // tick from a session that ended (and was replaced by a fresh watchdog for a new session)
+      // must not clobber that new watchdog's state (SAYSO-353 review finding).
+      if (cueAudioStreamer && cueAudioStreamer.sessionId === sessionId) {
+        cueMicStallLastUserChunks = cueCaptureStats.userChunks;
+        cueMicStallRecovering = false;
+      }
     }
   }, CUE_MIC_STALL_CHECK_MS);
 }

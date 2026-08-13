@@ -315,7 +315,10 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
     cue_onPressResetSession: async () => {
         if (get().cue.isResettingCueSession) return;
 
-        set({ cue: { ...get().cue, isResettingCueSession: true, isInsightsLayoutOpen: false, enabledFeatures: ['cue'] as EnabledFeature[] } });
+        // Clear any stale banner (e.g. SAYSO-353's mic-recovery-failed notice, which tells the
+        // user to click this exact button) — mirrors cue_handleStartCue clearing error at the
+        // start of its own attempt, not just on success.
+        set({ error: null, cue: { ...get().cue, isResettingCueSession: true, isInsightsLayoutOpen: false, enabledFeatures: ['cue'] as EnabledFeature[] } });
 
         try {
             const currentLeadType = get().cue.leadType;

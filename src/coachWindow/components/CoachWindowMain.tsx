@@ -18,6 +18,11 @@ import Pulse from './Pulse';
 import { reportCoachError } from '@/utils/errorReporting';
 import { CUE_CONNECTIVITY_MESSAGE } from '../helpers/cueErrorMessage';
 
+// SAYSO-353: shared between the onMicRecoveryFailed setter and the onMicRecoverySucceeded
+// guarded-clear below — a single source of truth avoids the two drifting out of sync.
+const MIC_RECOVERY_FAILED_MESSAGE =
+    "Sayso lost your microphone and couldn't reconnect it. Click Reset to start a new session.";
+
 const WINDOW_WIDTH_SIZES = {
     s: { BASE: 380, MAX_WIDTH: 900 },
     m: { BASE: 400, MAX_WIDTH: 900 },
@@ -368,9 +373,28 @@ export default function CoachWindowMain() {
         if (!window.electron?.cue?.onMicRecoveryFailed) return;
 
         const unsubscribe = window.electron.cue.onMicRecoveryFailed(() => {
-            useCoachWindowStore.setState({
-                error: "Sayso lost your microphone and couldn't reconnect it. Click Reset to start a new session.",
-            });
+            useCoachWindowStore.setState({ error: MIC_RECOVERY_FAILED_MESSAGE });
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [isCoachActive, coachFeature]);
+
+    /**
+     * SAYSO-353: consumes `cue-mic-recovery-succeeded` — native can self-heal on a later device
+     * change *after* the banner above was already shown. Only clears `error` when it's still
+     * exactly the mic-recovery-failed message, so this can't clobber a different, newer error
+     * that arrived in between (e.g. a real connectivity failure from onError below).
+     */
+    useEffect(() => {
+        if (!isCoachActive || coachFeature !== 'cue') return;
+        if (!window.electron?.cue?.onMicRecoverySucceeded) return;
+
+        const unsubscribe = window.electron.cue.onMicRecoverySucceeded(() => {
+            if (useCoachWindowStore.getState().error === MIC_RECOVERY_FAILED_MESSAGE) {
+                useCoachWindowStore.setState({ error: null });
+            }
         });
 
         return () => {

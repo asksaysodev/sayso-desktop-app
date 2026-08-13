@@ -167,7 +167,8 @@ call site.
 | `cue-error` | Stream error. |
 | `cue-auto-stop` | Server-driven auto-stop. |
 | `cue-low-user-audio` | Mic-silence warning. |
-| `cue-mic-recovery-failed` | Mid-session mic route recovery exhausted its backoff (SAYSO-353) — mic audio is permanently lost for the rest of the session, user must Reset. |
+| `cue-mic-recovery-failed` | Mid-session mic route recovery exhausted its ~30s backoff (SAYSO-353) — mic audio is lost and the native side has stopped actively retrying, but it is not truly terminal: a later device-change notification can still recover it (see `cue-mic-recovery-succeeded`). The banner tells the user to Reset since that's the reliable fix, not because recovery is provably impossible. |
+| `cue-mic-recovery-succeeded` | Native mic route recovery succeeded after a prior `cue-mic-recovery-failed` was already shown (SAYSO-353) — clears that banner. |
 
 **Network / update / windows / features**
 

@@ -153,6 +153,10 @@ NAN_METHOD(TriggerMicRouteRestart) {
 
     old = '''    if (ok) {
         g_micOpenedInputDeviceId = currentDefault;
+        // A fresh notification can succeed immediately while a PREVIOUS notification's recovery
+        // was still in flight (stale g_micRouteRecovering=true) — clear it so a later failure gets
+        // its own fresh ceiling instead of inheriting a stale in-progress state.
+        g_micRouteRecovering = false;
         NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
               (unsigned)currentDefault);
     } else {
@@ -163,6 +167,7 @@ NAN_METHOD(TriggerMicRouteRestart) {
         g_micOpenedInputDeviceId = kAudioObjectUnknown;'''
     new = '''    if (ok) {
         g_micOpenedInputDeviceId = currentDefault;
+        g_micRouteRecovering = false;
         NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
               (unsigned)currentDefault);
         EmitLifecycleEvent("mic_route_restart_ok");   // TEST HARNESS ONLY

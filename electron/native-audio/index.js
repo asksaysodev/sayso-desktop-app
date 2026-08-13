@@ -209,6 +209,17 @@ class AudioDeviceManager {
     await this.initialize();
     return nativeAudio.isMicrophoneCaptureActive();
   }
+
+  /**
+   * SAYSO-353: true while the native backoff recovery loop is actively retrying a mic route
+   * restart. Older native builds may not have this method — callers must tolerate its absence.
+   * @returns {Promise<boolean>}
+   */
+  async isMicRouteRecovering() {
+    await this.initialize();
+    if (typeof nativeAudio.isMicRouteRecovering !== 'function') return false;
+    return nativeAudio.isMicRouteRecovering();
+  }
 }
 
 module.exports = new AudioDeviceManager();
