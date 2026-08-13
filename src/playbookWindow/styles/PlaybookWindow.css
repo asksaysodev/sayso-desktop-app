@@ -61,7 +61,7 @@ body {
     gap: 6px;
     background: transparent;
     border: none;
-    color: white;
+    color: #F2F6FC;
     font-size: var(--pbw-fs-title);
     font-weight: 600;
     cursor: pointer;
@@ -89,7 +89,7 @@ body {
     justify-content: center;
     background: transparent;
     border: none;
-    color: white;
+    color: #DBE4F0;
     cursor: pointer;
     width: 24px;
     height: 24px;
@@ -196,7 +196,7 @@ body {
     font-weight: 600;
     line-height: 24px;
     margin: 0;
-    color: rgba(255, 255, 255, 0.95);
+    color: #F2F6FC;
 }
 .playbook-block-h2:first-child {
     margin-top: 0;
@@ -207,7 +207,7 @@ body {
     line-height: 24px;
     font-weight: 500;
     margin: 0;
-    color: #fff;
+    color: #DBE4F0;
 }
 
 .playbook-block-ul {
@@ -235,7 +235,7 @@ body {
     margin: 8px 0px;
 }
 .playbook-highlight-bracket {
-    color: #ACACAC;
+    color: #7F9CC0;
     font-weight: 600;
 }
 /* ===== Generic state messages (loading / error / empty) ===== */
