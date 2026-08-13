@@ -1,6 +1,7 @@
 import { app, ipcMain } from 'electron';
 import * as Sentry from '@sentry/electron/main';
 
+import { isTransientNetworkError } from '../utils/transientErrors';
 import type { IAudioProvider, AudioFormat } from './IAudioProvider';
 
 // recorder + audioStreamer are CommonJS modules. Require them LAZILY (not at
@@ -462,7 +463,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       };
     } catch (error: any) {
       console.error('[MAIN] Error starting Cue:', error);
-      Sentry.captureException(error);
+      if (!isTransientNetworkError(error)) Sentry.captureException(error);
       clearCueLowAudioTimer();
       try {
         await teardownCueStreamsAndNative();
