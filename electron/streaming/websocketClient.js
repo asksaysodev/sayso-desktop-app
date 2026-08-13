@@ -142,6 +142,8 @@ class WebSocketClient extends EventEmitter {
         this.ws.on('open', () => {
           clearTimeout(timeout);
           this.state = 'connected';
+          this.reconnectAttempts = 0;
+          this.lastError = null;
           this.emit('connected');
           resolve();
         });
@@ -220,9 +222,12 @@ class WebSocketClient extends EventEmitter {
     } else if (this.shouldReconnect && this.reconnectAttempts >= CONNECTION_CONFIG.reconnectAttempts) {
       console.error(`❌ [WebSocketClient:${this.speaker}] Max reconnection attempts reached`);
       this.shouldReconnect = false;
-      this.emit('give-up', this.lastError || new Error(
-        `[WebSocketClient:${this.speaker}] Max reconnection attempts reached`
-      ));
+      let giveUpError = this.lastError;
+      if (!giveUpError) {
+        giveUpError = new Error(`[WebSocketClient:${this.speaker}] Max reconnection attempts reached`);
+        giveUpError.code = 'WS_CLOSED_NO_ERROR';
+      }
+      this.emit('give-up', giveUpError);
     }
   }
 

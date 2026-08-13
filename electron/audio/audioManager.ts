@@ -463,7 +463,9 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       };
     } catch (error: any) {
       console.error('[MAIN] Error starting Cue:', error);
-      if (!isTransientNetworkError(error)) Sentry.captureException(error);
+      if (!error?.__cueStreamingReported && !isTransientNetworkError(error)) {
+        Sentry.captureException(error);
+      }
       clearCueLowAudioTimer();
       try {
         await teardownCueStreamsAndNative();
