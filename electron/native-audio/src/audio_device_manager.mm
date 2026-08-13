@@ -65,7 +65,11 @@ static Nan::Persistent<v8::Function> g_lifecycleCallback;
 // Global variables for microphone capture
 static AVAudioEngine* g_micEngine = nullptr;
 static AVAudioInputNode* g_micInputNode = nullptr;
-static bool g_isMicCapturing = false;
+// SAYSO-361: atomic because it's read from dispatch_get_main_queue() (the default-input listener,
+// :1069) and from the V8 thread (IsMicrophoneCaptureActive) without going through
+// SaysoMicRouteRestartQueue, while every writer runs on that queue. A plain bool made those reads
+// a real (if narrow) race; atomic<bool> costs nothing here and removes it outright.
+static std::atomic<bool> g_isMicCapturing{false};
 
 // Core Audio: default input changes — log + debounced mic engine restart while capture is active.
 static bool g_defaultInputListenerRegistered = false;
@@ -73,7 +77,11 @@ static AudioDeviceID g_lastKnownDefaultInputDevice = kAudioObjectUnknown;
 
 // Last HAL default input device id the running AVAudioEngine was started against (follow-OS-default mode).
 static AudioDeviceID g_micOpenedInputDeviceId = kAudioObjectUnknown;
-static std::mutex g_micEngineLifecycleMutex;
+// SAYSO-361: no mutex here — StartMicrophoneCapture, StopMicrophoneCapture, and
+// SaysoPerformMicRestartIfCapturing all execute exclusively on SaysoMicRouteRestartQueue (a
+// single serial queue), which alone already guarantees mutual exclusion for g_micEngine and the
+// other globals in this section. Do not touch g_micEngine/g_micInputNode from any call path that
+// isn't dispatched onto that queue.
 // Bumped on each new default-input notification or Stop — invalidates in-flight debounce/stability delays.
 static std::atomic<uint64_t> g_micRouteRestartGeneration{0};
 
@@ -1513,6 +1521,11 @@ NAN_METHOD(StopSystemAudioCapture) {
 }
 
 // Tear down mic engine + tap without clearing Node callbacks (internal retry path).
+// SAYSO-361: ARC is off in this file (binding.gyp has no -fobjc-arc), so the explicit release
+// below is required — without it g_micEngine leaks on every call, and the leaked AVAudioEngine's
+// AVAudioIOUnit keeps its HAL property listener registered after we consider it dead. A later
+// hardware-format-changed callback (any device/route change, not necessarily on this engine) then
+// fires at the dead listener and frees an already-recycled PartitionAlloc slot — see SAYSO-APP-5T.
 static void MicEngineTeardownOnly() {
     if (g_micInputNode) {
         [g_micInputNode removeTapOnBus:0];
@@ -1520,6 +1533,7 @@ static void MicEngineTeardownOnly() {
     }
     if (g_micEngine) {
         [g_micEngine stop];
+        [g_micEngine release];
         g_micEngine = nullptr;
     }
 }
@@ -1552,6 +1566,7 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
 
     if (!g_micInputNode) {
         NSLog(@"❌ [NATIVE] Failed to get input node from audio engine");
+        [g_micEngine release];
         g_micEngine = nullptr;
         if (failReason) *failReason = "no_input_node";
         return false;
@@ -1655,8 +1670,6 @@ static dispatch_queue_t SaysoMicRouteRestartQueue() {
 // can fire default-input changes for route/format churn where the HAL default id still matches
 // `g_micOpenedInputDeviceId` while AVAudioEngine is stuck on a dead Bluetooth path (e.g. AirPods removed).
 static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotification) {
-    std::lock_guard<std::mutex> lk(g_micEngineLifecycleMutex);
-
     if (!g_isMicCapturing) {
         return;
     }
@@ -1793,6 +1806,16 @@ static Local<Value> MicStartResult(bool ok, const char* reason = nullptr) {
 }
 
 // Start microphone capture for streaming
+// SAYSO-361: the actual engine work (TryStartMicrophoneCaptureOnce) now runs inside
+// dispatch_sync(SaysoMicRouteRestartQueue(), ...) — the same queue SaysoPerformMicRestartIfCapturing
+// already uses for route-change restarts. Previously this NAN method touched g_micEngine directly
+// from the V8 thread while the route-restart path touched it from a background queue; funneling both
+// through one serial queue means the engine is now only ever touched from one thread context — that
+// serialization is the sole synchronization mechanism, no mutex needed on top of it. dispatch_sync
+// keeps this call synchronous (the JS-facing
+// NAN contract is frozen — see docs/NATIVE_AUDIO_CONTRACT.md) and the dispatched block makes no V8
+// calls, per this file's existing audio-thread convention (info.GetReturnValue() is only touched
+// after dispatch_sync returns, back on the calling V8 thread).
 NAN_METHOD(StartMicrophoneCapture) {
     NSLog(@"🎤 [NATIVE] Starting microphone capture");
 
@@ -1807,65 +1830,72 @@ NAN_METHOD(StartMicrophoneCapture) {
         uv_async_init(uv_default_loop(), g_micStreamingAsyncHandle, MicStreamingAsyncCallback);
     }
 
-    std::lock_guard<std::mutex> lk(g_micEngineLifecycleMutex);
+    __block bool alreadyActive = false;
+    __block bool started = false;
+    __block const char* failReason = nullptr;
 
-    if (g_isMicCapturing) {
+    dispatch_sync(SaysoMicRouteRestartQueue(), ^{
+        if (g_isMicCapturing) {
+            alreadyActive = true;
+            return;
+        }
+
+        const int kFirstTapWaitMs = 1200;
+        const int kRetryTapWaitMs = 1500;
+
+        if (!TryStartMicrophoneCaptureOnce(kFirstTapWaitMs, &failReason)) {
+            NSLog(@"🎤 [NATIVE] Mic: repeating capture once (cold start / Bluetooth input path) — first attempt failed: %s",
+                  failReason ? failReason : "unknown");
+            if (!TryStartMicrophoneCaptureOnce(kRetryTapWaitMs, &failReason)) {
+                NSLog(@"❌ [NATIVE] Microphone capture failed after retry: %s", failReason ? failReason : "unknown");
+                g_micOpenedInputDeviceId = kAudioObjectUnknown;
+                return;
+            }
+        }
+
+        g_isMicCapturing = true;
+        g_micOpenedInputDeviceId = SaysoGetCurrentDefaultInputDeviceID();
+        NSLog(@"✅ [NATIVE] Microphone capture started successfully (first tap received); default input id=%u",
+              (unsigned)g_micOpenedInputDeviceId);
+        started = true;
+    });
+
+    if (alreadyActive) {
         NSLog(@"⚠️ [NATIVE] Microphone capture already active");
         info.GetReturnValue().Set(MicStartResult(false, "already_active"));
         return;
     }
 
-    const int kFirstTapWaitMs = 1200;
-    const int kRetryTapWaitMs = 1500;
-
-    const char* failReason = nullptr;
-    if (!TryStartMicrophoneCaptureOnce(kFirstTapWaitMs, &failReason)) {
-        NSLog(@"🎤 [NATIVE] Mic: repeating capture once (cold start / Bluetooth input path) — first attempt failed: %s",
-              failReason ? failReason : "unknown");
-        if (!TryStartMicrophoneCaptureOnce(kRetryTapWaitMs, &failReason)) {
-            NSLog(@"❌ [NATIVE] Microphone capture failed after retry: %s", failReason ? failReason : "unknown");
-            g_micOpenedInputDeviceId = kAudioObjectUnknown;
-            info.GetReturnValue().Set(MicStartResult(false, failReason ? failReason : "no_tap_buffers"));
-            return;
-        }
+    if (!started) {
+        info.GetReturnValue().Set(MicStartResult(false, failReason ? failReason : "no_tap_buffers"));
+        return;
     }
 
-    g_isMicCapturing = true;
-    g_micOpenedInputDeviceId = SaysoGetCurrentDefaultInputDeviceID();
-    NSLog(@"✅ [NATIVE] Microphone capture started successfully (first tap received); default input id=%u",
-          (unsigned)g_micOpenedInputDeviceId);
     info.GetReturnValue().Set(MicStartResult(true));
 }
 
 // Stop microphone capture
+// SAYSO-361: teardown now runs inside dispatch_sync(SaysoMicRouteRestartQueue(), ...) for the same
+// reason as StartMicrophoneCapture above — one canonical thread context for all engine lifecycle work.
 NAN_METHOD(StopMicrophoneCapture) {
     NSLog(@"🎤 [NATIVE] Stopping microphone capture");
 
     g_micRouteRestartGeneration.fetch_add(1, std::memory_order_acq_rel);
 
-    std::lock_guard<std::mutex> lk(g_micEngineLifecycleMutex);
-
-    if (g_micInputNode) {
-        [g_micInputNode removeTapOnBus:0];
-        g_micInputNode = nullptr;
-    }
-
-    if (g_micEngine) {
-        [g_micEngine stop];
-        g_micEngine = nullptr;
-    }
+    dispatch_sync(SaysoMicRouteRestartQueue(), ^{
+        MicEngineTeardownOnly();
+        g_isMicCapturing = false;
+        g_micOpenedInputDeviceId = kAudioObjectUnknown;
+    });
 
     // Note: On macOS, no audio session to deactivate
-
-    g_isMicCapturing = false;
-    g_micOpenedInputDeviceId = kAudioObjectUnknown;
     NSLog(@"✅ [NATIVE] Microphone capture stopped");
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
 // Check if mic capture is active
 NAN_METHOD(IsMicrophoneCaptureActive) {
-    info.GetReturnValue().Set(Nan::New<v8::Boolean>(g_isMicCapturing));
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(g_isMicCapturing.load()));
 }
 
 // Set streaming callback for real-time audio chunks
