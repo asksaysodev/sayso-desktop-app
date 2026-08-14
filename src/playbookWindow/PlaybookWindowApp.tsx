@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Spinner } from '@/components/ui/spinner';
 import { usePlaybooksCache } from './hooks/usePlaybooksCache';
 import { usePlaybookPrefetch } from './hooks/usePlaybookPrefetch';
@@ -13,8 +14,10 @@ import {
 import PlaybookHeader from './components/PlaybookHeader';
 import PlaybookSelector from './components/PlaybookSelector';
 import PlaybookBody from './components/PlaybookBody';
-import PlaybookFindBar from './components/PlaybookFindBar';
 import FindSuggestions from './components/FindSuggestions';
+
+// Gap between the results dropdown and the highlighted text it would otherwise sit on top of.
+const RESULTS_GAP_PX = 12;
 
 const LAST_USED_KEY = 'sayso:lastUsedPlaybookId';
 
@@ -25,13 +28,14 @@ export default function PlaybookWindowApp() {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement | null>(null);
-    const [isFindOpen, setIsFindOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [activeMatchIndex, setActiveMatchIndex] = useState(0);
     const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
     const [findFocusToken, setFindFocusToken] = useState(0);
     // Document position of the last active match, so narrowing a query resumes nearby.
     const matchAnchorRef = useRef<PlaybookMatch | null>(null);
+    const resultsRef = useRef<HTMLDivElement | null>(null);
+    const [resultsOffset, setResultsOffset] = useState(0);
 
     const playbooks = useMemo(() => {
         if (!rawPlaybooks) return rawPlaybooks;
@@ -80,16 +84,22 @@ export default function PlaybookWindowApp() {
     // Only `ready` playbooks render their blocks; searching the others would give the
     // counter matches that never paint.
     const matches = useMemo(() => {
-        if (!isFindOpen || selectedPlaybook?.status !== 'ready') return [];
+        if (selectedPlaybook?.status !== 'ready') return [];
         return findMatches(selectedPlaybook.blocks, query);
-    }, [isFindOpen, selectedPlaybook, query]);
+    }, [selectedPlaybook, query]);
 
     const hasNoMatches = matches.length === 0;
 
+    // Live, not just a zero-match fallback: a query can be relevant to other playbooks
+    // even while the open one also has hits.
     const suggestions = useMemo(() => {
-        if (!isFindOpen || !query || !hasNoMatches) return [];
+        if (!query) return [];
         return buildSuggestions(playbooks, selectedId, query);
-    }, [isFindOpen, query, hasNoMatches, playbooks, selectedId]);
+    }, [query, playbooks, selectedId]);
+
+    // Suppressed when the open playbook already has matches and no other playbook is
+    // relevant — an empty "no other results" panel would be pure noise in that case.
+    const showResults = query.length > 0 && (hasNoMatches || suggestions.length > 0);
 
     // Adjusted during render, not in an effect: an effect would paint one stale frame
     // (e.g. "8/3") whenever a query narrows.
@@ -115,6 +125,30 @@ export default function PlaybookWindowApp() {
         if (active) matchAnchorRef.current = active;
     }, [matches, effectiveMatchIndex]);
 
+    // Reserves room in the scrollable body so the results dropdown (which floats over the
+    // top of it, anchored to the header) never covers an active highlighted match. Measured
+    // rather than a fixed constant because the dropdown's height varies with result count;
+    // animated via the `.playbook-body` transition so the growth/shrink isn't a hard jump.
+    // A ResizeObserver (not just the dependency list below) keeps this in sync if the
+    // window is resized while the dropdown is up and its content reflows to a different
+    // height without `suggestions`/`hasNoMatches` themselves changing.
+    useLayoutEffect(() => {
+        if (!showResults) {
+            setResultsOffset(0);
+            return;
+        }
+        const el = resultsRef.current;
+        if (!el) return;
+        const measure = () => {
+            const height = el.offsetHeight;
+            setResultsOffset(height > 0 ? height + RESULTS_GAP_PX : 0);
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [showResults, suggestions, hasNoMatches]);
+
     const handleClose = () => {
         window.electron?.ipcRenderer?.send('close-playbook-window');
     };
@@ -125,10 +159,20 @@ export default function PlaybookWindowApp() {
         localStorage.setItem(LAST_USED_KEY, id);
     };
 
-    const closeFind = () => {
-        setIsFindOpen(false);
+    const clearQuery = () => {
         setQuery('');
         matchAnchorRef.current = null;
+    };
+
+    // Opening the playbook selector while a query is still live would stack it directly on
+    // top of the still-showing results dropdown — both are absolutely positioned at the same
+    // spot under the header. Clearing the query here closes the results dropdown first.
+    const toggleSelectorDropdown = () => {
+        setIsDropdownOpen((isOpen) => {
+            const next = !isOpen;
+            if (next) clearQuery();
+            return next;
+        });
     };
 
     const stepMatch = (delta: number) => {
@@ -138,32 +182,39 @@ export default function PlaybookWindowApp() {
 
     const handleSuggestionSelect = (suggestion: PlaybookSuggestion) => {
         handleSelect(suggestion.playbookId);
-        // A name-only hit has nothing to highlight, so the bar would sit on "0/0".
-        if (suggestion.matchCount === 0) closeFind();
+        // Always closes the dropdown, not just for name-only hits: otherwise, after jumping
+        // to a content match, the query stays live and the dropdown reopens over the new
+        // playbook (now listing whatever still matches, possibly including the one you just
+        // left) instead of just landing you on the result you picked.
+        clearQuery();
     };
 
+    const hasContent = !isLoading && !error && !!playbooks && playbooks.length > 0;
+
     // All find keys live here rather than on the input, so they behave the same whether
-    // focus sits in the find bar or back in the playbook body.
+    // focus sits in the search field or back in the playbook body.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
             const isAccel = e.metaKey || e.ctrlKey;
 
             if (isAccel && e.key.toLowerCase() === 'f') {
                 e.preventDefault();
-                if (e.repeat) return;
+                // Nothing to focus yet while playbooks are still loading — bumping the token
+                // here would fire the focus effect before the search input has mounted, and
+                // it wouldn't retry once it does (the effect only reruns on focusToken).
+                if (e.repeat || !hasContent) return;
                 setIsDropdownOpen(false);
-                setIsFindOpen(true);
                 setFindFocusToken((token) => token + 1);
                 return;
             }
 
             if (e.key === 'Escape') {
                 if (isDropdownOpen) setIsDropdownOpen(false);
-                else if (isFindOpen) closeFind();
+                else if (query) clearQuery();
                 return;
             }
 
-            if (!isFindOpen) return;
+            if (!query) return;
 
             if (isAccel && e.key.toLowerCase() === 'g') {
                 e.preventDefault();
@@ -192,9 +243,7 @@ export default function PlaybookWindowApp() {
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [isFindOpen, isDropdownOpen, suggestions, effectiveSuggestionIndex, matches, effectiveMatchIndex]);
-
-    const hasContent = !isLoading && !error && !!playbooks && playbooks.length > 0;
+    }, [query, isDropdownOpen, suggestions, effectiveSuggestionIndex, matches, effectiveMatchIndex, hasContent]);
 
     return (
         <div className="playbook-window-container">
@@ -202,8 +251,22 @@ export default function PlaybookWindowApp() {
                 <PlaybookHeader
                     selectedPlaybook={selectedPlaybook}
                     isDropdownOpen={isDropdownOpen}
-                    showFindHint={hasContent && !isFindOpen}
-                    onToggleDropdown={() => setIsDropdownOpen((v) => !v)}
+                    hasContent={hasContent}
+                    query={query}
+                    matchCount={matches.length}
+                    activeMatchIndex={effectiveMatchIndex}
+                    hasMatches={!hasNoMatches}
+                    focusToken={findFocusToken}
+                    activeSuggestionId={
+                        suggestions.length > 0
+                            ? `playbook-suggestion-${suggestions[effectiveSuggestionIndex]?.playbookId}`
+                            : undefined
+                    }
+                    onToggleDropdown={toggleSelectorDropdown}
+                    onQueryChange={setQuery}
+                    onQueryFocus={() => setIsDropdownOpen(false)}
+                    onNext={() => stepMatch(1)}
+                    onPrevious={() => stepMatch(-1)}
                     onClose={handleClose}
                 />
                 {isDropdownOpen && playbooks && (
@@ -212,6 +275,15 @@ export default function PlaybookWindowApp() {
                         selectedId={selectedId}
                         onSelect={handleSelect}
                     />
+                )}
+                {showResults && (
+                    <div ref={resultsRef} className="playbook-search-results">
+                        <FindSuggestions
+                            suggestions={suggestions}
+                            activeIndex={effectiveSuggestionIndex}
+                            onSelect={handleSuggestionSelect}
+                        />
+                    </div>
                 )}
             </div>
 
@@ -235,38 +307,15 @@ export default function PlaybookWindowApp() {
             )}
 
             {hasContent && (
-                <div className={`playbook-content-region ${isFindOpen ? 'is-find-open' : ''}`}>
+                <div
+                    className="playbook-content-region"
+                    style={{ '--pbw-search-offset': `${resultsOffset}px` } as CSSProperties}
+                >
                     <PlaybookBody
                         playbook={selectedPlaybook}
                         matches={matches}
                         activeMatchIndex={effectiveMatchIndex}
                     />
-                    {isFindOpen && (
-                        <div className="playbook-find-layer">
-                            <PlaybookFindBar
-                                query={query}
-                                matchCount={matches.length}
-                                activeMatchIndex={effectiveMatchIndex}
-                                focusToken={findFocusToken}
-                                activeSuggestionId={
-                                    suggestions.length > 0
-                                        ? `playbook-suggestion-${suggestions[effectiveSuggestionIndex]?.playbookId}`
-                                        : undefined
-                                }
-                                onQueryChange={setQuery}
-                                onNext={() => stepMatch(1)}
-                                onPrevious={() => stepMatch(-1)}
-                                onClose={closeFind}
-                            />
-                            {query.length > 0 && hasNoMatches && (
-                                <FindSuggestions
-                                    suggestions={suggestions}
-                                    activeIndex={effectiveSuggestionIndex}
-                                    onSelect={handleSuggestionSelect}
-                                />
-                            )}
-                        </div>
-                    )}
                 </div>
             )}
 

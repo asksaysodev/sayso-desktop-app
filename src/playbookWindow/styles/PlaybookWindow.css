@@ -62,6 +62,8 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    flex: 0 1 auto;
+    min-width: 64px;
     background: transparent;
     border: none;
     color: #F2F6FC;
@@ -75,10 +77,14 @@ body {
     background: rgba(255, 255, 255, 0.06);
 }
 .playbook-title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: var(--pbw-fs-title);
     font-weight: 600;
 }
 .playbook-title-chevron {
+    flex-shrink: 0;
     transition: transform 150ms ease;
 }
 .playbook-title-chevron.open {
@@ -89,15 +95,53 @@ body {
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
+    flex-shrink: 1;
 }
 
-.playbook-find-hint {
-    font-size: var(--pbw-fs-pill);
+/* ===== Header search ===== */
+.playbook-search {
+    -webkit-app-region: no-drag;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex-shrink: 1;
+}
+
+.playbook-search-field {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1 1 128px;
+    min-width: 180px;
+    padding: 3px 2px 5px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+    transition: border-color 120ms ease;
+}
+.playbook-search-field:focus-within {
+    border-color: rgba(255, 255, 255, 0.45);
+}
+
+.playbook-search-icon {
+    flex-shrink: 0;
     color: #8CA0BA;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 4px;
-    padding: 2px 6px;
-    white-space: nowrap;
+}
+
+.playbook-search-input {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: var(--pbw-fs-small);
+    color: #F2F6FC;
+}
+.playbook-search-input::placeholder {
+    color: rgba(255, 255, 255, 0.35);
 }
 
 .playbook-close-button {
@@ -105,6 +149,7 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
     background: transparent;
     border: none;
     color: #DBE4F0;
@@ -196,6 +241,7 @@ body {
     position: relative;
     flex: 1;
     min-height: 0;
+    margin-top: 6px;
     display: flex;
     flex-direction: column;
 }
@@ -205,14 +251,13 @@ body {
     flex: 1;
     overflow-y: auto;
     padding: 4px 6px 6px 6px;
+    /* Reserves room under the header's results dropdown so it never covers an active
+       highlighted match; the extra amount is set inline per-render from the dropdown's
+       measured height, added on top of (not replacing) the base 4px top padding. */
+    padding-top: calc(4px + var(--pbw-search-offset, 0px));
+    scroll-padding-top: calc(4px + var(--pbw-search-offset, 0px));
+    transition: padding-top 180ms ease;
     user-select: text;
-}
-
-/* Headroom for the floating find bar: without it a match on the first line stays
-   under the bar at scroll 0, where scrollIntoView has nowhere left to scroll. */
-.playbook-content-region.is-find-open .playbook-body {
-    padding-top: calc(var(--pbw-fs-body) + 34px);
-    scroll-padding-top: calc(var(--pbw-fs-body) + 34px);
 }
 
 .playbook-body-empty {
@@ -272,43 +317,15 @@ body {
     font-weight: 600;
 }
 
-/* ===== Find bar ===== */
-.playbook-find-layer {
+/* ===== Search results dropdown (anchored below the header) ===== */
+.playbook-search-results {
     -webkit-app-region: no-drag;
     position: absolute;
-    top: 2px;
+    top: 100%;
+    left: 6px;
     right: 6px;
-    width: 300px;
-    max-width: calc(100% - 12px);
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+    margin-top: 4px;
     z-index: 9;
-}
-
-.playbook-find-bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 8px 7px 11px;
-    background: #1E2A3C;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 8px;
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
-}
-
-.playbook-find-input {
-    flex: 1;
-    min-width: 0;
-    border: none;
-    outline: none;
-    background: transparent;
-    font-family: inherit;
-    font-size: var(--pbw-fs-body);
-    color: #F2F6FC;
-}
-.playbook-find-input::placeholder {
-    color: rgba(255, 255, 255, 0.35);
 }
 
 .playbook-find-counter {
