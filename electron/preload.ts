@@ -130,7 +130,8 @@ try {
   const indexHtmlPath = indexHtmlPathArg ? indexHtmlPathArg.replace('--indexHtmlPath=', '') : '';
 
   contextBridge.exposeInMainWorld('sayso', {
-    indexHtmlPath
+    indexHtmlPath,
+    platform: process.platform
   });
 
 

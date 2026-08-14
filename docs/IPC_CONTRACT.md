@@ -215,6 +215,13 @@ engineer knows where the OS seams are outside the provider layer.
 | ShipIt watchdog on update install (~388–431) | darwin-only | `launchctl kickstart` workaround for pended Squirrel.Mac ShipIt jobs. Windows uses its own updater flow. |
 | `x-apple.systempreferences:` deep links | darwin-only | Opening privacy panes — lives inside `MacPermissionsProvider`. |
 
+**Renderer-side platform seam.** `preload.ts` exposes `window.sayso.platform`
+(`process.platform`, a static value — not a channel, so there is no main-side
+handler, same as `indexHtmlPath`). Renderers must read it through
+`src/utils/platform.ts` (`IS_MAC`, `IS_WINDOWS`), which mirrors
+`electron/utils/platform.ts` for code that can't import the main-process module —
+never `navigator.userAgent` or a raw `'darwin'`/`'win32'` literal.
+
 ---
 
 ## Orphaned bridges (no main handler)
