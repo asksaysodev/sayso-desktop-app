@@ -131,6 +131,8 @@ export interface ElectronAPIBridge {
 
 export interface SaysoBridge {
   indexHtmlPath: string;
+  /** `process.platform` from main. Read it through `src/utils/platform.ts`, not directly. */
+  platform: string;
 }
 
 // Extend the global Window interface
