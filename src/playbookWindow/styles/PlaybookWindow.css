@@ -252,9 +252,10 @@ body {
     overflow-y: auto;
     padding: 4px 6px 6px 6px;
     /* Reserves room under the header's results dropdown so it never covers an active
-       highlighted match; set inline per-render from the dropdown's measured height. */
-    padding-top: var(--pbw-search-offset, 4px);
-    scroll-padding-top: var(--pbw-search-offset, 4px);
+       highlighted match; the extra amount is set inline per-render from the dropdown's
+       measured height, added on top of (not replacing) the base 4px top padding. */
+    padding-top: calc(4px + var(--pbw-search-offset, 0px));
+    scroll-padding-top: calc(4px + var(--pbw-search-offset, 0px));
     transition: padding-top 180ms ease;
     user-select: text;
 }

@@ -129,13 +129,24 @@ export default function PlaybookWindowApp() {
     // top of it, anchored to the header) never covers an active highlighted match. Measured
     // rather than a fixed constant because the dropdown's height varies with result count;
     // animated via the `.playbook-body` transition so the growth/shrink isn't a hard jump.
+    // A ResizeObserver (not just the dependency list below) keeps this in sync if the
+    // window is resized while the dropdown is up and its content reflows to a different
+    // height without `suggestions`/`hasNoMatches` themselves changing.
     useLayoutEffect(() => {
         if (!showResults) {
             setResultsOffset(0);
             return;
         }
-        const height = resultsRef.current?.offsetHeight ?? 0;
-        setResultsOffset(height > 0 ? height + RESULTS_GAP_PX : 0);
+        const el = resultsRef.current;
+        if (!el) return;
+        const measure = () => {
+            const height = el.offsetHeight;
+            setResultsOffset(height > 0 ? height + RESULTS_GAP_PX : 0);
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        return () => observer.disconnect();
     }, [showResults, suggestions, hasNoMatches]);
 
     const handleClose = () => {
@@ -153,6 +164,17 @@ export default function PlaybookWindowApp() {
         matchAnchorRef.current = null;
     };
 
+    // Opening the playbook selector while a query is still live would stack it directly on
+    // top of the still-showing results dropdown — both are absolutely positioned at the same
+    // spot under the header. Clearing the query here closes the results dropdown first.
+    const toggleSelectorDropdown = () => {
+        setIsDropdownOpen((isOpen) => {
+            const next = !isOpen;
+            if (next) clearQuery();
+            return next;
+        });
+    };
+
     const stepMatch = (delta: number) => {
         if (hasNoMatches) return;
         setActiveMatchIndex((effectiveMatchIndex + delta + matches.length) % matches.length);
@@ -167,6 +189,8 @@ export default function PlaybookWindowApp() {
         clearQuery();
     };
 
+    const hasContent = !isLoading && !error && !!playbooks && playbooks.length > 0;
+
     // All find keys live here rather than on the input, so they behave the same whether
     // focus sits in the search field or back in the playbook body.
     useEffect(() => {
@@ -175,7 +199,10 @@ export default function PlaybookWindowApp() {
 
             if (isAccel && e.key.toLowerCase() === 'f') {
                 e.preventDefault();
-                if (e.repeat) return;
+                // Nothing to focus yet while playbooks are still loading — bumping the token
+                // here would fire the focus effect before the search input has mounted, and
+                // it wouldn't retry once it does (the effect only reruns on focusToken).
+                if (e.repeat || !hasContent) return;
                 setIsDropdownOpen(false);
                 setFindFocusToken((token) => token + 1);
                 return;
@@ -216,9 +243,7 @@ export default function PlaybookWindowApp() {
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [query, isDropdownOpen, suggestions, effectiveSuggestionIndex, matches, effectiveMatchIndex]);
-
-    const hasContent = !isLoading && !error && !!playbooks && playbooks.length > 0;
+    }, [query, isDropdownOpen, suggestions, effectiveSuggestionIndex, matches, effectiveMatchIndex, hasContent]);
 
     return (
         <div className="playbook-window-container">
@@ -237,7 +262,7 @@ export default function PlaybookWindowApp() {
                             ? `playbook-suggestion-${suggestions[effectiveSuggestionIndex]?.playbookId}`
                             : undefined
                     }
-                    onToggleDropdown={() => setIsDropdownOpen((v) => !v)}
+                    onToggleDropdown={toggleSelectorDropdown}
                     onQueryChange={setQuery}
                     onQueryFocus={() => setIsDropdownOpen(false)}
                     onNext={() => stepMatch(1)}
