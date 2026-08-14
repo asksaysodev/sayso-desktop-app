@@ -52,6 +52,18 @@ let cueCaptureStats = {
 
 let cueLowAudioTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** SAYSO-353: throttles Sentry.captureException for mic_route_recovery_failed to once per session
+ *  — a persistently flapping device can otherwise fire it every ~30s for the rest of the call. The
+ *  coach-window banner still re-shows every time (harmless, idempotent UI state); only the Sentry
+ *  report is throttled. Reset at session start alongside cueCaptureStats. */
+let micRecoveryFailedReportedThisSession = false;
+
+/** SAYSO-353: mid-session mic-stall watchdog — see startCueMicStallWatchdog. */
+const CUE_MIC_STALL_CHECK_MS = 8000;
+let cueMicStallTimer: ReturnType<typeof setInterval> | null = null;
+let cueMicStallLastUserChunks = 0;
+let cueMicStallRecovering = false;
+
 /** Onboarding-window notifier, injected via registerCueIpc. Used by stopCue(). */
 let notifyOnboarding: (channel: string) => void = () => {};
 
@@ -74,6 +86,42 @@ export function initAudioProvider(): void {
     if (provider && typeof provider.setLifecycleEventCallback === 'function') {
       provider.setLifecycleEventCallback((event: string) => {
         console.warn(`[NativeAudio] lifecycle: ${event}`);
+
+        if (event.startsWith('mic_route_recovery_failed')) {
+          // SAYSO-353: terminal mid-session mic-recovery failure (native backoff exhausted its
+          // ~30s ceiling). Escalates harder than the generic `_failed` path below — a real Error
+          // for better Sentry grouping/stack, plus a user-visible notice, since this is silent
+          // audio loss for the rest of the call otherwise. Sentry report throttled to once per
+          // session (a flapping device could otherwise re-fire this every ~30s) — the banner still
+          // shows every time regardless, since that's cheap, idempotent UI state, not an API call.
+          if (!micRecoveryFailedReportedThisSession) {
+            micRecoveryFailedReportedThisSession = true;
+            Sentry.captureException(new Error(`[native-audio] ${event}`));
+          }
+          try {
+            if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+              global.coachWindow.webContents.send('cue-mic-recovery-failed');
+            }
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+
+        if (event.startsWith('mic_route_recovery_succeeded')) {
+          // SAYSO-353: native can self-heal *after* the terminal-failure banner above was already
+          // shown (a later device-change notification succeeds on its own). Without this, the
+          // banner telling the user to Reset stays on screen over an already-working session.
+          try {
+            if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+              global.coachWindow.webContents.send('cue-mic-recovery-succeeded');
+            }
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+
         if (event.includes('_failed')) {
           Sentry.captureMessage(`[native-audio] ${event}`, 'warning');
         }
@@ -124,6 +172,13 @@ export function updateCueToken(token: string): void {
 
 /** Stop Cue reconnect loops on session expiry (no valid token to reconnect with). */
 export function stopCueForSessionExpired(): void {
+  // SAYSO-353 review finding: this path never cleared either per-session watchdog, so both kept
+  // running against a session whose auth just died. The mic-stall watchdog is the more consequential
+  // gap — its self-clear guard (sessionId mismatch) never fires because cueAudioStreamer stays
+  // non-null with the same sessionId here, so it would otherwise call stopUserStreaming/
+  // startUserStreaming on a killed session on its next tick.
+  clearCueLowAudioTimer();
+  clearCueMicStallWatchdog();
   if (cueAudioStreamer) {
     cueAudioStreamer.shouldReconnect = false;
     cueAudioStreamer.stop(false).catch(() => {});
@@ -153,6 +208,82 @@ function scheduleCueLowAudioCheck(sessionId: string) {
       /* ignore */
     }
   }, 4000);
+}
+
+// ─── Mid-session mic-stall watchdog (SAYSO-353) ───────────────────────────────
+
+function clearCueMicStallWatchdog() {
+  if (cueMicStallTimer) {
+    clearInterval(cueMicStallTimer);
+    cueMicStallTimer = null;
+  }
+  cueMicStallLastUserChunks = 0;
+  cueMicStallRecovering = false;
+}
+
+/**
+ * Continuous check, distinct from the one-shot low-audio/warmup checks above: if userChunks
+ * stops advancing for ~CUE_MIC_STALL_CHECK_MS while a session is active, attempt one
+ * stop/start cycle. This is a JS-side safety net and cross-check on top of the native backoff
+ * recovery (SaysoScheduleMicRouteRecoveryRetry in audio_device_manager.mm), not the primary
+ * recovery path — the native side already retries for up to ~30s on its own before this would
+ * even see a stall long enough to trigger.
+ */
+function startCueMicStallWatchdog(sessionId: string, streamingCallback: (buffer: Buffer, format: unknown) => void) {
+  clearCueMicStallWatchdog();
+  cueMicStallLastUserChunks = cueCaptureStats.userChunks;
+
+  cueMicStallTimer = setInterval(async () => {
+    if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) {
+      clearCueMicStallWatchdog();
+      return;
+    }
+    if (cueMicStallRecovering) return;
+
+    const current = cueCaptureStats.userChunks;
+    if (current > cueMicStallLastUserChunks) {
+      cueMicStallLastUserChunks = current;
+      return;
+    }
+
+    // SAYSO-353: native's own backoff recovery may already be mid-retry for this exact stall —
+    // its cumulative backoff can reach several seconds by the time this 8s check fires. Stepping
+    // in here would interrupt an in-flight native attempt (which knows about Bluetooth-aware
+    // widened timing this JS-triggered restart doesn't) with a generic cold restart. Skip this
+    // tick and let native keep trying; we'll check again next interval.
+    if (provider && typeof provider.isMicRouteRecovering === 'function') {
+      try {
+        if (await provider.isMicRouteRecovering()) {
+          console.warn('[Cue] User audio stalled but native recovery already in flight — deferring', { sessionId });
+          return;
+        }
+      } catch {
+        /* treat as not-recovering and fall through to the JS-side restart below */
+      }
+    }
+
+    cueMicStallRecovering = true;
+    console.warn('[Cue] User audio stalled — no new chunks in', CUE_MIC_STALL_CHECK_MS, 'ms, attempting one restart', {
+      sessionId,
+    });
+    Sentry.captureMessage('[Cue] User audio stall detected mid-session', 'warning');
+    try {
+      await getRecorder().stopUserStreaming();
+      if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
+      await getRecorder().startUserStreaming({ streamingCallback });
+    } catch (error) {
+      console.error('[Cue] Error restarting user streaming after stall:', error);
+      Sentry.captureException(error);
+    } finally {
+      // Only touch the module-level guard if we're still looking at the same session — a stale
+      // tick from a session that ended (and was replaced by a fresh watchdog for a new session)
+      // must not clobber that new watchdog's state (SAYSO-353 review finding).
+      if (cueAudioStreamer && cueAudioStreamer.sessionId === sessionId) {
+        cueMicStallLastUserChunks = cueCaptureStats.userChunks;
+        cueMicStallRecovering = false;
+      }
+    }
+  }, CUE_MIC_STALL_CHECK_MS);
 }
 
 // ─── Mic-delivery watchdog ────────────────────────────────────────────────────
@@ -191,6 +322,7 @@ async function ensureCueUserMicDeliversJsChunks(
  */
 async function teardownCueStreamsAndNative(): Promise<void> {
   clearCueLowAudioTimer();
+  clearCueMicStallWatchdog();
   if (cueAudioStreamer) {
     await cueAudioStreamer.stop(false);
     cueAudioStreamer = null;
@@ -350,6 +482,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       }
 
       cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
+      micRecoveryFailedReportedThisSession = false;
 
       // Create AudioStreamer for 2 audio websockets (user + prospect)
       const AudioStreamer = getAudioStreamerCtor();
@@ -450,6 +583,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       });
 
       scheduleCueLowAudioCheck(sessionId);
+      startCueMicStallWatchdog(sessionId, cueUserStreamingCallback);
 
       if (isDev) {
         console.log('[Cue] Started session', sessionId, '— stats reset; low-audio check in 4s if no user chunks');
@@ -464,6 +598,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       console.error('[MAIN] Error starting Cue:', error);
       Sentry.captureException(error);
       clearCueLowAudioTimer();
+      clearCueMicStallWatchdog();
       try {
         await teardownCueStreamsAndNative();
       } catch (teardownErr: any) {

@@ -18,6 +18,11 @@ import Pulse from './Pulse';
 import { reportCoachError } from '@/utils/errorReporting';
 import { CUE_CONNECTIVITY_MESSAGE } from '../helpers/cueErrorMessage';
 
+// SAYSO-353: shared between the onMicRecoveryFailed setter and the onMicRecoverySucceeded
+// guarded-clear below — a single source of truth avoids the two drifting out of sync.
+const MIC_RECOVERY_FAILED_MESSAGE =
+    "Sayso lost your microphone and couldn't reconnect it. Click Reset to start a new session.";
+
 const WINDOW_WIDTH_SIZES = {
     s: { BASE: 380, MAX_WIDTH: 900 },
     m: { BASE: 400, MAX_WIDTH: 900 },
@@ -353,6 +358,48 @@ export default function CoachWindowMain() {
 
         return () => {
             unsubscribe();
+        };
+    }, [isCoachActive, coachFeature]);
+
+    /**
+     * SAYSO-353: consumes the two halves of the mic-recovery state machine together (combined
+     * after review: two near-identical effects for one state machine are easy to let drift out of
+     * sync with each other).
+     *
+     * `cue-mic-recovery-failed` — the native mic route lost the microphone mid-session (e.g.
+     * AirPods removed) and exhausted its ~30s backoff without recovering. Distinct from
+     * onLowUserAudio above: that one is a session that never got audio and can plausibly fix
+     * itself by waiting; this one already retried for ~30s and gave up, so the copy points at
+     * Reset instead of suggesting the user wait. Deliberately unconditional (unlike the succeeded
+     * clear below) — silent total audio loss is the one case that should always win over whatever
+     * else is currently showing, even a more specific unrelated error.
+     *
+     * `cue-mic-recovery-succeeded` — native can self-heal on a later device change *after* the
+     * banner above was already shown. Only clears `error` when it's still exactly the
+     * mic-recovery-failed message, so this can't clobber a different, newer error that arrived in
+     * between (e.g. a real connectivity failure from onError below).
+     */
+    useEffect(() => {
+        if (!isCoachActive || coachFeature !== 'cue') return;
+
+        const unsubscribeFns: Array<() => void> = [];
+
+        if (window.electron?.cue?.onMicRecoveryFailed) {
+            unsubscribeFns.push(window.electron.cue.onMicRecoveryFailed(() => {
+                useCoachWindowStore.setState({ error: MIC_RECOVERY_FAILED_MESSAGE });
+            }));
+        }
+
+        if (window.electron?.cue?.onMicRecoverySucceeded) {
+            unsubscribeFns.push(window.electron.cue.onMicRecoverySucceeded(() => {
+                if (useCoachWindowStore.getState().error === MIC_RECOVERY_FAILED_MESSAGE) {
+                    useCoachWindowStore.setState({ error: null });
+                }
+            }));
+        }
+
+        return () => {
+            unsubscribeFns.forEach((unsubscribe) => unsubscribe());
         };
     }, [isCoachActive, coachFeature]);
 

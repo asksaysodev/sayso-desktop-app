@@ -18,7 +18,7 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 
 ---
 
-## The NAN surface (12 methods)
+## The NAN surface (13 methods)
 
 `Init` (`NAN_MODULE_INIT`) must export exactly these. Names are case-sensitive.
 
@@ -33,9 +33,10 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 | 7 | `startMicrophoneCapture` | `Promise<boolean \| { ok: false, reason? }>` | native returns sync value; JS awaits |
 | 8 | `stopMicrophoneCapture` | `boolean` | JS awaits |
 | 9 | `isMicrophoneCaptureActive` | `boolean` | no (sync) |
-| 10 | `setStreamingCallback` | `void` | no (sync) |
-| 11 | `setMicrophoneStreamingCallback` | `void` | no (sync) |
-| 12 | `setLifecycleEventCallback` | `void` | no (sync) |
+| 10 | `isMicRouteRecovering` | `boolean` | no (sync) |
+| 11 | `setStreamingCallback` | `void` | no (sync) |
+| 12 | `setMicrophoneStreamingCallback` | `void` | no (sync) |
+| 13 | `setLifecycleEventCallback` | `void` | no (sync) |
 
 > The macOS `.mm` also still exports the dead trio `listOutputDevices`,
 > `createMultiOutputDevice`, `deleteMultiOutputDevice` — **do not implement
@@ -145,6 +146,15 @@ independently; the user mic often stops before the prospect stream). Returns
 
 ### `isMicrophoneCaptureActive()` → `boolean`
 Sync liveness flag for the mic path.
+
+### `isMicRouteRecovering()` → `boolean` (SAYSO-353)
+Sync flag: true while the native backoff recovery loop is actively retrying
+after a failed mic route restart (device change mid-session). Distinct from
+`isMicrophoneCaptureActive`, which stays `true` throughout a recovery episode
+— capture is still logically intended, just not currently producing data.
+Intended consumer: JS-side recovery watchdogs, so they can skip intervening
+while native recovery is already in flight rather than racing it. JS callers
+must tolerate the method being absent (older native builds).
 
 ### `setStreamingCallback(fn | null)`
 Registers the JS callback for **system-audio** chunks. `null` clears it. Called

@@ -69,6 +69,14 @@ try {
         ipcRenderer.on('cue-low-user-audio', (_event: Event, data: { sessionId: string }) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-low-user-audio');
       },
+      onMicRecoveryFailed: (callback: () => void) => {
+        ipcRenderer.on('cue-mic-recovery-failed', () => callback());
+        return () => ipcRenderer.removeAllListeners('cue-mic-recovery-failed');
+      },
+      onMicRecoverySucceeded: (callback: () => void) => {
+        ipcRenderer.on('cue-mic-recovery-succeeded', () => callback());
+        return () => ipcRenderer.removeAllListeners('cue-mic-recovery-succeeded');
+      },
       onSmartCapture: (callback: (data: { topic: string; content: string }[]) => void) => {
         ipcRenderer.on('cue-smart-capture', (_event: Event, data: { topic: string; content: string }[]) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-smart-capture');

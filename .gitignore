@@ -67,3 +67,6 @@ tsconfig.electron.tsbuildinfo
 # Personal auth mastery notes (do not commit)
 docs/AUTH_MASTERY.md
 docs/AUTH_MASTERY_ESP.md
+
+# Python bytecode cache from scripts/race-harness/apply-test-hooks.py
+__pycache__/

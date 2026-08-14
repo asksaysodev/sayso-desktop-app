@@ -133,43 +133,43 @@ NAN_METHOD(TriggerMicRouteRestart) {
     assert src.count(old) == 1, "mic input-node anchor not found — source has drifted, update this script"
     src = src.replace(old, new)
 
-    # 7. SAYSO-361: emit lifecycle events around the mic route-restart attempt so the harness can
-    #    count real outcomes (attempted/succeeded/failed) instead of only "process didn't crash".
-    #    Test-harness-only — the real mic path doesn't emit lifecycle events yet (that's SAYSO-353's
-    #    job); reuses the existing EmitLifecycleEvent channel already compiled into the binary.
-    old = '''    NSLog(@"🔊 [NATIVE] Mic route: restarting engine for default input id=%u (previous opened id=%u)",
-          (unsigned)currentDefault, (unsigned)g_micOpenedInputDeviceId);
+    # 7. SAYSO-361/353: emit lifecycle events around the mic route-restart's immediate-attempt
+    #    phase so the harness can count real outcomes instead of only "process didn't crash".
+    #    Test-harness-only — distinct from the mic_route_recovery_* events SAYSO-353 added to the
+    #    real committed source for the backoff phase; these track the 2-try phase that precedes it.
+    old = '''    NSLog(@"🔊 [NATIVE] Mic route: restarting engine for default input id=%u (previous opened id=%u)%s",
+          (unsigned)currentDefault, (unsigned)g_micOpenedInputDeviceId,
+          leavingBluetooth ? " [leaving Bluetooth — widened first attempt]" : "");
 
     MicEngineTeardownOnly();'''
-    new = '''    NSLog(@"🔊 [NATIVE] Mic route: restarting engine for default input id=%u (previous opened id=%u)",
-          (unsigned)currentDefault, (unsigned)g_micOpenedInputDeviceId);
+    new = '''    NSLog(@"🔊 [NATIVE] Mic route: restarting engine for default input id=%u (previous opened id=%u)%s",
+          (unsigned)currentDefault, (unsigned)g_micOpenedInputDeviceId,
+          leavingBluetooth ? " [leaving Bluetooth — widened first attempt]" : "");
 
     EmitLifecycleEvent("mic_route_restart_attempt");   // TEST HARNESS ONLY
     MicEngineTeardownOnly();'''
     assert src.count(old) == 1, "mic restart-attempt anchor not found — source has drifted, update this script"
     src = src.replace(old, new)
 
-    old = '''    if (ok) {
-        g_micOpenedInputDeviceId = currentDefault;
-        NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
+    # Minimal, single-line-pair anchors rather than spanning the surrounding comment blocks —
+    # those keep growing as the ticket evolves and a wider anchor drifts every time (happened
+    # twice already). Anchoring on just the two NSLog calls is stable regardless.
+    old = '''        NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
               (unsigned)currentDefault);
-    } else {
-        g_isMicCapturing = false;
-        g_micOpenedInputDeviceId = kAudioObjectUnknown;
-        NSLog(@"❌ [NATIVE] Mic route restart FAILED after OS default change — mic capture marked inactive");
-    }'''
-    new = '''    if (ok) {
-        g_micOpenedInputDeviceId = currentDefault;
-        NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
+    } else {'''
+    new = '''        NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
               (unsigned)currentDefault);
         EmitLifecycleEvent("mic_route_restart_ok");   // TEST HARNESS ONLY
-    } else {
-        g_isMicCapturing = false;
-        g_micOpenedInputDeviceId = kAudioObjectUnknown;
-        NSLog(@"❌ [NATIVE] Mic route restart FAILED after OS default change — mic capture marked inactive");
-        EmitLifecycleEvent("mic_route_restart_failed");   // TEST HARNESS ONLY
-    }'''
-    assert src.count(old) == 1, "mic restart-outcome anchor not found — source has drifted, update this script"
+    } else {'''
+    assert src.count(old) == 1, "mic restart-ok anchor not found — source has drifted, update this script"
+    src = src.replace(old, new)
+
+    old = '''        NSLog(@"⚠️ [NATIVE] Mic route: immediate attempts failed for default input id=%u — entering backoff "
+              @"recovery", (unsigned)currentDefault);'''
+    new = '''        NSLog(@"⚠️ [NATIVE] Mic route: immediate attempts failed for default input id=%u — entering backoff "
+              @"recovery", (unsigned)currentDefault);
+        EmitLifecycleEvent("mic_route_restart_failed");   // TEST HARNESS ONLY'''
+    assert src.count(old) == 1, "mic restart-failed anchor not found — source has drifted, update this script"
     src = src.replace(old, new)
 
     # 8. SAYSO-361: register the TriggerMicRouteRestart export (defined in step 5's insertion,
@@ -185,6 +185,21 @@ NAN_METHOD(TriggerMicRouteRestart) {
              Nan::GetFunction(Nan::New<FunctionTemplate>(TriggerMicRouteRestart)).ToLocalChecked());
 }'''
     assert src.count(old) == 1, "asanCanaryUAF export anchor not found — source has drifted, update this script"
+    src = src.replace(old, new)
+
+    # 9. SAYSO-353: env-tunable recovery ceiling (default stays ~30s; test can shrink it so the
+    #    harness can reach the terminal-failure branch — and prove "a future device change still
+    #    triggers a fresh attempt" per this ticket's AC — in well under a second instead of 30s
+    #    per cycle). Same getenv-at-use-site pattern as step 1's SCK watchdog override.
+    old = '''    int64_t elapsedMs = SaysoNowMs() - g_micRouteRecoveryStartMs;
+    if (elapsedMs >= kMicRouteRecoveryCeilingMs) {'''
+    new = '''    int64_t elapsedMs = SaysoNowMs() - g_micRouteRecoveryStartMs;
+    int64_t ceilingMs = kMicRouteRecoveryCeilingMs;
+    if (const char* c = getenv("SAYSO_TEST_MIC_RECOVERY_CEILING_MS")) {   // TEST HARNESS ONLY
+        ceilingMs = (int64_t)atoll(c);
+    }
+    if (elapsedMs >= ceilingMs) {'''
+    assert src.count(old) == 1, "recovery-ceiling anchor not found — source has drifted, update this script"
     src = src.replace(old, new)
 
     return src

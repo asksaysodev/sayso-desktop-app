@@ -63,6 +63,11 @@ class WindowsAudioProvider implements IAudioProvider {
     return false;
   }
 
+  async isMicRouteRecovering(): Promise<boolean> {
+    // TODO(win-native): native.isMicRouteRecovering() — SAYSO-353 mid-session recovery flag
+    return false;
+  }
+
   setStreamingCallback(_callback: StreamingCallback | null): void {
     // TODO(win-native): native.setStreamingCallback(callback) — SYSTEM-AUDIO chunks channel
     // No-op until Windows audio capture is implemented
