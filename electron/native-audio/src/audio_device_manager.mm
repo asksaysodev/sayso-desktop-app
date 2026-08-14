@@ -70,6 +70,16 @@ static AVAudioInputNode* g_micInputNode = nullptr;
 // TryStartMicrophoneCaptureOnce, torn down in MicEngineTeardownOnly), so no separate lock needed —
 // same reasoning as g_micEngine itself.
 static id<NSObject> g_micEngineConfigChangeObserver = nil;
+// SAYSO-353 review finding: wall-clock ms (SaysoNowMs) of the moment we last attached this observer
+// to a freshly built engine. Used to ignore a config-change notification that fires implausibly
+// soon after our own rebuild — a defensive guard against AVAudioEngine's own startup/format
+// renegotiation posting this notification as a side effect of a rebuild WE just did, which would
+// otherwise re-trigger another rebuild (and another observer registration) in a tight loop.
+// Written on SaysoMicRouteRestartQueue but read from whatever thread AVFoundation posts the
+// notification on (addObserverForName's `queue:nil` delivers synchronously on the posting thread,
+// not necessarily ours) — atomic for the same cross-thread-read reason g_isMicCapturing is (SAYSO-361).
+static std::atomic<int64_t> g_micEngineObserverAttachedAtMs{0};
+static const int64_t kMicEngineConfigChangeCooldownMs = 300;
 // SAYSO-361: atomic because it's read from dispatch_get_main_queue() (the default-input listener,
 // :1069) and from the V8 thread (IsMicrophoneCaptureActive) without going through
 // SaysoMicRouteRestartQueue, while every writer runs on that queue. A plain bool made those reads
@@ -1079,7 +1089,14 @@ static bool SaysoIsBluetoothInputDevice(AudioDeviceID deviceID) {
         kAudioObjectPropertyElementMain
     };
     if (AudioObjectGetPropertyData(deviceID, &pa, 0, nullptr, &sz, &transportType) != noErr) {
-        return false;
+        // SAYSO-353 review finding: fail toward the safer assumption. A query failure here usually
+        // means the device has already vanished from the HAL's object registry — exactly what
+        // happens when a Bluetooth device is mid-disconnect, i.e. precisely the case this widened
+        // timing exists for. Treating "can't tell" as "not Bluetooth" would silently fall back to
+        // the un-widened path in the scenario most likely to need the wider one. Worst case for a
+        // wired device that happens to vanish (e.g. USB unplug) is a slightly longer, still-correct
+        // wait, not an incorrect one.
+        return true;
     }
     return transportType == kAudioDeviceTransportTypeBluetooth ||
            transportType == kAudioDeviceTransportTypeBluetoothLE;
@@ -1579,11 +1596,25 @@ static void SaysoObserveMicEngineConfigChange(AVAudioEngine* engine) {
     // explicitly to survive past the next autorelease pool drain — otherwise g_micEngineConfigChangeObserver
     // dangles the moment the run loop next turns, and removeObserver: in MicEngineTeardownOnly later
     // touches freed memory. Same discipline as g_micEngine's explicit release (SAYSO-361).
+    g_micEngineObserverAttachedAtMs = SaysoNowMs();
     g_micEngineConfigChangeObserver = [[[NSNotificationCenter defaultCenter]
         addObserverForName:AVAudioEngineConfigurationChangeNotification
                     object:engine
                      queue:nil
                 usingBlock:^(NSNotification* _Nonnull note) {
+                    int64_t sinceAttachMs = SaysoNowMs() - g_micEngineObserverAttachedAtMs;
+                    if (sinceAttachMs < kMicEngineConfigChangeCooldownMs) {
+                        // Fires implausibly soon after we just built this engine — likely an echo
+                        // of our own rebuild (e.g. AVAudioEngine's own format renegotiation) rather
+                        // than a genuine external route change. Ignoring it here avoids a
+                        // rebuild -> notification -> rebuild loop; a real, distinct route change
+                        // this close in time will still be caught by the HAL default-input listener
+                        // running in parallel, or by this same observer once past the cooldown.
+                        NSLog(@"🔊 [NATIVE] AVAudioEngineConfigurationChangeNotification ignored — %lldms "
+                              @"after engine attach (cooldown %lldms, likely our own rebuild)",
+                              (long long)sinceAttachMs, (long long)kMicEngineConfigChangeCooldownMs);
+                        return;
+                    }
                     NSLog(@"🔊 [NATIVE] AVAudioEngineConfigurationChangeNotification received");
                     SaysoScheduleMicRouteDebouncedRestart();
                 }] retain];
@@ -1754,14 +1785,30 @@ static const size_t kMicRouteRecoveryBackoffSteps =
     sizeof(kMicRouteRecoveryBackoffMs) / sizeof(kMicRouteRecoveryBackoffMs[0]);
 static const int64_t kMicRouteRecoveryCeilingMs = 30000;
 
-static void SaysoAttemptMicRouteRecovery(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave);
+static void SaysoAttemptMicRouteRecovery(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave,
+                                          bool leavingBluetooth);
+
+// SAYSO-353: shared "is this dispatched step still relevant" predicate for every guarded
+// dispatch_after in the mic route-restart chain (the debounce chain's two stages, and the backoff
+// retry chain) — factored out after review found the near-identical hand-written copies of this
+// check error-prone to keep in sync (one of them failing to clear g_micRouteRecovering on a stale
+// generation was a real bug). Pure predicate, no side effects — callers own their own cleanup on
+// `false` (StopMicrophoneCapture/StartMicrophoneCapture are the authoritative resetters for
+// g_micRouteRecovering now, not this check; see those methods).
+static bool SaysoMicRouteStepStillValid(uint64_t wave) {
+    return g_isMicCapturing.load() && wave == g_micRouteRestartGeneration.load(std::memory_order_acquire);
+}
 
 // Schedules the next backoff attempt, or gives up and reports terminal failure once the ~30s
 // ceiling is reached. `wave` pins this chain to the generation it started under — a newer
 // device-change notification bumping the generation invalidates it, same mechanism
 // SaysoScheduleMicRouteDebouncedRestart already uses for its own debounce chain, so an in-flight
 // recovery for a stale target device doesn't fight a fresh one for the current target.
-static void SaysoScheduleMicRouteRecoveryRetry(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave) {
+// `leavingBluetooth` is carried through from the original SaysoPerformMicRestartIfCapturing call so
+// every retry in the chain keeps the widened first-tap-wait, not just the first two immediate
+// attempts (review finding: this used to fall back to the un-widened 1200ms mid-recovery).
+static void SaysoScheduleMicRouteRecoveryRetry(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave,
+                                                bool leavingBluetooth) {
     int64_t elapsedMs = SaysoNowMs() - g_micRouteRecoveryStartMs;
     if (elapsedMs >= kMicRouteRecoveryCeilingMs) {
         g_micRouteRecovering = false;
@@ -1774,26 +1821,22 @@ static void SaysoScheduleMicRouteRecoveryRetry(AudioDeviceID targetDevice, size_
 
     int64_t delayMs = kMicRouteRecoveryBackoffMs[std::min(stepIndex, kMicRouteRecoveryBackoffSteps - 1)];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC), SaysoMicRouteRestartQueue(), ^{
-        if (!g_isMicCapturing) {
-            g_micRouteRecovering = false;
+        if (!SaysoMicRouteStepStillValid(wave)) {
             return;
         }
-        if (wave != g_micRouteRestartGeneration.load(std::memory_order_acquire)) {
-            // Superseded by a newer device-change notification — that notification's own debounce
-            // chain drives recovery for the new target; don't fight it.
-            return;
-        }
-        SaysoAttemptMicRouteRecovery(targetDevice, stepIndex, wave);
+        SaysoAttemptMicRouteRecovery(targetDevice, stepIndex, wave, leavingBluetooth);
     });
 }
 
 // One retry attempt in the backoff sequence. Runs on SaysoMicRouteRestartQueue.
-static void SaysoAttemptMicRouteRecovery(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave) {
-    NSLog(@"🔁 [NATIVE] Mic route recovery: attempt %zu for default input id=%u (elapsed=%lldms)",
-          stepIndex + 1, (unsigned)targetDevice, (long long)(SaysoNowMs() - g_micRouteRecoveryStartMs));
+static void SaysoAttemptMicRouteRecovery(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave,
+                                          bool leavingBluetooth) {
+    NSLog(@"🔁 [NATIVE] Mic route recovery: attempt %zu for default input id=%u (elapsed=%lldms)%s",
+          stepIndex + 1, (unsigned)targetDevice, (long long)(SaysoNowMs() - g_micRouteRecoveryStartMs),
+          leavingBluetooth ? " [leaving Bluetooth — widened]" : "");
 
     MicEngineTeardownOnly();
-    bool ok = TryStartMicrophoneCaptureOnce(1200);
+    bool ok = TryStartMicrophoneCaptureOnce(leavingBluetooth ? 2500 : 1200);
 
     if (ok) {
         g_micOpenedInputDeviceId = targetDevice;
@@ -1806,7 +1849,7 @@ static void SaysoAttemptMicRouteRecovery(AudioDeviceID targetDevice, size_t step
         return;
     }
 
-    SaysoScheduleMicRouteRecoveryRetry(targetDevice, stepIndex + 1, wave);
+    SaysoScheduleMicRouteRecoveryRetry(targetDevice, stepIndex + 1, wave, leavingBluetooth);
 }
 
 // Runs on SaysoMicRouteRestartQueue. Restarts AVAudioEngine so capture follows the new OS default input.
@@ -1879,7 +1922,14 @@ static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotifi
         // hands off to the backoff recovery loop instead of giving up after ~2.9s.
         NSLog(@"⚠️ [NATIVE] Mic route: immediate attempts failed for default input id=%u — entering backoff "
               @"recovery", (unsigned)currentDefault);
-        g_micOpenedInputDeviceId = kAudioObjectUnknown;
+        // Deliberately NOT reset to kAudioObjectUnknown here (review finding): this is read by the
+        // NEXT SaysoScheduleMicRouteDebouncedRestart's `changed`/leavingBluetooth check if another
+        // notification arrives while this recovery episode is still in flight. Clearing it would
+        // make that check always see "unchanged" and silently fall back to the un-widened slow path
+        // for the rest of the recovery — exactly the scenario the widening exists for. It's still
+        // safe to leave stale here: the only other reader (the `!forced && unchanged && engine
+        // present` skip a few lines up) also requires g_micEngine != nullptr, which is false for the
+        // whole time this variable would be "wrong" (engine is torn down during recovery).
         // Only start the ~30s ceiling clock on the FIRST failure of a recovery episode — a
         // Bluetooth device flapping through repeated notifications must not get a fresh 30s budget
         // on every single one of them, or the ceiling (and the Sentry/UI alert it gates) can be
@@ -1889,7 +1939,8 @@ static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotifi
             EmitLifecycleEvent("mic_route_recovery_started");
         }
         SaysoScheduleMicRouteRecoveryRetry(currentDefault, 0,
-                                            g_micRouteRestartGeneration.load(std::memory_order_acquire));
+                                            g_micRouteRestartGeneration.load(std::memory_order_acquire),
+                                            leavingBluetooth);
     }
 }
 
@@ -1934,10 +1985,7 @@ static void SaysoScheduleMicRouteDebouncedRestart() {
         const uint64_t wave = g_micRouteRestartGeneration.fetch_add(1, std::memory_order_acq_rel) + 1;
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, debounceNs), SaysoMicRouteRestartQueue(), ^{
-            if (!g_isMicCapturing) {
-                return;
-            }
-            if (wave != g_micRouteRestartGeneration.load(std::memory_order_acquire)) {
+            if (!SaysoMicRouteStepStillValid(wave)) {
                 return;
             }
 
@@ -1948,10 +1996,7 @@ static void SaysoScheduleMicRouteDebouncedRestart() {
             }
 
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, stabilityDelayNs), SaysoMicRouteRestartQueue(), ^{
-                if (!g_isMicCapturing) {
-                    return;
-                }
-                if (wave != g_micRouteRestartGeneration.load(std::memory_order_acquire)) {
+                if (!SaysoMicRouteStepStillValid(wave)) {
                     return;
                 }
 
@@ -2017,6 +2062,13 @@ NAN_METHOD(StartMicrophoneCapture) {
     __block const char* failReason = nullptr;
 
     dispatch_sync(SaysoMicRouteRestartQueue(), ^{
+        // SAYSO-353 review finding: an explicit Start is an authoritative "any prior recovery state
+        // no longer applies" signal — without this, g_micRouteRecovering can get stuck true forever
+        // if a stale backoff retry's generation check invalidates it out from under a Stop-then-
+        // quick-Start sequence (neither Stop nor Start otherwise touch the flag, and nothing else
+        // reliably resolves it in that specific window).
+        g_micRouteRecovering = false;
+
         if (g_isMicCapturing) {
             alreadyActive = true;
             return;
@@ -2068,6 +2120,9 @@ NAN_METHOD(StopMicrophoneCapture) {
         MicEngineTeardownOnly();
         g_isMicCapturing = false;
         g_micOpenedInputDeviceId = kAudioObjectUnknown;
+        // SAYSO-353 review finding: same reasoning as StartMicrophoneCapture above — an explicit
+        // Stop is authoritative and must not leave a stale recovery flag behind for the next session.
+        g_micRouteRecovering = false;
     });
 
     // Note: On macOS, no audio session to deactivate

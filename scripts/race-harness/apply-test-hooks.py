@@ -151,34 +151,25 @@ NAN_METHOD(TriggerMicRouteRestart) {
     assert src.count(old) == 1, "mic restart-attempt anchor not found — source has drifted, update this script"
     src = src.replace(old, new)
 
-    old = '''    if (ok) {
-        g_micOpenedInputDeviceId = currentDefault;
-        // A fresh notification can succeed immediately while a PREVIOUS notification's recovery
-        // was still in flight (stale g_micRouteRecovering=true) — clear it so a later failure gets
-        // its own fresh ceiling instead of inheriting a stale in-progress state.
-        g_micRouteRecovering = false;
-        NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
+    # Minimal, single-line-pair anchors rather than spanning the surrounding comment blocks —
+    # those keep growing as the ticket evolves and a wider anchor drifts every time (happened
+    # twice already). Anchoring on just the two NSLog calls is stable regardless.
+    old = '''        NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
               (unsigned)currentDefault);
-    } else {
-        // SAYSO-353: no longer latches g_isMicCapturing off. Capture stays logically active and
-        // hands off to the backoff recovery loop instead of giving up after ~2.9s.
-        NSLog(@"⚠️ [NATIVE] Mic route: immediate attempts failed for default input id=%u — entering backoff "
-              @"recovery", (unsigned)currentDefault);
-        g_micOpenedInputDeviceId = kAudioObjectUnknown;'''
-    new = '''    if (ok) {
-        g_micOpenedInputDeviceId = currentDefault;
-        g_micRouteRecovering = false;
-        NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
+    } else {'''
+    new = '''        NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
               (unsigned)currentDefault);
         EmitLifecycleEvent("mic_route_restart_ok");   // TEST HARNESS ONLY
-    } else {
-        // SAYSO-353: no longer latches g_isMicCapturing off. Capture stays logically active and
-        // hands off to the backoff recovery loop instead of giving up after ~2.9s.
-        NSLog(@"⚠️ [NATIVE] Mic route: immediate attempts failed for default input id=%u — entering backoff "
+    } else {'''
+    assert src.count(old) == 1, "mic restart-ok anchor not found — source has drifted, update this script"
+    src = src.replace(old, new)
+
+    old = '''        NSLog(@"⚠️ [NATIVE] Mic route: immediate attempts failed for default input id=%u — entering backoff "
+              @"recovery", (unsigned)currentDefault);'''
+    new = '''        NSLog(@"⚠️ [NATIVE] Mic route: immediate attempts failed for default input id=%u — entering backoff "
               @"recovery", (unsigned)currentDefault);
-        EmitLifecycleEvent("mic_route_restart_failed");   // TEST HARNESS ONLY
-        g_micOpenedInputDeviceId = kAudioObjectUnknown;'''
-    assert src.count(old) == 1, "mic restart-outcome anchor not found — source has drifted, update this script"
+        EmitLifecycleEvent("mic_route_restart_failed");   // TEST HARNESS ONLY'''
+    assert src.count(old) == 1, "mic restart-failed anchor not found — source has drifted, update this script"
     src = src.replace(old, new)
 
     # 8. SAYSO-361: register the TriggerMicRouteRestart export (defined in step 5's insertion,

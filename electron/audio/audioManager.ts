@@ -52,6 +52,12 @@ let cueCaptureStats = {
 
 let cueLowAudioTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** SAYSO-353: throttles Sentry.captureException for mic_route_recovery_failed to once per session
+ *  — a persistently flapping device can otherwise fire it every ~30s for the rest of the call. The
+ *  coach-window banner still re-shows every time (harmless, idempotent UI state); only the Sentry
+ *  report is throttled. Reset at session start alongside cueCaptureStats. */
+let micRecoveryFailedReportedThisSession = false;
+
 /** SAYSO-353: mid-session mic-stall watchdog — see startCueMicStallWatchdog. */
 const CUE_MIC_STALL_CHECK_MS = 8000;
 let cueMicStallTimer: ReturnType<typeof setInterval> | null = null;
@@ -85,8 +91,13 @@ export function initAudioProvider(): void {
           // SAYSO-353: terminal mid-session mic-recovery failure (native backoff exhausted its
           // ~30s ceiling). Escalates harder than the generic `_failed` path below — a real Error
           // for better Sentry grouping/stack, plus a user-visible notice, since this is silent
-          // audio loss for the rest of the call otherwise.
-          Sentry.captureException(new Error(`[native-audio] ${event}`));
+          // audio loss for the rest of the call otherwise. Sentry report throttled to once per
+          // session (a flapping device could otherwise re-fire this every ~30s) — the banner still
+          // shows every time regardless, since that's cheap, idempotent UI state, not an API call.
+          if (!micRecoveryFailedReportedThisSession) {
+            micRecoveryFailedReportedThisSession = true;
+            Sentry.captureException(new Error(`[native-audio] ${event}`));
+          }
           try {
             if (global.coachWindow && !global.coachWindow.isDestroyed()) {
               global.coachWindow.webContents.send('cue-mic-recovery-failed');
@@ -161,6 +172,13 @@ export function updateCueToken(token: string): void {
 
 /** Stop Cue reconnect loops on session expiry (no valid token to reconnect with). */
 export function stopCueForSessionExpired(): void {
+  // SAYSO-353 review finding: this path never cleared either per-session watchdog, so both kept
+  // running against a session whose auth just died. The mic-stall watchdog is the more consequential
+  // gap — its self-clear guard (sessionId mismatch) never fires because cueAudioStreamer stays
+  // non-null with the same sessionId here, so it would otherwise call stopUserStreaming/
+  // startUserStreaming on a killed session on its next tick.
+  clearCueLowAudioTimer();
+  clearCueMicStallWatchdog();
   if (cueAudioStreamer) {
     cueAudioStreamer.shouldReconnect = false;
     cueAudioStreamer.stop(false).catch(() => {});
@@ -464,6 +482,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       }
 
       cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
+      micRecoveryFailedReportedThisSession = false;
 
       // Create AudioStreamer for 2 audio websockets (user + prospect)
       const AudioStreamer = getAudioStreamerCtor();
