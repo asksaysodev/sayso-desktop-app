@@ -6,7 +6,28 @@ const { WebSocketClient } = require('./websocketClient');
 const { convertToAssemblyAIFormat } = require('./audioConverter');
 const { STREAMING_ENDPOINTS, AUDIO_SOURCE_FORMATS } = require('./streamingConfig');
 const axios = require('axios');
-const Sentry = require("@sentry/electron/main");
+const { reportStreamingError, reportStreamingMessage, streamingErrorCode } = require('./streamingSentry');
+const { isTransientNetworkError } = require('../utils/transientErrors');
+
+/**
+ * How long a pending connection report waits for the *other* socket to settle
+ * before it fires. Promise.all rejects on the first failure, typically a tick
+ * before its sibling errors, so reporting immediately would list only one
+ * socket. Bounded in case one socket hangs toward the 30s connect timeout while
+ * the other fails fast (SAYSO-348).
+ */
+const REPORT_SETTLE_CAP_MS = 2000;
+
+/**
+ * Same idea for a mid-session give-up, where there is no connect promise to
+ * wait on. Both sockets exhaust their 1s/2s/4s backoff within milliseconds of
+ * each other when the cause is shared.
+ */
+const REPORT_GRACE_MS = 1000;
+
+function newReportState() {
+  return { failures: new Map(), reported: false, pending: false, timer: null };
+}
 
 /**
  * AudioStreamer - Manages audio streaming for both user and prospect streams
@@ -50,8 +71,14 @@ class AudioStreamer {
     this.userSendFailures = 0;
     this.prospectSendFailures = 0;
     this.maxSendFailures = 5; // Max failures before giving up
+    this._userSendReported = false;
+    this._prospectSendReported = false;
 
     this.autoStopping = false;
+
+    // Connection-failure reporting, scoped to one start attempt.
+    this._report = newReportState();
+
     /** Debounce timer for reset_transcription (fresh STT session) after route stabilizes. */
     this._routeResetTimer = null;
     /** Log PCM energy for N ms after a route change to confirm audio is non-silent. */
@@ -75,6 +102,15 @@ class AudioStreamer {
 
     this.token = token;
 
+    // Failure state is per start attempt. Replaced rather than cleared, and not
+    // touched in stop(), so a report still in flight — from a previous attempt
+    // or from a Stop mid-settle — survives on its own captured state.
+    this._report = newReportState();
+
+    // Held so the catch below can wait for *both* sockets to settle before
+    // reporting, without the success path paying for it.
+    let connectPromises = null;
+
     try {
       // Get sessionId from backend endpoint
       // TODO: Replace with actual endpoint when backend is ready
@@ -83,7 +119,9 @@ class AudioStreamer {
         this.sessionId = await this._getSessionId(token);
       }
 
-      // Create WebSocket clients
+      // Create WebSocket clients. The onError callbacks record rather than
+      // report — they are the only place that knows which speaker failed, and
+      // a DNS blip fires both of them for one underlying cause (SAYSO-348).
       this.userWebSocket = new WebSocketClient('user', STREAMING_ENDPOINTS.userStream, {
         token: this.token,
         sessionId: this.sessionId,
@@ -92,7 +130,7 @@ class AudioStreamer {
         },
         onError: (error) => {
           console.error('❌ [AudioStreamer] User stream error:', error);
-          Sentry.captureException(error);
+          this._recordSocketFailure('user', STREAMING_ENDPOINTS.userStream, error);
           if (this.onError) this.onError('user', error);
         }
       });
@@ -105,9 +143,18 @@ class AudioStreamer {
         },
         onError: (error) => {
           console.error('❌ [AudioStreamer] Prospect stream error:', error);
-          Sentry.captureException(error);
+          this._recordSocketFailure('prospect', STREAMING_ENDPOINTS.prospectStream, error);
           if (this.onError) this.onError('prospect', error);
         }
+      });
+
+      this.userWebSocket.on('give-up', (error) => {
+        this._recordSocketFailure('user', STREAMING_ENDPOINTS.userStream, error);
+        this._scheduleFailureReport(null, 'reconnect-exhausted', REPORT_GRACE_MS);
+      });
+      this.prospectWebSocket.on('give-up', (error) => {
+        this._recordSocketFailure('prospect', STREAMING_ENDPOINTS.prospectStream, error);
+        this._scheduleFailureReport(null, 'reconnect-exhausted', REPORT_GRACE_MS);
       });
 
       // Listen for messages from prospect websocket (insights come through here)
@@ -138,25 +185,149 @@ class AudioStreamer {
         }
       });
 
-      // Connect both WebSockets
-      await Promise.all([
+      connectPromises = [
         this.userWebSocket.connect(),
         this.prospectWebSocket.connect()
-      ]);
+      ];
+      await Promise.all(connectPromises);
 
       this.isStreaming = true;
       this.userSendFailures = 0;
       this.prospectSendFailures = 0;
+      this._userSendReported = false;
+      this._prospectSendReported = false;
       this.autoStopping = false;
       this._routeResetTimer = null;
       this._logEnergyUntilMs = 0;
       
     } catch (error) {
       console.error('❌ [AudioStreamer] Failed to start streaming:', error);
-      Sentry.captureException(error);
+      // Deliberately not awaited: start() must re-throw now or the Start button
+      // hangs. The report lands a beat later, once both sockets have settled.
+      this._recordUnattributedFailure(error);
+      this._scheduleFailureReport(connectPromises, 'connect', REPORT_SETTLE_CAP_MS);
+      if (error && typeof error === 'object') {
+        error.__cueStreamingReported = true;
+      }
       this.isStreaming = false;
       throw error;
     }
+  }
+
+  /**
+   * Record a socket's failure. First one wins — later errors on the same socket
+   * are usually consequences of it, not new information.
+   *
+   * One exception: a non-transient error always displaces a recorded transient
+   * one. A start attempt spans the whole call, so without this a Wi-Fi blip in
+   * minute 3 would occupy the slot for good and the auth failure that actually
+   * ends the session would never be reported — _flushFailureReport looks for the
+   * first non-transient failure and would find nothing (SAYSO-348).
+   * @private
+   */
+  _recordSocketFailure(speaker, endpoint, error) {
+    if (!error) {
+      return;
+    }
+    // Synthesized by websocketClient when every attempt closed without an
+    // 'error' event. Carries no diagnosis, so it must not become a report.
+    if (error.code === 'WS_CLOSED_NO_ERROR') {
+      return;
+    }
+    const failures = this._report.failures;
+    const existing = failures.get(speaker);
+    if (existing && (isTransientNetworkError(error) || !isTransientNetworkError(existing.error))) {
+      return;
+    }
+    failures.set(speaker, {
+      speaker,
+      endpoint,
+      error,
+      code: streamingErrorCode(error)
+    });
+  }
+
+  /**
+   * Backstop for a start() failure that never reached a socket's onError — a
+   * bad sessionId, say. Without it such an error would have nothing recorded
+   * and would flush to nothing.
+   * @private
+   */
+  _recordUnattributedFailure(error) {
+    if (this._report.failures.size === 0) {
+      this._recordSocketFailure('session', null, error);
+    }
+  }
+
+  /**
+   * Schedule the single failure report for this start attempt.
+   *
+   * @param {Array<Promise>|null} connectPromises - awaited (settled, not
+   *   resolved) so the report can name every socket that failed; null for
+   *   mid-session give-ups, where the cap alone acts as the grace window.
+   * @private
+   */
+  _scheduleFailureReport(connectPromises, stage, capMs) {
+    // Captured, not re-read: a restart during the settle window swaps
+    // this._report, and this report belongs to the attempt that scheduled it.
+    const report = this._report;
+    if (report.reported || report.pending) {
+      return;
+    }
+    report.pending = true;
+
+    const settled = connectPromises
+      ? Promise.allSettled(connectPromises)
+      : new Promise(() => {}); // never settles; the cap below is the trigger
+
+    const capped = new Promise((resolve) => {
+      report.timer = setTimeout(resolve, capMs);
+      // Don't hold the event loop open on quit just to file a Sentry report.
+      if (typeof report.timer.unref === 'function') report.timer.unref();
+    });
+
+    Promise.race([settled, capped]).then(() => {
+      if (report.timer) {
+        clearTimeout(report.timer);
+        report.timer = null;
+      }
+      report.pending = false;
+      this._flushFailureReport(report, stage);
+    });
+  }
+
+  /**
+   * Send at most one Sentry row for this start attempt, carrying every socket
+   * that failed. The representative is the first *non-transient* failure:
+   * picking the first failure outright would let an environmental blip on one
+   * socket suppress a real error on the other.
+   *
+   * @param {Object} report - the attempt's state, captured at schedule time
+   * @private
+   */
+  _flushFailureReport(report, stage) {
+    if (report.reported) {
+      return;
+    }
+
+    const failures = Array.from(report.failures.values());
+    const primary = failures.find(f => !isTransientNetworkError(f.error));
+    if (!primary) {
+      // Every socket failed for environmental reasons — console only.
+      return;
+    }
+
+    report.reported = reportStreamingError(primary.error, {
+      speaker: primary.speaker,
+      endpoint: primary.endpoint,
+      sessionId: this.sessionId,
+      stage,
+      failures: failures.map(f => ({
+        speaker: f.speaker,
+        endpoint: f.endpoint,
+        code: f.code
+      }))
+    });
   }
 
   /**
@@ -189,7 +360,7 @@ class AudioStreamer {
       */
     } catch (error) {
       console.error('❌ [AudioStreamer] Failed to get sessionId:', error);
-      Sentry.captureException(error);
+      reportStreamingError(error, { speaker: 'session', sessionId: null, stage: 'session-init' });
       // Fallback to temporary sessionId
       return `temp-session-${Date.now()}`;
     }
@@ -234,7 +405,12 @@ class AudioStreamer {
       this._processUserChunks();
     } catch (error) {
       console.error('❌ [AudioStreamer] Error adding user audio:', error);
-      Sentry.captureException(error);
+      reportStreamingError(error, {
+        speaker: 'user',
+        endpoint: STREAMING_ENDPOINTS.userStream,
+        sessionId: this.sessionId,
+        stage: 'ingest'
+      });
       if (this.onError) this.onError('user', error);
     }
   }
@@ -257,7 +433,12 @@ class AudioStreamer {
       this._processProspectChunks();
     } catch (error) {
       console.error('❌ [AudioStreamer] Error adding prospect audio:', error);
-      Sentry.captureException(error);
+      reportStreamingError(error, {
+        speaker: 'prospect',
+        endpoint: STREAMING_ENDPOINTS.prospectStream,
+        sessionId: this.sessionId,
+        stage: 'ingest'
+      });
       if (this.onError) this.onError('prospect', error);
     }
   }
@@ -316,7 +497,21 @@ class AudioStreamer {
             console.warn(`⚠️ [AudioStreamer] User audio send failed (${this.userSendFailures}/${this.maxSendFailures})`);
             if (this.userSendFailures >= this.maxSendFailures) {
               console.error(`❌ [AudioStreamer] User stream: Max send failures reached (${this.maxSendFailures})`);
-              Sentry.captureMessage(`User stream: Max send failures reached (${this.maxSendFailures})`, 'error');
+              // Latched: the counter only resets on a successful send, so once
+              // the socket is gone every remaining chunk re-satisfies this. The
+              // onError below stays unlatched — the banner is SAYSO-346's, and
+              // user-visible behaviour must not change here.
+              if (!this._userSendReported) {
+                this._userSendReported = true;
+                // Suppressed alongside its cause when the socket died to a blip.
+                reportStreamingMessage(`User stream: Max send failures reached (${this.maxSendFailures})`, {
+                  speaker: 'user',
+                  endpoint: STREAMING_ENDPOINTS.userStream,
+                  sessionId: this.sessionId,
+                  stage: 'send-threshold',
+                  cause: this.userWebSocket && this.userWebSocket.lastError
+                });
+              }
               if (this.onError) {
                 this.onError('user', new Error('Max send failures reached'));
               }
@@ -325,13 +520,23 @@ class AudioStreamer {
         } catch (conversionError) {
           // Log and continue (don't stop streaming)
           console.error('❌ [AudioStreamer] User audio conversion failed:', conversionError.message);
-          Sentry.captureException(conversionError);
+          reportStreamingError(conversionError, {
+            speaker: 'user',
+            endpoint: STREAMING_ENDPOINTS.userStream,
+            sessionId: this.sessionId,
+            stage: 'convert'
+          });
           // Continue processing other chunks
         }
       }
     } catch (error) {
       console.error('❌ [AudioStreamer] Error processing user chunks:', error);
-      Sentry.captureException(error);
+      reportStreamingError(error, {
+        speaker: 'user',
+        endpoint: STREAMING_ENDPOINTS.userStream,
+        sessionId: this.sessionId,
+        stage: 'process'
+      });
       if (this.onError) this.onError('user', error);
     }
   }
@@ -362,7 +567,18 @@ class AudioStreamer {
             this.prospectSendFailures++;
             if (this.prospectSendFailures >= this.maxSendFailures) {
               console.error(`❌ [AudioStreamer] Prospect stream: Max send failures reached (${this.maxSendFailures})`);
-              Sentry.captureMessage(`Prospect stream: Max send failures reached (${this.maxSendFailures})`, 'error');
+              // Latched — see the user-stream copy above.
+              if (!this._prospectSendReported) {
+                this._prospectSendReported = true;
+                // Suppressed alongside its cause when the socket died to a blip.
+                reportStreamingMessage(`Prospect stream: Max send failures reached (${this.maxSendFailures})`, {
+                  speaker: 'prospect',
+                  endpoint: STREAMING_ENDPOINTS.prospectStream,
+                  sessionId: this.sessionId,
+                  stage: 'send-threshold',
+                  cause: this.prospectWebSocket && this.prospectWebSocket.lastError
+                });
+              }
               if (this.onError) {
                 this.onError('prospect', new Error('Max send failures reached'));
               }
@@ -371,13 +587,23 @@ class AudioStreamer {
         } catch (conversionError) {
           // Log and continue (don't stop streaming)
           console.error('❌ [AudioStreamer] Prospect audio conversion failed:', conversionError.message);
-          Sentry.captureException(conversionError);
+          reportStreamingError(conversionError, {
+            speaker: 'prospect',
+            endpoint: STREAMING_ENDPOINTS.prospectStream,
+            sessionId: this.sessionId,
+            stage: 'convert'
+          });
           // Continue processing other chunks
         }
       }
     } catch (error) {
       console.error('❌ [AudioStreamer] Error processing prospect chunks:', error);
-      Sentry.captureException(error);
+      reportStreamingError(error, {
+        speaker: 'prospect',
+        endpoint: STREAMING_ENDPOINTS.prospectStream,
+        sessionId: this.sessionId,
+        stage: 'process'
+      });
       if (this.onError) this.onError('prospect', error);
     }
   }
@@ -388,7 +614,7 @@ class AudioStreamer {
    * @returns {Promise<void>}
    */
   async stop(sendTermination = true) {
-    if (!this.isStreaming) {
+    if (!this.isStreaming && !this.userWebSocket && !this.prospectWebSocket) {
       return;
     }
 
@@ -416,6 +642,8 @@ class AudioStreamer {
       this.isStreaming = false;
       this.userSendFailures = 0;
       this.prospectSendFailures = 0;
+      this._userSendReported = false;
+      this._prospectSendReported = false;
       if (this._routeResetTimer) {
         clearTimeout(this._routeResetTimer);
         this._routeResetTimer = null;
@@ -424,7 +652,11 @@ class AudioStreamer {
 
     } catch (error) {
       console.error('❌ [AudioStreamer] Error stopping streaming:', error);
-      Sentry.captureException(error);
+      reportStreamingError(error, {
+        speaker: 'session',
+        sessionId: this.sessionId,
+        stage: 'stop'
+      });
       // Force reset state even on error
       this.isStreaming = false;
       throw error;

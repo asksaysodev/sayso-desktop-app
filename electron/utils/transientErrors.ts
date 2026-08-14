@@ -33,10 +33,18 @@ const OFFLINE_PATTERNS = [
   'ENOTFOUND',
   'ENETUNREACH',
   'EAI_AGAIN',
+  'EHOSTUNREACH',
+  'ENETDOWN',
 ];
 
 // There is a network, but this attempt didn't get a fair shot — DNS not warmed
 // up yet after a wake, connection dropped, or it timed out → "try again shortly".
+//
+// The ERR_* spellings come from Chromium (renderer axios, electron-updater); the
+// bare errno spellings come from Node sockets. Both belong here: `ws` in the main
+// process surfaces ECONNRESET / EPIPE / 'socket hang up' whenever a *live* socket
+// dies to a lid close, VPN toggle or tunnel drop, and those are the same class of
+// environmental noise as a failed connect (SAYSO-348).
 const FLAKY_NETWORK_PATTERNS = [
   'ERR_NAME_NOT_RESOLVED',
   'ERR_CONNECTION_RESET',
@@ -44,6 +52,10 @@ const FLAKY_NETWORK_PATTERNS = [
   'ERR_CONNECTION_TIMED_OUT',
   'ECONNREFUSED',
   'ETIMEDOUT',
+  'ECONNRESET',
+  'ECONNABORTED',
+  'EPIPE',
+  'socket hang up',
   'fetch failed',
 ];
 
