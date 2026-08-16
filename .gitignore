@@ -70,3 +70,6 @@ docs/AUTH_MASTERY_ESP.md
 
 # Python bytecode cache from scripts/race-harness/apply-test-hooks.py
 __pycache__/
+
+# Claude Code multi-phase plans. Local working notes, not shared
+docs/plans/
