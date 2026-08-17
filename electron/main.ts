@@ -1566,7 +1566,7 @@ app.whenReady().then(async () => {
   // macOS-only seam: a bundle running from a .dmg or an App Translocation mount
   // can never update itself, and any permission granted from there is bound to
   // a path that disappears the moment the user moves the app. Block before ANY
-  // window exists — this must stay the first thing after the instance lock.
+  // window exists — must stay right after the OS-version gate above.
   if (!enforceApplicationsFolderLocation()) return;
 
   global.appSettingsWindowSource = null;

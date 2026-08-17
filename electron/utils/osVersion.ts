@@ -3,7 +3,8 @@ import { IS_MAC } from './platform';
 
 /**
  * macOS-only: system-audio capture (ScreenCaptureKit's `capturesAudio`) does not
- * exist before macOS 13. LSMinimumSystemVersion in the packaged Info.plist stops
+ * exist before macOS 13. `LSMinimumSystemVersion` (set via `mac.extendInfo` in
+ * package.json, baked into the packaged Info.plist by electron-builder) stops
  * most pre-13 users before they ever launch, but that's a Finder/LaunchServices
  * check — a copy that bypasses it (direct binary launch, some update paths) can
  * still reach here. This is the app-level backstop, matching SAYSO_MIN_MACOS
@@ -25,10 +26,11 @@ function macOSMajorVersion(): number | null {
  * or trigger native audio code that assumes macOS 13 APIs exist (SAYSO-A3).
  *
  * An unparseable version string fails open (returns true) rather than blocking
- * launch on a version we simply couldn't read.
+ * launch on a version we simply couldn't read. Skipped for unpackaged (dev)
+ * runs so working on an older Mac doesn't block local development.
  */
 export function enforceMinimumMacOSVersion(): boolean {
-  if (!IS_MAC) return true;
+  if (!IS_MAC || !app.isPackaged) return true;
 
   const major = macOSMajorVersion();
   if (major === null || major >= SAYSO_MIN_MACOS_MAJOR) return true;
