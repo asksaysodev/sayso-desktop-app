@@ -144,8 +144,8 @@ class WindowManager {
   }
 
   static getAppSettingsWindowConfig() {
-      const width = 800;
-      const height = 600;
+      const width = 850;
+      const height = 610;
       const { workArea } = WindowManager.getActiveDisplay();
 
       return {

@@ -524,6 +524,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    margin: 0 14px;
     padding: 14px;
     border: 1px dashed rgba(255, 255, 255, 0.2);
     border-radius: 12px;
@@ -543,6 +544,7 @@ body {
 .playbooks-drop-zone {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 20px;
     padding: 12px 14px;
     border-radius: 8px;
@@ -559,18 +561,6 @@ body {
 
 .playbooks-drop-zone.drag-over {
     background: rgba(35, 103, 238, 0.1);
-}
-
-.playbooks-drop-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
-    flex-shrink: 0;
 }
 
 .playbooks-drop-text {
@@ -732,43 +722,20 @@ body {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    margin-top: 16px;
+    margin: 16px 14px 0;
 }
 
 .playbooks-list-header {
     display: flex;
     align-items: center;
     gap: 8px;
+    padding-left: 14px;
 }
 
 .playbooks-list-title {
-    font-size: 11px;
+    font-size: var(--csw-fs-section-title);
     font-weight: 600;
-    letter-spacing: 0.6px;
-    color: rgba(255, 255, 255, 0.55);
-}
-
-.playbooks-refresh-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    background: transparent;
-    border: none;
-    color: rgba(255, 255, 255, 0.818);
-    border-radius: 4px;
-    cursor: pointer;
-}
-
-.playbooks-refresh-btn:hover:not(:disabled) {
     color: #fff;
-    background: rgba(255, 255, 255, 0.08);
-}
-
-.playbooks-refresh-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
 }
 
 .playbooks-list-error {
@@ -794,7 +761,7 @@ body {
 .playbooks-table-head,
 .playbooks-row {
     display: grid;
-    grid-template-columns: 1fr 1fr 120px 36px;
+    grid-template-columns: 28px 1fr 110px 120px 36px;
     align-items: center;
     gap: 12px;
     padding: 12px 8px;
@@ -806,7 +773,7 @@ body {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.6px;
-    color: rgba(255, 255, 255, 0.45);
+    color: #fff;
     background: rgba(255, 255, 255, 0.03);
     border-bottom: 1px solid rgba(114, 126, 137, 0.25);
     border-radius: 12px 12px 0 0;
@@ -826,20 +793,52 @@ body {
     opacity: 0.5;
 }
 
-.playbooks-col-alias,
-.playbooks-col-file {
+.playbooks-row.dragging {
+    opacity: 0.6;
+    background: rgba(255, 255, 255, 0.05);
+    z-index: 1;
+    position: relative;
+}
+
+.playbooks-col-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.playbooks-row-drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.3);
+    cursor: grab;
+    touch-action: none;
+}
+
+.playbooks-row-drag-handle:hover:not(:disabled) {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.playbooks-row-drag-handle:active:not(:disabled) {
+    cursor: grabbing;
+}
+
+.playbooks-row-drag-handle:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+}
+
+.playbooks-col-alias {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     display: flex;
     gap: 6px;
     align-items: center;
-}
-.playbooks-col-alias-icon {
-    width: 15px;
-    height: 15px;
-    padding: 0px;
-    margin: 0px;
 }
 .playbooks-col-alias-text {
     overflow: hidden;
@@ -848,16 +847,42 @@ body {
     min-width: 0;
 }
 
-.playbooks-col-file {
-    color: rgba(255, 255, 255, 0.45);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+.playbooks-col-owner {
+    overflow: hidden;
+}
+
+.playbooks-owner-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     font-size: 12px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.playbooks-owner-icon {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+}
+
+.playbooks-owner-icon-sayso {
+    background-color: currentColor;
+    -webkit-mask-image: url('/assets/sayso.svg');
+    mask-image: url('/assets/sayso.svg');
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-position: center;
+    mask-position: center;
 }
 
 .playbooks-col-actions {
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    gap: 2px;
 }
 
 .playbooks-row-star {

@@ -30,3 +30,8 @@ export async function setDefaultPlaybook(id: string): Promise<{ success: true; d
     const response = await apiClient.patch('/playbooks/default', { playbook_id: id });
     return response.data;
 }
+
+export async function updatePlaybookOrder(order: string[]): Promise<{ success: true; playbook_order: string[] }> {
+    const response = await apiClient.patch('/playbooks/order', { order });
+    return response.data;
+}

@@ -17,10 +17,14 @@ import useCoachSettingsContext from '../../context/CoachSettingsContext';
 
 export default function PlaybooksSettings() {
     const queryClient = useQueryClient();
-    const { coachSettings, mutateDefaultPlaybook, mutateOpenLastUsed } = useCoachSettingsContext();
+    const { coachSettings, mutateDefaultPlaybook, mutateOpenLastUsed, mutatePlaybookOrder } = useCoachSettingsContext();
     const { data: playbooks, error: queryError, isLoading } = useQuery({
         queryKey: PLAYBOOKS_QUERY_KEY,
         queryFn: getPlaybooks,
+        refetchInterval: (query) => {
+            const hasProcessing = query.state.data?.some((p) => p.status === 'processing');
+            return hasProcessing ? 3000 : false;
+        },
     });
 
     useEffect(() => {
@@ -56,7 +60,7 @@ export default function PlaybooksSettings() {
             };
             queryClient.setQueryData<Playbook[]>(
                 PLAYBOOKS_QUERY_KEY,
-                [...(prev ?? []), optimistic],
+                [optimistic, ...(prev ?? [])],
             );
             return { prev, tempId };
         },
@@ -67,10 +71,20 @@ export default function PlaybooksSettings() {
             Sentry.captureException(err);
         },
         onSuccess: (data, _vars, context) => {
+            let nextOrder: string[] = [];
             queryClient.setQueryData<Playbook[]>(PLAYBOOKS_QUERY_KEY, (prev) => {
-                if (!prev) return [data];
-                return prev.map((p) => (p.id === context?.tempId ? data : p));
+                if (!prev) {
+                    nextOrder = [data.id];
+                    return [data];
+                }
+                const next = prev.map((p) => (p.id === context?.tempId ? data : p));
+                nextOrder = next.map((p) => p.id);
+                return next;
             });
+            // New uploads land at the top — persist that as the explicit order
+            // rather than relying on listForAccount's default "unranked ids
+            // append at the end" fallback.
+            mutatePlaybookOrder(nextOrder);
         },
         onSettled: () => {
             queryClient.invalidateQueries({ queryKey: PLAYBOOKS_QUERY_KEY });
@@ -122,18 +136,13 @@ export default function PlaybooksSettings() {
         },
     });
 
-    const handleRefresh = () => {
-        queryClient.invalidateQueries({ queryKey: PLAYBOOKS_QUERY_KEY });
-    };
-
     return (
         <SettingsContentLayout
             title="Playbooks"
-            description="Upload and manage call scripts. One script can be set as default for new sessions"
         >
             <div id="open-last-used" className="cue-setting-item">
                 <div className="cue-setting-left">
-                    <span className="cue-setting-label">Default Playbook</span>
+                    <span className="cue-setting-label">Default Script</span>
                     <p className="cue-setting-description">Shown first each time you open a new session</p>
                 </div>
                 <div className="cue-setting-right">
@@ -148,7 +157,7 @@ export default function PlaybooksSettings() {
                 </div>
             </div>
 			<div className="playbooks-list-header">
-                <span className="playbooks-list-title">SCRIPTS</span>
+                <span className="playbooks-list-title">Scripts</span>
             </div>
 
             <UploadCard
@@ -165,7 +174,6 @@ export default function PlaybooksSettings() {
                 playbooks={playbooks ?? null}
                 isLoading={isLoading}
                 queryError={queryError ? getErrorMessage(queryError) : null}
-                onRefresh={handleRefresh}
                 onDelete={(id) => deleteMutation.mutate(id)}
                 onUpdateAlias={(id, alias) =>
                     updateAliasMutation.mutateAsync({ id, alias })
@@ -173,6 +181,7 @@ export default function PlaybooksSettings() {
                 deletingId={deleteMutation.isPending ? deleteMutation.variables ?? null : null}
                 defaultPlaybookId={coachSettings?.default_playbook_id ?? null}
                 onSetDefault={(id) => mutateDefaultPlaybook(id)}
+                onReorder={(order) => mutatePlaybookOrder(order)}
             />
         </SettingsContentLayout>
     );

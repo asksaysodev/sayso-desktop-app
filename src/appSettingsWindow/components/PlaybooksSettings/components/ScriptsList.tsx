@@ -1,4 +1,12 @@
-import { RotateCw } from 'lucide-react';
+import {
+    DndContext,
+    DragEndEvent,
+    PointerSensor,
+    closestCenter,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core';
+import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Playbook } from '@/playbookWindow/types';
 import { Spinner } from '@/components/ui/spinner';
 import PlaybookRow from './PlaybookRow';
@@ -7,25 +15,39 @@ interface ScriptsListProps {
     playbooks: Playbook[] | null;
     isLoading: boolean;
     queryError: string | null;
-    onRefresh: () => void;
     onDelete: (id: string) => void;
     onUpdateAlias: (id: string, alias: string) => Promise<void> | void;
     deletingId: string | null;
     defaultPlaybookId: string | null;
     onSetDefault: (id: string) => void;
+    onReorder: (order: string[]) => void;
 }
 
 export default function ScriptsList({
     playbooks,
     isLoading,
     queryError,
-    onRefresh,
     onDelete,
     onUpdateAlias,
     deletingId,
     defaultPlaybookId,
     onSetDefault,
+    onReorder,
 }: ScriptsListProps) {
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!playbooks || !over || active.id === over.id) return;
+
+        const oldIndex = playbooks.findIndex((p) => p.id === active.id);
+        const newIndex = playbooks.findIndex((p) => p.id === over.id);
+        if (oldIndex === -1 || newIndex === -1) return;
+
+        const reordered = arrayMove(playbooks, oldIndex, newIndex);
+        onReorder(reordered.map((p) => p.id));
+    };
+
     return (
         <div id="playbooks-scripts" className="playbooks-list">
 
@@ -43,30 +65,27 @@ export default function ScriptsList({
             ) : (
                 <div className="playbooks-table">
                     <div className="playbooks-table-head">
-                        <span className="playbooks-col-alias">ALIAS</span>
-                        <span className="playbooks-col-file">FILE</span>
+                        <span className="playbooks-col-handle" aria-hidden="true" />
+                        <span className="playbooks-col-alias">NAME</span>
+                        <span className="playbooks-col-owner">OWNER</span>
                         <span className="playbooks-col-status">STATUS</span>
-						<button
-							type="button"
-							className="playbooks-refresh-btn"
-							onClick={onRefresh}
-							disabled={isLoading}
-							aria-label="Refresh playbooks"
-							>
-							<RotateCw size={14} />
-						</button>
+                        <span className="playbooks-col-actions" aria-hidden="true" />
                     </div>
-                    {playbooks.map((p) => (
-                        <PlaybookRow
-                            key={p.id}
-                            playbook={p}
-                            isDeleting={deletingId === p.id}
-                            isDefault={defaultPlaybookId === p.id}
-                            onDelete={() => onDelete(p.id)}
-                            onUpdateAlias={(alias) => onUpdateAlias(p.id, alias)}
-                            onSetDefault={() => onSetDefault(p.id)}
-                        />
-                    ))}
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                        <SortableContext items={playbooks.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+                            {playbooks.map((p) => (
+                                <PlaybookRow
+                                    key={p.id}
+                                    playbook={p}
+                                    isDeleting={deletingId === p.id}
+                                    isDefault={defaultPlaybookId === p.id}
+                                    onDelete={() => onDelete(p.id)}
+                                    onUpdateAlias={(alias) => onUpdateAlias(p.id, alias)}
+                                    onSetDefault={() => onSetDefault(p.id)}
+                                />
+                            ))}
+                        </SortableContext>
+                    </DndContext>
                 </div>
             )}
         </div>

@@ -37,10 +37,9 @@ export default function PlaybookWindowApp() {
     const resultsRef = useRef<HTMLDivElement | null>(null);
     const [resultsOffset, setResultsOffset] = useState(0);
 
-    const playbooks = useMemo(() => {
-        if (!rawPlaybooks) return rawPlaybooks;
-        return [...rawPlaybooks].sort((a, b) => Number(b.is_default) - Number(a.is_default));
-    }, [rawPlaybooks]);
+    // Same order as Settings → Playbooks → Scripts: the server sorts by the
+    // account's stored playbook_order, so no client-side re-sort here.
+    const playbooks = rawPlaybooks;
 
     useEffect(() => {
         if (!settingLoaded) return;

@@ -58,17 +58,14 @@ export default function EditPlaybook({ playbook, onSave }: EditPlaybookProps) {
                 <DialogPrimitive.Content className="playbook-edit-dialog">
                     <div className="playbook-edit-header">
                         <DialogPrimitive.Title className="playbook-edit-title">
-                            Edit Playbook
+                            Edit Script
                         </DialogPrimitive.Title>
-                        <DialogPrimitive.Description className="playbook-edit-description">
-                            Update the alias for this playbook.
-                        </DialogPrimitive.Description>
                     </div>
 
                     <div className="playbook-edit-fields">
                         <div className="playbook-edit-field">
                             <label className="playbook-edit-label" htmlFor="playbook-edit-alias">
-                                Alias
+                                Name
                             </label>
                             <input
                                 id="playbook-edit-alias"

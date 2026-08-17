@@ -28,6 +28,7 @@ export interface GetCoachSettingsResponse {
     default_playbook_id: string | null;
     open_last_used: boolean;
     pulse_enabled: boolean;
+    playbook_order: string[];
 }
 
 export interface PostOpenLastUsedResponse {
