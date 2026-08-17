@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CloudUpload, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { PLAYBOOK_LIMIT, validateFile } from '../constants';
 
@@ -118,9 +118,6 @@ export default function UploadCard({
                     role="button"
                     tabIndex={disabled ? -1 : 0}
                 >
-                    <div className="playbooks-drop-icon">
-                        <CloudUpload size={16} />
-                    </div>
                     <div className="playbooks-drop-text">
                         <p className="playbooks-drop-primary">
                             Drop a file here, or{' '}

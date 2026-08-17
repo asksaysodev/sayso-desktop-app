@@ -13,6 +13,7 @@ interface CoachSettingsContextValue {
     mutateOpenLastUsed: UseMutateFunction<PostOpenLastUsedResponse, Error, boolean, unknown>;
     mutatePulseEnabled: UseMutateFunction<PostPulseEnabledResponse, Error, boolean, unknown>;
     mutateDefaultPlaybook: UseMutateFunction<{ success: true; default_playbook_id: string }, Error, string, unknown>;
+    mutatePlaybookOrder: UseMutateFunction<{ success: true; playbook_order: string[] }, Error, string[], unknown>;
 };
 
 const CoachSettingsContext = createContext<CoachSettingsContextValue | null>(null);
@@ -28,6 +29,7 @@ export const CoachSettingsProvider = ({ children }: { children: React.ReactNode 
         mutateOpenLastUsed,
         mutatePulseEnabled,
         mutateDefaultPlaybook,
+        mutatePlaybookOrder,
     } = useCoachSettings();
 
     const values = {
@@ -40,6 +42,7 @@ export const CoachSettingsProvider = ({ children }: { children: React.ReactNode 
         mutateOpenLastUsed,
         mutatePulseEnabled,
         mutateDefaultPlaybook,
+        mutatePlaybookOrder,
     };
     
     return (

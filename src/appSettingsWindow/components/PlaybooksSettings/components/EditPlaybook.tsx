@@ -55,20 +55,17 @@ export default function EditPlaybook({ playbook, onSave }: EditPlaybookProps) {
             </DialogPrimitive.Trigger>
             <DialogPrimitive.Portal>
                 <DialogPrimitive.Overlay className="playbook-edit-overlay" />
-                <DialogPrimitive.Content className="playbook-edit-dialog">
+                <DialogPrimitive.Content className="playbook-edit-dialog" aria-describedby={undefined}>
                     <div className="playbook-edit-header">
                         <DialogPrimitive.Title className="playbook-edit-title">
-                            Edit Playbook
+                            Edit Script
                         </DialogPrimitive.Title>
-                        <DialogPrimitive.Description className="playbook-edit-description">
-                            Update the alias for this playbook.
-                        </DialogPrimitive.Description>
                     </div>
 
                     <div className="playbook-edit-fields">
                         <div className="playbook-edit-field">
                             <label className="playbook-edit-label" htmlFor="playbook-edit-alias">
-                                Alias
+                                Name
                             </label>
                             <input
                                 id="playbook-edit-alias"

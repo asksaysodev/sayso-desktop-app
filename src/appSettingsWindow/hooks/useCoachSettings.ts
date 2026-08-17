@@ -8,7 +8,7 @@ import postAutoStopTimeDelay from "../services/cue/postAutoStopTimeDelay";
 import updateFontSize from "../services/accessibility/updateFontSize";
 import postOpenLastUsed from "../services/cue/postOpenLastUsed";
 import postPulseEnabled from "../services/cue/postPulseEnabled";
-import { setDefaultPlaybook } from "@/playbookWindow/services/playbookServices";
+import { setDefaultPlaybook, updatePlaybookOrder } from "@/playbookWindow/services/playbookServices";
 import { GetCoachSettingsResponse } from "../types";
 import { Playbook } from "@/playbookWindow/types";
 import { PLAYBOOKS_QUERY_KEY } from "../components/PlaybooksSettings/constants";
@@ -159,7 +159,36 @@ export default function useCoachSettings() {
             queryClient.invalidateQueries({ queryKey: PLAYBOOKS_QUERY_KEY });
         },
     })
-    
+
+    const { mutate: mutatePlaybookOrder } = useMutation({
+        mutationKey: ['update-playbook-order'],
+        mutationFn: updatePlaybookOrder,
+        onMutate: async (order: string[]) => {
+            await queryClient.cancelQueries({ queryKey: PLAYBOOKS_QUERY_KEY });
+            const prevPlaybooks = queryClient.getQueryData<Playbook[]>(PLAYBOOKS_QUERY_KEY);
+
+            if (prevPlaybooks) {
+                const byId = new Map(prevPlaybooks.map((p) => [p.id, p]));
+                const reordered = order
+                    .map((id) => byId.get(id))
+                    .filter((p): p is Playbook => !!p);
+                const leftover = prevPlaybooks.filter((p) => !order.includes(p.id));
+                queryClient.setQueryData<Playbook[]>(PLAYBOOKS_QUERY_KEY, [...reordered, ...leftover]);
+            }
+
+            return { prevPlaybooks };
+        },
+        onError: (error, _order, context) => {
+            if (context?.prevPlaybooks !== undefined) {
+                queryClient.setQueryData(PLAYBOOKS_QUERY_KEY, context.prevPlaybooks);
+            }
+            Sentry.captureException(error);
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey: PLAYBOOKS_QUERY_KEY });
+        },
+    })
+
     useEffect(()=>{
         if (coachSettingsError !== null) {
             Sentry.captureException(coachSettingsError)
@@ -179,5 +208,6 @@ export default function useCoachSettings() {
         mutateOpenLastUsed,
         mutatePulseEnabled,
         mutateDefaultPlaybook,
+        mutatePlaybookOrder,
     }
 }
