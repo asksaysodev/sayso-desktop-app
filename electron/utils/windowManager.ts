@@ -144,9 +144,15 @@ class WindowManager {
   }
 
   static getAppSettingsWindowConfig() {
-      const width = 850;
-      const height = 610;
+      const desiredWidth = 850;
+      const desiredHeight = 610;
       const { workArea } = WindowManager.getActiveDisplay();
+
+      // Clamp to the active display's work area so a small/short secondary
+      // display can't push this fixed-size (resizable: false) window
+      // partially or fully off-screen.
+      const width = Math.min(desiredWidth, workArea.width);
+      const height = Math.min(desiredHeight, workArea.height);
 
       return {
           width,
