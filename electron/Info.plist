@@ -6,5 +6,7 @@
     <string>We need access to your microphone for audio calls</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>We need access to system audio to create multi-output devices for call recording</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0.0</string>
 </dict>
 </plist>    

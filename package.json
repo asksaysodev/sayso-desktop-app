@@ -158,7 +158,8 @@
       "entitlementsInherit": "assets/entitlements.mac.plist",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "We need access to your microphone for audio calls",
-        "NSAudioCaptureUsageDescription": "We need access to system audio to create multi-output devices for call recording"
+        "NSAudioCaptureUsageDescription": "We need access to system audio to create multi-output devices for call recording",
+        "LSMinimumSystemVersion": "13.0.0"
       },
       "notarize": {
         "teamId": "AFGHD8M3VK"
