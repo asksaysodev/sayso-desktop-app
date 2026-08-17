@@ -87,6 +87,9 @@ function showManualInstructions(): void {
  * against a path that's about to disappear. There is deliberately no
  * "continue anyway" path.
  *
+ * Runs after enforceMinimumMacOSVersion() (osVersion.ts) — that gate takes
+ * priority since it can end the process outright.
+ *
  * Applies to staging too — staging is installed and updated the same way
  * production is (DMG, /Applications, auto-updater), not unzipped ad hoc, so
  * there's no reason to exempt it. Doing so would also mean this dialog and

@@ -23,6 +23,7 @@ import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
 import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage, READ_ONLY_VOLUME_MESSAGE } from './utils/transientErrors';
 import { enforceApplicationsFolderLocation, isOutsideApplicationsFolder } from './utils/applicationsFolder';
+import { enforceMinimumMacOSVersion } from './utils/osVersion';
 import type { UpdateState } from './shared/update';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
@@ -1556,10 +1557,16 @@ app.whenReady().then(async () => {
   // Second instance is quitting (lock not acquired) — don't boot/create windows.
   if (!gotSingleInstanceLock) return;
 
+  // Block before anything else can touch macOS-13-only APIs (native ScreenCaptureKit
+  // audio capture chief among them — SAYSO-A3 crashed here on macOS 12).
+  // LSMinimumSystemVersion is the first line of defense but isn't airtight; this is
+  // the backstop and gives a real explanation instead of a hard crash.
+  if (!enforceMinimumMacOSVersion()) return;
+
   // macOS-only seam: a bundle running from a .dmg or an App Translocation mount
   // can never update itself, and any permission granted from there is bound to
   // a path that disappears the moment the user moves the app. Block before ANY
-  // window exists — this must stay the first thing after the instance lock.
+  // window exists — must stay right after the OS-version gate above.
   if (!enforceApplicationsFolderLocation()) return;
 
   global.appSettingsWindowSource = null;
