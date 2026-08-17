@@ -18,7 +18,10 @@ interface PlaybookRowProps {
 export default function PlaybookRow({ playbook, isDeleting, isDefault, onDelete, onUpdateAlias, onSetDefault }: PlaybookRowProps) {
     const isOptimistic = playbook.id.startsWith('temp-');
     const isReady = playbook.status === 'ready';
-    const canDelete = !isOptimistic && !isDeleting && isReady && playbook.type === 'custom';
+    // A failed custom upload must stay deletable even though it's not
+    // "ready" — otherwise it permanently occupies a PLAYBOOK_LIMIT slot
+    // with no way to clear it and retry.
+    const canDelete = !isOptimistic && !isDeleting && (isReady || playbook.status === 'failed') && playbook.type === 'custom';
     const canEdit = !isOptimistic && !isDeleting && isReady && playbook.type === 'custom';
     const canSetDefault = !isOptimistic && !isDeleting && isReady && !isDefault;
 
@@ -50,7 +53,7 @@ export default function PlaybookRow({ playbook, isDeleting, isDefault, onDelete,
                     <GripVertical size={24} />
                 </button>
             </span>
-            <span className="playbooks-col-alias" title={playbook.file_name}>
+            <span className="playbooks-col-alias" title={playbook.alias ?? playbook.file_name}>
                 <span className="playbooks-col-alias-text">{playbook.alias ?? playbook.file_name}</span>
             </span>
             <span className="playbooks-col-owner">

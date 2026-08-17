@@ -11,6 +11,10 @@ import { Playbook } from '@/playbookWindow/types';
 import { Spinner } from '@/components/ui/spinner';
 import PlaybookRow from './PlaybookRow';
 
+// Stable reference so useSensor/useSensors don't rebuild the sensor list
+// (and its internal memoization) on every render.
+const DRAG_ACTIVATION_CONSTRAINT = { distance: 4 };
+
 interface ScriptsListProps {
     playbooks: Playbook[] | null;
     isLoading: boolean;
@@ -34,7 +38,7 @@ export default function ScriptsList({
     onSetDefault,
     onReorder,
 }: ScriptsListProps) {
-    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: DRAG_ACTIVATION_CONSTRAINT }));
 
     const handleDragEnd = (event: DragEndEvent) => {
         const { active, over } = event;
@@ -45,7 +49,9 @@ export default function ScriptsList({
         if (oldIndex === -1 || newIndex === -1) return;
 
         const reordered = arrayMove(playbooks, oldIndex, newIndex);
-        onReorder(reordered.map((p) => p.id));
+        // Optimistic upload placeholders aren't real playbooks yet — never
+        // persist their client-only temp- id as part of the saved order.
+        onReorder(reordered.map((p) => p.id).filter((id) => !id.startsWith('temp-')));
     };
 
     return (

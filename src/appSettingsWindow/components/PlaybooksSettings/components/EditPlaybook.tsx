@@ -55,7 +55,7 @@ export default function EditPlaybook({ playbook, onSave }: EditPlaybookProps) {
             </DialogPrimitive.Trigger>
             <DialogPrimitive.Portal>
                 <DialogPrimitive.Overlay className="playbook-edit-overlay" />
-                <DialogPrimitive.Content className="playbook-edit-dialog">
+                <DialogPrimitive.Content className="playbook-edit-dialog" aria-describedby={undefined}>
                     <div className="playbook-edit-header">
                         <DialogPrimitive.Title className="playbook-edit-title">
                             Edit Script

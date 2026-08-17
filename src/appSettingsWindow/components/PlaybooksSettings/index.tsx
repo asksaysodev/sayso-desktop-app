@@ -62,7 +62,13 @@ export default function PlaybooksSettings() {
                 PLAYBOOKS_QUERY_KEY,
                 [optimistic, ...(prev ?? [])],
             );
-            return { prev, tempId };
+            // Snapshot the pre-upload order now, synchronously — the live
+            // cache can be overwritten by the 3s processing-status poll
+            // before onSuccess runs (the optimistic row's own 'processing'
+            // status keeps that poll active for the whole upload), so this
+            // is the only order snapshot immune to that race.
+            const prevOrderIds = (prev ?? []).map((p) => p.id);
+            return { prev, tempId, prevOrderIds };
         },
         onError: (err, _vars, context) => {
             if (context?.prev !== undefined) {
@@ -71,20 +77,15 @@ export default function PlaybooksSettings() {
             Sentry.captureException(err);
         },
         onSuccess: (data, _vars, context) => {
-            let nextOrder: string[] = [];
             queryClient.setQueryData<Playbook[]>(PLAYBOOKS_QUERY_KEY, (prev) => {
-                if (!prev) {
-                    nextOrder = [data.id];
-                    return [data];
-                }
-                const next = prev.map((p) => (p.id === context?.tempId ? data : p));
-                nextOrder = next.map((p) => p.id);
-                return next;
+                if (!prev) return [data];
+                return prev.map((p) => (p.id === context?.tempId ? data : p));
             });
-            // New uploads land at the top — persist that as the explicit order
-            // rather than relying on listForAccount's default "unranked ids
-            // append at the end" fallback.
-            mutatePlaybookOrder(nextOrder);
+            // New uploads land at the top — persist that as the explicit
+            // order rather than relying on listForAccount's default
+            // "unranked ids append at the end" fallback. Built from the
+            // onMutate snapshot, not the live cache (see note above).
+            mutatePlaybookOrder([data.id, ...(context?.prevOrderIds ?? [])]);
         },
         onSettled: () => {
             queryClient.invalidateQueries({ queryKey: PLAYBOOKS_QUERY_KEY });
