@@ -17,8 +17,8 @@ body {
 .app-settings-sidebar {
     display: flex;
     flex-direction: column;
-    width: 220px;
-    min-width: 220px;
+    width: 195px;
+    min-width: 195px;
     padding: 52px 12px 28px;
     gap: 2px;
     border-right: 1px solid rgba(114, 126, 137, 0.25);
@@ -153,6 +153,7 @@ body {
     display: flex;
     flex-direction: row;
     align-items: center;
+	justify-content: space-between;
     gap: 32px;
     padding: 20px 14px;
     border-bottom: 1px solid rgba(114, 126, 137, 0.2);
@@ -172,7 +173,7 @@ body {
 }
 
 .cue-setting-left {
-    width: 40%;
+    width: 50%;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
@@ -194,7 +195,7 @@ body {
 }
 
 .cue-setting-right {
-    flex: 1;
+    /* flex: 1; */
 }
 
 /* Mode toggle */
@@ -541,14 +542,12 @@ body {
 
 .playbooks-drop-zone {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 20px 12px;
+    gap: 20px;
+    padding: 12px 14px;
     border-radius: 8px;
     cursor: pointer;
-    text-align: center;
+    text-align: left;
     transition: background 0.15s ease;
 }
 
@@ -566,11 +565,19 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
     background: rgba(255, 255, 255, 0.08);
     color: rgba(255, 255, 255, 0.7);
+    flex-shrink: 0;
+}
+
+.playbooks-drop-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
 }
 
 .playbooks-drop-primary {
@@ -593,17 +600,19 @@ body {
 
 .playbooks-drop-file {
     display: inline-flex;
+    align-self: flex-start;
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.07);
+    background: rgba(35, 103, 238, 0.12);
+    border: 1px solid rgba(35, 103, 238, 0.25);
     max-width: 100%;
 }
 
 .playbooks-drop-file-name {
     font-size: 13px;
-    color: #fff;
+    color: #cfe0ff;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -614,17 +623,17 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: transparent;
+    background: rgba(35, 103, 238, 0.22);
     border: none;
-    color: rgba(255, 255, 255, 0.6);
+    color: #cfe0ff;
     cursor: pointer;
-    padding: 2px;
-    border-radius: 4px;
+    padding: 3px;
+    border-radius: 5px;
 }
 
 .playbooks-drop-file-clear:hover {
     color: #fff;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(35, 103, 238, 0.38);
 }
 
 .playbooks-upload-divider {
