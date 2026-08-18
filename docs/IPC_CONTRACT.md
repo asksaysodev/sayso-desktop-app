@@ -109,6 +109,7 @@ not a target.
 | `get-playbook-window-state` | send | |
 | `get-playbook-window-position` / `set-playbook-window-position` | invoke / send | |
 | `get-playbooks-cache` / `set-playbooks-cache` | invoke / send | |
+| `get-open-last-used-cache` / `set-open-last-used-cache` | invoke / send | Narrow single-field cache, not the rest of `coach_settings`. |
 | `get-enabled-features` | send | |
 | `set-font-size` | send | |
 | `set-tray-menu-height` | send | |
@@ -181,6 +182,7 @@ call site.
 | `enabled-features-changed` | Feature-flag push. |
 | `font-size-changed` | Font-size preference push. |
 | `playbooks-updated` | Playbooks cache changed. |
+| `open-last-used-updated` | `open_last_used` cache changed. |
 | `reset-to-home` | Route the renderer back to home. |
 | `splash:show-reason` | Splash routing reason. |
 | `app-settings:navigate-to-update` | Focus the Update tab in app settings. |

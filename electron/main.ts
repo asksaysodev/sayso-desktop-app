@@ -1633,30 +1633,6 @@ app.whenReady().then(async () => {
   // no stored token it returns cleanly and we fall through to the splash.
   await authManager.init();
 
-  // Hydrate the playbooks cache from disk now that we know (if anything)
-  // which account init() actually restored — before any window is created
-  // and can query get-playbooks-cache. A file left behind by a different
-  // account (or no signed-in account at all right now) is discarded rather
-  // than trusted, per SAYSO-367.
-  const playbooksDiskCache = readPlaybooksDiskCache();
-  if (playbooksDiskCache) {
-    if (playbooksDiskCache.accountId === authManager.getState().user?.id) {
-      global.playbooksCache = { playbooks: playbooksDiskCache.playbooks, error: playbooksDiskCache.error };
-    } else {
-      clearPlaybooksDiskCache();
-    }
-  }
-
-  // Same hydrate-then-validate treatment for the open_last_used cache.
-  const openLastUsedDiskCache = readOpenLastUsedDiskCache();
-  if (openLastUsedDiskCache) {
-    if (openLastUsedDiskCache.accountId === authManager.getState().user?.id) {
-      global.openLastUsedCache = openLastUsedDiskCache.openLastUsed;
-    } else {
-      clearOpenLastUsedDiskCache();
-    }
-  }
-
   // Re-validate auth on system wake and screen unlock so the first API call
   // after a sleep/lock cycle never races a half-connected network.
   //
@@ -1683,6 +1659,34 @@ app.whenReady().then(async () => {
 
   const authState = authManager.getState();
   if (authState.isAuthenticated) {
+    // Hydrate the playbooks + open_last_used caches from disk now that we
+    // have a *confirmed* signed-in user — before any window is created and
+    // can query get-playbooks-cache. Deliberately gated on isAuthenticated
+    // rather than running right after init(): on a transient (offline)
+    // init() failure, authManager.getState().user is null even though a
+    // valid session still exists (init() only failed to *refresh* it), and
+    // comparing a disk cache's accountId against that null would read as a
+    // mismatch and wrongly delete an otherwise-good cache. Skipping hydration
+    // entirely while unauthenticated is safe either way — no window can open
+    // to read the stale memory cache before a real sign-in re-populates it.
+    const playbooksDiskCache = readPlaybooksDiskCache();
+    if (playbooksDiskCache) {
+      if (playbooksDiskCache.accountId === authState.user?.id) {
+        global.playbooksCache = { playbooks: playbooksDiskCache.playbooks, error: playbooksDiskCache.error };
+      } else {
+        clearPlaybooksDiskCache();
+      }
+    }
+
+    const openLastUsedDiskCache = readOpenLastUsedDiskCache();
+    if (openLastUsedDiskCache) {
+      if (openLastUsedDiskCache.accountId === authState.user?.id) {
+        global.openLastUsedCache = openLastUsedDiskCache.openLastUsed;
+      } else {
+        clearOpenLastUsedDiskCache();
+      }
+    }
+
     if (!permissions.isPermissionsComplete()) {
       // Token restored but permissions flow was never completed — show splash.
       // PostAuthRedirect will see the user is authenticated and route to /permissions.
@@ -2673,7 +2677,14 @@ async function prefetchAndCacheOpenLastUsed(accessToken: string): Promise<void> 
       timeout: 8000,
     });
     const value = res.data?.coachSettings?.open_last_used;
-    applyOpenLastUsedCache(typeof value === 'boolean' ? value : true);
+    // Only cache a real value. A malformed/incomplete 200 (missing the
+    // field) is treated like a failure rather than persisting a guessed
+    // `true` — that would overwrite a legitimately cached `false`.
+    if (typeof value === 'boolean') {
+      applyOpenLastUsedCache(value);
+    } else {
+      console.warn('[open-last-used] prefetch response missing open_last_used — leaving cache as-is');
+    }
   } catch (err) {
     console.warn('[open-last-used] prefetch failed:', (err as Error)?.message);
     if (!isTransientNetworkError(err)) Sentry.captureException(err);

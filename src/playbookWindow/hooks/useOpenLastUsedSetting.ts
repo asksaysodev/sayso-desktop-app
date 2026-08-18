@@ -12,12 +12,17 @@ export function useOpenLastUsedSetting(): OpenLastUsedResult {
 
     useEffect(() => {
         let cancelled = false;
+        // Network is authoritative — once it resolves, a late-arriving cache
+        // response must not clobber it (they're independent async calls with
+        // no guaranteed ordering; main could be briefly busy with a disk
+        // write and answer the cache invoke after the HTTP round-trip lands).
+        let networkResolved = false;
         const ipcRenderer = window.electron?.ipcRenderer;
 
         // Cache-first: unblocks the playbook window's auto-select immediately
         // instead of waiting on the network call below (SAYSO-367 follow-up).
         ipcRenderer?.invoke('get-open-last-used-cache').then((cached) => {
-            if (cancelled) return;
+            if (cancelled || networkResolved) return;
             if (typeof cached === 'boolean') setOpenLastUsed(cached);
             setLoaded(true);
         });
@@ -33,6 +38,7 @@ export function useOpenLastUsedSetting(): OpenLastUsedResult {
         apiClient.get('sales-coach/settings')
             .then((res) => {
                 if (cancelled) return;
+                networkResolved = true;
                 const settings = res.data?.coachSettings;
                 if (settings && typeof settings.open_last_used === 'boolean') {
                     setOpenLastUsed(settings.open_last_used);
