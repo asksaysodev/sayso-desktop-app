@@ -342,6 +342,8 @@ authManager.on('signed-in', (state: AuthState) => {
       console.warn('[AuthManager] signed-in: features fetch failed', err?.message);
       if (!isTransientNetworkError(err)) Sentry.captureException(err);
     });
+    void prefetchAndCachePlaybooks(state.accessToken);
+    void prefetchAndCacheOpenLastUsed(state.accessToken);
   }
 });
 
@@ -353,6 +355,9 @@ authManager.on('signed-out', () => {
   onboardingStatusThisSession = null;
   cachedEnabledFeatures = [];
   global.playbooksCache = null;
+  clearPlaybooksDiskCache();
+  global.openLastUsedCache = null;
+  clearOpenLastUsedDiskCache();
   broadcastEnabledFeatures();
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat for unmigrated windows
@@ -379,6 +384,8 @@ authManager.on('token-refreshed', async (state: AuthState) => {
   if (startupOfflinePending && state.isAuthenticated) {
     startupOfflinePending = false;
     console.log('[MAIN] Startup-offline recovery — fetching profile and features');
+    void prefetchAndCachePlaybooks(state.accessToken!);
+    void prefetchAndCacheOpenLastUsed(state.accessToken!);
     const headers = { Authorization: `Bearer ${state.accessToken}` };
     const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
       axios.get(`${backendBaseUrl()}/accounts/${state.user?.email}`, { headers, timeout: 5000 }),
@@ -415,6 +422,9 @@ authManager.on('session-expired', () => {
   onboardingStatusThisSession = null;
   cachedEnabledFeatures = [];
   global.playbooksCache = null;
+  clearPlaybooksDiskCache();
+  global.openLastUsedCache = null;
+  clearOpenLastUsedDiskCache();
   broadcastEnabledFeatures();
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat
@@ -1623,6 +1633,30 @@ app.whenReady().then(async () => {
   // no stored token it returns cleanly and we fall through to the splash.
   await authManager.init();
 
+  // Hydrate the playbooks cache from disk now that we know (if anything)
+  // which account init() actually restored — before any window is created
+  // and can query get-playbooks-cache. A file left behind by a different
+  // account (or no signed-in account at all right now) is discarded rather
+  // than trusted, per SAYSO-367.
+  const playbooksDiskCache = readPlaybooksDiskCache();
+  if (playbooksDiskCache) {
+    if (playbooksDiskCache.accountId === authManager.getState().user?.id) {
+      global.playbooksCache = { playbooks: playbooksDiskCache.playbooks, error: playbooksDiskCache.error };
+    } else {
+      clearPlaybooksDiskCache();
+    }
+  }
+
+  // Same hydrate-then-validate treatment for the open_last_used cache.
+  const openLastUsedDiskCache = readOpenLastUsedDiskCache();
+  if (openLastUsedDiskCache) {
+    if (openLastUsedDiskCache.accountId === authManager.getState().user?.id) {
+      global.openLastUsedCache = openLastUsedDiskCache.openLastUsed;
+    } else {
+      clearOpenLastUsedDiskCache();
+    }
+  }
+
   // Re-validate auth on system wake and screen unlock so the first API call
   // after a sleep/lock cycle never races a half-connected network.
   //
@@ -1656,6 +1690,13 @@ app.whenReady().then(async () => {
       createSplashWindow();
     } else {
       const headers = { Authorization: `Bearer ${authState.accessToken}` };
+
+      // Not awaited: this is the common "app relaunched, still signed in"
+      // boot path, and playbooks prefetch has nothing to block on — the
+      // cache read above already hydrated whatever was on disk, and this
+      // just reconciles it in the background.
+      void prefetchAndCachePlaybooks(authState.accessToken!);
+      void prefetchAndCacheOpenLastUsed(authState.accessToken!);
 
       // Fetch profile, font size, and enabled features in parallel before any window opens.
       const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
@@ -2500,14 +2541,149 @@ ipcMain.on('set-playbook-window-position', (_event: Electron.IpcMainInvokeEvent,
   }
 });
 
-// --- Playbooks data cache (prewarmed by coach window, consumed by playbook window) ---
-ipcMain.on('set-playbooks-cache', (_event, payload: { playbooks: unknown[] | null; error: string | null }) => {
+// --- Playbooks data cache (prefetched at sign-in, consumed by the playbook window) ---
+//
+// global.playbooksCache is the in-memory copy every window reads via
+// get-playbooks-cache / playbooks-updated. playbooks-cache.json on disk exists
+// so a cold boot can hydrate that in-memory copy — and any window that opens
+// early — before the first network round-trip lands, not to be a second
+// source of truth. It's tagged with the account id it was written for
+// (SAYSO-367): one account's cached scripts must never flash onto a
+// different account's screen after a same-machine account switch, including
+// an unclean shutdown (crash/force-quit) that never got to run signed-out's
+// cleanup below.
+type PlaybooksCachePayload = { playbooks: unknown[] | null; error: string | null };
+
+const playbooksCachePath = () =>
+  path.join(app.getPath('userData'), 'playbooks-cache.json');
+
+function writePlaybooksDiskCache(accountId: string, payload: PlaybooksCachePayload): void {
+  try {
+    fs.writeFileSync(playbooksCachePath(), JSON.stringify({ accountId, ...payload, cachedAt: Date.now() }));
+  } catch (err) {
+    console.warn('[playbooks] could not persist disk cache:', (err as Error)?.message);
+  }
+}
+
+function clearPlaybooksDiskCache(): void {
+  try {
+    fs.rmSync(playbooksCachePath(), { force: true });
+  } catch {}
+}
+
+function readPlaybooksDiskCache(): (PlaybooksCachePayload & { accountId: string; cachedAt: number }) | null {
+  try {
+    return JSON.parse(fs.readFileSync(playbooksCachePath(), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+// Single choke point for every playbooks-cache write, whichever window or
+// process produced it (Settings edits, the playbook/coach window's own
+// revalidation fetch, or the sign-in-time prefetch below) — updates memory,
+// persists to disk tagged with the signed-in account, and tells an
+// already-open playbook window.
+function applyPlaybooksCache(payload: PlaybooksCachePayload): void {
   global.playbooksCache = payload;
+  const accountId = authManager.getState().user?.id;
+  if (accountId) writePlaybooksDiskCache(accountId, payload);
   if (isPlaybookWindowOpen()) {
     global.playbookWindow!.webContents.send('playbooks-updated', payload);
   }
+}
+
+// Fired from all three points main establishes a session (see the
+// signed-in/whenReady/token-refreshed call sites below) so the cache is warm
+// before the user ever opens the playbook window, not gated on the coach
+// window. Failures are logged but never overwrite a good cache with an
+// error — this runs silently in the background, and the playbook window's
+// own fetch (usePlaybookPrefetch) still gets a chance to surface a real
+// error state if the user opens it while genuinely offline.
+async function prefetchAndCachePlaybooks(accessToken: string): Promise<void> {
+  try {
+    const res = await axios.get(`${backendBaseUrl()}/playbooks`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: 8000,
+    });
+    applyPlaybooksCache({ playbooks: res.data?.playbooks ?? null, error: null });
+  } catch (err) {
+    console.warn('[playbooks] prefetch failed:', (err as Error)?.message);
+    if (!isTransientNetworkError(err)) Sentry.captureException(err);
+  }
+}
+
+ipcMain.on('set-playbooks-cache', (_event, payload: PlaybooksCachePayload) => {
+  applyPlaybooksCache(payload);
 });
 
 ipcMain.handle('get-playbooks-cache', () => {
   return global.playbooksCache ?? { playbooks: null, error: null };
+});
+
+// --- open_last_used cache (SAYSO-367 follow-up) ---
+//
+// Narrow, single-field mirror of the playbooks cache above — NOT a general
+// coach_settings cache. The playbook window's auto-select logic blocks on
+// this one boolean (whether to reopen the last-used script vs. the default),
+// and it was the only piece of PlaybookWindowApp's boot sequence still doing
+// a live, uncached fetch. Deliberately not extended to the rest of
+// coach_settings (buffer time, cue mode, etc.) — those have ~8 separate
+// mutation call sites in useCoachSettings.ts that would all need to push
+// through this same pipe to avoid drifting stale, which is a bigger, more
+// consequential change than this one field warranted.
+const openLastUsedCachePath = () =>
+  path.join(app.getPath('userData'), 'open-last-used-cache.json');
+
+function writeOpenLastUsedDiskCache(accountId: string, openLastUsed: boolean): void {
+  try {
+    fs.writeFileSync(openLastUsedCachePath(), JSON.stringify({ accountId, openLastUsed, cachedAt: Date.now() }));
+  } catch (err) {
+    console.warn('[open-last-used] could not persist disk cache:', (err as Error)?.message);
+  }
+}
+
+function clearOpenLastUsedDiskCache(): void {
+  try {
+    fs.rmSync(openLastUsedCachePath(), { force: true });
+  } catch {}
+}
+
+function readOpenLastUsedDiskCache(): { accountId: string; openLastUsed: boolean; cachedAt: number } | null {
+  try {
+    return JSON.parse(fs.readFileSync(openLastUsedCachePath(), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function applyOpenLastUsedCache(openLastUsed: boolean): void {
+  global.openLastUsedCache = openLastUsed;
+  const accountId = authManager.getState().user?.id;
+  if (accountId) writeOpenLastUsedDiskCache(accountId, openLastUsed);
+  if (isPlaybookWindowOpen()) {
+    global.playbookWindow!.webContents.send('open-last-used-updated', openLastUsed);
+  }
+}
+
+async function prefetchAndCacheOpenLastUsed(accessToken: string): Promise<void> {
+  try {
+    const res = await axios.get(`${backendBaseUrl()}/sales-coach/settings`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: 8000,
+    });
+    const value = res.data?.coachSettings?.open_last_used;
+    applyOpenLastUsedCache(typeof value === 'boolean' ? value : true);
+  } catch (err) {
+    console.warn('[open-last-used] prefetch failed:', (err as Error)?.message);
+    if (!isTransientNetworkError(err)) Sentry.captureException(err);
+  }
+}
+
+ipcMain.on('set-open-last-used-cache', (_event, openLastUsed: boolean) => {
+  applyOpenLastUsedCache(openLastUsed);
+});
+
+ipcMain.handle('get-open-last-used-cache', () => {
+  return global.openLastUsedCache ?? true;
 });

@@ -90,6 +90,13 @@ export default function useCoachSettings() {
             }
             Sentry.captureException(error);
         },
+        onSuccess: (data) => {
+            // Keep main's playbook-window cache in sync with the confirmed
+            // (server-persisted) value, not just the optimistic guess above —
+            // otherwise a toggle here wouldn't be reflected until the next
+            // sign-in/boot-time prefetch reconciles it (SAYSO-367 follow-up).
+            window.electron?.ipcRenderer?.send('set-open-last-used-cache', data.openLastUsed);
+        },
         onSettled: () => {
             queryClient.invalidateQueries({ queryKey: ['sales-coach-settings'] });
         },
