@@ -13,7 +13,6 @@ import RightSideButtons from './RightSideButtons';
 import useFontSize from '../hooks/useFontSize';
 import usePulseMarketProperty from '../hooks/usePulseMarketProperty';
 import ZipCodeDropdown from './ZipCodeDropdown';
-import { usePlaybookPrefetch } from '@/playbookWindow/hooks/usePlaybookPrefetch';
 import Pulse from './Pulse';
 import { reportCoachError } from '@/utils/errorReporting';
 import { CUE_CONNECTIVITY_MESSAGE } from '../helpers/cueErrorMessage';
@@ -74,7 +73,6 @@ export default function CoachWindowMain() {
     const isPulseEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('pulse'));
     const currentfs = useFontSize();
     const { isReconnecting } = useNetworkState();
-    usePlaybookPrefetch();
     const [zipCodeValue, setZipCodeValue] = useState<string>("")
     const [isZipDropdownOpen, setIsZipDropdownOpen] = useState<boolean>(false);
     const [insightsListMaxHeight, setInsightsListMaxHeight] = useState<number | undefined>(undefined);
