@@ -57,7 +57,7 @@ After changing anything in `electron/*.ts`, run `npm run build:electron` — Ele
   | `splash-window.html` | `src/splashWindow/` | Login / MFA / permissions / update prompt |
   | `tray-menu.html` | `src/trayMenu/` | Custom tray popover (the app's primary UI) |
   | `coach-window.html` | `src/coachWindow/` | Floating always-on-top coaching overlay |
-  | `playbook-window.html` | `src/playbookWindow/` | Playbook panel, docks right of the coach. ⌘F find + cross-playbook search: `docs/PLAYBOOK_FIND.md` |
+  | `playbook-window.html` | `src/playbookWindow/` | Playbook panel, docks right of the coach. ⌘F find within the open playbook: `docs/PLAYBOOK_FIND.md` |
   | `app-settings-window.html` | `src/appSettingsWindow/` | Settings incl. Software Update tab |
   | `onboarding-window.html` | `src/onboardingWindow/` | First-run onboarding |
 

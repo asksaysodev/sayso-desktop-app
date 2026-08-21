@@ -1,23 +1,16 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Spinner } from '@/components/ui/spinner';
 import { usePlaybooksCache } from './hooks/usePlaybooksCache';
 import { usePlaybookPrefetch } from './hooks/usePlaybookPrefetch';
 import { useOpenLastUsedSetting } from './hooks/useOpenLastUsedSetting';
 import {
     PlaybookMatch,
-    PlaybookSuggestion,
-    buildSuggestions,
     findMatches,
     indexAtOrAfter,
 } from './helpers/searchPlaybook';
 import PlaybookHeader from './components/PlaybookHeader';
 import PlaybookSelector from './components/PlaybookSelector';
 import PlaybookBody from './components/PlaybookBody';
-import FindSuggestions from './components/FindSuggestions';
-
-// Gap between the results dropdown and the highlighted text it would otherwise sit on top of.
-const RESULTS_GAP_PX = 12;
 
 const LAST_USED_KEY = 'sayso:lastUsedPlaybookId';
 
@@ -30,12 +23,10 @@ export default function PlaybookWindowApp() {
     const dropdownRef = useRef<HTMLDivElement | null>(null);
     const [query, setQuery] = useState('');
     const [activeMatchIndex, setActiveMatchIndex] = useState(0);
-    const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
     const [findFocusToken, setFindFocusToken] = useState(0);
-    // Document position of the last active match, so narrowing a query resumes nearby.
+    // Document position of the last active match, so refining a query resumes nearby.
+    // Only consulted while a query is live — a search typed from empty starts at match 0.
     const matchAnchorRef = useRef<PlaybookMatch | null>(null);
-    const resultsRef = useRef<HTMLDivElement | null>(null);
-    const [resultsOffset, setResultsOffset] = useState(0);
 
     // Same order as Settings → Playbooks → Scripts: the server sorts by the
     // account's stored playbook_order, so no client-side re-sort here.
@@ -89,17 +80,6 @@ export default function PlaybookWindowApp() {
 
     const hasNoMatches = matches.length === 0;
 
-    // Live, not just a zero-match fallback: a query can be relevant to other playbooks
-    // even while the open one also has hits.
-    const suggestions = useMemo(() => {
-        if (!query) return [];
-        return buildSuggestions(playbooks, selectedId, query);
-    }, [query, playbooks, selectedId]);
-
-    // Suppressed when the open playbook already has matches and no other playbook is
-    // relevant — an empty "no other results" panel would be pure noise in that case.
-    const showResults = query.length > 0 && (hasNoMatches || suggestions.length > 0);
-
     // Adjusted during render, not in an effect: an effect would paint one stale frame
     // (e.g. "8/3") whenever a query narrows.
     const [lastSelectedId, setLastSelectedId] = useState(selectedId);
@@ -108,45 +88,20 @@ export default function PlaybookWindowApp() {
         setLastSelectedId(selectedId);
         setLastQuery(query);
         setActiveMatchIndex(0);
-        setActiveSuggestionIndex(0);
     } else if (query !== lastQuery) {
         setLastQuery(query);
-        setActiveMatchIndex(indexAtOrAfter(matches, matchAnchorRef.current));
-        setActiveSuggestionIndex(0);
+        // A search started from an empty field jumps to the top of the playbook;
+        // refining a live query keeps the reader where they were (the nearest match
+        // going forward), so typing one more character doesn't yank them back up.
+        setActiveMatchIndex(lastQuery ? indexAtOrAfter(matches, matchAnchorRef.current) : 0);
     }
 
     const effectiveMatchIndex = hasNoMatches ? 0 : Math.min(activeMatchIndex, matches.length - 1);
-    const effectiveSuggestionIndex =
-        suggestions.length === 0 ? 0 : Math.min(activeSuggestionIndex, suggestions.length - 1);
 
     useEffect(() => {
         const active = matches[effectiveMatchIndex];
         if (active) matchAnchorRef.current = active;
     }, [matches, effectiveMatchIndex]);
-
-    // Reserves room in the scrollable body so the results dropdown (which floats over the
-    // top of it, anchored to the header) never covers an active highlighted match. Measured
-    // rather than a fixed constant because the dropdown's height varies with result count;
-    // animated via the `.playbook-body` transition so the growth/shrink isn't a hard jump.
-    // A ResizeObserver (not just the dependency list below) keeps this in sync if the
-    // window is resized while the dropdown is up and its content reflows to a different
-    // height without `suggestions`/`hasNoMatches` themselves changing.
-    useLayoutEffect(() => {
-        if (!showResults) {
-            setResultsOffset(0);
-            return;
-        }
-        const el = resultsRef.current;
-        if (!el) return;
-        const measure = () => {
-            const height = el.offsetHeight;
-            setResultsOffset(height > 0 ? height + RESULTS_GAP_PX : 0);
-        };
-        measure();
-        const observer = new ResizeObserver(measure);
-        observer.observe(el);
-        return () => observer.disconnect();
-    }, [showResults, suggestions, hasNoMatches]);
 
     const handleClose = () => {
         window.electron?.ipcRenderer?.send('close-playbook-window');
@@ -163,9 +118,8 @@ export default function PlaybookWindowApp() {
         matchAnchorRef.current = null;
     };
 
-    // Opening the playbook selector while a query is still live would stack it directly on
-    // top of the still-showing results dropdown — both are absolutely positioned at the same
-    // spot under the header. Clearing the query here closes the results dropdown first.
+    // A query belongs to the playbook it was typed against, so it's dropped when the
+    // selector opens rather than carried over to whichever playbook is picked next.
     const toggleSelectorDropdown = () => {
         setIsDropdownOpen((isOpen) => {
             const next = !isOpen;
@@ -177,15 +131,6 @@ export default function PlaybookWindowApp() {
     const stepMatch = (delta: number) => {
         if (hasNoMatches) return;
         setActiveMatchIndex((effectiveMatchIndex + delta + matches.length) % matches.length);
-    };
-
-    const handleSuggestionSelect = (suggestion: PlaybookSuggestion) => {
-        handleSelect(suggestion.playbookId);
-        // Always closes the dropdown, not just for name-only hits: otherwise, after jumping
-        // to a content match, the query stays live and the dropdown reopens over the new
-        // playbook (now listing whatever still matches, possibly including the one you just
-        // left) instead of just landing you on the result you picked.
-        clearQuery();
     };
 
     const hasContent = !isLoading && !error && !!playbooks && playbooks.length > 0;
@@ -221,28 +166,14 @@ export default function PlaybookWindowApp() {
                 return;
             }
 
-            if (suggestions.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-                e.preventDefault();
-                const delta = e.key === 'ArrowDown' ? 1 : -1;
-                setActiveSuggestionIndex(
-                    (effectiveSuggestionIndex + delta + suggestions.length) % suggestions.length,
-                );
-                return;
-            }
-
             if (e.key === 'Enter') {
                 e.preventDefault();
-                if (suggestions.length > 0) {
-                    const suggestion = suggestions[effectiveSuggestionIndex];
-                    if (suggestion) handleSuggestionSelect(suggestion);
-                    return;
-                }
                 stepMatch(e.shiftKey ? -1 : 1);
             }
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [query, isDropdownOpen, suggestions, effectiveSuggestionIndex, matches, effectiveMatchIndex, hasContent]);
+    }, [query, isDropdownOpen, matches, effectiveMatchIndex, hasContent]);
 
     return (
         <div className="playbook-window-container">
@@ -256,16 +187,12 @@ export default function PlaybookWindowApp() {
                     activeMatchIndex={effectiveMatchIndex}
                     hasMatches={!hasNoMatches}
                     focusToken={findFocusToken}
-                    activeSuggestionId={
-                        suggestions.length > 0
-                            ? `playbook-suggestion-${suggestions[effectiveSuggestionIndex]?.playbookId}`
-                            : undefined
-                    }
                     onToggleDropdown={toggleSelectorDropdown}
                     onQueryChange={setQuery}
                     onQueryFocus={() => setIsDropdownOpen(false)}
                     onNext={() => stepMatch(1)}
                     onPrevious={() => stepMatch(-1)}
+                    onClearQuery={clearQuery}
                     onClose={handleClose}
                 />
                 {isDropdownOpen && playbooks && (
@@ -274,15 +201,6 @@ export default function PlaybookWindowApp() {
                         selectedId={selectedId}
                         onSelect={handleSelect}
                     />
-                )}
-                {showResults && (
-                    <div ref={resultsRef} className="playbook-search-results">
-                        <FindSuggestions
-                            suggestions={suggestions}
-                            activeIndex={effectiveSuggestionIndex}
-                            onSelect={handleSuggestionSelect}
-                        />
-                    </div>
                 )}
             </div>
 
@@ -306,10 +224,7 @@ export default function PlaybookWindowApp() {
             )}
 
             {hasContent && (
-                <div
-                    className="playbook-content-region"
-                    style={{ '--pbw-search-offset': `${resultsOffset}px` } as CSSProperties}
-                >
+                <div className="playbook-content-region">
                     <PlaybookBody
                         playbook={selectedPlaybook}
                         matches={matches}

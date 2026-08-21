@@ -51,7 +51,11 @@ body {
 
 .playbook-header {
     display: flex;
-    align-items: center;
+    /* stretch, not center: the title trigger's hover pill and the search box are
+       sized by different font tokens (title vs small) that scale at different
+       rates, so matching them by padding would need re-tuning per font tier.
+       Stretching makes the shorter one adopt the taller one's height. */
+    align-items: stretch;
     justify-content: space-between;
     gap: 8px;
     padding: 4px 6px 8px 0px;
@@ -93,13 +97,16 @@ body {
 
 .playbook-header-actions {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: 10px;
     min-width: 0;
     flex-shrink: 1;
 }
 
-/* ===== Header search ===== */
+/* ===== Header search =====
+   Boxed rather than underlined: .playbook-header-actions also holds the window
+   close button, so the border groups field + counter + prev/next into one unit
+   that reads as separate from it. Radius matches .playbook-title-trigger. */
 .playbook-search {
     -webkit-app-region: no-drag;
     display: flex;
@@ -107,6 +114,13 @@ body {
     gap: 6px;
     min-width: 0;
     flex-shrink: 1;
+    padding: 1px 4px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 6px;
+    transition: border-color 120ms ease;
+}
+.playbook-search:focus-within {
+    border-color: rgba(255, 255, 255, 0.45);
 }
 
 .playbook-search-field {
@@ -114,13 +128,10 @@ body {
     align-items: center;
     gap: 5px;
     flex: 1 1 128px;
-    min-width: 180px;
-    padding: 3px 2px 5px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.16);
-    transition: border-color 120ms ease;
-}
-.playbook-search-field:focus-within {
-    border-color: rgba(255, 255, 255, 0.45);
+    /* 174 rather than 180: the box adds 10px of horizontal chrome (padding +
+       border), and the header's min-widths are tuned against a fixed width. */
+    min-width: 174px;
+    padding: 2px 0;
 }
 
 .playbook-search-icon {
@@ -146,6 +157,8 @@ body {
 
 .playbook-close-button {
     -webkit-app-region: no-drag;
+    /* Opts out of the header's stretch: stays a 24px square. */
+    align-self: center;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -251,12 +264,7 @@ body {
     flex: 1;
     overflow-y: auto;
     padding: 4px 6px 6px 6px;
-    /* Reserves room under the header's results dropdown so it never covers an active
-       highlighted match; the extra amount is set inline per-render from the dropdown's
-       measured height, added on top of (not replacing) the base 4px top padding. */
-    padding-top: calc(4px + var(--pbw-search-offset, 0px));
-    scroll-padding-top: calc(4px + var(--pbw-search-offset, 0px));
-    transition: padding-top 180ms ease;
+    scroll-padding-top: 4px;
     user-select: text;
 }
 
@@ -317,17 +325,6 @@ body {
     font-weight: 600;
 }
 
-/* ===== Search results dropdown (anchored below the header) ===== */
-.playbook-search-results {
-    -webkit-app-region: no-drag;
-    position: absolute;
-    top: 100%;
-    left: 6px;
-    right: 6px;
-    margin-top: 4px;
-    z-index: 9;
-}
-
 .playbook-find-counter {
     flex-shrink: 0;
     font-size: var(--pbw-fs-small);
@@ -360,6 +357,15 @@ body {
     background: rgba(255, 255, 255, 0.10);
 }
 
+/* Same 22px target as the arrows, but dimmer: stepping through matches is the
+   primary action, clearing is the escape hatch. */
+.playbook-find-clear {
+    color: #9FB1C9;
+}
+.playbook-find-clear:hover {
+    color: #DBE4F0;
+}
+
 /* ===== Find matches ===== */
 .playbook-find-match {
     background: rgba(255, 214, 102, 0.32);
@@ -374,92 +380,6 @@ body {
 }
 .playbook-find-match.is-active .playbook-highlight-bracket {
     color: inherit;
-}
-
-/* ===== Cross-playbook suggestions ===== */
-.playbook-find-panel {
-    background: #232F42;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 8px;
-    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
-    overflow: hidden;
-}
-
-.playbook-find-panel-header {
-    padding: 10px 12px 8px;
-    font-size: var(--pbw-fs-pill);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: #8CA0BA;
-}
-
-.playbook-find-suggestions {
-    list-style: none;
-    margin: 0;
-    padding: 0 0 8px;
-    max-height: 220px;
-    overflow-y: auto;
-}
-
-.playbook-find-suggestion {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 9px 12px;
-    cursor: pointer;
-}
-.playbook-find-suggestion:hover {
-    background: #2C3A50;
-}
-.playbook-find-suggestion.is-active {
-    background: #3C4C66;
-}
-
-.playbook-find-suggestion-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 10px;
-}
-
-.playbook-find-suggestion-label {
-    font-size: var(--pbw-fs-body);
-    font-weight: 600;
-    color: #F2F6FC;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.playbook-find-suggestion-count {
-    flex-shrink: 0;
-    font-size: var(--pbw-fs-small);
-    color: #A9B8CC;
-    white-space: nowrap;
-}
-
-.playbook-find-suggestion-snippet {
-    font-size: var(--pbw-fs-small);
-    line-height: 1.5;
-    color: #C3CFDF;
-}
-.playbook-find-suggestion .playbook-find-match {
-    box-shadow: none;
-}
-
-.playbook-find-empty {
-    padding: 16px 14px;
-}
-.playbook-find-empty-title {
-    font-size: var(--pbw-fs-body);
-    font-weight: 600;
-    color: #F2F6FC;
-    margin-bottom: 4px;
-}
-.playbook-find-empty-hint {
-    font-size: var(--pbw-fs-small);
-    line-height: 1.5;
-    color: #9FB1C9;
 }
 /* ===== Generic state messages (loading / error / empty) ===== */
 .playbook-state-message {

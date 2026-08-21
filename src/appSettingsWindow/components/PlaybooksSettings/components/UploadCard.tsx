@@ -93,7 +93,10 @@ export default function UploadCard({
     const errorMessage = validationError ?? uploadError;
 
     return (
-        <div id="playbooks-upload" className={`playbooks-upload-card ${disabled ? 'disabled' : ''}`}>
+        <div
+            id="playbooks-upload"
+            className={`playbooks-upload-card ${file ? '' : 'no-file'} ${disabled ? 'disabled' : ''}`}
+        >
             {file ? (
                 <div className="playbooks-drop-file">
                     <span className="playbooks-drop-file-name" title={file.name}>
