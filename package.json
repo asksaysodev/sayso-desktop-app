@@ -10,7 +10,7 @@
   "scripts": {
     "start": "electron .",
     "build:electron": "tsc -p tsconfig.electron.json",
-    "dev": "NODE_ENV=development concurrently \"vite\" \"npm run build:electron && electron electron/main.js\"",
+    "dev": "cross-env NODE_ENV=development concurrently \"vite\" \"npm run build:electron && electron electron/main.js\"",
     "build": "vite build --mode production",
     "build:staging": "vite build --mode staging",
     "clean": "rm -rf dist/ release/ release-staging/ node_modules/.cache electron/native-audio/build .vite",
@@ -70,6 +70,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "concurrently": "^8.2.2",
+    "cross-env": "^10.1.0",
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.19",
     "electron": "^36.4.0",
