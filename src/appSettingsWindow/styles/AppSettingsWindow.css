@@ -541,6 +541,29 @@ body {
     pointer-events: none;
 }
 
+/* Before a file is picked the drop zone is the card's only real content, so the
+   card gives up its padding and the zone absorbs it (14 + 12 vertical, 14 + 14
+   horizontal). Same outer box, same text position — the click/hover/drag target
+   just now reaches the dashed border instead of stopping 14px short. */
+.playbooks-upload-card.no-file {
+    padding: 0;
+    /* The zone's own bottom padding already provides the 26px the gap used to
+       add, so keeping the gap here would double-space the message below it. */
+    gap: 0;
+}
+
+.playbooks-upload-card.no-file .playbooks-drop-zone {
+    padding: 26px 28px;
+    /* Inside of the card's 1px border on a 12px radius. */
+    border-radius: 11px;
+}
+
+/* Re-inset the messages the card padding used to inset. */
+.playbooks-upload-card.no-file .playbooks-upload-message,
+.playbooks-upload-card.no-file .playbooks-upload-error {
+    padding: 0 14px 14px;
+}
+
 .playbooks-drop-zone {
     display: flex;
     align-items: center;
