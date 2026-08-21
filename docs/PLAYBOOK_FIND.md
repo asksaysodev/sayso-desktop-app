@@ -1,18 +1,19 @@
 # Playbook Window Find (⌘F)
 
 > **Audience:** anyone touching the playbook window's search, highlighting, or block rendering.
-> **Scope:** in-playbook find and cross-playbook suggestions. Renderer-only — no server, no new IPC channels.
-> **Last updated:** 2026-08-14 (SAYSO-366, superseding SAYSO-340's floating-bar UI).
+> **Scope:** find within the playbook currently on view. Renderer-only — no server, no new IPC channels.
+> **Last updated:** 2026-08-21 (SAYSO-377, reducing SAYSO-366's cross-playbook scope back to a single-document find.)
 
 ---
 
 ## TL;DR
 
-- Search lives as a persistent input in the playbook header (`playbook-search`), not a bar you have to summon. ⌘F (Ctrl+F on Windows) just focuses/selects it; Esc clears the query. There is no more open/closed state — visibility of matches and results is driven entirely by whether `query` is non-empty.
+- Search lives as a persistent input in the playbook header (`playbook-search`), not a bar you have to summon. ⌘F (Ctrl+F on Windows) just focuses/selects it; Esc clears the query. There is no open/closed state — visibility of the counter and highlights is driven entirely by whether `query` is non-empty.
+- **Only the open playbook is searched.** No other playbook is scanned, and there is no results dropdown. See "What we deliberately did NOT do" — this was built twice and removed once, so read that before adding it back.
 - Search is case-insensitive plain substring across `h2`/`p` text and every `ul` item. No regex, no fuzzy matching — a query containing `[` or `$` is matched literally.
 - **A match is a set of coordinates, not a DOM node.** `findMatches` returns `{blockIndex, itemIndex, start, end}` in document order; the DOM is rebuilt from those coordinates on every render.
 - **The array position *is* the match identity.** `matches[3]` is match "4/N" in the counter, is `data-match-index="3"` in the DOM, is the scroll target. Nothing carries an ID.
-- The cross-playbook results dropdown is **live**: it shows as soon as there's a query, not just when the open playbook has zero matches (that was SAYSO-340's rule; SAYSO-366 deliberately reverses it — see "Cross-playbook suggestions" below). It's suppressed only when the open playbook already has hits and no other playbook is relevant, to avoid an empty panel for no reason.
+- A query typed into an empty field lands on match 1 and scrolls there. Refining a live query keeps the reader in place instead — see "Which match is active" below.
 - Everything runs against `usePlaybooksCache`, which already holds every playbook with its full `blocks[]`.
 
 ---
@@ -35,6 +36,21 @@ These are the things that break silently. Three of them were real bugs caught in
 
 ---
 
+## Which match is active
+
+Rebuilding `matches` on every keystroke means the previous active index is meaningless — there may now be three matches where there were twelve. Two different answers apply, decided in the render-phase block described in invariant 3:
+
+| Query change | Active match |
+|---|---|
+| empty → non-empty (a new search) | `0` — the first match in document order, scrolled into view |
+| non-empty → non-empty (refining) | `indexAtOrAfter(matches, matchAnchorRef.current)` — the first match at or after where the reader was parked |
+
+`matchAnchorRef` holds the *coordinates* of the last active match (updated in an effect whenever `matches`/`effectiveMatchIndex` change), so refining survives the array being thrown away. Without it, typing one more character while parked at match 8 would snap the reader back to the top of the playbook mid-call.
+
+`clearQuery` (Esc, the ✕ button, opening the selector) nulls the anchor, so the next search is unambiguously a new one. Switching playbooks resets the index to `0` outright.
+
+---
+
 ## Highlight rendering
 
 `formatText` has to apply **two independent, possibly overlapping** decorations to one string: the pre-existing blue `[bracket]` spans and the amber match marks. Overlapping ranges can't nest arbitrarily in HTML, so it cuts the string at every boundary of every range, leaving each segment wholly inside or wholly outside each decoration, then styles per segment:
@@ -48,8 +64,6 @@ These are the things that break silently. Three of them were real bugs caught in
 
 A match that *straddles* a bracket edge becomes two adjacent `<mark>`s sharing one `data-match-index`. `querySelector` takes the first, so cycling and scrolling still work; the two pills render contiguously. Known cosmetic edge, not worth complicating the segmenter.
 
-`helpers/highlightText.tsx` is the separate, simpler renderer used for suggestion names and snippets. It deliberately does **not** apply bracket styling, so a playbook named `[Draft] FSBO` stays literal. Don't merge the two.
-
 ---
 
 ## Keyboard contract
@@ -60,38 +74,23 @@ All find keys live in one `window` keydown listener in `PlaybookWindowApp`, not 
 |---|---|
 | ⌘F / Ctrl+F | Focus and select the header search input. Ignores `e.repeat`. Closes the selector dropdown. |
 | Esc | Layered: closes the selector dropdown if open, else clears the query, else nothing. |
-| Enter / ⇧Enter | Next / previous match, wrapping. When the results dropdown is up, Enter opens the highlighted suggestion instead. |
+| Enter / ⇧Enter | Next / previous match, wrapping. |
 | ⌘G / ⌘⇧G | Next / previous match (macOS find-again convention). |
-| ↑ / ↓ | Move through suggestions — only when the dropdown is showing, so arrows still scroll the body otherwise. |
+| ↑ / ↓ | Nothing — they scroll the playbook body, as they would with no find at all. |
 
-`focusToken` is a counter, not a flag: pressing ⌘F while the input is already focused changes no boolean, so nothing would re-render and the input would stay as-is. Bumping a number always produces a new effect dependency. `PlaybookHeader` skips the effect on the initial `focusToken === 0` — the input is now always mounted, so a mount-time focus would steal keyboard focus the instant the window opens.
-
----
-
-## Cross-playbook suggestions
-
-**Live as of SAYSO-366**, reversing SAYSO-340's original "only when the open playbook has zero matches" rule. `buildSuggestions` now runs for any non-empty query regardless of local match state — a query can be relevant to another playbook even while the open one also has hits.
-
-`showResults` in `PlaybookWindowApp` is `query.length > 0 && (hasNoMatches || suggestions.length > 0)`: the dropdown is suppressed only in the specific case where the open playbook already has matches *and* no other playbook has anything — an empty "no other results" panel would be pure noise there. It's still shown for the true zero-everywhere case (the original "No results" empty state survives unchanged).
-
-- Only `ready` playbooks qualify. The selector refuses to open the others, so a row for one would be a dead end.
-- Only the **displayed** name is searched (`alias || file_name`). A hidden `file_name` behind an alias is not matched — a suggestion appearing for invisible text is baffling.
-- Sort: name matches first, then by content match count descending.
-- A row shows `N matches` plus a snippet, or `Name match` with no snippet when only the title matched.
-- Selecting **any** suggestion — content or name-only — jumps to that playbook and clears the query, closing the dropdown. It used to stay live for content hits, but that left the dropdown open (now listing whatever still matches, possibly including the playbook you just left) hovering over the playbook you just navigated to.
-- If nothing matches anywhere, the panel is replaced by a plain "No results" state.
-
-**Why this matters for layout:** because the dropdown can now appear while the open playbook *also* has an active highlighted match, it's no longer structurally impossible for the dropdown to cover that match (under SAYSO-340's rule this couldn't happen — the panel only ever showed when there was nothing highlighted to cover). See Layout below for how this is handled.
+`focusToken` is a counter, not a flag: pressing ⌘F while the input is already focused changes no boolean, so nothing would re-render and the input would stay as-is. Bumping a number always produces a new effect dependency. `PlaybookHeader` skips the effect on the initial `focusToken === 0` — the input is always mounted, so a mount-time focus would steal keyboard focus the instant the window opens.
 
 ---
 
 ## Layout
 
-The search input lives in normal document flow in the header (`PlaybookHeader`), not floating over the body — it no longer needs any headroom compensation itself. The counter and prev/next buttons render inline in that same header row when there's a query, sharing space with the title (see the flex-basis/min-width tuning on `.playbook-title-trigger` / `.playbook-search-field` — both need a floor so a long alias or a long query doesn't crush the other to unreadable).
+`.playbook-search` is a bordered, 6px-radius box in normal document flow in the header (`PlaybookHeader`), grouping the input, the `N/M` counter, the prev/next chevrons and the ✕ clear button. The border is on the *container*, not the input: `.playbook-header-actions` also holds the window close button, and without it the find controls read as loose siblings of that button. `:focus-within` brightens the border.
 
-The results dropdown (`.playbook-search-results`) is absolutely positioned below `.playbook-header-region`, the same pattern as `.playbook-selector`. Being absolutely positioned, it floats over the top of `.playbook-content-region` when shown — and because suggestions are now live (see above), it can do this while the body has an active highlighted match.
+Nothing about find floats over the body, so `.playbook-body` reserves no headroom — it has a flat 4px `padding-top` / `scroll-padding-top`, the latter only so `scrollIntoView` doesn't butt the active match against the header.
 
-`.playbook-body` reserves room for this with `padding-top` / `scroll-padding-top` driven by a `--pbw-search-offset` CSS custom property, set inline on `.playbook-content-region` from `PlaybookWindowApp`. Unlike SAYSO-340's fixed constant (sized for a single-row bar), this is **measured**: a ref on the results wrapper reads `offsetHeight` in a `useLayoutEffect` (so it's set before paint, no flash of overlapped content) whenever `showResults`/`suggestions`/`hasNoMatches` change, and `0` when nothing is showing. `padding-top` transitions (180ms ease) so the reserved space grows/shrinks smoothly instead of snapping — the dropdown's height varies a lot with result count, so a hard jump would be jarring. `scroll-padding-top` is set to the same value but isn't animated (it only affects `scrollIntoView` math at call time, not paint).
+The header row is `align-items: stretch` (with `align-self: center` on the close button, which stays a 24px square). The title trigger's hover pill is sized by `--pbw-fs-title` and the search box by `--pbw-fs-small`; those tokens scale at different rates across the S/M/L font settings, so matching the two by padding would need re-tuning per tier. Stretching makes the shorter one adopt the taller one's height at every size.
+
+`.playbook-search-field` carries `min-width: 174px` and `.playbook-title-trigger` `min-width: 64px` — both floors tuned so a long alias and a long query can't crush each other. The 174 is 180 minus the 10px of horizontal chrome (padding + border) the box added; re-tune both together if the default window width changes.
 
 Every interactive element needs `-webkit-app-region: no-drag` — the window container is a drag region, and forgetting this makes clicks silently dead.
 
@@ -101,11 +100,12 @@ The body's `scrollTop` is reset when `playbook.id` changes: the scroller is the 
 
 ## What we deliberately did NOT do
 
+- **No cross-playbook search.** SAYSO-340 added a results dropdown listing other playbooks matching the query, and SAYSO-366 made it live for every query rather than only for zero-match ones. SAYSO-377 removed it after usability review: the panel is absolutely positioned over the top of the body, its height changes as you type (the body's `padding-top` had to be measured and animated to compensate), and it competes for attention with the highlighted match the user is actually reading. On a live call that is noise. Re-adding it means re-adding the measured-offset machinery — treat that as the real cost, not the search itself, which is only a scan over `usePlaybooksCache`.
 - **No `globalShortcut` for ⌘F.** It would steal ⌘F from every other app on the machine, including the call the user is on. Find requires window focus, like every native app.
-- **No debounce.** After the single-pass rewrite this is one `indexOf`-class scan over in-memory strings per playbook. Adding latency to a tool used live on calls should follow a measurement, not a guess.
+- **No debounce.** This is one `indexOf`-class scan over the open playbook's in-memory strings per keystroke. Adding latency to a tool used live on calls should follow a measurement, not a guess.
 - **No query trimming.** A whitespace-only query matches every space, same as Chrome. Trimming would break phrase searches containing spaces.
 - **No client-side dedupe of `block.index`.** See invariant 5.
-- **No fixed-height headroom constant for the results dropdown.** SAYSO-340 could get away with one because it only ever compensated for a single-row bar. Now that the dropdown's height varies with result count, a fixed constant would either waste space (short lists) or under-reserve (long lists) — see Layout.
+- **No zero-match messaging beyond the counter.** A query that matches nothing shows `0/0` in the counter's muted style and nothing else — no panel, no layout shift, no scroll.
 
 ---
 
@@ -113,15 +113,13 @@ The body's `scrollTop` is reset when `playbook.id` changes: the scroller is the 
 
 | File | What it owns |
 |---|---|
-| `src/playbookWindow/helpers/searchPlaybook.ts` | All matching. `findMatches`, `buildSuggestions`, `matchKey`, `indexAtOrAfter`, snippet building. Pure — no React. |
+| `src/playbookWindow/helpers/searchPlaybook.ts` | All matching. `findMatches`, `matchKey`, `indexAtOrAfter`. Pure — no React. |
 | `src/playbookWindow/helpers/blocks.ts` | `sortBlocks`, shared by search and render. |
 | `src/playbookWindow/helpers/formatText.tsx` | Boundary splitting for bracket + match styling. |
-| `src/playbookWindow/helpers/highlightText.tsx` | Plain range highlighting for names and snippets. |
 | `src/playbookWindow/helpers/renderBlock.tsx` | Threads per-block highlight ranges into block markup. |
-| `src/playbookWindow/PlaybookWindowApp.tsx` | Find state, keyboard contract, index adjustment, suggestion selection, the results-offset measurement effect. |
-| `src/playbookWindow/components/PlaybookHeader.tsx` | Title trigger + the search field, counter, prev/next, close — all in the header row now. |
+| `src/playbookWindow/PlaybookWindowApp.tsx` | Find state, keyboard contract, active-index adjustment. |
+| `src/playbookWindow/components/PlaybookHeader.tsx` | Title trigger + the search box: input, counter, prev/next, clear, window close. |
 | `src/playbookWindow/components/PlaybookBody.tsx` | Groups matches per block, scrolls the active one into view. |
-| `src/playbookWindow/components/FindSuggestions.tsx` | Results dropdown and the "No results" state. Positioned by the wrapping `.playbook-search-results` in `PlaybookWindowApp`, not by anything in this file. |
 | `src/utils/platform.ts` | Renderer mirror of `electron/utils/platform.ts`, reading `window.sayso.platform`. Used for the ⌘F / Ctrl+F hint. |
 
 ---
@@ -129,6 +127,6 @@ The body's `scrollTop` is reset when `playbook.id` changes: the scroller is the 
 ## When to revisit this
 
 - If playbooks grow large enough that per-keystroke scanning shows up in a profile — measure first, then debounce or index.
-- If the header feels cramped on narrow windows: `.playbook-title-trigger` (min 64px) and `.playbook-search-field` (min 76px) both have floors tuned against a ~322px header content width. A narrower default window size would need these re-tuned.
+- If the header feels cramped on narrow windows: see the `min-width` floors in Layout.
 - If the server ever emits non-unique `block.index` values (invariant 5).
 - If find is wanted in the coach window too — the helpers are pure and portable; only the state and layout are playbook-specific.

@@ -1,4 +1,4 @@
-import { Playbook, PlaybookBlock } from '../types';
+import { PlaybookBlock } from '../types';
 import { sortBlocks } from './blocks';
 
 export const BLOCK_TEXT_KEY = -1;
@@ -11,27 +11,10 @@ export interface PlaybookMatch {
     end: number;
 }
 
-export interface TextRange {
+interface TextRange {
     start: number;
     end: number;
 }
-
-export interface SuggestionSnippet {
-    text: string;
-    start: number;
-    end: number;
-}
-
-export interface PlaybookSuggestion {
-    playbookId: string;
-    label: string;
-    labelRanges: TextRange[];
-    /** 0 for a name-only match. */
-    matchCount: number;
-    snippet: SuggestionSnippet | null;
-}
-
-const SNIPPET_RADIUS = 26;
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -60,13 +43,6 @@ function blockTexts(block: PlaybookBlock): Array<{ itemIndex: number; text: stri
         return block.items.map((text, itemIndex) => ({ itemIndex, text }));
     }
     return [{ itemIndex: BLOCK_TEXT_KEY, text: block.text }];
-}
-
-function textForMatch(sorted: PlaybookBlock[], match: PlaybookMatch): string {
-    const block = sorted.find((b) => b.index === match.blockIndex);
-    if (!block) return '';
-    if (block.type === 'ul') return block.items[match.itemIndex] ?? '';
-    return block.text;
 }
 
 function collectMatches(sorted: PlaybookBlock[], matcher: RegExp): PlaybookMatch[] {
@@ -100,60 +76,4 @@ export function indexAtOrAfter(matches: PlaybookMatch[], anchor: PlaybookMatch |
         return match.start >= anchor.start;
     });
     return index === -1 ? 0 : index;
-}
-
-function buildSnippet(text: string, start: number, end: number): SuggestionSnippet {
-    const from = Math.max(0, start - SNIPPET_RADIUS);
-    const to = Math.min(text.length, end + SNIPPET_RADIUS);
-    const prefix = from > 0 ? '…' : '';
-    const suffix = to < text.length ? '…' : '';
-    const snippetStart = prefix.length + (start - from);
-
-    return {
-        text: `${prefix}${text.slice(from, to)}${suffix}`,
-        start: snippetStart,
-        end: snippetStart + (end - start),
-    };
-}
-
-/** Other playbooks matching by name, by content, or both — name matches first. */
-export function buildSuggestions(
-    playbooks: Playbook[] | null,
-    excludeId: string | null,
-    query: string,
-): PlaybookSuggestion[] {
-    const matcher = createMatcher(query);
-    if (!matcher || !playbooks) return [];
-
-    const suggestions: PlaybookSuggestion[] = [];
-    for (const playbook of playbooks) {
-        if (playbook.id === excludeId) continue;
-        // The selector refuses to open non-ready playbooks, so a row for one is a dead end.
-        if (playbook.status !== 'ready') continue;
-
-        // The displayed name only: matching a hidden file_name would surface a
-        // suggestion with no visible reason for being there.
-        const label = playbook.alias || playbook.file_name;
-        const labelRanges = findRanges(label, matcher);
-
-        const sorted = sortBlocks(playbook.blocks);
-        const matches = collectMatches(sorted, matcher);
-        if (labelRanges.length === 0 && matches.length === 0) continue;
-
-        const first = matches[0];
-        suggestions.push({
-            playbookId: playbook.id,
-            label,
-            labelRanges,
-            matchCount: matches.length,
-            snippet: first ? buildSnippet(textForMatch(sorted, first), first.start, first.end) : null,
-        });
-    }
-
-    return suggestions.sort((a, b) => {
-        const aNamed = a.labelRanges.length > 0 ? 1 : 0;
-        const bNamed = b.labelRanges.length > 0 ? 1 : 0;
-        if (aNamed !== bNamed) return bNamed - aNamed;
-        return b.matchCount - a.matchCount;
-    });
 }

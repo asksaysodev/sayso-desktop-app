@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { MouseEvent } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Minus, Search } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Minus, Search, X } from 'lucide-react';
 import { Playbook } from '@/playbookWindow/types';
 import { IS_MAC } from '@/utils/platform';
 
@@ -14,12 +14,12 @@ interface Props {
     hasMatches: boolean;
     /** Bumped on Cmd+F, so the input focuses/re-focuses even when already mounted. */
     focusToken: number;
-    activeSuggestionId?: string;
     onToggleDropdown: () => void;
     onQueryChange: (query: string) => void;
     onQueryFocus: () => void;
     onNext: () => void;
     onPrevious: () => void;
+    onClearQuery: () => void;
     onClose: () => void;
 }
 
@@ -37,12 +37,12 @@ export default function PlaybookHeader({
     activeMatchIndex,
     hasMatches,
     focusToken,
-    activeSuggestionId,
     onToggleDropdown,
     onQueryChange,
     onQueryFocus,
     onNext,
     onPrevious,
+    onClearQuery,
     onClose,
 }: Props) {
     const title = selectedPlaybook ? (selectedPlaybook.alias || selectedPlaybook.file_name) : 'Playbooks';
@@ -79,7 +79,6 @@ export default function PlaybookHeader({
                                 value={query}
                                 spellCheck={false}
                                 aria-label="Search in playbooks"
-                                aria-activedescendant={activeSuggestionId}
                                 onFocus={onQueryFocus}
                                 onChange={(e) => onQueryChange(e.target.value)}
                             />
@@ -110,6 +109,23 @@ export default function PlaybookHeader({
                                     <ChevronRight size={14} />
                                 </button>
                             </div>
+                        )}
+                        {query.length > 0 && (
+                            <button
+                                type="button"
+                                className="playbook-find-button playbook-find-clear"
+                                aria-label="Clear search"
+                                onMouseDown={keepFocus}
+                                onClick={() => {
+                                    onClearQuery();
+                                    // keepFocus only holds focus that was already in the
+                                    // input; clicking from the body would otherwise clear
+                                    // the query and leave nowhere to type.
+                                    inputRef.current?.focus();
+                                }}
+                            >
+                                <X size={14} />
+                            </button>
                         )}
                     </div>
                 )}
