@@ -338,10 +338,12 @@ authManager.on('signed-in', (state: AuthState) => {
     // Load the account profile into global.authUser now, so the tray shows the
     // logged-in state and the onboarding gate sees the real onboarding_status.
     authUserReady = loadAuthUserProfile(state.accessToken, state.user?.email);
-    fetchAndCacheEnabledFeatures(backendBaseUrl(), state.accessToken).catch((err) => {
-      console.warn('[AuthManager] signed-in: features fetch failed', err?.message);
-      if (!isTransientNetworkError(err)) Sentry.captureException(err);
-    });
+    fetchAndCacheEnabledFeatures(backendBaseUrl(), state.accessToken)
+      .catch((err) => {
+        console.warn('[AuthManager] signed-in: features fetch failed', err?.message);
+        if (!isTransientNetworkError(err)) Sentry.captureException(err);
+        scheduleCacheRetry('features');
+      });
     void prefetchAndCachePlaybooks(state.accessToken);
     void prefetchAndCacheOpenLastUsed(state.accessToken);
   }
@@ -354,6 +356,10 @@ authManager.on('signed-out', () => {
   setAuthUser(null);
   onboardingStatusThisSession = null;
   cachedEnabledFeatures = [];
+  featuresLoaded = false;
+  cachedFontSize = 's';
+  fontSizeLoaded = false;
+  cancelCacheRetries();
   global.playbooksCache = null;
   clearPlaybooksDiskCache();
   global.openLastUsedCache = null;
@@ -407,9 +413,13 @@ authManager.on('token-refreshed', async (state: AuthState) => {
     }
     if (fontSizeResult.status === 'rejected') {
       console.warn('[MAIN] Startup-offline recovery: font_size fetch failed', fontSizeResult.reason);
+      if (!isTransientNetworkError(fontSizeResult.reason)) Sentry.captureException(fontSizeResult.reason);
+      scheduleCacheRetry('fontSize');
     }
     if (featuresResult.status === 'rejected') {
       console.warn('[MAIN] Startup-offline recovery: features fetch failed', featuresResult.reason);
+      if (!isTransientNetworkError(featuresResult.reason)) Sentry.captureException(featuresResult.reason);
+      scheduleCacheRetry('features');
     }
   }
 });
@@ -421,6 +431,10 @@ authManager.on('session-expired', () => {
   setAuthUser(null);
   onboardingStatusThisSession = null;
   cachedEnabledFeatures = [];
+  featuresLoaded = false;
+  cachedFontSize = 's';
+  fontSizeLoaded = false;
+  cancelCacheRetries();
   global.playbooksCache = null;
   clearPlaybooksDiskCache();
   global.openLastUsedCache = null;
@@ -757,10 +771,12 @@ async function fetchAndCacheEnabledFeatures(baseUrl: string, accessToken: string
     timeout: 5000,
   });
   const features = res.data?.features;
-  if (Array.isArray(features)) {
-    cachedEnabledFeatures = features.filter((f: { enabled: boolean }) => f.enabled).map((f: { key: string }) => f.key);
-    broadcastEnabledFeatures();
+  if (!Array.isArray(features)) {
+    throw new Error(`Unexpected /features/company payload: expected an array, got ${typeof features}`);
   }
+  cachedEnabledFeatures = features.filter((f: { enabled: boolean }) => f.enabled).map((f: { key: string }) => f.key);
+  featuresLoaded = true;
+  broadcastEnabledFeatures();
 }
 
 function broadcastEnabledFeatures(): void {
@@ -792,9 +808,76 @@ async function fetchAndCacheFontSize(baseUrl: string, accessToken: string): Prom
     timeout: 5000,
   });
   const size = res.data?.coachSettings?.font_size;
-  if (size && VALID_FONT_SIZES.has(size)) {
-    cachedFontSize = size;
+  
+  if (size && !VALID_FONT_SIZES.has(size)) {
+    throw new Error(`Unexpected /sales-coach/settings font_size: ${JSON.stringify(size)}`);
   }
+  applyFontSize(size || 's');
+  fontSizeLoaded = true;
+}
+
+// ===== FEATURES / FONT-SIZE RETRY =====
+const CACHE_RETRY_DELAYS_MS = [2000, 5000, 15000, 30000];
+
+let featuresLoaded = false;
+let fontSizeLoaded = false;
+
+type RetryableCache = 'features' | 'fontSize';
+
+const cacheRetryInFlight: Record<RetryableCache, boolean> = { features: false, fontSize: false };
+const cacheRetryTimers: Record<RetryableCache, NodeJS.Timeout | null> = { features: null, fontSize: null };
+
+function isCacheLoaded(kind: RetryableCache): boolean {
+  return kind === 'features' ? featuresLoaded : fontSizeLoaded;
+}
+
+function cancelCacheRetries(): void {
+  (Object.keys(cacheRetryTimers) as RetryableCache[]).forEach((kind) => {
+    if (cacheRetryTimers[kind]) clearTimeout(cacheRetryTimers[kind]!);
+    cacheRetryTimers[kind] = null;
+    cacheRetryInFlight[kind] = false;
+  });
+}
+
+function scheduleCacheRetry(kind: RetryableCache, attempt = 0): void {
+  if (attempt >= CACHE_RETRY_DELAYS_MS.length) {
+    cacheRetryInFlight[kind] = false;
+    return;
+  }
+  if (attempt === 0 && cacheRetryInFlight[kind]) {
+    console.log(`[MAIN] ${kind} retry already in flight — not starting a second chain`);
+    return;
+  }
+  cacheRetryInFlight[kind] = true;
+  cacheRetryTimers[kind] = setTimeout(async () => {
+    cacheRetryTimers[kind] = null;
+    if (isCacheLoaded(kind)) {
+      cacheRetryInFlight[kind] = false;
+      return;
+    }
+    if (!authManager.getState().isAuthenticated) {
+      cacheRetryInFlight[kind] = false;
+      return;
+    }
+
+    const token = await authManager.getAccessToken().catch(() => null);
+    if (!token) {
+      scheduleCacheRetry(kind, attempt + 1);
+      return;
+    }
+    try {
+      if (kind === 'features') {
+        await fetchAndCacheEnabledFeatures(backendBaseUrl(), token);
+      } else {
+        await fetchAndCacheFontSize(backendBaseUrl(), token);
+      }
+      cacheRetryInFlight[kind] = false;
+      console.log(`[MAIN] ${kind} retry succeeded`);
+    } catch (err) {
+      console.warn(`[MAIN] ${kind} retry ${attempt + 1}/${CACHE_RETRY_DELAYS_MS.length} failed:`, (err as Error)?.message);
+      scheduleCacheRetry(kind, attempt + 1);
+    }
+  }, CACHE_RETRY_DELAYS_MS[attempt]);
 }
 
 async function reportAppVersionIfChanged(baseUrl: string, accessToken: string, storedVersion: string | null | undefined): Promise<void> {
@@ -1722,11 +1805,13 @@ app.whenReady().then(async () => {
       if (fontSizeResult.status === 'rejected') {
         console.warn('[MAIN] Silent auth: font_size fetch failed — falling back to default S', fontSizeResult.reason);
         if (!isTransientNetworkError(fontSizeResult.reason)) Sentry.captureException(fontSizeResult.reason);
+        scheduleCacheRetry('fontSize');
       }
 
       if (featuresResult.status === 'rejected') {
         console.warn('[MAIN] Silent auth: features fetch failed — no features enabled by default', featuresResult.reason);
         if (!isTransientNetworkError(featuresResult.reason)) Sentry.captureException(featuresResult.reason);
+        scheduleCacheRetry('features');
       }
 
 	  maybeReportAppVersion(backendBaseUrl(), authState.accessToken!, global.authUser);
@@ -1985,6 +2070,10 @@ ipcMain.on('network:report-status', (_event, status: 'online' | 'offline') => {
     if (authState.isAuthenticated && !global.authUser) {
       console.log('[Network] Back online without a profile — re-arming the profile retry');
       scheduleProfileRetry(authState.user?.email);
+    }
+    if (authState.isAuthenticated) {
+      if (!featuresLoaded) scheduleCacheRetry('features');
+      if (!fontSizeLoaded) scheduleCacheRetry('fontSize');
     }
   }
 });
