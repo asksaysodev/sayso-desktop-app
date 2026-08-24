@@ -74,3 +74,5 @@ __pycache__/
 
 # Claude Code multi-phase plans. Local working notes, not shared
 docs/plans/
+
+electron/native-audio/build/gyp-mac-tool
