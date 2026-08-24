@@ -1230,7 +1230,12 @@ function loadEnvironmentVariables() {
   const isDev = process.env.NODE_ENV !== 'production';
 
   if (isDev) {
-    require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+    // Which .env file to load is chosen by whoever is running the app — e.g.
+    // ENV_FILE=.env.hestabit for the external Hestabit dev environment
+    // (SAYSO-379). Defaults to .env, matching prior behavior exactly. Vite's
+    // renderer build has its own separate --mode-based env loading (see the
+    // dev:hestabit script) — this only covers the main process.
+    require('dotenv').config({ path: path.resolve(__dirname, '..', process.env.ENV_FILE || '.env') });
     return;
   }
 
