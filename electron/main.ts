@@ -1586,6 +1586,18 @@ app.whenReady().then(async () => {
 
   if (IS_WINDOWS) Menu.setApplicationMenu(null);
 
+  if (IS_WINDOWS && isDev) {
+    app.on('browser-window-created', (_event, window) => {
+      window.webContents.on('before-input-event', (event, input) => {
+        if (input.type !== 'keyDown') return;
+        const isToggle = input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i');
+        if (!isToggle) return;
+        window.webContents.toggleDevTools();
+        event.preventDefault();
+      });
+    });
+  }
+
   global.appSettingsWindowSource = null;
   global.playbookWindowSource = null;
 
