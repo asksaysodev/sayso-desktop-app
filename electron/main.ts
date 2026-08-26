@@ -20,7 +20,7 @@ import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
 import { loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
-import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
+import { IS_MAC, IS_WINDOWS, ALLOW_VIBRANCY } from './utils/platform';
 import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage, READ_ONLY_VOLUME_MESSAGE } from './utils/transientErrors';
 import { enforceApplicationsFolderLocation, isOutsideApplicationsFolder } from './utils/applicationsFolder';
 import { enforceMinimumMacOSVersion } from './utils/osVersion';
@@ -1338,7 +1338,7 @@ const createSplashWindow = (opts: { logout?: boolean; reason?: 'session-expired'
     maximizable: false,
     fullscreenable: false,
     roundedCorners: true,
-    titleBarStyle: 'hiddenInset',
+    ...WindowManager.getTitleBarConfig('#02192f', 36),
     // Matches the app's dark UI (rgba(2, 25, 47, 0.97)) so there's no white
     // flash when the renderer isn't painted over the native backing yet/anymore
     // (e.g. during the native close animation).
@@ -1583,6 +1583,8 @@ app.whenReady().then(async () => {
   // a path that disappears the moment the user moves the app. Block before ANY
   // window exists — must stay right after the OS-version gate above.
   if (!enforceApplicationsFolderLocation()) return;
+
+  if (IS_WINDOWS) Menu.setApplicationMenu(null);
 
   global.appSettingsWindowSource = null;
   global.playbookWindowSource = null;
@@ -2276,7 +2278,7 @@ const createOnboardingWindow = (tab?: string) => {
   const onboardingWindow = new BrowserWindow({
     width: 720,
     height: 560,
-    titleBarStyle: 'hiddenInset',
+    ...WindowManager.getTitleBarConfig('#2a3f5f', 36),
     resizable: false,
     maximizable: false,
     minimizable: false,
@@ -2338,12 +2340,7 @@ const createAppSettingsWindow = (tab?: string, source: 'coach' | 'independent' =
     const appSettingsWindow = new BrowserWindow({
         ...windowConfig,
         icon: path.join(__dirname, '../public/assets/icon.icns'),
-        titleBarStyle: 'hiddenInset',
-        titleBarOverlay: {
-          color: '#02192f',
-          symbolColor: '#FFF',
-          height: 30,
-        },
+        ...WindowManager.getTitleBarConfig('#02192f', 30),
         webPreferences: {
             preload: preloadScriptPath,
             contextIsolation: true,

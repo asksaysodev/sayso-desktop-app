@@ -1,11 +1,32 @@
 import type { BrowserWindow as BrowserWindowType } from 'electron';
 import { screen } from 'electron';
 import { WINDOW_CONFIG } from './windowConfig';
+import { IS_MAC } from './platform';
 
 class WindowManager {
   static getActiveDisplay() {
     const cursorPoint = screen.getCursorScreenPoint();
     return screen.getDisplayNearestPoint(cursorPoint);
+  }
+
+  /**
+   * Title-bar options for the three framed windows (splash, onboarding,
+   * app settings).
+   *
+   * `titleBarStyle: 'hiddenInset'` is macOS-only.
+   *
+   * Windows instead gets Window Controls Overlay: `'hidden'` drops the title
+   * bar entirely and `titleBarOverlay` paints just the minimize/close buttons
+   * over our own content in the top-right, so the page owns the full window
+   * height exactly as it does under `hiddenInset` on macOS.
+   */
+  static getTitleBarConfig(color: string, height: number) {
+    if (IS_MAC) return { titleBarStyle: 'hiddenInset' as const };
+
+    return {
+      titleBarStyle: 'hidden' as const,
+      titleBarOverlay: { color, symbolColor: '#FFFFFF', height },
+    };
   }
 
   /**
@@ -88,8 +109,6 @@ class WindowManager {
       frame: WINDOW_CONFIG.COACH.FRAME,
       transparent: WINDOW_CONFIG.COACH.TRANSPARENT,
       alwaysOnTop: WINDOW_CONFIG.COACH.ALWAYS_ON_TOP,
-      devTools: WINDOW_CONFIG.COACH.DEV_TOOLS,
-      visibleOnAllWorkspaces: WINDOW_CONFIG.COACH.VISIBLE_ON_ALL_WORKSPACES,
       // Prevent user from maximizing or resizing the coach window
       resizable: WINDOW_CONFIG.COACH.RESIZABLE,
       maximizable: WINDOW_CONFIG.COACH.MAXIMIZABLE,
@@ -146,7 +165,6 @@ class WindowManager {
       frame: WINDOW_CONFIG.PLAYBOOK.FRAME,
       transparent: WINDOW_CONFIG.PLAYBOOK.TRANSPARENT,
       alwaysOnTop: WINDOW_CONFIG.PLAYBOOK.ALWAYS_ON_TOP,
-      visibleOnAllWorkspaces: WINDOW_CONFIG.PLAYBOOK.VISIBLE_ON_ALL_WORKSPACES,
       resizable: WINDOW_CONFIG.PLAYBOOK.RESIZABLE,
       maximizable: WINDOW_CONFIG.PLAYBOOK.MAXIMIZABLE,
       minimizable: WINDOW_CONFIG.PLAYBOOK.MINIMIZABLE,
@@ -174,7 +192,6 @@ class WindowManager {
           height,
           x: Math.round(workArea.x + (workArea.width - width) / 2),
           y: Math.round(workArea.y + (workArea.height - height) / 2),
-          visibleOnAllWorkspaces: true,
           resizable: false,
           minimizable: false,
           maximizable: false,
