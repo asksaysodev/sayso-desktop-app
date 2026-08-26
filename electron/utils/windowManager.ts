@@ -8,6 +8,21 @@ class WindowManager {
     return screen.getDisplayNearestPoint(cursorPoint);
   }
 
+  /**
+   * Resize a window, keeping it anchored where it is.
+   *
+   * Use this instead of `setSize()` on any window created `resizable: false`.
+   * On Windows such a window can grow but never shrink: Win32 holds a
+   * minimum-size floor that ratchets up to the largest size the window has
+   * held (starting at its creation size) and silently drops any smaller
+   * request. `setBounds()` isn't subject to that floor. macOS is unaffected
+   * either way, so there is one code path.
+   */
+  static setWindowSize(win: BrowserWindowType, width: number, height: number) {
+    const { x, y } = win.getBounds();
+    win.setBounds({ x, y, width, height });
+  }
+
   static calculateCoachWindowPosition() {
     const { workArea } = WindowManager.getActiveDisplay();
     return {
@@ -48,7 +63,7 @@ class WindowManager {
     );
 
     try {
-      coachWindow.setSize(validatedWidth, validatedHeight);
+      WindowManager.setWindowSize(coachWindow, validatedWidth, validatedHeight);
       return true;
     } catch (error) {
       console.error('WindowManager: Error resizing coach window:', error);

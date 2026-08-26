@@ -2249,7 +2249,7 @@ ipcMain.on('tray-logout', async () => {
 // Handler for resizing the tray menu window (e.g. when items are shown/hidden)
 ipcMain.on('set-tray-menu-height', (_event: Electron.IpcMainEvent, height: number) => {
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
-    trayMenuWindow.setSize(TRAY_MENU_WIDTH, height, false);
+    WindowManager.setWindowSize(trayMenuWindow, TRAY_MENU_WIDTH, height);
     positionTrayMenu();
   }
 });
