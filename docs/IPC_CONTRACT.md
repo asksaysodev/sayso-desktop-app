@@ -219,6 +219,11 @@ engineer knows where the OS seams are outside the provider layer.
 | Tray menu background + `nativeTheme` repaint (`createTrayMenuWindow`) | per-platform | Windows keeps the window transparent and draws the popover surface in CSS (`TrayMenu.css`, gated on `data-platform`) so `border-radius` is visible; the theme-change repaint is skipped there because `prefers-color-scheme` drives it. Intel Macs keep the opaque native background and its repaint. |
 | ShipIt watchdog on update install (~388–431) | darwin-only | `launchctl kickstart` workaround for pended Squirrel.Mac ShipIt jobs. Windows uses its own updater flow. |
 | `x-apple.systempreferences:` deep links | darwin-only | Opening privacy panes — lives inside `MacPermissionsProvider`. |
+| `Menu.setApplicationMenu(null)` in `whenReady()` | win32-only | Windows renders the default app menu as an in-window File/Edit/View strip. macOS keeps it: it supplies ⌘Q and the Edit-role clipboard accelerators. The `before-input-event` DevTools shortcut below exists because removing it also removed F12 / Ctrl+Shift+I. |
+| DevTools shortcut via `before-input-event` (`browser-window-created`) | win32, dev builds only | Restores F12 / Ctrl+Shift+I after the app menu is removed. macOS still has ⌥⌘I from its menu. |
+| `WindowManager.getTitleBarConfig()` | per-platform | `titleBarStyle: 'hiddenInset'` on macOS; Window Controls Overlay (`'hidden'` + `titleBarOverlay`) on Windows, which has no `hiddenInset`. Used by splash, onboarding and app settings. |
+| `skipTaskbar` on the coach and playbook configs (`windowManager.ts`) | win32-only | Windows gives every window its own taskbar button where the macOS Dock shows one per app; without it the two overlays would each claim one. Splash / onboarding / settings deliberately keep theirs. |
+| `setVisibleOnAllWorkspaces` on the coach and playbook windows | darwin-only | Pins both overlays across Spaces and over fullscreen apps. Electron documents it as darwin/linux; it returns `false` on Windows, where `alwaysOnTop` alone covers it (there is no Electron API to pin across Windows virtual desktops). |
 
 **Renderer-side platform seam.** `preload.ts` exposes `window.sayso.platform`
 (`process.platform`, a static value — not a channel, so there is no main-side
