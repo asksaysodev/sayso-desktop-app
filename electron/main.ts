@@ -2419,6 +2419,10 @@ const createCoachWindow = () => {
 
   global.coachWindow = coachWindow;
 
+  if (IS_MAC) {
+    coachWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+
   // dev vs prod URL for the coach window (use the HTML that bootstraps src/coachWindow/index.jsx)
   const coachUrl = isDev
     ? `http://localhost:5173/coach-window.html?fontSize=${cachedFontSize}`
@@ -2518,6 +2522,10 @@ const createPlaybookWindow = (source: 'coach' | 'independent' = 'independent') =
   });
 
   global.playbookWindow = playbookWindow;
+
+  if (IS_MAC) {
+    playbookWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
 
   const playbookUrl = isDev
     ? `http://localhost:5173/playbook-window.html?fontSize=${cachedFontSize}`

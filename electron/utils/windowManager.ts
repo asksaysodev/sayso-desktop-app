@@ -1,7 +1,7 @@
 import type { BrowserWindow as BrowserWindowType } from 'electron';
 import { screen } from 'electron';
 import { WINDOW_CONFIG } from './windowConfig';
-import { IS_MAC } from './platform';
+import { IS_MAC, IS_WINDOWS } from './platform';
 
 class WindowManager {
   static getActiveDisplay() {
@@ -115,6 +115,10 @@ class WindowManager {
       fullscreenable: WINDOW_CONFIG.COACH.FULLSCREENABLE,
       minimizable: WINDOW_CONFIG.COACH.MINIMIZABLE,
       hasShadow: WINDOW_CONFIG.COACH.HAS_SHADOW,
+      // Windows gives every window its own taskbar button, where the macOS Dock
+      // shows one icon per app. Without this the overlays would each add a
+      // button of their own.
+      skipTaskbar: IS_WINDOWS,
       // Fully transparent backing so there's no white flash when the renderer
       // isn't painted over it (e.g. during the native close animation).
       // No vibrancy here: NSVisualEffectView blurs the whole window rect, but
@@ -170,6 +174,7 @@ class WindowManager {
       minimizable: WINDOW_CONFIG.PLAYBOOK.MINIMIZABLE,
       fullscreenable: WINDOW_CONFIG.PLAYBOOK.FULLSCREENABLE,
       hasShadow: WINDOW_CONFIG.PLAYBOOK.HAS_SHADOW,
+      skipTaskbar: IS_WINDOWS,
       // See getCoachWindowConfig: fully transparent backing avoids the white
       // close flash. No vibrancy for the same reason (visible frosted box).
       backgroundColor: '#00000000'
