@@ -226,6 +226,10 @@ handler, same as `indexHtmlPath`). Renderers must read it through
 `electron/utils/platform.ts` for code that can't import the main-process module —
 never `navigator.userAgent` or a raw `'darwin'`/`'win32'` literal.
 
+That module also writes `document.documentElement.dataset.platform` as an import
+side effect, so CSS can gate on `:root[data-platform="win32"]`. Every window
+entry point imports it for that, alongside `@/services/networkReporter`.
+
 ---
 
 ## Orphaned bridges (no main handler)

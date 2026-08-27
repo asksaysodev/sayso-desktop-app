@@ -64,7 +64,7 @@ After changing anything in `electron/*.ts`, run `npm run build:electron` — Ele
   Adding a window means: new root HTML + new `src/<name>Window/` + a `rollupOptions.input` entry + a `create…Window()` in `electron/main.ts`.
 - There is **no `src/views/`**. Dashboard, account, admin and checkout UI live in the `sayso-web-app` repo, not here. The tray's "My Account" just opens `app.asksayso.com` with a token in the URL fragment.
 - Path alias `@/*` → `./src/*` (renderer only; `electron/` uses relative requires).
-- Each window entry point (`src/*/index.tsx`) mounts its own React root, its own `QueryClient`, calls `Sentry.init`, and **must** `import '@/services/networkReporter'` — see Network state below.
+- Each window entry point (`src/*/index.tsx`) mounts its own React root, its own `QueryClient`, calls `Sentry.init`, and **must** `import '@/services/networkReporter'` — see Network state below — and `import '@/utils/platform'`, whose side effect writes `document.documentElement.dataset.platform` so CSS can gate on `:root[data-platform="win32"]`.
 
 ## Auth — main process owns the session
 
