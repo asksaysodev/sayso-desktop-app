@@ -112,7 +112,7 @@ not a target.
 | `get-open-last-used-cache` / `set-open-last-used-cache` | invoke / send | Narrow single-field cache, not the rest of `coach_settings`. |
 | `get-enabled-features` | send | |
 | `set-font-size` | send | |
-| `set-tray-menu-height` | send | |
+| `set-tray-menu-height` | send | Height is measured from the rendered menu (`.tray-menu-items`), not computed from a row count — the renderer reports after every render and on `visibilitychange`. |
 | `tray-show-window` | send | |
 | `tray-logout` | send | |
 | `quit-app` | send | |
@@ -216,6 +216,7 @@ engineer knows where the OS seams are outside the provider layer.
 | `window-all-closed` (~1413) | darwin-only quit rule | macOS keeps app alive with no windows; other platforms quit. |
 | Tray-menu positioning (~782–803) | per-platform | Explicit `darwin` / `win32` / `linux` branches for tray/taskbar placement. |
 | `ALLOW_VIBRANCY` (window vibrancy, ~679–709) | darwin (Apple Silicon) only | NSVisualEffectView blur; `undefined` elsewhere. |
+| Tray menu background + `nativeTheme` repaint (`createTrayMenuWindow`) | per-platform | Windows keeps the window transparent and draws the popover surface in CSS (`TrayMenu.css`, gated on `data-platform`) so `border-radius` is visible; the theme-change repaint is skipped there because `prefers-color-scheme` drives it. Intel Macs keep the opaque native background and its repaint. |
 | ShipIt watchdog on update install (~388–431) | darwin-only | `launchctl kickstart` workaround for pended Squirrel.Mac ShipIt jobs. Windows uses its own updater flow. |
 | `x-apple.systempreferences:` deep links | darwin-only | Opening privacy panes — lives inside `MacPermissionsProvider`. |
 

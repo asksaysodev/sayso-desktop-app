@@ -939,7 +939,7 @@ function createTrayMenuWindow() {
     hasShadow: true,
     vibrancy: ALLOW_VIBRANCY ? 'menu' : undefined,
     visualEffectState: ALLOW_VIBRANCY ? 'active' : undefined,
-    backgroundColor: ALLOW_VIBRANCY ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
+    backgroundColor: (ALLOW_VIBRANCY || IS_WINDOWS) ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
@@ -967,7 +967,7 @@ function createTrayMenuWindow() {
         hideTrayMenu();
     });
     
-    if (!ALLOW_VIBRANCY) {
+    if (!ALLOW_VIBRANCY && !IS_WINDOWS) {
       nativeTheme.on('updated', () => {
         if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
           trayMenuWindow.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB');
@@ -1062,6 +1062,8 @@ function positionTrayMenu() {
     x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
     y = Math.round(trayBounds.y + trayBounds.height + 5);
   }
+
+  y = Math.max(y, workArea.y);
 
   trayMenuWindow.setPosition(x, y, false);
 }
