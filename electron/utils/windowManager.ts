@@ -19,9 +19,18 @@ class WindowManager {
    * bar entirely and `titleBarOverlay` paints just the minimize/close buttons
    * over our own content in the top-right, so the page owns the full window
    * height exactly as it does under `hiddenInset` on macOS.
+   *
+   * `titleBarOverlay` is not Windows-only. Its `color`/`symbolColor` are
+   * (`@platform win32,linux`), but `height` applies on macOS too — it sizes the
+   * band the traffic lights are centred in. Both platforms therefore get
+   * `height`, and only Windows gets the colours; dropping `height` on macOS
+   * would silently move App Settings' traffic lights off the position its 52px
+   * top paddings were tuned against.
    */
   static getTitleBarConfig(color: string, height: number) {
-    if (IS_MAC) return { titleBarStyle: 'hiddenInset' as const };
+    if (IS_MAC) {
+      return { titleBarStyle: 'hiddenInset' as const, titleBarOverlay: { height } };
+    }
 
     return {
       titleBarStyle: 'hidden' as const,
