@@ -1772,15 +1772,9 @@ app.on('before-quit', async (event: Event) => {
   unregisterGlobalShortcuts();
 });
 
-// Modify window-all-closed to NOT quit if dashboard is meant to be main interface
 app.on('window-all-closed', () => {
-  // Standard macOS behavior: quit only if platform is not darwin
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-
-  // If you want the app to quit when the dashboard closes even on macOS,
-  // you would add app.quit() here.
+  if (IS_MAC || IS_WINDOWS) return;
+  app.quit();
 });
 
 let lastLeaveUrl: string | null = null;
