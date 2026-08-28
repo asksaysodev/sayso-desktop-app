@@ -97,6 +97,9 @@ const TrayMenuApp = () => {
     ipcRenderer.send('set-tray-menu-height', height);
   };
 
+  // No dep array on purpose, and no ResizeObserver: a `show: false` window runs
+  // no rendering pipeline, so RO notifications are throttled while direct layout
+  // reads are not — and this window is hidden almost all of its life.
   useEffect(reportHeight);
 
   useEffect(() => {

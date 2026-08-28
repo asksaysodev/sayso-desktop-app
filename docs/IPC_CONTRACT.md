@@ -213,15 +213,16 @@ engineer knows where the OS seams are outside the provider layer.
 | Location (`electron/main.ts`) | Platform | What |
 |---|---|---|
 | `browser-window-focus` → `app.setBadgeCount(0)` (~1279) | darwin-only | Dock badge reset. No Windows equivalent. |
-| `window-all-closed` (~1413) | darwin-only quit rule | macOS keeps app alive with no windows; other platforms quit. |
-| Tray-menu positioning (~782–803) | per-platform | Explicit `darwin` / `win32` / `linux` branches for tray/taskbar placement. |
+| `window-all-closed` | darwin **and** win32 | Both targets are tray-resident, so an empty window list is an idle state, not a shutdown signal. Quitting is explicit: the tray's Quit item (`quit-app`), SIGTERM/SIGINT, and the updater's `quitAndInstall`, none of which reach this handler. Quitting here used to kill the app on Windows at the end of a login — the tray menu window is created lazily, and a `Tray` is not a window. |
+| `WindowManager.calculateTrayMenuPosition()` | per-platform | Tray/taskbar placement. macOS resolves the display from the cursor (`tray.getBounds()` can report the primary display when the icon was clicked on a secondary menu bar) and anchors the **top** edge below the menu bar. Windows anchors the **bottom** edge above the taskbar, so it takes the height as an argument — the caller applies size and position in one `setBounds` rather than resizing top-left-anchored and correcting after. Both axes are clamped to the work area off macOS; the `x` clamp is not an edge case, a tray icon near the right edge of a normal bottom taskbar overflows without it. |
+| `WindowManager.trayMenuHeightWithSlack()` | win32-only | One pixel added to the measured tray content height. A scaled Windows display round-trips the size through physical pixels and can come back a fraction short, which makes `body { overflow: hidden }` shave the bottom border off the CSS-drawn card. The renderer reports the true height; the compensation is main's. |
 | `ALLOW_VIBRANCY` (window vibrancy, ~679–709) | darwin (Apple Silicon) only | NSVisualEffectView blur; `undefined` elsewhere. |
 | Tray menu background + `nativeTheme` repaint (`createTrayMenuWindow`) | per-platform | Windows keeps the window transparent and draws the popover surface in CSS (`TrayMenu.css`, gated on `data-platform`) so `border-radius` is visible; the theme-change repaint is skipped there because `prefers-color-scheme` drives it. Intel Macs keep the opaque native background and its repaint. |
 | ShipIt watchdog on update install (~388–431) | darwin-only | `launchctl kickstart` workaround for pended Squirrel.Mac ShipIt jobs. Windows uses its own updater flow. |
 | `x-apple.systempreferences:` deep links | darwin-only | Opening privacy panes — lives inside `MacPermissionsProvider`. |
 | `Menu.setApplicationMenu(null)` in `whenReady()` | win32-only | Windows renders the default app menu as an in-window File/Edit/View strip. macOS keeps it: it supplies ⌘Q and the Edit-role clipboard accelerators. The `before-input-event` DevTools shortcut below exists because removing it also removed F12 / Ctrl+Shift+I. |
 | DevTools shortcut via `before-input-event` (`browser-window-created`) | win32, dev builds only | Restores F12 / Ctrl+Shift+I after the app menu is removed. macOS still has ⌥⌘I from its menu. |
-| `WindowManager.getTitleBarConfig()` | per-platform | `titleBarStyle: 'hiddenInset'` on macOS; Window Controls Overlay (`'hidden'` + `titleBarOverlay`) on Windows, which has no `hiddenInset`. Used by splash, onboarding and app settings. |
+| `WindowManager.getTitleBarConfig()` | per-platform | `titleBarStyle: 'hiddenInset'` on macOS; Window Controls Overlay (`'hidden'` + `titleBarOverlay`) on Windows, which has no `hiddenInset`. Used by splash, onboarding and app settings. **`titleBarOverlay` is not Windows-only:** `color`/`symbolColor` are (`@platform win32,linux`), but `height` applies on macOS too — it sizes the band the traffic lights sit in. Both platforms get `height`; only Windows gets the colours. |
 | `skipTaskbar` on the coach and playbook configs (`windowManager.ts`) | win32-only | Windows gives every window its own taskbar button where the macOS Dock shows one per app; without it the two overlays would each claim one. Splash / onboarding / settings deliberately keep theirs. |
 | `setVisibleOnAllWorkspaces` on the coach and playbook windows | darwin-only | Pins both overlays across Spaces and over fullscreen apps. Electron documents it as darwin/linux; it returns `false` on Windows, where `alwaysOnTop` alone covers it (there is no Electron API to pin across Windows virtual desktops). |
 
@@ -233,8 +234,16 @@ handler, same as `indexHtmlPath`). Renderers must read it through
 never `navigator.userAgent` or a raw `'darwin'`/`'win32'` literal.
 
 That module also writes `document.documentElement.dataset.platform` as an import
-side effect, so CSS can gate on `:root[data-platform="win32"]`. Every window
-entry point imports it for that, alongside `@/services/networkReporter`.
+side effect, so CSS can gate on the platform. Every window entry point imports
+it for that, alongside `@/services/networkReporter`.
+
+Gate on the **negation** — `:root:not([data-platform="darwin"])` — not on
+`[data-platform="win32"]`, wherever the rule paints something macOS must not
+get. The attribute only exists because of a side-effect import with no named
+binding, which an editor's "remove unused imports" will happily delete. A
+positive gate then paints nothing; the negation still paints. That is the whole
+difference between a tray menu that looks wrong and a transparent, still
+click-blocking rectangle. `TrayMenu.css` is the current example.
 
 ---
 
