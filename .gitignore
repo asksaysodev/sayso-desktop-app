@@ -60,6 +60,8 @@ electron/auth/*.js
 electron/auth/*.js.map
 electron/shared/*.js
 electron/shared/*.js.map
+electron/store/*.js
+electron/store/*.js.map
 
 tsconfig.electron.tsbuildinfo
 *.tsbuildinfo
