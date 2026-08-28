@@ -1643,6 +1643,11 @@ app.whenReady().then(async () => {
     runAfterNetworkSettles('token refresh (unlock)', () => authManager.forceRefresh(), { key: 'token-refresh', retries: 0 });
   });
 
+  // The two files the store replaces. Not gated on auth — a boot that fails to
+  // restore the session must still clean them up, which is exactly the boot
+  // where they would otherwise be left behind forever.
+  removeLegacyCacheFiles();
+
   const authState = authManager.getState();
   if (authState.isAuthenticated) {
     // Hydrate every cached value from disk now that we have a *confirmed*
@@ -1653,8 +1658,6 @@ app.whenReady().then(async () => {
     // comparing the cache's accountId against that null would read as a
     // mismatch and wrongly delete an otherwise-good cache.
     cacheStore.hydrate();
-    // The two files the store replaces. Harmless if already gone.
-    removeLegacyCacheFiles();
 
     if (!permissions.isPermissionsComplete()) {
       // Token restored but permissions flow was never completed — show splash.
