@@ -26,15 +26,19 @@ class WindowManager {
    * `height`, and only Windows gets the colours; dropping `height` on macOS
    * would silently move App Settings' traffic lights off the position its 52px
    * top paddings were tuned against.
+   *
+   * `symbolColor` defaults to white because all three windows using this today
+   * have dark title bars. It is a parameter rather than a constant so a light
+   * one doesn't silently get invisible glyphs.
    */
-  static getTitleBarConfig(color: string, height: number) {
+  static getTitleBarConfig(color: string, height: number, symbolColor = '#FFFFFF') {
     if (IS_MAC) {
       return { titleBarStyle: 'hiddenInset' as const, titleBarOverlay: { height } };
     }
 
     return {
       titleBarStyle: 'hidden' as const,
-      titleBarOverlay: { color, symbolColor: '#FFFFFF', height },
+      titleBarOverlay: { color, symbolColor, height },
     };
   }
 
@@ -51,6 +55,22 @@ class WindowManager {
   static setWindowSize(win: BrowserWindowType, width: number, height: number) {
     const { x, y } = win.getBounds();
     win.setBounds({ x, y, width, height });
+  }
+
+  /**
+   * The window height to request for a measured tray-menu content height.
+   *
+   * On a scaled Windows display the size round-trips through physical pixels, so
+   * a window asked for exactly the content height can come back a fraction
+   * short — and `body { overflow: hidden }` then shaves the bottom border off
+   * the CSS-drawn card. A pixel of slack costs an invisible transparent strip
+   * and removes the whole class of clipping.
+   *
+   * The renderer keeps reporting the true measured height; compensating for the
+   * platform's own rounding belongs on this side.
+   */
+  static trayMenuHeightWithSlack(contentHeight: number) {
+    return IS_WINDOWS ? contentHeight + 1 : contentHeight;
   }
 
   /**

@@ -2225,13 +2225,15 @@ ipcMain.on('tray-logout', async () => {
 ipcMain.on('set-tray-menu-height', (_event: Electron.IpcMainEvent, height: number) => {
   if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
 
+  const target = WindowManager.trayMenuHeightWithSlack(height);
+
   if (!tray) {
-    WindowManager.setWindowSize(trayMenuWindow, TRAY_MENU_WIDTH, height);
+    WindowManager.setWindowSize(trayMenuWindow, TRAY_MENU_WIDTH, target);
     return;
   }
 
-  const { x, y } = WindowManager.calculateTrayMenuPosition(tray.getBounds(), TRAY_MENU_WIDTH, height);
-  trayMenuWindow.setBounds({ x, y, width: TRAY_MENU_WIDTH, height });
+  const { x, y } = WindowManager.calculateTrayMenuPosition(tray.getBounds(), TRAY_MENU_WIDTH, target);
+  trayMenuWindow.setBounds({ x, y, width: TRAY_MENU_WIDTH, height: target });
 });
 
 // Handler for quitting the app
