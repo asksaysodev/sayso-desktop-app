@@ -926,7 +926,7 @@ function createTrayMenuWindow() {
   // Create a frameless, always-on-top window
   trayMenuWindow = new BrowserWindow({
     width: TRAY_MENU_WIDTH,
-    height: 172,
+    height: 92,
     show: false,
     frame: false,
     transparent: true,
@@ -1022,49 +1022,14 @@ function hideTrayMenu() {
 }
 
 /**
- * Positions the tray menu window near the tray icon
- * macOS: positions below the menu bar on the right side
+ * Positions the tray menu window near the tray icon, at its current size.
  */
 function positionTrayMenu() {
   if (!trayMenuWindow || trayMenuWindow.isDestroyed() || !tray) return;
 
-  const trayBounds = tray.getBounds();
-  const windowBounds = trayMenuWindow.getBounds();
-
-  // Use cursor position to identify which display the user clicked on.
-  // tray.getBounds() can return coordinates for the primary display on macOS
-  // even when the tray icon was clicked on a secondary display's menu bar.
-  const cursorPoint = electronScreen.getCursorScreenPoint();
-  const display = electronScreen.getDisplayNearestPoint(cursorPoint);
-  const workArea = display.workArea;
-
-  let x, y;
-
-  if (process.platform === 'darwin') {
-    // Center horizontally around the cursor (where the icon was clicked),
-    // and place just below this display's menu bar.
-    x = Math.round(cursorPoint.x - windowBounds.width / 2);
-    y = Math.round(workArea.y + 5);
-
-    // Clamp to this display's bounds
-    if (x + windowBounds.width > workArea.x + workArea.width) {
-      x = workArea.x + workArea.width - windowBounds.width - 5;
-    }
-    if (x < workArea.x) {
-      x = workArea.x + 5;
-    }
-  } else if (process.platform === 'win32') {
-    // Windows: Position above taskbar, aligned with tray icon
-    x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
-    y = Math.round(trayBounds.y - windowBounds.height - 5);
-  } else {
-    // Linux: Position below tray icon
-    x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
-    y = Math.round(trayBounds.y + trayBounds.height + 5);
-  }
-
-  y = Math.max(y, workArea.y);
-
+  const { x, y } = WindowManager.calculateTrayMenuPosition(
+    tray.getBounds(), TRAY_MENU_WIDTH, trayMenuWindow.getBounds().height,
+  );
   trayMenuWindow.setPosition(x, y, false);
 }
 
@@ -2264,10 +2229,15 @@ ipcMain.on('tray-logout', async () => {
 
 // Handler for resizing the tray menu window (e.g. when items are shown/hidden)
 ipcMain.on('set-tray-menu-height', (_event: Electron.IpcMainEvent, height: number) => {
-  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+
+  if (!tray) {
     WindowManager.setWindowSize(trayMenuWindow, TRAY_MENU_WIDTH, height);
-    positionTrayMenu();
+    return;
   }
+
+  const { x, y } = WindowManager.calculateTrayMenuPosition(tray.getBounds(), TRAY_MENU_WIDTH, height);
+  trayMenuWindow.setBounds({ x, y, width: TRAY_MENU_WIDTH, height });
 });
 
 // Handler for quitting the app

@@ -53,6 +53,68 @@ class WindowManager {
     win.setBounds({ x, y, width, height });
   }
 
+  /**
+   * Where the tray menu popover should sit for a given size.
+   *
+   * Takes the height as an argument rather than reading it off the window so a
+   * caller can compute the destination for a size the window does not have yet
+   * and apply both in a single `setBounds`. That matters on Windows, where the
+   * popover is anchored by its **bottom** edge (it opens upward, above the
+   * taskbar): resizing from the current top-left first and repositioning
+   * afterwards leaves one frame of wrong geometry, with the menu extended down
+   * over the taskbar before it snaps back.
+   */
+  static calculateTrayMenuPosition(
+    trayBounds: { x: number; y: number; width: number; height: number },
+    width: number,
+    height: number,
+  ) {
+    // macOS: tray.getBounds() can report the primary display even when the icon
+    // was clicked on a secondary display's menu bar, so the cursor is the more
+    // reliable signal there. Everywhere else trayBounds is trustworthy, and the
+    // cursor's display would be the wrong one to clamp against whenever the
+    // tray sits on another monitor's taskbar.
+    const cursorPoint = screen.getCursorScreenPoint();
+    const { workArea } = IS_MAC
+      ? screen.getDisplayNearestPoint(cursorPoint)
+      : screen.getDisplayMatching(trayBounds);
+
+    let x: number;
+    let y: number;
+
+    if (IS_MAC) {
+      // Center horizontally around the cursor (where the icon was clicked),
+      // and place just below this display's menu bar.
+      x = Math.round(cursorPoint.x - width / 2);
+      y = Math.round(workArea.y + 5);
+
+      // Clamp to this display's bounds
+      if (x + width > workArea.x + workArea.width) {
+        x = workArea.x + workArea.width - width - 5;
+      }
+      if (x < workArea.x) {
+        x = workArea.x + 5;
+      }
+    } else {
+      // Windows: above the taskbar. Linux: below the icon. Both centred on it.
+      x = Math.round(trayBounds.x + (trayBounds.width / 2) - (width / 2));
+      y = IS_WINDOWS
+        ? Math.round(trayBounds.y - height - 5)
+        : Math.round(trayBounds.y + trayBounds.height + 5);
+
+      // A left- or right-docked Windows taskbar puts the tray icon against a
+      // screen edge, which without this hangs the menu ~90px off-screen.
+      x = Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - width);
+      y = Math.min(y, workArea.y + workArea.height - height);
+    }
+
+    // Top-docked taskbar: the Windows branch anchors the bottom edge above the
+    // tray, which would otherwise put Quit / Log Out off the top of the screen.
+    y = Math.max(y, workArea.y);
+
+    return { x, y };
+  }
+
   static calculateCoachWindowPosition() {
     const { workArea } = WindowManager.getActiveDisplay();
     return {
