@@ -62,6 +62,13 @@ let generation = 0;
 // Whose values we currently hold. Set by setAccount() at boot and on sign-in.
 let ownerAccountId: string | null = null;
 
+// Mirror of what is currently on disk. persist() rebuilds the whole file from
+// memory, so without this a value that is held but NOT persistable — a
+// playbooks error payload — would drop its key from the file and destroy the
+// good list already there. Refusing to overwrite good data is the point;
+// deleting it instead would be no better.
+let persistedEntries: Record<string, unknown> = {};
+
 export function initCacheManager(injected: CacheManagerDeps): void {
   deps = injected;
 }
@@ -107,17 +114,20 @@ function persist(): void {
   const entries: Record<string, unknown> = {};
   for (const key of CACHE_KEYS) {
     const def = defOf(key);
-    if (!def.persist || !known[key]) continue;
+    if (!def.persist) continue;
     const value = values[key];
-    if (def.persistable && !def.persistable(value as never)) continue;
-    entries[key] = value;
+    const usable = known[key] && (!def.persistable || def.persistable(value as never));
+    if (usable) entries[key] = value;
+    else if (key in persistedEntries) entries[key] = persistedEntries[key];
   }
 
   if (Object.keys(entries).length === 0) {
     clearStoreFile();
+    persistedEntries = {};
     return;
   }
   writeStoreFile(accountId, entries);
+  persistedEntries = entries;
 }
 
 /**
@@ -134,6 +144,14 @@ export function setValue<K extends CacheKey>(key: K, raw: unknown, source: Cache
     return false;
   }
 
+  // Both playbook senders — usePlaybookPrefetch and the Settings query —
+  // routinely push an identical list, and persist() rewrites the whole file,
+  // which playbooks dominates (~64 KB of parsed PDF content against ~50 bytes
+  // for everything else). Detecting no-ops here saves the write and the
+  // broadcast; no window depends on a redundant one, since each either gets
+  // its value at creation or pulls it over IPC.
+  const unchanged = known[key] && JSON.stringify(values[key]) === JSON.stringify(value);
+
   values[key] = value;
   known[key] = true;
 
@@ -143,10 +161,14 @@ export function setValue<K extends CacheKey>(key: K, raw: unknown, source: Cache
   if (source !== 'disk') loaded[key] = true;
 
   // The user's own choice outranks anything already in flight for this key.
+  // Both of these still apply to an unchanged value: the server confirming
+  // what we already held is exactly what should stand the ladder down.
   if (source === 'user') {
     generation += 1;
     cancelRetry(key);
   }
+
+  if (unchanged) return true;
 
   if (source !== 'disk') persist();
   notify(key, value);
@@ -261,6 +283,8 @@ export function hydrate(): void {
     return;
   }
 
+  persistedEntries = { ...file.entries };
+
   let count = 0;
   for (const key of CACHE_KEYS) {
     if (!(key in file.entries)) continue;
@@ -285,6 +309,7 @@ export function clearFor(event: ClearEvent): void {
     values[key] = CACHE_REGISTRY[key].fallback as never;
     known[key] = false;
     loaded[key] = false;
+    delete persistedEntries[key];
     cancelRetry(key);
     cleared.push(key);
   }
