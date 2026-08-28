@@ -1,4 +1,3 @@
-import type { BrowserWindow } from 'electron';
 import * as Sentry from '@sentry/electron/main';
 import { isTransientNetworkError } from '../utils/transientErrors';
 import { readStoreFile, writeStoreFile, clearStoreFile } from './persistentStore';
@@ -25,7 +24,9 @@ export interface CacheManagerDeps {
   getAccessToken: () => Promise<string | null>;
   isAuthenticated: () => boolean;
   getAccountId: () => string | null;
-  resolveWindows: (target: NotifyTarget) => BrowserWindow[];
+  // main owns the fan-out helpers, so sending stays there rather than this
+  // module growing its own BrowserWindow knowledge.
+  broadcast: (target: NotifyTarget, channel: string, payload: unknown) => void;
 }
 
 let deps: CacheManagerDeps | null = null;
@@ -94,12 +95,7 @@ function notify<K extends CacheKey>(key: K, value: CacheValues[K]): void {
   const def = defOf(key);
   if (!def.notify) return;
   const { channel, target, payload } = def.notify;
-  const body = payload(value);
-  requireDeps()
-    .resolveWindows(target)
-    .forEach((win) => {
-      if (!win.isDestroyed()) win.webContents.send(channel, body);
-    });
+  requireDeps().broadcast(target, channel, payload(value));
 }
 
 function persist(): void {
@@ -283,6 +279,9 @@ export function clearFor(event: ClearEvent): void {
   const cleared: CacheKey[] = [];
   for (const key of CACHE_KEYS) {
     if (!defOf(key).clearOn.includes(event)) continue;
+    // Nothing held means nothing to clear and nothing to announce — otherwise
+    // a key the store doesn't own yet would still broadcast an empty value.
+    if (!known[key] && !loaded[key]) continue;
     values[key] = CACHE_REGISTRY[key].fallback as never;
     known[key] = false;
     loaded[key] = false;

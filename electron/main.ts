@@ -29,6 +29,7 @@ import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 import * as audioManager from './audio/audioManager';
 import * as permissions from './permissions/permissionsManager';
+import * as cacheStore from './store/cacheManager';
 
 Sentry.init(sentryConfig);
 
@@ -338,12 +339,20 @@ authManager.on('signed-in', (state: AuthState) => {
     // Load the account profile into global.authUser now, so the tray shows the
     // logged-in state and the onboarding gate sees the real onboarding_status.
     authUserReady = loadAuthUserProfile(state.accessToken, state.user?.email);
-    fetchAndCacheEnabledFeatures(backendBaseUrl(), state.accessToken)
-      .catch((err) => {
-        console.warn('[AuthManager] signed-in: features fetch failed', err?.message);
-        if (!isTransientNetworkError(err)) Sentry.captureException(err);
-        scheduleCacheRetry('features');
-      });
+    // Configuration now survives sign-out, so a same-machine account switch is
+    // the only thing left that can invalidate it. Runs before the new session's
+    // fetches so nothing lands on top of the previous user's values.
+    cacheStore.setAccount(state.user?.id ?? null);
+    cacheStore.refreshKey('enabledFeatures', state.accessToken).catch((err) => {
+      cacheStore.reportCacheFailure('enabledFeatures', err);
+      cacheStore.scheduleRetry('enabledFeatures');
+    });
+    // Font size was never fetched on this path — only at boot and on
+    // offline recovery — so a re-login after a session expiry left it at 's'.
+    cacheStore.refreshKey('fontSize', state.accessToken).catch((err) => {
+      cacheStore.reportCacheFailure('fontSize', err);
+      cacheStore.scheduleRetry('fontSize');
+    });
     void prefetchAndCachePlaybooks(state.accessToken);
     void prefetchAndCacheOpenLastUsed(state.accessToken);
   }
@@ -355,16 +364,12 @@ authManager.on('signed-out', () => {
   global.authRefreshToken = null;
   setAuthUser(null);
   onboardingStatusThisSession = null;
-  cachedEnabledFeatures = [];
-  featuresLoaded = false;
-  cachedFontSize = 's';
-  fontSizeLoaded = false;
-  cancelCacheRetries();
+  cacheStore.clearFor('sign-out');
+  cacheStore.cancelAllRetries();
   global.playbooksCache = null;
   clearPlaybooksDiskCache();
   global.openLastUsedCache = null;
   clearOpenLastUsedDiskCache();
-  broadcastEnabledFeatures();
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat for unmigrated windows
   broadcastToAllWindows('auth:session-expired');
@@ -395,8 +400,8 @@ authManager.on('token-refreshed', async (state: AuthState) => {
     const headers = { Authorization: `Bearer ${state.accessToken}` };
     const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
       axios.get(`${backendBaseUrl()}/accounts/${state.user?.email}`, { headers, timeout: 5000 }),
-      fetchAndCacheFontSize(backendBaseUrl(), state.accessToken!),
-      fetchAndCacheEnabledFeatures(backendBaseUrl(), state.accessToken!),
+      cacheStore.refreshKey('fontSize', state.accessToken!),
+      cacheStore.refreshKey('enabledFeatures', state.accessToken!),
     ]);
     if (profileResult.status === 'fulfilled') {
       setAuthUser(profileResult.value.data.data);
@@ -412,14 +417,12 @@ authManager.on('token-refreshed', async (state: AuthState) => {
       scheduleProfileRetry(state.user?.email);
     }
     if (fontSizeResult.status === 'rejected') {
-      console.warn('[MAIN] Startup-offline recovery: font_size fetch failed', fontSizeResult.reason);
-      if (!isTransientNetworkError(fontSizeResult.reason)) Sentry.captureException(fontSizeResult.reason);
-      scheduleCacheRetry('fontSize');
+      cacheStore.reportCacheFailure('fontSize', fontSizeResult.reason);
+      cacheStore.scheduleRetry('fontSize');
     }
     if (featuresResult.status === 'rejected') {
-      console.warn('[MAIN] Startup-offline recovery: features fetch failed', featuresResult.reason);
-      if (!isTransientNetworkError(featuresResult.reason)) Sentry.captureException(featuresResult.reason);
-      scheduleCacheRetry('features');
+      cacheStore.reportCacheFailure('enabledFeatures', featuresResult.reason);
+      cacheStore.scheduleRetry('enabledFeatures');
     }
   }
 });
@@ -430,16 +433,12 @@ authManager.on('session-expired', () => {
   global.authRefreshToken = null;
   setAuthUser(null);
   onboardingStatusThisSession = null;
-  cachedEnabledFeatures = [];
-  featuresLoaded = false;
-  cachedFontSize = 's';
-  fontSizeLoaded = false;
-  cancelCacheRetries();
+  cacheStore.clearFor('session-expired');
+  cacheStore.cancelAllRetries();
   global.playbooksCache = null;
   clearPlaybooksDiskCache();
   global.openLastUsedCache = null;
   clearOpenLastUsedDiskCache();
-  broadcastEnabledFeatures();
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat
   broadcastToAllWindows('auth:session-expired');
@@ -762,124 +761,31 @@ function setupLogging() {
   }
 }
 
-// ===== ENABLED FEATURES CACHE =====
-let cachedEnabledFeatures: string[] = [];
-
-async function fetchAndCacheEnabledFeatures(baseUrl: string, accessToken: string): Promise<void> {
-  const res = await axios.get(`${baseUrl}/features/company`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    timeout: 5000,
-  });
-  const features = res.data?.features;
-  if (!Array.isArray(features)) {
-    throw new Error(`Unexpected /features/company payload: expected an array, got ${typeof features}`);
-  }
-  cachedEnabledFeatures = features.filter((f: { enabled: boolean }) => f.enabled).map((f: { key: string }) => f.key);
-  featuresLoaded = true;
-  broadcastEnabledFeatures();
-}
-
-function broadcastEnabledFeatures(): void {
-  const payload = { enabledFeatures: cachedEnabledFeatures };
-  BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
-    if (!win.isDestroyed()) win.webContents.send('enabled-features-changed', payload);
-  });
-}
-
-// ===== FONT SIZE CACHE =====
-let cachedFontSize: string = 's';
-
-const VALID_FONT_SIZES = new Set(['s', 'm', 'l']);
-
-function applyFontSize(size: string) {
-  if (!VALID_FONT_SIZES.has(size)) return;
-  cachedFontSize = size;
-  if (isCoachWindowOpen()) {
-    global.coachWindow!.webContents.send('font-size-changed', size);
-  }
-  if (isPlaybookWindowOpen()) {
-    global.playbookWindow!.webContents.send('font-size-changed', size);
-  }
-}
-
-async function fetchAndCacheFontSize(baseUrl: string, accessToken: string): Promise<void> {
-  const res = await axios.get(`${baseUrl}/sales-coach/settings`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    timeout: 5000,
-  });
-  const size = res.data?.coachSettings?.font_size;
-  
-  if (size && !VALID_FONT_SIZES.has(size)) {
-    throw new Error(`Unexpected /sales-coach/settings font_size: ${JSON.stringify(size)}`);
-  }
-  applyFontSize(size || 's');
-  fontSizeLoaded = true;
-}
-
-// ===== FEATURES / FONT-SIZE RETRY =====
-const CACHE_RETRY_DELAYS_MS = [2000, 5000, 15000, 30000];
-
-let featuresLoaded = false;
-let fontSizeLoaded = false;
-
-type RetryableCache = 'features' | 'fontSize';
-
-const cacheRetryInFlight: Record<RetryableCache, boolean> = { features: false, fontSize: false };
-const cacheRetryTimers: Record<RetryableCache, NodeJS.Timeout | null> = { features: null, fontSize: null };
-
-function isCacheLoaded(kind: RetryableCache): boolean {
-  return kind === 'features' ? featuresLoaded : fontSizeLoaded;
-}
-
-function cancelCacheRetries(): void {
-  (Object.keys(cacheRetryTimers) as RetryableCache[]).forEach((kind) => {
-    if (cacheRetryTimers[kind]) clearTimeout(cacheRetryTimers[kind]!);
-    cacheRetryTimers[kind] = null;
-    cacheRetryInFlight[kind] = false;
-  });
-}
-
-function scheduleCacheRetry(kind: RetryableCache, attempt = 0): void {
-  if (attempt >= CACHE_RETRY_DELAYS_MS.length) {
-    cacheRetryInFlight[kind] = false;
-    return;
-  }
-  if (attempt === 0 && cacheRetryInFlight[kind]) {
-    console.log(`[MAIN] ${kind} retry already in flight — not starting a second chain`);
-    return;
-  }
-  cacheRetryInFlight[kind] = true;
-  cacheRetryTimers[kind] = setTimeout(async () => {
-    cacheRetryTimers[kind] = null;
-    if (isCacheLoaded(kind)) {
-      cacheRetryInFlight[kind] = false;
-      return;
+// ===== CACHED CONFIG =====
+//
+// The values, their shape rules and their persistence live in electron/store.
+// main.ts keeps only the wiring: how to reach the backend, who is signed in,
+// and which windows each value is broadcast to.
+cacheStore.initCacheManager({
+  backendBaseUrl,
+  getAccessToken: () => authManager.getAccessToken().catch(() => null),
+  isAuthenticated: () => authManager.getState().isAuthenticated,
+  getAccountId: () => authManager.getState().user?.id ?? null,
+  broadcast: (target, channel, payload) => {
+    switch (target) {
+      case 'all-windows':
+        broadcastToAllWindows(channel, payload);
+        return;
+      case 'coach-and-playbook':
+        if (isCoachWindowOpen()) global.coachWindow!.webContents.send(channel, payload);
+        if (isPlaybookWindowOpen()) global.playbookWindow!.webContents.send(channel, payload);
+        return;
+      case 'playbook':
+        if (isPlaybookWindowOpen()) global.playbookWindow!.webContents.send(channel, payload);
+        return;
     }
-    if (!authManager.getState().isAuthenticated) {
-      cacheRetryInFlight[kind] = false;
-      return;
-    }
-
-    const token = await authManager.getAccessToken().catch(() => null);
-    if (!token) {
-      scheduleCacheRetry(kind, attempt + 1);
-      return;
-    }
-    try {
-      if (kind === 'features') {
-        await fetchAndCacheEnabledFeatures(backendBaseUrl(), token);
-      } else {
-        await fetchAndCacheFontSize(backendBaseUrl(), token);
-      }
-      cacheRetryInFlight[kind] = false;
-      console.log(`[MAIN] ${kind} retry succeeded`);
-    } catch (err) {
-      console.warn(`[MAIN] ${kind} retry ${attempt + 1}/${CACHE_RETRY_DELAYS_MS.length} failed:`, (err as Error)?.message);
-      scheduleCacheRetry(kind, attempt + 1);
-    }
-  }, CACHE_RETRY_DELAYS_MS[attempt]);
-}
-
+  },
+});
 async function reportAppVersionIfChanged(baseUrl: string, accessToken: string, storedVersion: string | null | undefined): Promise<void> {
 	const runningVersion = app.getVersion();
 	if (runningVersion === storedVersion) return;
@@ -1080,7 +986,7 @@ function showTrayMenu() {
       isOpen: isPlaybookWindowOpen()
     });
     trayMenuWindow.webContents.send('enabled-features-changed', {
-      enabledFeatures: cachedEnabledFeatures
+      enabledFeatures: cacheStore.getValue('enabledFeatures')
     });
   };
 
@@ -1223,7 +1129,7 @@ const shortcuts = [
     fn: () => {
       if (global.networkState === 'reconnecting') return;
       if (!global.authUser || global.authUser?.subscription_plan_id === null) return;
-      if (!cachedEnabledFeatures.includes('playbooks')) return;
+      if (!cacheStore.getValue('enabledFeatures').includes('playbooks')) return;
 
       if (isPlaybookWindowOpen()) {
         global.playbookWindow!.close();
@@ -1752,6 +1658,8 @@ app.whenReady().then(async () => {
     // mismatch and wrongly delete an otherwise-good cache. Skipping hydration
     // entirely while unauthenticated is safe either way — no window can open
     // to read the stale memory cache before a real sign-in re-populates it.
+    cacheStore.hydrate();
+
     const playbooksDiskCache = readPlaybooksDiskCache();
     if (playbooksDiskCache) {
       if (playbooksDiskCache.accountId === authState.user?.id) {
@@ -1788,8 +1696,8 @@ app.whenReady().then(async () => {
       // Fetch profile, font size, and enabled features in parallel before any window opens.
       const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
         axios.get(`${backendBaseUrl()}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
-        fetchAndCacheFontSize(backendBaseUrl(), authState.accessToken!),
-        fetchAndCacheEnabledFeatures(backendBaseUrl(), authState.accessToken!),
+        cacheStore.refreshKey('fontSize', authState.accessToken!),
+        cacheStore.refreshKey('enabledFeatures', authState.accessToken!),
       ]);
 
       if (profileResult.status === 'fulfilled') {
@@ -1803,15 +1711,13 @@ app.whenReady().then(async () => {
       }
 
       if (fontSizeResult.status === 'rejected') {
-        console.warn('[MAIN] Silent auth: font_size fetch failed — falling back to default S', fontSizeResult.reason);
-        if (!isTransientNetworkError(fontSizeResult.reason)) Sentry.captureException(fontSizeResult.reason);
-        scheduleCacheRetry('fontSize');
+        cacheStore.reportCacheFailure('fontSize', fontSizeResult.reason);
+        cacheStore.scheduleRetry('fontSize');
       }
 
       if (featuresResult.status === 'rejected') {
-        console.warn('[MAIN] Silent auth: features fetch failed — no features enabled by default', featuresResult.reason);
-        if (!isTransientNetworkError(featuresResult.reason)) Sentry.captureException(featuresResult.reason);
-        scheduleCacheRetry('features');
+        cacheStore.reportCacheFailure('enabledFeatures', featuresResult.reason);
+        cacheStore.scheduleRetry('enabledFeatures');
       }
 
 	  maybeReportAppVersion(backendBaseUrl(), authState.accessToken!, global.authUser);
@@ -2072,8 +1978,7 @@ ipcMain.on('network:report-status', (_event, status: 'online' | 'offline') => {
       scheduleProfileRetry(authState.user?.email);
     }
     if (authState.isAuthenticated) {
-      if (!featuresLoaded) scheduleCacheRetry('features');
-      if (!fontSizeLoaded) scheduleCacheRetry('fontSize');
+      cacheStore.scheduleRetriesForUnloaded();
     }
   }
 });
@@ -2172,7 +2077,7 @@ ipcMain.handle('get-coach-window-open-state', () => {
 });
 
 ipcMain.on('get-enabled-features', (event: Electron.IpcMainInvokeEvent) => {
-  event.sender.send('enabled-features-changed', { enabledFeatures: cachedEnabledFeatures });
+  event.sender.send('enabled-features-changed', { enabledFeatures: cacheStore.getValue('enabledFeatures') });
 });
 
 // ─── Update IPC handlers ──────────────────────────────────────────────────────
@@ -2235,7 +2140,10 @@ ipcMain.on('app-settings:open-update-tab', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 ipcMain.on('set-font-size', (_event, size: string) => {
-  applyFontSize(size);
+  // Sent from App Settings only after the POST succeeded, so this is a value
+  // the server has accepted. Recording it as a user write stands the retry
+  // ladder down and drops any fetch still in flight for this key.
+  cacheStore.setValue('fontSize', size, 'user');
 });
 
 ipcMain.on('open-onboarding-window', () => {
@@ -2494,8 +2402,8 @@ const createCoachWindow = () => {
 
   // dev vs prod URL for the coach window (use the HTML that bootstraps src/coachWindow/index.jsx)
   const coachUrl = isDev
-    ? `http://localhost:5173/coach-window.html?fontSize=${cachedFontSize}`
-    : `file://${path.join(__dirname, '../dist/coach-window.html')}?fontSize=${cachedFontSize}`;
+    ? `http://localhost:5173/coach-window.html?fontSize=${cacheStore.getValue('fontSize')}`
+    : `file://${path.join(__dirname, '../dist/coach-window.html')}?fontSize=${cacheStore.getValue('fontSize')}`;
 
   coachWindow.loadURL(coachUrl);
   
@@ -2593,8 +2501,8 @@ const createPlaybookWindow = (source: 'coach' | 'independent' = 'independent') =
   global.playbookWindow = playbookWindow;
 
   const playbookUrl = isDev
-    ? `http://localhost:5173/playbook-window.html?fontSize=${cachedFontSize}`
-    : `file://${path.join(__dirname, '../dist/playbook-window.html')}?fontSize=${cachedFontSize}`;
+    ? `http://localhost:5173/playbook-window.html?fontSize=${cacheStore.getValue('fontSize')}`
+    : `file://${path.join(__dirname, '../dist/playbook-window.html')}?fontSize=${cacheStore.getValue('fontSize')}`;
 
   playbookWindow.loadURL(playbookUrl);
   broadcastPlaybookWindowState(true);
