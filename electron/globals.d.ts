@@ -45,8 +45,6 @@ declare global {
   }
   var coachWindow: BrowserWindow | null;
   var playbookWindow: BrowserWindow | null;
-  var playbooksCache: { playbooks: unknown[] | null; error: string | null } | null;
-  var openLastUsedCache: boolean | null;
   var appSettingsWindow: BrowserWindow | null;
   var appSettingsWindowSource: 'coach' | 'independent' | null;
   var playbookWindowSource: 'coach' | 'independent' | null;

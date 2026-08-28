@@ -9,10 +9,11 @@ const FS_OPTIONS: { key: AccessibilityFontSizeType; label: string; previewSize: 
     { key: 'l', label: 'Large',  previewSize: 18.9 },
 ];
 
-function applyFontSize(size: AccessibilityFontSizeType) {
+// Paints this window only. Main is told separately, and only once the server
+// has accepted the change — see handleFontSizeChange.
+function paintFontSize(size: AccessibilityFontSizeType) {
     if (size === 's') delete document.documentElement.dataset.fontSize;
     else document.documentElement.dataset.fontSize = size;
-    window.electron?.ipcRenderer?.send('set-font-size', size);
 }
 
 export default function AccessibilitySettings() {
@@ -31,12 +32,20 @@ export default function AccessibilitySettings() {
         const prev = selected;
         setOptimisticFontSize(size);
         setSaveError(false);
-        applyFontSize(size);
+        paintFontSize(size);
         mutateUpdateFontSize(size, {
+            // Main is told only after the server has accepted the value, so
+            // what it caches, persists to disk and broadcasts is never
+            // something the API rejected. This is also what stands its retry
+            // ladder down for font size — a value the user just chose should
+            // not be overwritten by a fetch that was already in flight.
+            onSuccess: () => {
+                window.electron?.ipcRenderer?.send('set-font-size', size);
+            },
             onError: () => {
                 setOptimisticFontSize(null);
                 setSaveError(true);
-                applyFontSize(prev);
+                paintFontSize(prev);
             },
         });
     }

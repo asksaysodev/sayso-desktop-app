@@ -43,6 +43,12 @@ function AppSettingsContent() {
         option => option.key !== 'pulse' || hasFeature('pulse')
     );
 
+    // Paints this window from the server's value. It deliberately does NOT
+    // push to main: this used to be the only way main could recover a font
+    // size it had failed to fetch, but main now fetches it on sign-in, at
+    // boot, and hydrates it from disk. Relaying a react-query value (which
+    // can be up to staleTime old) as a confirmed write would stand main's
+    // retry ladder down on data the user never chose.
     useEffect(() => {
         if (!coachSettings) return;
         const size = coachSettings.font_size;
@@ -51,7 +57,6 @@ function AppSettingsContent() {
         } else {
             document.documentElement.dataset.fontSize = size;
         }
-        window.electron?.ipcRenderer?.send('set-font-size', size);
     }, [coachSettings?.font_size]);
 
     // Read initial tab from URL param (e.g. ?tab=software-update when opened from tray)
