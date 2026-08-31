@@ -536,6 +536,12 @@ export function registerCueIpc(deps: CueIpcDeps): void {
             if (message && message.type === 'auto_stop') {
               if (global.coachWindow && !global.coachWindow.isDestroyed()) {
                 global.coachWindow.webContents.send('cue-auto-stop');
+              }
+            }
+
+            if (message && message.type === 'session_expired') {
+              if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+                global.coachWindow.webContents.send('cue-session-expired');
 
                 if (process.platform === 'darwin') {
                   app.setBadgeCount(app.getBadgeCount() + 1);
