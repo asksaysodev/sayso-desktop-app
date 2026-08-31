@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as Sentry from '@sentry/electron/renderer';
 import { Account } from '@/types/user';
 import { ExternalLink } from 'lucide-react';
@@ -84,28 +84,28 @@ const TrayMenuApp = () => {
     return cleanup;
   }, []);
 
-  useEffect(() => {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const lastSentHeight = useRef<number | null>(null);
+
+  const reportHeight = () => {
+    const el = contentRef.current;
     const ipcRenderer = window.electron?.ipcRenderer;
-    if (!ipcRenderer) return;
-
-    // Base height: Quit/Log In bottom row (42) + bottom padding
-    // Each row is ~42px. Logged-out: just bottom row = 46px.
-    let height: number;
-    if (!isAuthenticated) {
-      height = 46;
-    } else if (disableToggleCoach) {
-      // My Account + Settings + bottom row
-      height = 46 + 42 * 2;
-    } else {
-      // Coach + My Account + Settings + bottom row
-      height = 46 + 42 * 3;
-    }
-    if (showPlaybooksRow) height += 42;
-    if (showUpdateRow) height += 42;
-    height += 42; // Help Center row (always visible)
-
+    if (!el || !ipcRenderer) return;
+    const height = Math.ceil(el.getBoundingClientRect().height);
+    if (!height || height === lastSentHeight.current) return;
+    lastSentHeight.current = height;
     ipcRenderer.send('set-tray-menu-height', height);
-  }, [disableToggleCoach, isAuthenticated, showPlaybooksRow, showUpdateRow]);
+  };
+
+  // No dep array on purpose, and no ResizeObserver: a `show: false` window runs
+  // no rendering pipeline, so RO notifications are throttled while direct layout
+  // reads are not — and this window is hidden almost all of its life.
+  useEffect(reportHeight);
+
+  useEffect(() => {
+    document.addEventListener('visibilitychange', reportHeight);
+    return () => document.removeEventListener('visibilitychange', reportHeight);
+  }, []);
 
   const handleToggleCoach = () => {
     const ipcRenderer = window.electron?.ipcRenderer;
@@ -149,7 +149,7 @@ const TrayMenuApp = () => {
 
   return (
     <div className="tray-menu">
-      <div className="tray-menu-items">
+      <div className="tray-menu-items" ref={contentRef}>
         {!disableToggleCoach && (
           <>
             <button

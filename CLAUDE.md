@@ -64,7 +64,7 @@ After changing anything in `electron/*.ts`, run `npm run build:electron` — Ele
   Adding a window means: new root HTML + new `src/<name>Window/` + a `rollupOptions.input` entry + a `create…Window()` in `electron/main.ts`.
 - There is **no `src/views/`**. Dashboard, account, admin and checkout UI live in the `sayso-web-app` repo, not here. The tray's "My Account" just opens `app.asksayso.com` with a token in the URL fragment.
 - Path alias `@/*` → `./src/*` (renderer only; `electron/` uses relative requires).
-- Each window entry point (`src/*/index.tsx`) mounts its own React root, its own `QueryClient`, calls `Sentry.init`, and **must** `import '@/services/networkReporter'` — see Network state below.
+- Each window entry point (`src/*/index.tsx`) mounts its own React root, its own `QueryClient`, calls `Sentry.init`, and **must** `import '@/services/networkReporter'` — see Network state below — and `import '@/utils/platform'`, whose side effect writes `document.documentElement.dataset.platform` so CSS can gate on the platform. Gate on the negation (`:root:not([data-platform="darwin"])`) rather than `[data-platform="win32"]` for any rule that paints something macOS must not get: the attribute hangs off a side-effect import with no named binding, so if that import is ever dropped a positive gate paints nothing — which on the transparent tray window means an invisible, still click-blocking rectangle. See `docs/IPC_CONTRACT.md`.
 
 ## Auth — main process owns the session
 
@@ -103,7 +103,9 @@ Only `darwin` and `win32` are targets. `docs/IPC_CONTRACT.md` classifies every c
 
 - **Never branch on `process.platform` inline inside an IPC handler.** Per-OS behavior goes behind a provider interface — `electron/audio/` (`IAudioProvider`) and `electron/permissions/` (`IPermissionsProvider`) — dispatched in that module's `index.ts`. Handlers stay thin.
 - For small presentational differences use the flags in `electron/utils/platform.ts` (`IS_MAC`, `IS_WINDOWS`, `ALLOW_VIBRANCY`), never a raw `'darwin'`/`'win32'` literal.
-- Known macOS-only seams in `main.ts`: dock badge reset, the `window-all-closed` quit rule, tray positioning, vibrancy, the ShipIt `launchctl kickstart` watchdog on update install, and the `/Applications` launch guard (`electron/utils/applicationsFolder.ts`, called first thing in `whenReady()`).
+- Known macOS-only seams in `main.ts`: dock badge reset, vibrancy, the ShipIt `launchctl kickstart` watchdog on update install, the `/Applications` launch guard (`electron/utils/applicationsFolder.ts`, called first thing in `whenReady()`), and `setVisibleOnAllWorkspaces` on the coach and playbook overlays.
+- `window-all-closed` is **not** a macOS-only seam — it returns early on both targets. Sayso is tray-resident on each, so no windows is an idle state, not a shutdown signal; quitting goes through the tray's Quit item, signals, or `quitAndInstall`. Quitting on non-darwin used to kill the app on Windows at the end of a login.
+- Known Windows-only seams: `Menu.setApplicationMenu(null)` (its menu is in-window, not a system menu bar) plus the `before-input-event` DevTools shortcut that replaces the F12 binding it took with it, Window Controls Overlay in `WindowManager.getTitleBarConfig()`, `skipTaskbar` on the two overlays, and the tray menu's transparent background with its surface drawn in CSS. `docs/IPC_CONTRACT.md` has the full table.
 
 ## Permissions
 

@@ -20,7 +20,7 @@ import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
 import { loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
-import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
+import { IS_MAC, IS_WINDOWS, ALLOW_VIBRANCY } from './utils/platform';
 import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage, READ_ONLY_VOLUME_MESSAGE } from './utils/transientErrors';
 import { enforceApplicationsFolderLocation, isOutsideApplicationsFolder } from './utils/applicationsFolder';
 import { enforceMinimumMacOSVersion } from './utils/osVersion';
@@ -912,7 +912,7 @@ function createTrayMenuWindow() {
   // Create a frameless, always-on-top window
   trayMenuWindow = new BrowserWindow({
     width: TRAY_MENU_WIDTH,
-    height: 172,
+    height: 92,
     show: false,
     frame: false,
     transparent: true,
@@ -925,7 +925,7 @@ function createTrayMenuWindow() {
     hasShadow: true,
     vibrancy: ALLOW_VIBRANCY ? 'menu' : undefined,
     visualEffectState: ALLOW_VIBRANCY ? 'active' : undefined,
-    backgroundColor: ALLOW_VIBRANCY ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
+    backgroundColor: (ALLOW_VIBRANCY || IS_WINDOWS) ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
@@ -953,7 +953,7 @@ function createTrayMenuWindow() {
         hideTrayMenu();
     });
     
-    if (!ALLOW_VIBRANCY) {
+    if (!ALLOW_VIBRANCY && !IS_WINDOWS) {
       nativeTheme.on('updated', () => {
         if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
           trayMenuWindow.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB');
@@ -1008,47 +1008,14 @@ function hideTrayMenu() {
 }
 
 /**
- * Positions the tray menu window near the tray icon
- * macOS: positions below the menu bar on the right side
+ * Positions the tray menu window near the tray icon, at its current size.
  */
 function positionTrayMenu() {
   if (!trayMenuWindow || trayMenuWindow.isDestroyed() || !tray) return;
 
-  const trayBounds = tray.getBounds();
-  const windowBounds = trayMenuWindow.getBounds();
-
-  // Use cursor position to identify which display the user clicked on.
-  // tray.getBounds() can return coordinates for the primary display on macOS
-  // even when the tray icon was clicked on a secondary display's menu bar.
-  const cursorPoint = electronScreen.getCursorScreenPoint();
-  const display = electronScreen.getDisplayNearestPoint(cursorPoint);
-  const workArea = display.workArea;
-
-  let x, y;
-
-  if (process.platform === 'darwin') {
-    // Center horizontally around the cursor (where the icon was clicked),
-    // and place just below this display's menu bar.
-    x = Math.round(cursorPoint.x - windowBounds.width / 2);
-    y = Math.round(workArea.y + 5);
-
-    // Clamp to this display's bounds
-    if (x + windowBounds.width > workArea.x + workArea.width) {
-      x = workArea.x + workArea.width - windowBounds.width - 5;
-    }
-    if (x < workArea.x) {
-      x = workArea.x + 5;
-    }
-  } else if (process.platform === 'win32') {
-    // Windows: Position above taskbar, aligned with tray icon
-    x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
-    y = Math.round(trayBounds.y - windowBounds.height - 5);
-  } else {
-    // Linux: Position below tray icon
-    x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
-    y = Math.round(trayBounds.y + trayBounds.height + 5);
-  }
-
+  const { x, y } = WindowManager.calculateTrayMenuPosition(
+    tray.getBounds(), TRAY_MENU_WIDTH, trayMenuWindow.getBounds().height,
+  );
   trayMenuWindow.setPosition(x, y, false);
 }
 
@@ -1324,7 +1291,7 @@ const createSplashWindow = (opts: { logout?: boolean; reason?: 'session-expired'
     maximizable: false,
     fullscreenable: false,
     roundedCorners: true,
-    titleBarStyle: 'hiddenInset',
+    ...WindowManager.getTitleBarConfig('#02192f', 36),
     // Matches the app's dark UI (rgba(2, 25, 47, 0.97)) so there's no white
     // flash when the renderer isn't painted over the native backing yet/anymore
     // (e.g. during the native close animation).
@@ -1570,6 +1537,20 @@ app.whenReady().then(async () => {
   // window exists — must stay right after the OS-version gate above.
   if (!enforceApplicationsFolderLocation()) return;
 
+  if (IS_WINDOWS) Menu.setApplicationMenu(null);
+
+  if (IS_WINDOWS && isDev) {
+    app.on('browser-window-created', (_event, window) => {
+      window.webContents.on('before-input-event', (event, input) => {
+        if (input.type !== 'keyDown') return;
+        const isToggle = input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i');
+        if (!isToggle) return;
+        window.webContents.toggleDevTools();
+        event.preventDefault();
+      });
+    });
+  }
+
   global.appSettingsWindowSource = null;
   global.playbookWindowSource = null;
 
@@ -1765,15 +1746,9 @@ app.on('before-quit', async (event: Event) => {
   unregisterGlobalShortcuts();
 });
 
-// Modify window-all-closed to NOT quit if dashboard is meant to be main interface
 app.on('window-all-closed', () => {
-  // Standard macOS behavior: quit only if platform is not darwin
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-
-  // If you want the app to quit when the dashboard closes even on macOS,
-  // you would add app.quit() here.
+  if (IS_MAC || IS_WINDOWS) return;
+  app.quit();
 });
 
 let lastLeaveUrl: string | null = null;
@@ -2228,10 +2203,17 @@ ipcMain.on('tray-logout', async () => {
 
 // Handler for resizing the tray menu window (e.g. when items are shown/hidden)
 ipcMain.on('set-tray-menu-height', (_event: Electron.IpcMainEvent, height: number) => {
-  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
-    trayMenuWindow.setSize(TRAY_MENU_WIDTH, height, false);
-    positionTrayMenu();
+  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+
+  const target = WindowManager.trayMenuHeightWithSlack(height);
+
+  if (!tray) {
+    WindowManager.setWindowSize(trayMenuWindow, TRAY_MENU_WIDTH, target);
+    return;
   }
+
+  const { x, y } = WindowManager.calculateTrayMenuPosition(tray.getBounds(), TRAY_MENU_WIDTH, target);
+  trayMenuWindow.setBounds({ x, y, width: TRAY_MENU_WIDTH, height: target });
 });
 
 // Handler for quitting the app
@@ -2256,7 +2238,7 @@ const createOnboardingWindow = (tab?: string) => {
   const onboardingWindow = new BrowserWindow({
     width: 720,
     height: 560,
-    titleBarStyle: 'hiddenInset',
+    ...WindowManager.getTitleBarConfig('#2a3f5f', 36),
     resizable: false,
     maximizable: false,
     minimizable: false,
@@ -2318,12 +2300,7 @@ const createAppSettingsWindow = (tab?: string, source: 'coach' | 'independent' =
     const appSettingsWindow = new BrowserWindow({
         ...windowConfig,
         icon: path.join(__dirname, '../public/assets/icon.icns'),
-        titleBarStyle: 'hiddenInset',
-        titleBarOverlay: {
-          color: '#02192f',
-          symbolColor: '#FFF',
-          height: 30,
-        },
+        ...WindowManager.getTitleBarConfig('#02192f', 30),
         webPreferences: {
             preload: preloadScriptPath,
             contextIsolation: true,
@@ -2387,6 +2364,10 @@ const createCoachWindow = () => {
   });
 
   global.coachWindow = coachWindow;
+
+  if (IS_MAC) {
+    coachWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
 
   // dev vs prod URL for the coach window (use the HTML that bootstraps src/coachWindow/index.jsx)
   const coachUrl = isDev
@@ -2487,6 +2468,10 @@ const createPlaybookWindow = (source: 'coach' | 'independent' = 'independent') =
   });
 
   global.playbookWindow = playbookWindow;
+
+  if (IS_MAC) {
+    playbookWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
 
   const playbookUrl = isDev
     ? `http://localhost:5173/playbook-window.html?fontSize=${cacheStore.getValue('fontSize')}`
