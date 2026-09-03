@@ -61,6 +61,10 @@ electron/auth/*.js
 electron/auth/*.js.map
 electron/shared/*.js
 electron/shared/*.js.map
+electron/native-audio/build/*.sln
+electron/native-audio/build/*.vcxproj
+electron/native-audio/build/*.vcxproj.filters
+electron/native-audio/build/Release/
 
 tsconfig.electron.tsbuildinfo
 *.tsbuildinfo
