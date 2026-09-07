@@ -20,7 +20,7 @@ import sentryConfig from './sentry.config';
 import { WindowManager } from './utils/windowManager';
 import { loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
-import { IS_MAC, ALLOW_VIBRANCY } from './utils/platform';
+import { IS_MAC, IS_WINDOWS, ALLOW_VIBRANCY } from './utils/platform';
 import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage, READ_ONLY_VOLUME_MESSAGE } from './utils/transientErrors';
 import { enforceApplicationsFolderLocation, isOutsideApplicationsFolder } from './utils/applicationsFolder';
 import { enforceMinimumMacOSVersion } from './utils/osVersion';
@@ -29,6 +29,8 @@ import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
 import * as audioManager from './audio/audioManager';
 import * as permissions from './permissions/permissionsManager';
+import * as cacheStore from './store/cacheManager';
+import { removeLegacyCacheFiles } from './store/persistentStore';
 
 Sentry.init(sentryConfig);
 
@@ -338,12 +340,24 @@ authManager.on('signed-in', (state: AuthState) => {
     // Load the account profile into global.authUser now, so the tray shows the
     // logged-in state and the onboarding gate sees the real onboarding_status.
     authUserReady = loadAuthUserProfile(state.accessToken, state.user?.email);
-    fetchAndCacheEnabledFeatures(backendBaseUrl(), state.accessToken).catch((err) => {
-      console.warn('[AuthManager] signed-in: features fetch failed', err?.message);
-      if (!isTransientNetworkError(err)) Sentry.captureException(err);
+    // Configuration now survives sign-out, so a same-machine account switch is
+    // the only thing left that can invalidate it. Runs before the new session's
+    // fetches so nothing lands on top of the previous user's values.
+    cacheStore.setAccount(state.user?.id ?? null);
+    cacheStore.refreshKey('enabledFeatures', state.accessToken).catch((err) => {
+      cacheStore.reportCacheFailure('enabledFeatures', err);
+      cacheStore.scheduleRetry('enabledFeatures');
     });
-    void prefetchAndCachePlaybooks(state.accessToken);
-    void prefetchAndCacheOpenLastUsed(state.accessToken);
+    // Font size was never fetched on this path — only at boot and on
+    // offline recovery — so a re-login after a session expiry left it at 's'.
+    cacheStore.refreshKey('fontSize', state.accessToken).catch((err) => {
+      cacheStore.reportCacheFailure('fontSize', err);
+      cacheStore.scheduleRetry('fontSize');
+    });
+    void cacheStore.refreshKey('playbooks', state.accessToken)
+      .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
+    void cacheStore.refreshKey('openLastUsed', state.accessToken)
+      .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
   }
 });
 
@@ -353,12 +367,8 @@ authManager.on('signed-out', () => {
   global.authRefreshToken = null;
   setAuthUser(null);
   onboardingStatusThisSession = null;
-  cachedEnabledFeatures = [];
-  global.playbooksCache = null;
-  clearPlaybooksDiskCache();
-  global.openLastUsedCache = null;
-  clearOpenLastUsedDiskCache();
-  broadcastEnabledFeatures();
+  cacheStore.clearFor('sign-out');
+  cacheStore.cancelAllRetries();
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat for unmigrated windows
   broadcastToAllWindows('auth:session-expired');
@@ -384,13 +394,15 @@ authManager.on('token-refreshed', async (state: AuthState) => {
   if (startupOfflinePending && state.isAuthenticated) {
     startupOfflinePending = false;
     console.log('[MAIN] Startup-offline recovery — fetching profile and features');
-    void prefetchAndCachePlaybooks(state.accessToken!);
-    void prefetchAndCacheOpenLastUsed(state.accessToken!);
+    void cacheStore.refreshKey('playbooks', state.accessToken!)
+      .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
+    void cacheStore.refreshKey('openLastUsed', state.accessToken!)
+      .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
     const headers = { Authorization: `Bearer ${state.accessToken}` };
     const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
       axios.get(`${backendBaseUrl()}/accounts/${state.user?.email}`, { headers, timeout: 5000 }),
-      fetchAndCacheFontSize(backendBaseUrl(), state.accessToken!),
-      fetchAndCacheEnabledFeatures(backendBaseUrl(), state.accessToken!),
+      cacheStore.refreshKey('fontSize', state.accessToken!),
+      cacheStore.refreshKey('enabledFeatures', state.accessToken!),
     ]);
     if (profileResult.status === 'fulfilled') {
       setAuthUser(profileResult.value.data.data);
@@ -406,10 +418,12 @@ authManager.on('token-refreshed', async (state: AuthState) => {
       scheduleProfileRetry(state.user?.email);
     }
     if (fontSizeResult.status === 'rejected') {
-      console.warn('[MAIN] Startup-offline recovery: font_size fetch failed', fontSizeResult.reason);
+      cacheStore.reportCacheFailure('fontSize', fontSizeResult.reason);
+      cacheStore.scheduleRetry('fontSize');
     }
     if (featuresResult.status === 'rejected') {
-      console.warn('[MAIN] Startup-offline recovery: features fetch failed', featuresResult.reason);
+      cacheStore.reportCacheFailure('enabledFeatures', featuresResult.reason);
+      cacheStore.scheduleRetry('enabledFeatures');
     }
   }
 });
@@ -420,12 +434,8 @@ authManager.on('session-expired', () => {
   global.authRefreshToken = null;
   setAuthUser(null);
   onboardingStatusThisSession = null;
-  cachedEnabledFeatures = [];
-  global.playbooksCache = null;
-  clearPlaybooksDiskCache();
-  global.openLastUsedCache = null;
-  clearOpenLastUsedDiskCache();
-  broadcastEnabledFeatures();
+  cacheStore.clearFor('session-expired');
+  cacheStore.cancelAllRetries();
   broadcastToAllWindows('auth:state', { user: null, isAuthenticated: false, accessToken: null });
   broadcastToAllWindows('auth-session-expired');   // backward-compat
   broadcastToAllWindows('auth:session-expired');
@@ -748,55 +758,31 @@ function setupLogging() {
   }
 }
 
-// ===== ENABLED FEATURES CACHE =====
-let cachedEnabledFeatures: string[] = [];
-
-async function fetchAndCacheEnabledFeatures(baseUrl: string, accessToken: string): Promise<void> {
-  const res = await axios.get(`${baseUrl}/features/company`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    timeout: 5000,
-  });
-  const features = res.data?.features;
-  if (Array.isArray(features)) {
-    cachedEnabledFeatures = features.filter((f: { enabled: boolean }) => f.enabled).map((f: { key: string }) => f.key);
-    broadcastEnabledFeatures();
-  }
-}
-
-function broadcastEnabledFeatures(): void {
-  const payload = { enabledFeatures: cachedEnabledFeatures };
-  BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
-    if (!win.isDestroyed()) win.webContents.send('enabled-features-changed', payload);
-  });
-}
-
-// ===== FONT SIZE CACHE =====
-let cachedFontSize: string = 's';
-
-const VALID_FONT_SIZES = new Set(['s', 'm', 'l']);
-
-function applyFontSize(size: string) {
-  if (!VALID_FONT_SIZES.has(size)) return;
-  cachedFontSize = size;
-  if (isCoachWindowOpen()) {
-    global.coachWindow!.webContents.send('font-size-changed', size);
-  }
-  if (isPlaybookWindowOpen()) {
-    global.playbookWindow!.webContents.send('font-size-changed', size);
-  }
-}
-
-async function fetchAndCacheFontSize(baseUrl: string, accessToken: string): Promise<void> {
-  const res = await axios.get(`${baseUrl}/sales-coach/settings`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    timeout: 5000,
-  });
-  const size = res.data?.coachSettings?.font_size;
-  if (size && VALID_FONT_SIZES.has(size)) {
-    cachedFontSize = size;
-  }
-}
-
+// ===== CACHED CONFIG =====
+//
+// The values, their shape rules and their persistence live in electron/store.
+// main.ts keeps only the wiring: how to reach the backend, who is signed in,
+// and which windows each value is broadcast to.
+cacheStore.initCacheManager({
+  backendBaseUrl,
+  getAccessToken: () => authManager.getAccessToken().catch(() => null),
+  isAuthenticated: () => authManager.getState().isAuthenticated,
+  getAccountId: () => authManager.getState().user?.id ?? null,
+  broadcast: (target, channel, payload) => {
+    switch (target) {
+      case 'all-windows':
+        broadcastToAllWindows(channel, payload);
+        return;
+      case 'coach-and-playbook':
+        if (isCoachWindowOpen()) global.coachWindow!.webContents.send(channel, payload);
+        if (isPlaybookWindowOpen()) global.playbookWindow!.webContents.send(channel, payload);
+        return;
+      case 'playbook':
+        if (isPlaybookWindowOpen()) global.playbookWindow!.webContents.send(channel, payload);
+        return;
+    }
+  },
+});
 async function reportAppVersionIfChanged(baseUrl: string, accessToken: string, storedVersion: string | null | undefined): Promise<void> {
 	const runningVersion = app.getVersion();
 	if (runningVersion === storedVersion) return;
@@ -926,7 +912,7 @@ function createTrayMenuWindow() {
   // Create a frameless, always-on-top window
   trayMenuWindow = new BrowserWindow({
     width: TRAY_MENU_WIDTH,
-    height: 172,
+    height: 92,
     show: false,
     frame: false,
     transparent: true,
@@ -939,7 +925,7 @@ function createTrayMenuWindow() {
     hasShadow: true,
     vibrancy: ALLOW_VIBRANCY ? 'menu' : undefined,
     visualEffectState: ALLOW_VIBRANCY ? 'active' : undefined,
-    backgroundColor: ALLOW_VIBRANCY ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
+    backgroundColor: (ALLOW_VIBRANCY || IS_WINDOWS) ? '#00000000' : (nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB'),
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
@@ -967,7 +953,7 @@ function createTrayMenuWindow() {
         hideTrayMenu();
     });
     
-    if (!ALLOW_VIBRANCY) {
+    if (!ALLOW_VIBRANCY && !IS_WINDOWS) {
       nativeTheme.on('updated', () => {
         if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
           trayMenuWindow.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1f2937' : '#F9FAFB');
@@ -997,7 +983,7 @@ function showTrayMenu() {
       isOpen: isPlaybookWindowOpen()
     });
     trayMenuWindow.webContents.send('enabled-features-changed', {
-      enabledFeatures: cachedEnabledFeatures
+      enabledFeatures: cacheStore.getValue('enabledFeatures')
     });
   };
 
@@ -1022,47 +1008,14 @@ function hideTrayMenu() {
 }
 
 /**
- * Positions the tray menu window near the tray icon
- * macOS: positions below the menu bar on the right side
+ * Positions the tray menu window near the tray icon, at its current size.
  */
 function positionTrayMenu() {
   if (!trayMenuWindow || trayMenuWindow.isDestroyed() || !tray) return;
 
-  const trayBounds = tray.getBounds();
-  const windowBounds = trayMenuWindow.getBounds();
-
-  // Use cursor position to identify which display the user clicked on.
-  // tray.getBounds() can return coordinates for the primary display on macOS
-  // even when the tray icon was clicked on a secondary display's menu bar.
-  const cursorPoint = electronScreen.getCursorScreenPoint();
-  const display = electronScreen.getDisplayNearestPoint(cursorPoint);
-  const workArea = display.workArea;
-
-  let x, y;
-
-  if (process.platform === 'darwin') {
-    // Center horizontally around the cursor (where the icon was clicked),
-    // and place just below this display's menu bar.
-    x = Math.round(cursorPoint.x - windowBounds.width / 2);
-    y = Math.round(workArea.y + 5);
-
-    // Clamp to this display's bounds
-    if (x + windowBounds.width > workArea.x + workArea.width) {
-      x = workArea.x + workArea.width - windowBounds.width - 5;
-    }
-    if (x < workArea.x) {
-      x = workArea.x + 5;
-    }
-  } else if (process.platform === 'win32') {
-    // Windows: Position above taskbar, aligned with tray icon
-    x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
-    y = Math.round(trayBounds.y - windowBounds.height - 5);
-  } else {
-    // Linux: Position below tray icon
-    x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
-    y = Math.round(trayBounds.y + trayBounds.height + 5);
-  }
-
+  const { x, y } = WindowManager.calculateTrayMenuPosition(
+    tray.getBounds(), TRAY_MENU_WIDTH, trayMenuWindow.getBounds().height,
+  );
   trayMenuWindow.setPosition(x, y, false);
 }
 
@@ -1140,7 +1093,7 @@ const shortcuts = [
     fn: () => {
       if (global.networkState === 'reconnecting') return;
       if (!global.authUser || global.authUser?.subscription_plan_id === null) return;
-      if (!cachedEnabledFeatures.includes('playbooks')) return;
+      if (!cacheStore.getValue('enabledFeatures').includes('playbooks')) return;
 
       if (isPlaybookWindowOpen()) {
         global.playbookWindow!.close();
@@ -1338,7 +1291,7 @@ const createSplashWindow = (opts: { logout?: boolean; reason?: 'session-expired'
     maximizable: false,
     fullscreenable: false,
     roundedCorners: true,
-    titleBarStyle: 'hiddenInset',
+    ...WindowManager.getTitleBarConfig('#02192f', 36),
     // Matches the app's dark UI (rgba(2, 25, 47, 0.97)) so there's no white
     // flash when the renderer isn't painted over the native backing yet/anymore
     // (e.g. during the native close animation).
@@ -1584,6 +1537,20 @@ app.whenReady().then(async () => {
   // window exists — must stay right after the OS-version gate above.
   if (!enforceApplicationsFolderLocation()) return;
 
+  if (IS_WINDOWS) Menu.setApplicationMenu(null);
+
+  if (IS_WINDOWS && isDev) {
+    app.on('browser-window-created', (_event, window) => {
+      window.webContents.on('before-input-event', (event, input) => {
+        if (input.type !== 'keyDown') return;
+        const isToggle = input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i');
+        if (!isToggle) return;
+        window.webContents.toggleDevTools();
+        event.preventDefault();
+      });
+    });
+  }
+
   global.appSettingsWindowSource = null;
   global.playbookWindowSource = null;
 
@@ -1662,35 +1629,21 @@ app.whenReady().then(async () => {
     runAfterNetworkSettles('token refresh (unlock)', () => authManager.forceRefresh(), { key: 'token-refresh', retries: 0 });
   });
 
+  // The two files the store replaces. Not gated on auth — a boot that fails to
+  // restore the session must still clean them up, which is exactly the boot
+  // where they would otherwise be left behind forever.
+  removeLegacyCacheFiles();
+
   const authState = authManager.getState();
   if (authState.isAuthenticated) {
-    // Hydrate the playbooks + open_last_used caches from disk now that we
-    // have a *confirmed* signed-in user — before any window is created and
-    // can query get-playbooks-cache. Deliberately gated on isAuthenticated
-    // rather than running right after init(): on a transient (offline)
-    // init() failure, authManager.getState().user is null even though a
-    // valid session still exists (init() only failed to *refresh* it), and
-    // comparing a disk cache's accountId against that null would read as a
-    // mismatch and wrongly delete an otherwise-good cache. Skipping hydration
-    // entirely while unauthenticated is safe either way — no window can open
-    // to read the stale memory cache before a real sign-in re-populates it.
-    const playbooksDiskCache = readPlaybooksDiskCache();
-    if (playbooksDiskCache) {
-      if (playbooksDiskCache.accountId === authState.user?.id) {
-        global.playbooksCache = { playbooks: playbooksDiskCache.playbooks, error: playbooksDiskCache.error };
-      } else {
-        clearPlaybooksDiskCache();
-      }
-    }
-
-    const openLastUsedDiskCache = readOpenLastUsedDiskCache();
-    if (openLastUsedDiskCache) {
-      if (openLastUsedDiskCache.accountId === authState.user?.id) {
-        global.openLastUsedCache = openLastUsedDiskCache.openLastUsed;
-      } else {
-        clearOpenLastUsedDiskCache();
-      }
-    }
+    // Hydrate every cached value from disk now that we have a *confirmed*
+    // signed-in user, before any window is created and can read one.
+    // Deliberately gated on isAuthenticated rather than running right after
+    // init(): on a transient (offline) init() failure user is null even though
+    // a valid session still exists — init() only failed to *refresh* it — and
+    // comparing the cache's accountId against that null would read as a
+    // mismatch and wrongly delete an otherwise-good cache.
+    cacheStore.hydrate();
 
     if (!permissions.isPermissionsComplete()) {
       // Token restored but permissions flow was never completed — show splash.
@@ -1704,14 +1657,16 @@ app.whenReady().then(async () => {
       // boot path, and playbooks prefetch has nothing to block on — the
       // cache read above already hydrated whatever was on disk, and this
       // just reconciles it in the background.
-      void prefetchAndCachePlaybooks(authState.accessToken!);
-      void prefetchAndCacheOpenLastUsed(authState.accessToken!);
+      void cacheStore.refreshKey('playbooks', authState.accessToken!)
+        .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
+      void cacheStore.refreshKey('openLastUsed', authState.accessToken!)
+        .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
 
       // Fetch profile, font size, and enabled features in parallel before any window opens.
       const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
         axios.get(`${backendBaseUrl()}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
-        fetchAndCacheFontSize(backendBaseUrl(), authState.accessToken!),
-        fetchAndCacheEnabledFeatures(backendBaseUrl(), authState.accessToken!),
+        cacheStore.refreshKey('fontSize', authState.accessToken!),
+        cacheStore.refreshKey('enabledFeatures', authState.accessToken!),
       ]);
 
       if (profileResult.status === 'fulfilled') {
@@ -1725,13 +1680,13 @@ app.whenReady().then(async () => {
       }
 
       if (fontSizeResult.status === 'rejected') {
-        console.warn('[MAIN] Silent auth: font_size fetch failed — falling back to default S', fontSizeResult.reason);
-        if (!isTransientNetworkError(fontSizeResult.reason)) Sentry.captureException(fontSizeResult.reason);
+        cacheStore.reportCacheFailure('fontSize', fontSizeResult.reason);
+        cacheStore.scheduleRetry('fontSize');
       }
 
       if (featuresResult.status === 'rejected') {
-        console.warn('[MAIN] Silent auth: features fetch failed — no features enabled by default', featuresResult.reason);
-        if (!isTransientNetworkError(featuresResult.reason)) Sentry.captureException(featuresResult.reason);
+        cacheStore.reportCacheFailure('enabledFeatures', featuresResult.reason);
+        cacheStore.scheduleRetry('enabledFeatures');
       }
 
 	  maybeReportAppVersion(backendBaseUrl(), authState.accessToken!, global.authUser);
@@ -1791,15 +1746,9 @@ app.on('before-quit', async (event: Event) => {
   unregisterGlobalShortcuts();
 });
 
-// Modify window-all-closed to NOT quit if dashboard is meant to be main interface
 app.on('window-all-closed', () => {
-  // Standard macOS behavior: quit only if platform is not darwin
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-
-  // If you want the app to quit when the dashboard closes even on macOS,
-  // you would add app.quit() here.
+  if (IS_MAC || IS_WINDOWS) return;
+  app.quit();
 });
 
 let lastLeaveUrl: string | null = null;
@@ -1991,6 +1940,9 @@ ipcMain.on('network:report-status', (_event, status: 'online' | 'offline') => {
       console.log('[Network] Back online without a profile — re-arming the profile retry');
       scheduleProfileRetry(authState.user?.email);
     }
+    if (authState.isAuthenticated) {
+      cacheStore.scheduleRetriesForUnloaded();
+    }
   }
 });
 
@@ -2088,7 +2040,7 @@ ipcMain.handle('get-coach-window-open-state', () => {
 });
 
 ipcMain.on('get-enabled-features', (event: Electron.IpcMainInvokeEvent) => {
-  event.sender.send('enabled-features-changed', { enabledFeatures: cachedEnabledFeatures });
+  event.sender.send('enabled-features-changed', { enabledFeatures: cacheStore.getValue('enabledFeatures') });
 });
 
 // ─── Update IPC handlers ──────────────────────────────────────────────────────
@@ -2151,7 +2103,10 @@ ipcMain.on('app-settings:open-update-tab', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 ipcMain.on('set-font-size', (_event, size: string) => {
-  applyFontSize(size);
+  // Sent from App Settings only after the POST succeeded, so this is a value
+  // the server has accepted. Recording it as a user write stands the retry
+  // ladder down and drops any fetch still in flight for this key.
+  cacheStore.setValue('fontSize', size, 'user');
 });
 
 ipcMain.on('open-onboarding-window', () => {
@@ -2248,10 +2203,17 @@ ipcMain.on('tray-logout', async () => {
 
 // Handler for resizing the tray menu window (e.g. when items are shown/hidden)
 ipcMain.on('set-tray-menu-height', (_event: Electron.IpcMainEvent, height: number) => {
-  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
-    trayMenuWindow.setSize(TRAY_MENU_WIDTH, height, false);
-    positionTrayMenu();
+  if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+
+  const target = WindowManager.trayMenuHeightWithSlack(height);
+
+  if (!tray) {
+    WindowManager.setWindowSize(trayMenuWindow, TRAY_MENU_WIDTH, target);
+    return;
   }
+
+  const { x, y } = WindowManager.calculateTrayMenuPosition(tray.getBounds(), TRAY_MENU_WIDTH, target);
+  trayMenuWindow.setBounds({ x, y, width: TRAY_MENU_WIDTH, height: target });
 });
 
 // Handler for quitting the app
@@ -2276,7 +2238,7 @@ const createOnboardingWindow = (tab?: string) => {
   const onboardingWindow = new BrowserWindow({
     width: 720,
     height: 560,
-    titleBarStyle: 'hiddenInset',
+    ...WindowManager.getTitleBarConfig('#2a3f5f', 36),
     resizable: false,
     maximizable: false,
     minimizable: false,
@@ -2338,12 +2300,7 @@ const createAppSettingsWindow = (tab?: string, source: 'coach' | 'independent' =
     const appSettingsWindow = new BrowserWindow({
         ...windowConfig,
         icon: path.join(__dirname, '../public/assets/icon.icns'),
-        titleBarStyle: 'hiddenInset',
-        titleBarOverlay: {
-          color: '#02192f',
-          symbolColor: '#FFF',
-          height: 30,
-        },
+        ...WindowManager.getTitleBarConfig('#02192f', 30),
         webPreferences: {
             preload: preloadScriptPath,
             contextIsolation: true,
@@ -2408,10 +2365,14 @@ const createCoachWindow = () => {
 
   global.coachWindow = coachWindow;
 
+  if (IS_MAC) {
+    coachWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+
   // dev vs prod URL for the coach window (use the HTML that bootstraps src/coachWindow/index.jsx)
   const coachUrl = isDev
-    ? `http://localhost:5173/coach-window.html?fontSize=${cachedFontSize}`
-    : `file://${path.join(__dirname, '../dist/coach-window.html')}?fontSize=${cachedFontSize}`;
+    ? `http://localhost:5173/coach-window.html?fontSize=${cacheStore.getValue('fontSize')}`
+    : `file://${path.join(__dirname, '../dist/coach-window.html')}?fontSize=${cacheStore.getValue('fontSize')}`;
 
   coachWindow.loadURL(coachUrl);
   
@@ -2508,9 +2469,13 @@ const createPlaybookWindow = (source: 'coach' | 'independent' = 'independent') =
 
   global.playbookWindow = playbookWindow;
 
+  if (IS_MAC) {
+    playbookWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+
   const playbookUrl = isDev
-    ? `http://localhost:5173/playbook-window.html?fontSize=${cachedFontSize}`
-    : `file://${path.join(__dirname, '../dist/playbook-window.html')}?fontSize=${cachedFontSize}`;
+    ? `http://localhost:5173/playbook-window.html?fontSize=${cacheStore.getValue('fontSize')}`
+    : `file://${path.join(__dirname, '../dist/playbook-window.html')}?fontSize=${cacheStore.getValue('fontSize')}`;
 
   playbookWindow.loadURL(playbookUrl);
   broadcastPlaybookWindowState(true);
@@ -2550,156 +2515,37 @@ ipcMain.on('set-playbook-window-position', (_event: Electron.IpcMainInvokeEvent,
   }
 });
 
-// --- Playbooks data cache (prefetched at sign-in, consumed by the playbook window) ---
+// --- Playbooks + open_last_used, now held by the cache store ---
 //
-// global.playbooksCache is the in-memory copy every window reads via
-// get-playbooks-cache / playbooks-updated. playbooks-cache.json on disk exists
-// so a cold boot can hydrate that in-memory copy — and any window that opens
-// early — before the first network round-trip lands, not to be a second
-// source of truth. It's tagged with the account id it was written for
-// (SAYSO-367): one account's cached scripts must never flash onto a
-// different account's screen after a same-machine account switch, including
-// an unclean shutdown (crash/force-quit) that never got to run signed-out's
-// cleanup below.
-type PlaybooksCachePayload = { playbooks: unknown[] | null; error: string | null };
-
-const playbooksCachePath = () =>
-  path.join(app.getPath('userData'), 'playbooks-cache.json');
-
-function writePlaybooksDiskCache(accountId: string, payload: PlaybooksCachePayload): void {
-  try {
-    fs.writeFileSync(playbooksCachePath(), JSON.stringify({ accountId, ...payload, cachedAt: Date.now() }));
-  } catch (err) {
-    console.warn('[playbooks] could not persist disk cache:', (err as Error)?.message);
-  }
-}
-
-function clearPlaybooksDiskCache(): void {
-  try {
-    fs.rmSync(playbooksCachePath(), { force: true });
-  } catch {}
-}
-
-function readPlaybooksDiskCache(): (PlaybooksCachePayload & { accountId: string; cachedAt: number }) | null {
-  try {
-    return JSON.parse(fs.readFileSync(playbooksCachePath(), 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-// Single choke point for every playbooks-cache write, whichever window or
-// process produced it (Settings edits, the playbook/coach window's own
-// revalidation fetch, or the sign-in-time prefetch below) — updates memory,
-// persists to disk tagged with the signed-in account, and tells an
-// already-open playbook window.
-function applyPlaybooksCache(payload: PlaybooksCachePayload): void {
-  global.playbooksCache = payload;
-  const accountId = authManager.getState().user?.id;
-  if (accountId) writePlaybooksDiskCache(accountId, payload);
-  if (isPlaybookWindowOpen()) {
-    global.playbookWindow!.webContents.send('playbooks-updated', payload);
-  }
-}
-
-// Fired from all three points main establishes a session (see the
-// signed-in/whenReady/token-refreshed call sites below) so the cache is warm
-// before the user ever opens the playbook window, not gated on the coach
-// window. Failures are logged but never overwrite a good cache with an
-// error — this runs silently in the background, and the playbook window's
-// own fetch (usePlaybookPrefetch) still gets a chance to surface a real
-// error state if the user opens it while genuinely offline.
-async function prefetchAndCachePlaybooks(accessToken: string): Promise<void> {
-  try {
-    const res = await axios.get(`${backendBaseUrl()}/playbooks`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      timeout: 8000,
-    });
-    applyPlaybooksCache({ playbooks: res.data?.playbooks ?? null, error: null });
-  } catch (err) {
-    console.warn('[playbooks] prefetch failed:', (err as Error)?.message);
-    if (!isTransientNetworkError(err)) Sentry.captureException(err);
-  }
-}
-
-ipcMain.on('set-playbooks-cache', (_event, payload: PlaybooksCachePayload) => {
-  applyPlaybooksCache(payload);
+// Both used to be hand-rolled here: an in-memory global, a three-function
+// disk trio, an applyX writer and a prefetch. They are declared in
+// electron/store/cacheRegistry.ts now; what remains is the IPC surface, whose
+// channel names are unchanged so no renderer had to move.
+//
+// The account tagging that guarded playbooks-cache.json (SAYSO-367) is now a
+// property of the store: one account's cached scripts can never be read into
+// another account's session, including after an unclean shutdown that never
+// ran sign-out's cleanup.
+ipcMain.on('set-playbooks-cache', (_event, payload: unknown) => {
+  // Both senders (usePlaybookPrefetch and the Settings playbooks query) are
+  // relaying a server fetch, not a user edit — the user's own playbook
+  // changes go through the API and come back as a refetch.
+  cacheStore.setValue('playbooks', payload, 'server');
 });
 
 ipcMain.handle('get-playbooks-cache', () => {
-  return global.playbooksCache ?? { playbooks: null, error: null };
+  return cacheStore.getValue('playbooks');
 });
 
-// --- open_last_used cache (SAYSO-367 follow-up) ---
-//
-// Narrow, single-field mirror of the playbooks cache above — NOT a general
-// coach_settings cache. The playbook window's auto-select logic blocks on
-// this one boolean (whether to reopen the last-used script vs. the default),
-// and it was the only piece of PlaybookWindowApp's boot sequence still doing
-// a live, uncached fetch. Deliberately not extended to the rest of
-// coach_settings (buffer time, cue mode, etc.) — those have ~8 separate
-// mutation call sites in useCoachSettings.ts that would all need to push
-// through this same pipe to avoid drifting stale, which is a bigger, more
-// consequential change than this one field warranted.
-const openLastUsedCachePath = () =>
-  path.join(app.getPath('userData'), 'open-last-used-cache.json');
-
-function writeOpenLastUsedDiskCache(accountId: string, openLastUsed: boolean): void {
-  try {
-    fs.writeFileSync(openLastUsedCachePath(), JSON.stringify({ accountId, openLastUsed, cachedAt: Date.now() }));
-  } catch (err) {
-    console.warn('[open-last-used] could not persist disk cache:', (err as Error)?.message);
-  }
-}
-
-function clearOpenLastUsedDiskCache(): void {
-  try {
-    fs.rmSync(openLastUsedCachePath(), { force: true });
-  } catch {}
-}
-
-function readOpenLastUsedDiskCache(): { accountId: string; openLastUsed: boolean; cachedAt: number } | null {
-  try {
-    return JSON.parse(fs.readFileSync(openLastUsedCachePath(), 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-function applyOpenLastUsedCache(openLastUsed: boolean): void {
-  global.openLastUsedCache = openLastUsed;
-  const accountId = authManager.getState().user?.id;
-  if (accountId) writeOpenLastUsedDiskCache(accountId, openLastUsed);
-  if (isPlaybookWindowOpen()) {
-    global.playbookWindow!.webContents.send('open-last-used-updated', openLastUsed);
-  }
-}
-
-async function prefetchAndCacheOpenLastUsed(accessToken: string): Promise<void> {
-  try {
-    const res = await axios.get(`${backendBaseUrl()}/sales-coach/settings`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      timeout: 8000,
-    });
-    const value = res.data?.coachSettings?.open_last_used;
-    // Only cache a real value. A malformed/incomplete 200 (missing the
-    // field) is treated like a failure rather than persisting a guessed
-    // `true` — that would overwrite a legitimately cached `false`.
-    if (typeof value === 'boolean') {
-      applyOpenLastUsedCache(value);
-    } else {
-      console.warn('[open-last-used] prefetch response missing open_last_used — leaving cache as-is');
-    }
-  } catch (err) {
-    console.warn('[open-last-used] prefetch failed:', (err as Error)?.message);
-    if (!isTransientNetworkError(err)) Sentry.captureException(err);
-  }
-}
-
 ipcMain.on('set-open-last-used-cache', (_event, openLastUsed: boolean) => {
-  applyOpenLastUsedCache(openLastUsed);
+  // 'server' rather than 'user' even though one of the two senders is a
+  // confirmed user write: openLastUsed has no retry ladder, so the only thing
+  // 'user' would add is a generation bump. Split the senders if it ever gets
+  // one.
+  cacheStore.setValue('openLastUsed', openLastUsed, 'server');
 });
 
 ipcMain.handle('get-open-last-used-cache', () => {
-  return global.openLastUsedCache ?? true;
+  // null means "not known yet" and still reads as true, as it always has.
+  return cacheStore.getValue('openLastUsed') ?? true;
 });

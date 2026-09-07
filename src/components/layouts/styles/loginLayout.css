@@ -36,6 +36,7 @@
   padding: 0 24px 28px;
   width: 100%;
   min-height: 0;
+  overflow-y: auto;
   -webkit-app-region: no-drag;
 }
 

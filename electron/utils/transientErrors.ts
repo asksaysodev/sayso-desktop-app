@@ -12,8 +12,14 @@ export function isTransientUpstreamStatus(status: number | undefined): boolean {
   return status === 429 || status === 502 || status === 503 || status === 504 || status === 618;
 }
 
+// Three shapes carry an HTTP status in this codebase and they all spell it
+// differently: electron-updater uses `statusCode`, AuthError uses `status`, and
+// axios buries it in `response.status`. Reading only the first meant every
+// axios 429/502/503/504 classified as fatal — reported to Sentry and never
+// retried — which is why AuthManager grew its own predicate to work around it.
 function getStatus(err: any): number | undefined {
-  return typeof err?.statusCode === 'number' ? err.statusCode : undefined;
+  const status = err?.statusCode ?? err?.status ?? err?.response?.status;
+  return typeof status === 'number' ? status : undefined;
 }
 
 // One shared vocabulary of environmental network failures. Both questions this

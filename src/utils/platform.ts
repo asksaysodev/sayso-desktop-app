@@ -9,6 +9,7 @@ function resolvePlatform(): string {
 }
 
 const platform = resolvePlatform();
+document.documentElement.dataset.platform = platform;
 
 export const IS_MAC = platform === 'darwin';
 export const IS_WINDOWS = platform === 'win32';

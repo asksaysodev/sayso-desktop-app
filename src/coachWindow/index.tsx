@@ -4,6 +4,7 @@ import './styles/CoachWindow.css';
 import './styles/Colors.css';
 import * as Sentry from "@sentry/electron/renderer";
 import { sentryConfig } from '@/config/sentry';
+import '@/utils/platform';
 import '@/services/networkReporter';
 
 Sentry.init(sentryConfig);
