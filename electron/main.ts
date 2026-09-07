@@ -21,6 +21,7 @@ import { WindowManager } from './utils/windowManager';
 import { loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, IS_WINDOWS, ALLOW_VIBRANCY } from './utils/platform';
+import { isWindowsTaskbarLight } from './utils/windowsTrayTheme';
 import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage, READ_ONLY_VOLUME_MESSAGE } from './utils/transientErrors';
 import { enforceApplicationsFolderLocation, isOutsideApplicationsFolder } from './utils/applicationsFolder';
 import { enforceMinimumMacOSVersion } from './utils/osVersion';
@@ -1020,10 +1021,19 @@ function positionTrayMenu() {
 }
 
 /**
- * Registers the tray icon and sets up click handlers
+ * Builds the tray glyph for the current platform.
+ *
+ * The `…Template.png` assets are pure-black-plus-alpha macOS template images:
+ * `setTemplateImage(true)` lets the OS invert them for the menu bar. That flag
+ * is a no-op on Windows, which would paint the raw black glyph onto the (by
+ * default dark) taskbar, so Windows gets its own pre-coloured pair and picks
+ * between them from the taskbar theme.
  */
-function registerTrayIconMenu() {
-  const trayIconFile = IS_STAGING ? 'staging-tray-icon44Template.png' : 'tray-icon44Template.png';
+function createTrayIcon(useWhiteGlyph: boolean): Electron.NativeImage | null {
+  const stagingPrefix = IS_STAGING ? 'staging-' : '';
+  const trayIconFile = IS_WINDOWS && useWhiteGlyph
+    ? `${stagingPrefix}tray-icon44-white.png`
+    : `${stagingPrefix}tray-icon44Template.png`;
   const iconPath = path.join(__dirname, `../public/assets/${trayIconFile}`);
 
   let icon = nativeImage.createFromPath(iconPath);
@@ -1031,14 +1041,45 @@ function registerTrayIconMenu() {
   if (icon.isEmpty()) {
     console.error('Tray icon failed to load! Icon is empty.');
     Sentry.captureMessage('Tray icon failed to load - icon is empty', 'error');
-    return;
+    return null;
   }
 
-  icon = icon.resize({ width: 19, height: 19 });
-  icon.setTemplateImage(true);
+  const size = IS_WINDOWS ? 16 : 19;
+  icon = icon.resize({ width: size, height: size });
+  if (IS_MAC) icon.setTemplateImage(true);
+
+  return icon;
+}
+
+/**
+ * Repaints the Windows tray glyph to contrast with the current taskbar theme.
+ */
+async function refreshWindowsTrayIcon() {
+  if (!IS_WINDOWS || !tray || tray.isDestroyed()) return;
+
+  const taskbarIsLight = await isWindowsTaskbarLight();
+  if (!tray || tray.isDestroyed()) return;
+
+  const icon = createTrayIcon(!taskbarIsLight);
+  if (icon) tray.setImage(icon);
+}
+
+/**
+ * Registers the tray icon and sets up click handlers
+ */
+function registerTrayIconMenu() {
+  // Assume a dark taskbar (the Windows 11 default) so the first paint is right
+  // in the common case; the async theme read below corrects a light one.
+  const icon = createTrayIcon(true);
+  if (!icon) return;
 
   tray = new Tray(icon);
   if (tray) {
+    if (IS_WINDOWS) {
+      void refreshWindowsTrayIcon();
+      nativeTheme.on('updated', () => { void refreshWindowsTrayIcon(); });
+    }
+
     tray.setToolTip(IS_STAGING ? 'Sayso Staging' : 'Sayso');
 
     tray.on('click', () => {
