@@ -3,6 +3,11 @@ const path = require('path');
 const fs = require('fs');
 
 exports.default = async function(context) {
+  // This hook assumes a macOS .app bundle layout and shells out to `file`/
+  // `codesign` (both macOS-only) — mirrors the identical guard already used
+  // by the sibling afterAllArtifactBuild hook (apply-dmg-background.js).
+  if (process.platform !== 'darwin') return;
+
   const { appOutDir, packager } = context;
   const appName = packager.appInfo.productFilename;
   const appPath = path.join(appOutDir, `${appName}.app`);
