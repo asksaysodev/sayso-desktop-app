@@ -65,6 +65,8 @@ electron/native-audio/build/*.sln
 electron/native-audio/build/*.vcxproj
 electron/native-audio/build/*.vcxproj.filters
 electron/native-audio/build/Release/
+electron/store/*.js
+electron/store/*.js.map
 
 tsconfig.electron.tsbuildinfo
 *.tsbuildinfo

@@ -59,8 +59,9 @@ class AuthError extends Error {
  * path keeps the session alive and schedules a retry, so reporting these only
  * produces one error per failed attempt for a case we already handle by design.
  *
- * AuthError is classified on its own fields: isTransientNetworkError() reads
- * `statusCode`, which AuthError doesn't carry (it names that field `status`).
+ * The AuthError branch is now redundant with isTransientNetworkError() — that
+ * helper reads `status` as well as of SAYSO-376 — but is kept because it also
+ * matches on `kind === 'network'`, which no message/code pattern can see.
  */
 function isExpectedRefreshFailure(error: unknown): boolean {
   if (error instanceof AuthError) {
