@@ -112,6 +112,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -310,7 +311,11 @@ std::string WideToUtf8(LPCWSTR wide) {
 // requirement #8: these callbacks must never touch WASAPI directly).
 void ScheduleMicRouteDebouncedRestart();
 void ScheduleLoopbackRouteDebouncedRestart();
-void ScheduleOnce(int64_t delayMs, std::function<void()> work);
+// Returns false if CreateThreadpoolTimer failed and `work` was never
+// scheduled (a real, if rare, failure mode — see the definition below and
+// each call site for how the caller handles it; never assume scheduling
+// succeeded without checking).
+bool ScheduleOnce(int64_t delayMs, std::function<void()> work);
 // Checks `id` against both paths' currently-opened endpoint (PathState isn't
 // visible yet at this point in the file, hence a plain free function rather
 // than inlining the comparison here) and triggers the matching path's
@@ -470,6 +475,17 @@ struct PathState {
   WAVEFORMATEX* format = nullptr;           // guarded by engineLock; CoTaskMemFree'd on teardown
   HANDLE captureThread = nullptr;           // guarded by engineLock
   HANDLE stopEvent = nullptr;               // guarded by engineLock
+
+  // True from the moment a route-restart attempt (Perform*RouteRestart or
+  // Attempt*RouteRecoveryStep) releases engineLock to do its unlocked
+  // WASAPI join/open work, until it reacquires the lock and finishes
+  // deciding the outcome (publish, discard-as-superseded, or enter
+  // backoff) — guarded by engineLock, like the rest of this struct.
+  // StopMicrophoneCapture/StopSystemAudioCapture wait on claimReleasedCv
+  // while this is true instead of reporting "stopped" while that unlocked
+  // work — and the OS thread it may ultimately own — could still be live.
+  std::atomic<bool> claimActive{false};
+  std::condition_variable claimReleasedCv;  // notified whenever claimActive is cleared
 };
 
 PathState g_micState;
@@ -520,13 +536,18 @@ VOID CALLBACK ScheduledWorkCallback(PTP_CALLBACK_INSTANCE /*instance*/, PVOID co
   delete sw;
 }
 
-void ScheduleOnce(int64_t delayMs, std::function<void()> work) {
+bool ScheduleOnce(int64_t delayMs, std::function<void()> work) {
   ScheduledWork* sw = new ScheduledWork();
   sw->work = std::move(work);
   sw->timer = CreateThreadpoolTimer(ScheduledWorkCallback, sw, nullptr);
   if (!sw->timer) {
     delete sw;
-    return;  // best-effort; a failed schedule just means this notification's restart doesn't fire
+    // CreateThreadpoolTimer failing is rare (thread-pool/resource
+    // exhaustion) but real, and `work` is now permanently dropped — every
+    // call site must check this return and handle it explicitly rather
+    // than silently assuming the callback will eventually fire. See each
+    // call site's comment for what "handle it" means there.
+    return false;
   }
   ULARGE_INTEGER due;
   due.QuadPart = static_cast<ULONGLONG>(-(delayMs * 10000LL));  // relative time, 100ns units, negative = relative
@@ -534,6 +555,7 @@ void ScheduleOnce(int64_t delayMs, std::function<void()> work) {
   ft.dwLowDateTime = due.LowPart;
   ft.dwHighDateTime = due.HighPart;
   SetThreadpoolTimer(sw->timer, &ft, 0, 0);
+  return true;
 }
 
 int64_t NowMs() { return static_cast<int64_t>(GetTickCount64()); }
@@ -1118,32 +1140,123 @@ DWORD WINAPI MicPollOnlyThreadProc(LPVOID param) {
   return 0;
 }
 
-// Must be called with g_micState.engineLock already held.
-void TeardownMicSessionLocked() {
-  if (g_micState.captureThread) {
-    SetEvent(g_micState.stopEvent);
-    WaitForSingleObject(g_micState.captureThread, 3000);
-    CloseHandle(g_micState.captureThread);
-    CloseHandle(g_micState.stopEvent);
-    g_micState.captureThread = nullptr;
-    g_micState.stopEvent = nullptr;
-  }
-  SafeRelease(&g_micState.captureClient);
-  SafeRelease(&g_micState.audioClient);
-  SafeRelease(&g_micState.device);
-  if (g_micState.format) {
-    CoTaskMemFree(g_micState.format);
-    g_micState.format = nullptr;
-  }
+// A previous session's handles, exclusively owned by whoever holds the
+// claim — see ClaimSessionLocked. Default-constructed (all null) means
+// "nothing was claimed." Shared by both the mic and loopback paths —
+// g_micState and g_systemState are both PathState instances, so one claim
+// type and one pair of claim/join functions (parameterized over
+// PathState&) serve both, instead of duplicating each field-for-field per
+// path.
+struct SessionClaim {
+  HANDLE captureThread = nullptr;
+  HANDLE stopEvent = nullptr;
+  IAudioCaptureClient* captureClient = nullptr;
+  IAudioClient* audioClient = nullptr;
+  IMMDevice* device = nullptr;
+  WAVEFORMATEX* format = nullptr;
+};
+
+// Must be called with state.engineLock already held. Snapshots the current
+// session's handles into the returned claim and immediately clears the
+// corresponding PathState fields (including openedEndpointId — an earlier
+// version of this left it stale, still naming the old device, for as long
+// as the claim was outstanding) — this is the only part of tearing a
+// session down that actually needs the lock (it's a handful of pointer
+// copies, not a wait). Once this returns, the claim is the sole owner of
+// those handles: the PathState no longer references them, so a concurrent
+// Stop or a fresh route-restart attempt cannot collide with whatever the
+// caller does with the claim next (see JoinAndReleaseSessionClaim, which
+// does not need the lock at all). Also marks state.claimActive — see its
+// declaration on PathState — so Stop and any other in-flight restart
+// attempt can tell "actively being torn down/reopened right now" apart
+// from "nothing to do." Callers must eventually clear claimActive and
+// notify claimReleasedCv once they're done with the claim, under the lock
+// — see PerformMicRouteRestart for the canonical shape.
+SessionClaim ClaimSessionLocked(PathState& state) {
+  SessionClaim claim;
+  claim.captureThread = state.captureThread;
+  claim.stopEvent = state.stopEvent;
+  claim.captureClient = state.captureClient;
+  claim.audioClient = state.audioClient;
+  claim.device = state.device;
+  claim.format = state.format;
+  state.captureThread = nullptr;
+  state.stopEvent = nullptr;
+  state.captureClient = nullptr;
+  state.audioClient = nullptr;
+  state.device = nullptr;
+  state.format = nullptr;
+  state.openedEndpointId.clear();
+  state.claimActive.store(true, std::memory_order_release);
+  return claim;
 }
 
-// Must be called with g_micState.engineLock already held.
-void PublishMicRestartSuccessLocked(MicOpenResult& result) {
+// No lock required — once ClaimSessionLocked has returned, `claim`'s
+// handles aren't reachable through the owning PathState anymore, so nothing
+// else can be concurrently operating on them. Same bounded-wait-then-
+// conditionally-release contract fix #1 established (mirroring
+// StopMicrophoneCapture): on a join timeout, the claim's captureThread and
+// stopEvent HANDLEs are deliberately left un-closed, and its COM
+// objects/format allocation deliberately left un-released — all of it a
+// one-time leak, not just "the WASAPI objects" as an earlier version of
+// this comment undersold it, since the thread may still be touching any of
+// it. Unlike the old Teardown*SessionLocked, a timeout here does NOT leave
+// anything for a later attempt to retry joining — the handle is already
+// unreachable from the owning PathState, so it's leaked exactly once, not
+// retried on every subsequent recovery attempt. That's a deliberate
+// trade-off for being able to run this without holding engineLock: retrying
+// the same join later would require re-publishing the claim back into the
+// PathState under lock, which reopens the exact race (a concurrent Stop
+// touching the same handles) this claim/join split exists to avoid.
+// `timeoutEventName` lets each call site log its own path-specific
+// lifecycle event on timeout (mic vs. system-audio).
+bool JoinAndReleaseSessionClaim(SessionClaim& claim, const char* timeoutEventName) {
+  if (claim.captureThread) {
+    SetEvent(claim.stopEvent);
+    DWORD waitResult = WaitForSingleObject(claim.captureThread, 3000);
+    if (waitResult != WAIT_OBJECT_0) {
+      EmitLifecycleEvent(timeoutEventName);
+      return false;
+    }
+    CloseHandle(claim.captureThread);
+    CloseHandle(claim.stopEvent);
+    claim.captureThread = nullptr;
+    claim.stopEvent = nullptr;
+  }
+  SafeRelease(&claim.captureClient);
+  SafeRelease(&claim.audioClient);
+  SafeRelease(&claim.device);
+  if (claim.format) {
+    CoTaskMemFree(claim.format);
+    claim.format = nullptr;
+  }
+  return true;
+}
+
+// Must be called with g_micState.engineLock already held. Returns false if
+// either the stop event or the poll-only thread couldn't be created — in
+// that case `result`'s freshly-opened WASAPI objects are stopped and
+// released right here, nothing is published to g_micState, and the caller
+// must treat this exactly like a failed open attempt (same backoff/retry
+// path), not a successful restart with no thread actually polling it.
+bool PublishMicRestartSuccessLocked(MicOpenResult& result) {
   HANDLE stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (!stopEvent) {
+    result.audioClient->Stop();
+    ReleaseMicOpenResult(&result);
+    return false;
+  }
   MicPollOnlyParams* pollParams = new MicPollOnlyParams{result.captureClient, result.audioClient, stopEvent,
                                                          result.blockAlign,   result.sampleRate,   result.channels,
                                                          result.bitDepth,     result.isFloat};
   HANDLE thread = CreateThread(nullptr, 0, MicPollOnlyThreadProc, pollParams, 0, nullptr);
+  if (!thread) {
+    delete pollParams;
+    CloseHandle(stopEvent);
+    result.audioClient->Stop();
+    ReleaseMicOpenResult(&result);
+    return false;
+  }
   g_micState.device = result.device;
   g_micState.audioClient = result.audioClient;
   g_micState.captureClient = result.captureClient;
@@ -1151,6 +1264,7 @@ void PublishMicRestartSuccessLocked(MicOpenResult& result) {
   g_micState.openedEndpointId = result.endpointId;
   g_micState.captureThread = thread;
   g_micState.stopEvent = stopEvent;
+  return true;
 }
 
 void ScheduleMicRouteRecoveryRetry(uint64_t wave, size_t stepIndex, bool widen);
@@ -1168,18 +1282,85 @@ void AttemptMicRouteRecoveryStep(uint64_t wave, size_t stepIndex, bool widen) {
   }
   HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-  bool succeeded = false;
+  // Validate under a brief lock, then do the actual device-open attempt (up
+  // to ~2.5s) unlocked — this runs on every backoff retry, potentially many
+  // times across the 30s ceiling, so holding engineLock here would block a
+  // concurrent StartMicrophoneCapture/StopMicrophoneCapture for that long on
+  // every single retry. No claim step is needed here since there's no
+  // existing session to tear down — the previous attempt already cleaned
+  // itself up via ReleaseMicOpenResult on failure — but this attempt still
+  // marks claimActive (and waits for any already-in-flight attempt to
+  // finish first) so Stop and any other concurrent attempt see this open
+  // work as "actively happening right now", not just "scheduled."
+  bool claimBlocked = false;
   {
-    std::lock_guard<std::mutex> lk(g_micState.engineLock);
+    std::unique_lock<std::mutex> lk(g_micState.engineLock);
     if (!g_micState.capturing.load(std::memory_order_acquire) ||
         wave != g_micState.routeRestartGeneration.load(std::memory_order_acquire)) {
       if (SUCCEEDED(hrInit)) CoUninitialize();
       return;
     }
-    MicOpenResult result;
+    if (g_micState.claimActive.load(std::memory_order_acquire)) {
+      // An older wave is still mid-flight (our generation check above just
+      // passed, so it's necessarily stale and will discard itself once it
+      // reacquires the lock). Wait for it to clear rather than racing it
+      // with a second concurrent WASAPI open. Bounded generously above the
+      // unlocked work's own worst case (join 3s + up to two opens
+      // 2.5s+1.5s ≈ 7s) so a normal attempt is never mistaken for a wedge.
+      bool cleared = g_micState.claimReleasedCv.wait_for(lk, std::chrono::milliseconds(8000), [] {
+        return !g_micState.claimActive.load(std::memory_order_acquire);
+      });
+      if (!g_micState.capturing.load(std::memory_order_acquire) ||
+          wave != g_micState.routeRestartGeneration.load(std::memory_order_acquire)) {
+        if (SUCCEEDED(hrInit)) CoUninitialize();
+        return;
+      }
+      if (!cleared) {
+        // The other attempt is STILL active after our wait bound. The
+        // invariant that matters is: never start a second concurrent
+        // WASAPI open while claimActive is true — so do not claim. Fall
+        // through and treat this exactly like a failed open attempt (same
+        // backoff/retry path below). We don't own claimActive here — the
+        // still-active attempt does — so we must not touch or clear it.
+        EmitLifecycleEvent("mic_route_recovery_claim_wait_timeout");
+        claimBlocked = true;
+      }
+    }
+    if (!claimBlocked) {
+      g_micState.claimActive.store(true, std::memory_order_release);
+    }
+  }
+
+  bool ok = false;
+  MicOpenResult result;
+  if (!claimBlocked) {
     const char* failReason = "no_tap_buffers";
-    if (TryOpenMicCaptureOnce(widen ? 2500 : 1200, &result, &failReason)) {
-      PublishMicRestartSuccessLocked(result);
+    ok = TryOpenMicCaptureOnce(widen ? 2500 : 1200, &result, &failReason);
+  }
+
+  bool succeeded = false;
+  {
+    std::lock_guard<std::mutex> lk(g_micState.engineLock);
+    if (!claimBlocked) {
+      g_micState.claimActive.store(false, std::memory_order_release);
+      g_micState.claimReleasedCv.notify_all();
+    }
+
+    bool stillCurrent = g_micState.capturing.load(std::memory_order_acquire) &&
+                         wave == g_micState.routeRestartGeneration.load(std::memory_order_acquire);
+    if (!stillCurrent) {
+      // Superseded while unlocked — see PerformMicRouteRestart's identical
+      // reasoning (and the bug it fixes): discard whatever we opened and do
+      // nothing further for a wave that's no longer current. Do NOT touch
+      // routeRecovering or schedule another retry here.
+      if (ok) {
+        result.audioClient->Stop();
+        ReleaseMicOpenResult(&result);
+      }
+      if (SUCCEEDED(hrInit)) CoUninitialize();
+      return;
+    }
+    if (ok && PublishMicRestartSuccessLocked(result)) {
       g_micState.routeRecovering.store(false, std::memory_order_release);
       succeeded = true;
     }
@@ -1213,7 +1394,17 @@ void ScheduleMicRouteRecoveryRetry(uint64_t wave, size_t stepIndex, bool widen) 
     return;
   }
   int64_t delayMs = kRouteRecoveryBackoffMs[std::min(stepIndex, kRouteRecoveryBackoffSteps - 1)];
-  ScheduleOnce(delayMs, [wave, stepIndex, widen]() { AttemptMicRouteRecoveryStep(wave, stepIndex, widen); });
+  if (!ScheduleOnce(delayMs, [wave, stepIndex, widen]() { AttemptMicRouteRecoveryStep(wave, stepIndex, widen); })) {
+    // CreateThreadpoolTimer failed — the retry this function exists to
+    // schedule will now never fire. Left unhandled, this is structurally
+    // the same bug already fixed elsewhere in this file: routeRecovering
+    // was set true expecting a future attempt to eventually clear it (on
+    // success, or via the ceiling check above), and nothing else will ever
+    // call back in to do that — routeRecovering would be stuck true
+    // indefinitely. Give up cleanly instead, same as the ceiling case.
+    g_micState.routeRecovering.store(false, std::memory_order_release);
+    EmitLifecycleEvent("mic_route_recovery_schedule_failed");
+  }
 }
 
 // Post-debounce/stability restart attempt (mac reference:
@@ -1226,27 +1417,119 @@ void PerformMicRouteRestart(uint64_t wave, bool widen) {
   }
   HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-  bool succeeded = false;
-  bool enteredBackoff = false;
+  // Claim the current session under the lock (a handful of pointer copies —
+  // effectively instant), then do all of the actual WASAPI work (the join
+  // wait, both open attempts) without holding engineLock at all. This is the
+  // fix for the client-reported freeze: previously this entire sequence
+  // (teardown join + up to two open retries, ~7s worst case) ran inside the
+  // lock, so a JS-thread call into StartMicrophoneCapture/StopMicrophoneCapture
+  // — which also need this lock — would queue behind it for that whole time.
+  SessionClaim claim;
+  bool claimBlocked = false;
   {
-    std::lock_guard<std::mutex> lk(g_micState.engineLock);
+    std::unique_lock<std::mutex> lk(g_micState.engineLock);
     if (!g_micState.capturing.load(std::memory_order_acquire) ||
         wave != g_micState.routeRestartGeneration.load(std::memory_order_acquire)) {
       if (SUCCEEDED(hrInit)) CoUninitialize();
       return;
     }
+    if (g_micState.claimActive.load(std::memory_order_acquire)) {
+      // Another (necessarily older, since our generation check above just
+      // passed) wave is already mid-flight. Wait for it to clear instead of
+      // claiming an empty session and racing it with a second concurrent
+      // WASAPI open — it will discard itself once it reacquires the lock,
+      // since its own wave is now stale.
+      bool cleared = g_micState.claimReleasedCv.wait_for(lk, std::chrono::milliseconds(8000), [] {
+        return !g_micState.claimActive.load(std::memory_order_acquire);
+      });
+      if (!g_micState.capturing.load(std::memory_order_acquire) ||
+          wave != g_micState.routeRestartGeneration.load(std::memory_order_acquire)) {
+        if (SUCCEEDED(hrInit)) CoUninitialize();
+        return;
+      }
+      if (!cleared) {
+        // The other wave is STILL active after our wait bound. Never claim
+        // while claimActive is true — that's the whole invariant this
+        // mechanism exists to enforce — so fall through to the backoff
+        // branch below exactly as if our own open attempt had failed. We
+        // don't own claimActive here, so we must not touch or clear it.
+        EmitLifecycleEvent("mic_route_recovery_claim_wait_timeout");
+        claimBlocked = true;
+      }
+    }
+    if (!claimBlocked) {
+      claim = ClaimSessionLocked(g_micState);
+    }
+  }
 
-    TeardownMicSessionLocked();
+  bool torn = false;
+  bool ok = false;
+  MicOpenResult result;
+  if (!claimBlocked) {
+    torn = JoinAndReleaseSessionClaim(claim, "mic_capture_thread_join_timeout");
+    if (torn) {
+      const char* failReason = "no_tap_buffers";
+      ok = TryOpenMicCaptureOnce(widen ? 2500 : 1200, &result, &failReason);
+      if (!ok) {
+        ok = TryOpenMicCaptureOnce(1500, &result, &failReason);
+      }
+    }
+  }
+  // !torn falls straight through to the backoff branch below — the old
+  // thread didn't join, so its WASAPI objects (now owned solely by `claim`,
+  // already unreachable from g_micState) are still potentially live;
+  // opening a new session right now is exactly the use-after-free fix #1
+  // guards against. Nothing further to do with `claim` here — see
+  // JoinAndReleaseSessionClaim's own comment on why a timeout isn't retried
+  // on a later attempt. claimBlocked falls through the same way.
 
-    MicOpenResult result;
-    const char* failReason = "no_tap_buffers";
-    bool ok = TryOpenMicCaptureOnce(widen ? 2500 : 1200, &result, &failReason);
-    if (!ok) {
-      ok = TryOpenMicCaptureOnce(1500, &result, &failReason);
+  bool succeeded = false;
+  bool enteredBackoff = false;
+  {
+    std::lock_guard<std::mutex> lk(g_micState.engineLock);
+    if (!claimBlocked) {
+      g_micState.claimActive.store(false, std::memory_order_release);
+      g_micState.claimReleasedCv.notify_all();
+    }
+
+    // Re-validate: engineLock was released for the join+open work above, so
+    // a concurrent StopMicrophoneCapture (or a newer wave superseding this
+    // one) may have run in the meantime. StopMicrophoneCapture bumps
+    // routeRestartGeneration unconditionally before it does anything else,
+    // so either check catches it.
+    bool stillCurrent = g_micState.capturing.load(std::memory_order_acquire) &&
+                         wave == g_micState.routeRestartGeneration.load(std::memory_order_acquire);
+
+    if (!stillCurrent) {
+      // Superseded while we were unlocked: either an explicit Stop already
+      // reset capturing/routeRecovering itself, or a newer recovery wave is
+      // now current and owns routeRecovering going forward. This wave has
+      // nothing further to do — discard whatever it opened, but do NOT
+      // touch routeRecovering or schedule a retry for a wave that's no
+      // longer current.
+      //
+      // Bug fix: this used to fall through to the backoff branch below
+      // unconditionally, re-arming routeRecovering=true even after a clean
+      // Stop had just reset it to false, then calling
+      // ScheduleMicRouteRecoveryRetry(wave, ...) for the stale wave. The
+      // scheduled AttemptMicRouteRecoveryStep bails on its very first
+      // capturing/generation check — before it ever reaches the 30s-ceiling
+      // logic that resets routeRecovering — so the flag stayed stuck true
+      // until the next explicit Start, with isMicRouteRecovering() lying to
+      // JS-side watchdogs in the meantime.
+      if (ok) {
+        result.audioClient->Stop();
+        ReleaseMicOpenResult(&result);
+      }
+      if (SUCCEEDED(hrInit)) CoUninitialize();
+      return;
     }
 
     if (ok) {
-      PublishMicRestartSuccessLocked(result);
+      ok = PublishMicRestartSuccessLocked(result);
+    }
+
+    if (ok) {
       g_micState.routeRecovering.store(false, std::memory_order_release);
       succeeded = true;
     } else {
@@ -1284,7 +1567,7 @@ void ScheduleMicRouteDebouncedRestart() {
   }
   const uint64_t wave = g_micState.routeRestartGeneration.fetch_add(1, std::memory_order_acq_rel) + 1;
 
-  ScheduleOnce(0, [wave]() {
+  if (!ScheduleOnce(0, [wave]() {
     if (!g_micState.capturing.load(std::memory_order_acquire)) {
       return;
     }
@@ -1309,7 +1592,7 @@ void ScheduleMicRouteDebouncedRestart() {
     const int64_t debounceMs = fastPath ? 80 : leavingWireless ? 450 : 600;
     const int64_t stabilityMs = fastPath ? 60 : 150;
 
-    ScheduleOnce(debounceMs, [wave, stabilityMs, leavingWireless]() {
+    if (!ScheduleOnce(debounceMs, [wave, stabilityMs, leavingWireless]() {
       if (!g_micState.capturing.load(std::memory_order_acquire)) {
         return;
       }
@@ -1325,7 +1608,7 @@ void ScheduleMicRouteDebouncedRestart() {
         return;
       }
 
-      ScheduleOnce(stabilityMs, [wave, leavingWireless, firstDefault]() {
+      if (!ScheduleOnce(stabilityMs, [wave, leavingWireless, firstDefault]() {
         if (!g_micState.capturing.load(std::memory_order_acquire)) {
           return;
         }
@@ -1347,9 +1630,20 @@ void ScheduleMicRouteDebouncedRestart() {
           return;
         }
         PerformMicRouteRestart(wave, leavingWireless);
-      });
-    });
-  });
+      })) {
+        // No stuck state to unwind here (unlike the backoff-retry case) —
+        // routeRecovering/capturing were never touched on this path. Still
+        // worth a diagnostic per the "no silent latch-off" bar: this
+        // specific device-change notification's restart just never
+        // happens, silently, without this.
+        EmitLifecycleEvent("mic_route_debounce_schedule_failed stage=stability");
+      }
+    })) {
+      EmitLifecycleEvent("mic_route_debounce_schedule_failed stage=debounce");
+    }
+  })) {
+    EmitLifecycleEvent("mic_route_debounce_schedule_failed stage=dispatch");
+  }
 }
 
 // ── Lifecycle / permissions ────────────────────────────────────────────────
@@ -1895,32 +2189,31 @@ DWORD WINAPI LoopbackPollOnlyThreadProc(LPVOID param) {
   return 0;
 }
 
-// Must be called with g_systemState.engineLock already held.
-void TeardownLoopbackSessionLocked() {
-  if (g_systemState.captureThread) {
-    SetEvent(g_systemState.stopEvent);
-    WaitForSingleObject(g_systemState.captureThread, 3000);
-    CloseHandle(g_systemState.captureThread);
-    CloseHandle(g_systemState.stopEvent);
-    g_systemState.captureThread = nullptr;
-    g_systemState.stopEvent = nullptr;
-  }
-  SafeRelease(&g_systemState.captureClient);
-  SafeRelease(&g_systemState.audioClient);
-  SafeRelease(&g_systemState.device);
-  if (g_systemState.format) {
-    CoTaskMemFree(g_systemState.format);
-    g_systemState.format = nullptr;
-  }
-}
-
-// Must be called with g_systemState.engineLock already held.
-void PublishLoopbackRestartSuccessLocked(LoopbackOpenResult& result) {
+// Must be called with g_systemState.engineLock already held. Returns false
+// if either the stop event or the poll-only thread couldn't be created — in
+// that case `result`'s freshly-opened WASAPI objects are stopped and
+// released right here, nothing is published to g_systemState, and the
+// caller must treat this exactly like a failed open attempt (same
+// backoff/retry path), not a successful restart with no thread actually
+// polling it.
+bool PublishLoopbackRestartSuccessLocked(LoopbackOpenResult& result) {
   HANDLE stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (!stopEvent) {
+    result.audioClient->Stop();
+    ReleaseLoopbackOpenResult(&result);
+    return false;
+  }
   LoopbackPollOnlyParams* pollParams =
       new LoopbackPollOnlyParams{result.captureClient, result.audioClient, stopEvent,        result.blockAlign,
                                   result.sampleRate,    result.channels,    result.bitDepth,  result.isFloat};
   HANDLE thread = CreateThread(nullptr, 0, LoopbackPollOnlyThreadProc, pollParams, 0, nullptr);
+  if (!thread) {
+    delete pollParams;
+    CloseHandle(stopEvent);
+    result.audioClient->Stop();
+    ReleaseLoopbackOpenResult(&result);
+    return false;
+  }
   g_systemState.device = result.device;
   g_systemState.audioClient = result.audioClient;
   g_systemState.captureClient = result.captureClient;
@@ -1928,6 +2221,7 @@ void PublishLoopbackRestartSuccessLocked(LoopbackOpenResult& result) {
   g_systemState.openedEndpointId = result.endpointId;
   g_systemState.captureThread = thread;
   g_systemState.stopEvent = stopEvent;
+  return true;
 }
 
 void ScheduleLoopbackRouteRecoveryRetry(uint64_t wave, size_t stepIndex);
@@ -1941,18 +2235,65 @@ void AttemptLoopbackRouteRecoveryStep(uint64_t wave, size_t stepIndex) {
   }
   HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-  bool succeeded = false;
+  // See AttemptMicRouteRecoveryStep's identical restructuring and comment —
+  // validate briefly locked, wait out any already-in-flight attempt, open
+  // unlocked, re-validate before publish.
+  bool claimBlocked = false;
   {
-    std::lock_guard<std::mutex> lk(g_systemState.engineLock);
+    std::unique_lock<std::mutex> lk(g_systemState.engineLock);
     if (!g_systemState.capturing.load(std::memory_order_acquire) ||
         wave != g_systemState.routeRestartGeneration.load(std::memory_order_acquire)) {
       if (SUCCEEDED(hrInit)) CoUninitialize();
       return;
     }
-    LoopbackOpenResult result;
+    if (g_systemState.claimActive.load(std::memory_order_acquire)) {
+      bool cleared = g_systemState.claimReleasedCv.wait_for(lk, std::chrono::milliseconds(8000), [] {
+        return !g_systemState.claimActive.load(std::memory_order_acquire);
+      });
+      if (!g_systemState.capturing.load(std::memory_order_acquire) ||
+          wave != g_systemState.routeRestartGeneration.load(std::memory_order_acquire)) {
+        if (SUCCEEDED(hrInit)) CoUninitialize();
+        return;
+      }
+      if (!cleared) {
+        // See AttemptMicRouteRecoveryStep's identical reasoning: never
+        // claim while claimActive is true. Fall through to the backoff
+        // path without touching claimActive — we don't own it.
+        EmitLifecycleEvent("sys_audio_route_recovery_claim_wait_timeout");
+        claimBlocked = true;
+      }
+    }
+    if (!claimBlocked) {
+      g_systemState.claimActive.store(true, std::memory_order_release);
+    }
+  }
+
+  bool ok = false;
+  LoopbackOpenResult result;
+  if (!claimBlocked) {
     const char* failReason = "sys_audio_start_failed";
-    if (TryOpenLoopbackCaptureOnce(&result, &failReason)) {
-      PublishLoopbackRestartSuccessLocked(result);
+    ok = TryOpenLoopbackCaptureOnce(&result, &failReason);
+  }
+
+  bool succeeded = false;
+  {
+    std::lock_guard<std::mutex> lk(g_systemState.engineLock);
+    if (!claimBlocked) {
+      g_systemState.claimActive.store(false, std::memory_order_release);
+      g_systemState.claimReleasedCv.notify_all();
+    }
+
+    bool stillCurrent = g_systemState.capturing.load(std::memory_order_acquire) &&
+                         wave == g_systemState.routeRestartGeneration.load(std::memory_order_acquire);
+    if (!stillCurrent) {
+      if (ok) {
+        result.audioClient->Stop();
+        ReleaseLoopbackOpenResult(&result);
+      }
+      if (SUCCEEDED(hrInit)) CoUninitialize();
+      return;
+    }
+    if (ok && PublishLoopbackRestartSuccessLocked(result)) {
       g_systemState.routeRecovering.store(false, std::memory_order_release);
       succeeded = true;
     }
@@ -1980,7 +2321,12 @@ void ScheduleLoopbackRouteRecoveryRetry(uint64_t wave, size_t stepIndex) {
     return;
   }
   int64_t delayMs = kRouteRecoveryBackoffMs[std::min(stepIndex, kRouteRecoveryBackoffSteps - 1)];
-  ScheduleOnce(delayMs, [wave, stepIndex]() { AttemptLoopbackRouteRecoveryStep(wave, stepIndex); });
+  if (!ScheduleOnce(delayMs, [wave, stepIndex]() { AttemptLoopbackRouteRecoveryStep(wave, stepIndex); })) {
+    // See ScheduleMicRouteRecoveryRetry's identical reasoning: without this,
+    // routeRecovering would be stuck true indefinitely.
+    g_systemState.routeRecovering.store(false, std::memory_order_release);
+    EmitLifecycleEvent("sys_audio_route_recovery_schedule_failed");
+  }
 }
 
 void PerformLoopbackRouteRestart(uint64_t wave) {
@@ -1989,24 +2335,89 @@ void PerformLoopbackRouteRestart(uint64_t wave) {
   }
   HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-  bool succeeded = false;
-  bool enteredBackoff = false;
+  // See the identical structure (and its comment) in PerformMicRouteRestart:
+  // claim under the lock (instant), then do the join wait and open attempt
+  // without holding engineLock — that's what stops a StartSystemAudioCapture
+  // / StopSystemAudioCapture call from queuing behind this ~4-7s of WASAPI
+  // work.
+  SessionClaim claim;
+  bool claimBlocked = false;
   {
-    std::lock_guard<std::mutex> lk(g_systemState.engineLock);
+    std::unique_lock<std::mutex> lk(g_systemState.engineLock);
     if (!g_systemState.capturing.load(std::memory_order_acquire) ||
         wave != g_systemState.routeRestartGeneration.load(std::memory_order_acquire)) {
       if (SUCCEEDED(hrInit)) CoUninitialize();
       return;
     }
+    if (g_systemState.claimActive.load(std::memory_order_acquire)) {
+      bool cleared = g_systemState.claimReleasedCv.wait_for(lk, std::chrono::milliseconds(8000), [] {
+        return !g_systemState.claimActive.load(std::memory_order_acquire);
+      });
+      if (!g_systemState.capturing.load(std::memory_order_acquire) ||
+          wave != g_systemState.routeRestartGeneration.load(std::memory_order_acquire)) {
+        if (SUCCEEDED(hrInit)) CoUninitialize();
+        return;
+      }
+      if (!cleared) {
+        // See PerformMicRouteRestart's identical reasoning: never claim
+        // while claimActive is true. Fall through to the backoff path
+        // without touching claimActive — we don't own it.
+        EmitLifecycleEvent("sys_audio_route_recovery_claim_wait_timeout");
+        claimBlocked = true;
+      }
+    }
+    if (!claimBlocked) {
+      claim = ClaimSessionLocked(g_systemState);
+    }
+  }
 
-    TeardownLoopbackSessionLocked();
+  bool torn = false;
+  bool ok = false;
+  LoopbackOpenResult result;
+  if (!claimBlocked) {
+    torn = JoinAndReleaseSessionClaim(claim, "sys_audio_capture_thread_join_timeout");
+    if (torn) {
+      const char* failReason = "sys_audio_start_failed";
+      ok = TryOpenLoopbackCaptureOnce(&result, &failReason);
+    }
+  }
+  // !torn falls straight through to the backoff branch below — see the
+  // mic-side comment in PerformMicRouteRestart for why opening a new
+  // session on top of an un-joined thread's WASAPI objects is unsafe.
+  // claimBlocked falls through the same way.
 
-    LoopbackOpenResult result;
-    const char* failReason = "sys_audio_start_failed";
-    bool ok = TryOpenLoopbackCaptureOnce(&result, &failReason);
+  bool succeeded = false;
+  bool enteredBackoff = false;
+  {
+    std::lock_guard<std::mutex> lk(g_systemState.engineLock);
+    if (!claimBlocked) {
+      g_systemState.claimActive.store(false, std::memory_order_release);
+      g_systemState.claimReleasedCv.notify_all();
+    }
+
+    // Re-validate — see the identical check (and its comment) in
+    // PerformMicRouteRestart.
+    bool stillCurrent = g_systemState.capturing.load(std::memory_order_acquire) &&
+                         wave == g_systemState.routeRestartGeneration.load(std::memory_order_acquire);
+
+    if (!stillCurrent) {
+      // Superseded while we were unlocked — see the identical check, bug
+      // description, and fix in PerformMicRouteRestart. Do NOT touch
+      // routeRecovering or schedule a retry for a wave that's no longer
+      // current.
+      if (ok) {
+        result.audioClient->Stop();
+        ReleaseLoopbackOpenResult(&result);
+      }
+      if (SUCCEEDED(hrInit)) CoUninitialize();
+      return;
+    }
 
     if (ok) {
-      PublishLoopbackRestartSuccessLocked(result);
+      ok = PublishLoopbackRestartSuccessLocked(result);
+    }
+
+    if (ok) {
       g_systemState.routeRecovering.store(false, std::memory_order_release);
       succeeded = true;
     } else {
@@ -2040,7 +2451,7 @@ void ScheduleLoopbackRouteDebouncedRestart() {
   }
   const uint64_t wave = g_systemState.routeRestartGeneration.fetch_add(1, std::memory_order_acq_rel) + 1;
 
-  ScheduleOnce(0, [wave]() {
+  if (!ScheduleOnce(0, [wave]() {
     if (!g_systemState.capturing.load(std::memory_order_acquire)) {
       return;
     }
@@ -2065,7 +2476,7 @@ void ScheduleLoopbackRouteDebouncedRestart() {
     const int64_t debounceMs = fastPath ? 80 : leavingWireless ? 450 : 600;
     const int64_t stabilityMs = fastPath ? 60 : 150;
 
-    ScheduleOnce(debounceMs, [wave, stabilityMs]() {
+    if (!ScheduleOnce(debounceMs, [wave, stabilityMs]() {
       if (!g_systemState.capturing.load(std::memory_order_acquire)) {
         return;
       }
@@ -2081,7 +2492,7 @@ void ScheduleLoopbackRouteDebouncedRestart() {
         return;
       }
 
-      ScheduleOnce(stabilityMs, [wave, firstDefault]() {
+      if (!ScheduleOnce(stabilityMs, [wave, firstDefault]() {
         if (!g_systemState.capturing.load(std::memory_order_acquire)) {
           return;
         }
@@ -2101,9 +2512,17 @@ void ScheduleLoopbackRouteDebouncedRestart() {
           return;
         }
         PerformLoopbackRouteRestart(wave);
-      });
-    });
-  });
+      })) {
+        // See ScheduleMicRouteDebouncedRestart's identical reasoning — no
+        // stuck state to unwind, just a silent missed restart without this.
+        EmitLifecycleEvent("sys_audio_route_debounce_schedule_failed stage=stability");
+      }
+    })) {
+      EmitLifecycleEvent("sys_audio_route_debounce_schedule_failed stage=debounce");
+    }
+  })) {
+    EmitLifecycleEvent("sys_audio_route_debounce_schedule_failed stage=dispatch");
+  }
 }
 
 // Defined here (needs both debounce functions above already declared).
@@ -2113,7 +2532,7 @@ void ScheduleLoopbackRouteDebouncedRestart() {
 // during a WASAPI call) is safe — it is NOT running on the notification
 // callback thread itself.
 void HandleDeviceStateChangedToGone(const std::wstring& id) {
-  ScheduleOnce(0, [id]() {
+  if (!ScheduleOnce(0, [id]() {
     bool matchesMic = false;
     bool matchesSystem = false;
     {
@@ -2131,7 +2550,12 @@ void HandleDeviceStateChangedToGone(const std::wstring& id) {
     if (matchesSystem) {
       ScheduleLoopbackRouteDebouncedRestart();
     }
-  });
+  })) {
+    // No stuck state to unwind (nothing was touched yet) — but per the "no
+    // silent latch-off" bar, a device-unplug notification that silently
+    // fails to even check whether it matters is worth logging.
+    EmitLifecycleEvent("device_gone_schedule_failed");
+  }
 }
 
 NAN_METHOD(StartSystemAudioCapture) {
@@ -2216,6 +2640,27 @@ NAN_METHOD(StopSystemAudioCapture) {
   Isolate* isolate = info.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext();
 
+  // Builds and resolves the {success, filePath: null, actualStartMs: null,
+  // error?} promise this method always returns — factored out since every
+  // exit path below needs it, differing only in `success`/`error`.
+  auto resolveStop = [&](bool success, const char* error) {
+    MaybeLocal<Promise::Resolver> maybeResolver = Promise::Resolver::New(context);
+    if (maybeResolver.IsEmpty()) {
+      Nan::ThrowError("native_audio(win): failed to create promise resolver for stop");
+      return;
+    }
+    Local<Promise::Resolver> resolver = maybeResolver.ToLocalChecked();
+    Local<Object> result = Nan::New<Object>();
+    Nan::Set(result, Nan::New("success").ToLocalChecked(), Nan::New<v8::Boolean>(success));
+    Nan::Set(result, Nan::New("filePath").ToLocalChecked(), Nan::Null());
+    Nan::Set(result, Nan::New("actualStartMs").ToLocalChecked(), Nan::Null());
+    if (error) {
+      Nan::Set(result, Nan::New("error").ToLocalChecked(), Nan::New(error).ToLocalChecked());
+    }
+    resolver->Resolve(context, result).Check();
+    info.GetReturnValue().Set(resolver->GetPromise());
+  };
+
   // Bumped unconditionally, before anything else — mirrors
   // StopMicrophoneCapture's identical reasoning: invalidates any in-flight
   // debounce/backoff chain even if one is running concurrently right now.
@@ -2241,81 +2686,79 @@ NAN_METHOD(StopSystemAudioCapture) {
     }
   }
 
-  std::lock_guard<std::mutex> lk(g_systemState.engineLock);
+  SessionClaim claim;
+  {
+    std::unique_lock<std::mutex> lk(g_systemState.engineLock);
 
-  if (!g_systemState.capturing.load(std::memory_order_acquire)) {
-    MaybeLocal<Promise::Resolver> maybeResolver = Promise::Resolver::New(context);
-    if (maybeResolver.IsEmpty()) {
-      Nan::ThrowError("native_audio(win): failed to create promise resolver for stop");
+    if (!g_systemState.capturing.load(std::memory_order_acquire)) {
+      resolveStop(false, nullptr);
       return;
     }
-    Local<Promise::Resolver> resolver = maybeResolver.ToLocalChecked();
-    Local<Object> result = Nan::New<Object>();
-    Nan::Set(result, Nan::New("success").ToLocalChecked(), Nan::New<v8::Boolean>(false));
-    Nan::Set(result, Nan::New("filePath").ToLocalChecked(), Nan::Null());
-    Nan::Set(result, Nan::New("actualStartMs").ToLocalChecked(), Nan::Null());
-    resolver->Resolve(context, result).Check();
-    info.GetReturnValue().Set(resolver->GetPromise());
-    return;
+
+    if (g_systemState.claimActive.load(std::memory_order_acquire)) {
+      // See StopMicrophoneCapture's identical reasoning: wait for the
+      // in-flight route-recovery attempt to finish rather than reporting
+      // "stopped" while its unlocked work (and the OS thread it may
+      // ultimately own) could still be live. Bounded generously above that
+      // work's own worst case (join 3s + open up to ~4s) so a normal
+      // attempt is never mistaken for a wedge.
+      bool cleared = g_systemState.claimReleasedCv.wait_for(lk, std::chrono::milliseconds(8000), [] {
+        return !g_systemState.claimActive.load(std::memory_order_acquire);
+      });
+      // Not a correctness gap if this times out: unlike the route-restart
+      // wait above, we don't unconditionally claim afterward — the
+      // captureThread null-check right below still gates that, and while
+      // claimActive is true captureThread is guaranteed null (the holder
+      // moved it into their own local claim), so we can never claim out
+      // from under them regardless of `cleared`. Still worth a diagnostic:
+      // it means we're finalizing "stopped" without having confirmed the
+      // other side's OS thread has actually exited yet (it will, eventually
+      // — routeRestartGeneration was already bumped above, so its own
+      // re-validation will discard its result whenever it does finish).
+      if (!cleared) {
+        EmitLifecycleEvent("sys_audio_stop_claim_wait_timeout");
+      }
+      // No need to re-check capturing here — see the identical reasoning
+      // in StopMicrophoneCapture.
+    }
+
+    if (!g_systemState.captureThread) {
+      // Still nothing to join — see StopMicrophoneCapture's identical
+      // reasoning. Finalize directly.
+      g_systemState.capturing.store(false, std::memory_order_release);
+      g_systemState.routeRecovering.store(false, std::memory_order_release);
+      resolveStop(true, nullptr);
+      return;
+    }
+
+    claim = ClaimSessionLocked(g_systemState);
   }
 
-  SetEvent(g_systemState.stopEvent);
+  // Bounded wait, unlocked — see StopMicrophoneCapture's identical
+  // reasoning.
+  bool torn = JoinAndReleaseSessionClaim(claim, "sys_audio_capture_thread_join_timeout");
 
-  // Bounded wait — see PathState::captureThread's join-before-release
-  // requirement. A timeout here is a real bug (device/driver wedged the
-  // thread), not something to paper over: log it and deliberately do NOT
-  // release the WASAPI objects (they may still be in use), accepting a
-  // one-time resource leak over a use-after-free — same tradeoff as
-  // StopMicrophoneCapture.
-  DWORD waitResult = WaitForSingleObject(g_systemState.captureThread, 3000);
-
-  MaybeLocal<Promise::Resolver> maybeResolver = Promise::Resolver::New(context);
-  if (maybeResolver.IsEmpty()) {
-    Nan::ThrowError("native_audio(win): failed to create promise resolver for stop");
-    return;
-  }
-  Local<Promise::Resolver> resolver = maybeResolver.ToLocalChecked();
-  Local<Object> result = Nan::New<Object>();
-  Nan::Set(result, Nan::New("filePath").ToLocalChecked(), Nan::Null());
-  Nan::Set(result, Nan::New("actualStartMs").ToLocalChecked(), Nan::Null());
-
-  if (waitResult != WAIT_OBJECT_0) {
-    EmitLifecycleEvent("sys_audio_capture_thread_join_timeout");
+  std::lock_guard<std::mutex> lk2(g_systemState.engineLock);
+  // See StopMicrophoneCapture's identical fix/comment: this call took the
+  // claim above, so it's responsible for clearing claimActive and notifying
+  // claimReleasedCv.
+  g_systemState.claimActive.store(false, std::memory_order_release);
+  g_systemState.claimReleasedCv.notify_all();
+  if (!torn) {
     g_systemState.capturing.store(false, std::memory_order_release);
     g_systemState.routeRecovering.store(false, std::memory_order_release);
-    Nan::Set(result, Nan::New("success").ToLocalChecked(), Nan::New<v8::Boolean>(false));
-    Nan::Set(result, Nan::New("error").ToLocalChecked(),
-             Nan::New("capture thread join timeout").ToLocalChecked());
-    resolver->Resolve(context, result).Check();
-    info.GetReturnValue().Set(resolver->GetPromise());
+    resolveStop(false, "capture thread join timeout");
     return;
   }
-
-  CloseHandle(g_systemState.captureThread);
-  CloseHandle(g_systemState.stopEvent);
-  g_systemState.captureThread = nullptr;
-  g_systemState.stopEvent = nullptr;
 
   // Safe only here: the thread is provably joined, so nothing can still be
   // racing Push() against this — see the identical reasoning in
   // StopMicrophoneCapture.
   g_systemChannel.CloseAsyncHandle();
 
-  SafeRelease(&g_systemState.captureClient);
-  SafeRelease(&g_systemState.audioClient);
-  SafeRelease(&g_systemState.device);
-  if (g_systemState.format) {
-    CoTaskMemFree(g_systemState.format);
-    g_systemState.format = nullptr;
-  }
-  g_systemState.openedEndpointId.clear();
-
   g_systemState.capturing.store(false, std::memory_order_release);
   g_systemState.routeRecovering.store(false, std::memory_order_release);
-
-  Nan::Set(result, Nan::New("success").ToLocalChecked(), Nan::New<v8::Boolean>(true));
-  resolver->Resolve(context, result).Check();
-  info.GetReturnValue().Set(resolver->GetPromise());
+  resolveStop(true, nullptr);
 }
 
 // Includes a start still settling: callers use this probe to decide whether
@@ -2346,7 +2789,7 @@ NAN_METHOD(StartMicrophoneCapture) {
     return;
   }
 
-  std::lock_guard<std::mutex> lk(g_micState.engineLock);
+  std::unique_lock<std::mutex> lk(g_micState.engineLock);
   // Authoritative reset, unconditionally — matches the mac reference exactly
   // (SAYSO-353 review finding): an explicit Start means any prior recovery
   // state no longer applies, even if the already-active guard below is about
@@ -2379,6 +2822,20 @@ NAN_METHOD(StartMicrophoneCapture) {
     info.GetReturnValue().Set(MicStartResult(false, "no_input_node"));
     return;
   }
+
+  // Release engineLock for the wait below — this NAN method runs on
+  // Electron's main (JS) thread, so holding the lock here for up to 6s does
+  // not protect anything JS-side (JS is single-threaded: no other call into
+  // this addon can be in flight concurrently with this one regardless of
+  // what we hold), it only serializes against a background route-recovery
+  // attempt on a thread-pool thread. Recovery only ever runs while
+  // g_micState.capturing is true, and we haven't set it true yet, so
+  // releasing here is safe — recovery will just see capturing == false and
+  // no-op. Not releasing was the actual bug (SAYSO client review): a
+  // concurrent recovery attempt holding engineLock across its own ~7s of
+  // WASAPI work would make even this uncontended-in-practice lock
+  // acquisition block for that long, stacking on top of this wait.
+  lk.unlock();
 
   // Bounded wait: both retry attempts' first-buffer windows (1200 + 1500ms)
   // plus generous slack for device open overhead.
@@ -2419,6 +2876,13 @@ NAN_METHOD(StartMicrophoneCapture) {
     return;
   }
 
+  // Reacquire before touching g_micState. No re-validation of `capturing` is
+  // needed here: this is the only code path that ever sets it true, JS is
+  // single-threaded so no second Start call could have run concurrently with
+  // this one, and route recovery never acts while capturing is false — so
+  // nothing could have changed while we were unlocked.
+  lk.lock();
+
   g_micState.device = ctx->device;
   g_micState.audioClient = ctx->audioClient;
   g_micState.captureClient = ctx->captureClient;
@@ -2442,53 +2906,89 @@ NAN_METHOD(StopMicrophoneCapture) {
   // right now — an explicit Stop is authoritative.
   g_micState.routeRestartGeneration.fetch_add(1, std::memory_order_acq_rel);
 
-  std::lock_guard<std::mutex> lk(g_micState.engineLock);
-  if (!g_micState.capturing.load(std::memory_order_acquire)) {
-    info.GetReturnValue().Set(Nan::True());
-    return;
+  SessionClaim claim;
+  {
+    std::unique_lock<std::mutex> lk(g_micState.engineLock);
+    if (!g_micState.capturing.load(std::memory_order_acquire)) {
+      info.GetReturnValue().Set(Nan::True());
+      return;
+    }
+
+    if (g_micState.claimActive.load(std::memory_order_acquire)) {
+      // A route-recovery attempt currently holds this session's handles via
+      // a SessionClaim and may be actively using them right now (not just
+      // scheduled for a later retry). Wait for it to finish — it always
+      // clears claimActive and notifies claimReleasedCv before releasing
+      // engineLock, whatever the outcome — so this call never reports
+      // "stopped" while that work (and the OS thread it may ultimately
+      // own) could still be live. Bounded generously above that work's own
+      // worst case (teardown join 3s + up to two open attempts
+      // 2.5s+1.5s ≈ 7s) so a normal in-flight attempt is never mistaken for
+      // a wedge.
+      bool cleared = g_micState.claimReleasedCv.wait_for(lk, std::chrono::milliseconds(8000), [] {
+        return !g_micState.claimActive.load(std::memory_order_acquire);
+      });
+      // Not a correctness gap if this times out — see
+      // StopSystemAudioCapture's identical reasoning: the captureThread
+      // null-check right below still gates claiming regardless of
+      // `cleared`, since captureThread is guaranteed null while claimActive
+      // is true. Still worth a diagnostic.
+      if (!cleared) {
+        EmitLifecycleEvent("mic_stop_claim_wait_timeout");
+      }
+      // No need to re-check capturing here: nothing but this very call can
+      // clear it (JS is single-threaded, so no second Stop can be racing
+      // us), and route-recovery never touches it on its own discard path —
+      // only routeRecovering.
+    }
+
+    if (!g_micState.captureThread) {
+      // Still nothing to join — either nothing was ever active, the claim
+      // holder discarded its attempt without publishing a new session
+      // (routeRecovering handles its own state in that case), or we gave
+      // up waiting on a wedged one. Finalize directly; there's nothing left
+      // in g_micState to tear down.
+      g_micState.capturing.store(false, std::memory_order_release);
+      g_micState.routeRecovering.store(false, std::memory_order_release);
+      info.GetReturnValue().Set(Nan::True());
+      return;
+    }
+
+    // A live session exists (either it was there all along, or a claim
+    // holder published a fresh one while we waited) — claim it the same
+    // way route-recovery does, so the join wait below doesn't need
+    // engineLock either.
+    claim = ClaimSessionLocked(g_micState);
   }
 
-  SetEvent(g_micState.stopEvent);
+  // Bounded wait, unlocked — see PathState::captureThread's join-before-
+  // release requirement. A timeout here is a real bug (device/driver
+  // wedged the thread), not something to paper over: JoinAndReleaseSessionClaim
+  // logs it and deliberately does NOT release the WASAPI objects (they may
+  // still be in use), accepting a one-time resource leak over a
+  // use-after-free.
+  bool torn = JoinAndReleaseSessionClaim(claim, "mic_capture_thread_join_timeout");
 
-  // Bounded wait — see PathState::captureThread's join-before-release
-  // requirement. A timeout here is a real bug (device/driver wedged the
-  // thread), not something to paper over: we log it and deliberately do NOT
-  // release the WASAPI objects (they may still be in use), accepting a
-  // one-time resource leak over a use-after-free.
-  DWORD waitResult = WaitForSingleObject(g_micState.captureThread, 3000);
-  if (waitResult != WAIT_OBJECT_0) {
-    EmitLifecycleEvent("mic_capture_thread_join_timeout");
-    g_micState.capturing.store(false, std::memory_order_release);
-    g_micState.routeRecovering.store(false, std::memory_order_release);
-    info.GetReturnValue().Set(Nan::True());
-    return;
+  std::lock_guard<std::mutex> lk2(g_micState.engineLock);
+  // Bug fix: ClaimSessionLocked above set claimActive=true; this call is
+  // the one that took the claim, so it's also the one responsible for
+  // clearing it and waking anyone waiting on claimReleasedCv (another Stop
+  // call, or a concurrent route-restart attempt) — forgetting this left
+  // claimActive stuck true forever after every normal Stop, making every
+  // subsequent Stop call block for the full 8s wait below for no reason.
+  g_micState.claimActive.store(false, std::memory_order_release);
+  g_micState.claimReleasedCv.notify_all();
+  if (torn) {
+    // Safe only here: the thread is provably joined, so nothing can still
+    // be racing Push() against this. Drops any chunks the thread queued in
+    // its last poll(s) before it noticed stopEvent — without this, a
+    // handful of already-captured buffers can drain to JS a few ms after
+    // this call resolves, which is confusing for a consumer that just
+    // started a new session. Also closes the async handle;
+    // setMicrophoneStreamingCallback lazily recreates it on the next
+    // session.
+    g_micChannel.CloseAsyncHandle();
   }
-
-  CloseHandle(g_micState.captureThread);
-  CloseHandle(g_micState.stopEvent);
-  g_micState.captureThread = nullptr;
-  g_micState.stopEvent = nullptr;
-
-  // Safe only here: the thread is provably joined (WaitForSingleObject
-  // above), so nothing can still be racing Push() against this. Drops any
-  // chunks the thread queued in its last poll(s) before it noticed
-  // stopEvent — without this, a handful of already-captured buffers can
-  // drain to JS a few ms after this call resolves, which is confusing for a
-  // consumer that just started a new session. Also closes the async handle;
-  // setMicrophoneStreamingCallback lazily recreates it on the next session.
-  g_micChannel.CloseAsyncHandle();
-
-  // The capture thread only called IAudioClient::Stop(); it never released
-  // these — safe to release now that the thread is provably gone.
-  SafeRelease(&g_micState.captureClient);
-  SafeRelease(&g_micState.audioClient);
-  SafeRelease(&g_micState.device);
-  if (g_micState.format) {
-    CoTaskMemFree(g_micState.format);
-    g_micState.format = nullptr;
-  }
-  g_micState.openedEndpointId.clear();
-
   g_micState.capturing.store(false, std::memory_order_release);
   g_micState.routeRecovering.store(false, std::memory_order_release);
   info.GetReturnValue().Set(Nan::True());
