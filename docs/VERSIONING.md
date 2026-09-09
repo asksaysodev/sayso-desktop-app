@@ -95,6 +95,31 @@ Then follow the same publish steps above on the production draft.
 
 ---
 
+## Windows artifacts
+
+The release scripts behind `fresh-export` are macOS-only (`chmod` + `.sh`), so
+Windows installers are built by hand on a Windows machine and attached to the
+same GitHub draft:
+
+```bash
+# Run from Git Bash — the beforePack hook shells out to `file`, absent in PowerShell.
+npm run build:electron && npm run build
+npx electron-builder --win --publish never                          # production
+npx electron-builder --win --config build.staging.js --publish never # staging
+```
+
+| Channel | Artifacts |
+|---|---|
+| Production | `release/Sayso-{version}-x64-win.exe` + `.blockmap`, `latest.yml` |
+| Staging | `release-staging/Sayso-Beta-{version}-x64-win.exe` + `.blockmap`, `staging.yml` |
+
+`build.win.publisherName` must equal the exact CN of the Authenticode
+certificate the installer is signed with. `electron-updater` compares the two
+before installing an update, and **skips verification entirely if the field is
+missing** — so never drop it to work around a signing failure.
+
+---
+
 ## Quick reference
 
 | Command | What it does |
