@@ -102,7 +102,7 @@ Windows installers are built by hand on a Windows machine and attached to the
 same GitHub draft:
 
 ```bash
-# Run from Git Bash — the beforePack hook shells out to `file`, absent in PowerShell.
+# Any shell. `npm run clean` is still `rm -rf`, so run that part from Git Bash.
 npm run build:electron
 npm run build         && npx electron-builder --win --publish never                          # production
 npm run build:staging && npx electron-builder --win --config build.staging.js --publish never # staging
