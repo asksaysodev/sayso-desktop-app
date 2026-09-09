@@ -97,9 +97,83 @@ Then follow the same publish steps above on the production draft.
 
 ## Windows artifacts
 
-The release scripts behind `fresh-export` are macOS-only (`chmod` + `.sh`), so
-Windows installers are built by hand on a Windows machine and attached to the
-same GitHub draft:
+Windows installers cannot be built on a Mac — the native audio addon needs MSVC
+and the Windows SDK, and node-gyp cannot cross-compile that from darwin. The
+`.github/workflows/release-windows.yml` workflow builds them on a hosted
+`windows-latest` runner and attaches them to the same GitHub release the mac
+side creates. Nothing about the mac flow changes.
+
+| Channel | Artifacts |
+|---|---|
+| Production | `release/Sayso-{version}-x64-win.exe` + `.blockmap`, `latest.yml` |
+| Staging | `release-staging/Sayso-Beta-{version}-x64-win.exe` + `.blockmap`, `staging.yml` |
+
+The `.blockmap` is not optional. `electron-updater` uses it to download only the
+changed chunks of an installer, and looks for it next to the `.exe`.
+
+### When it runs
+
+| Trigger | What it does |
+|---|---|
+| `release: created` | Fires the moment `fresh-export` saves the draft. Windows assets land in the draft before anyone publishes it. |
+| `push` of a `v*` tag | Covers publishing the draft (which creates the tag) and hand-pushed tags. |
+| `workflow_dispatch` | Manual. Uploads a workflow artifact only, unless you tick `upload_to_release`. Pick the channel from a dropdown. |
+
+The first two overlap on purpose. Whichever fires first builds; the second finds
+the installer already attached to the release and exits without starting a
+Windows runner.
+
+The channel comes from the tag: `v1.4.0` builds production, `v1.4.0-staging`
+builds staging. If the release does not exist yet, the workflow creates it as a
+draft against `staging`, matching what `rebuild-and-package.sh` would have made,
+so the mac upload lands in the same release.
+
+Everything derives from `package.json`, never from the tag. A tag that disagrees
+with the `package.json` on the ref being built fails the run before any compile
+— the same guard `rebuild-and-package.sh` applies to the branch.
+
+Note where each trigger reads the workflow from: `release` events use the copy on
+the default branch (`development`), tag pushes use the copy in the tagged tree
+(`staging`). Both branches need this file before the automatic triggers work.
+
+### Required secrets
+
+| Secret | Contents |
+|---|---|
+| `ENV_PRODUCTION` | The full text of `.env.production` |
+| `ENV_STAGING` | The full text of `.env.staging` |
+| `SENTRY_AUTH_TOKEN` | Sentry token, for the sourcemap upload |
+
+No `.env*` file is in git, so a clean CI checkout has none. Vite bakes the
+`VITE_*` values into the renderer and its `copy-env-files` plugin drops the file
+into `dist/` and `electron/`, from where `main.ts` reads it at runtime inside the
+asar. Without the secret the app builds fine and then points at nothing.
+
+Two rules for those secrets:
+
+- **They must be self-contained.** Vite loads `.env` *and* `.env.<mode>`, and a
+  runner has no `.env`. A local `.env.staging` that only overrides the backend
+  URL works on your laptop and produces a broken build in CI. `ENV_STAGING` needs
+  every variable, not just the ones that differ from production.
+- **Never put `GH_TOKEN` or `SENTRY_AUTH_TOKEN` in them.** That file is packed
+  into the asar and ships to users. The release upload uses the workflow's own
+  token and the Sentry plugin reads its own environment variable. The workflow
+  fails the run if it finds either line.
+
+### Signing
+
+Builds from this workflow are **unsigned**. `build.win.publisherName` must equal
+the exact CN of the Authenticode certificate the installer is signed with.
+`electron-updater` downloads the new installer, then compares the two, and fails
+the **download** with `ERR_UPDATER_INVALID_SIGNATURE` on a mismatch — the update
+never reaches the install step. It **skips verification entirely if the field is
+missing**, so never drop it to work around a signing failure. Until the
+certificate is wired up, a Windows build installs correctly from scratch but will
+be refused as an auto-update.
+
+### Building by hand
+
+Still possible on a Windows machine, and the fallback if the runner is down:
 
 ```bash
 # Any shell. `npm run clean` is still `rm -rf`, so run that part from Git Bash.
@@ -113,20 +187,8 @@ at build time, so packing a production `dist/` with `build.staging.js` produces 
 `Sayso [beta]` installer that talks to the production backend — `build_env` would
 be the only thing about it that is staging.
 
-| Channel | Artifacts |
-|---|---|
-| Production | `release/Sayso-{version}-x64-win.exe` + `.blockmap`, `latest.yml` |
-| Staging | `release-staging/Sayso-Beta-{version}-x64-win.exe` + `.blockmap`, `staging.yml` |
-
-`build.win.publisherName` must equal the exact CN of the Authenticode
-certificate the installer is signed with. `electron-updater` downloads the new
-installer, then compares the two, and fails the **download** with
-`ERR_UPDATER_INVALID_SIGNATURE` on a mismatch — the update never reaches the
-install step. It **skips verification entirely if the field is missing**, so
-never drop it to work around a signing failure.
-
-Windows builds are unsigned until SAYSO-402. A fresh install works; an in-app
-update is refused by that check. That is expected, not a regression.
+Attach the three files per channel to the draft with
+`gh release upload <tag> --clobber`.
 
 ---
 
