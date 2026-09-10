@@ -676,7 +676,7 @@ if (app.isPackaged) {
           }
         }
         app.removeAllListeners('window-all-closed');
-        updater.quitAndInstall(false, true);
+        updater.quitAndInstall(true, true);
       } catch (err) {
         Sentry.captureException(err);
         setUpdateState({
