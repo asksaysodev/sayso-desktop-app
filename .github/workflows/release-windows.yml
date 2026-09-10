@@ -1,0 +1,458 @@
+name: Release Windows
+
+# Builds the Windows installer on a hosted runner, because it cannot be built on
+# a Mac: the native audio addon needs MSVC and the Windows SDK, and node-gyp
+# cannot cross-compile that from darwin.
+#
+# Builds are UNSIGNED. `build.win.publisherName` is set but no Authenticode
+# certificate is wired up yet (SAYSO-402), so a fresh install works while
+# electron-updater will refuse to install these as an update.
+#
+# Triggers:
+#   release: published  a draft was published, or a release was created without
+#                       one — the tag exists by then either way
+#   push tags v*        the same Publish, or a tag pushed by hand
+#   workflow_dispatch   manual; artifact only unless upload_to_release is set
+#
+# The two automatic triggers overlap on purpose: whichever happens first builds,
+# and the second one finds the installer already attached and exits early.
+#
+# NOTE both automatic triggers fire at Publish, not before: GitHub does not emit
+# `release` events for DRAFT releases at all, so nothing here can run off the
+# draft that `fresh-export` creates. A release is therefore Mac-only for the
+# ~30-60 min this job takes. To get the Windows assets into the draft first, run
+# the dispatch line in docs/VERSIONING.md right after fresh-export finishes.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Which channel to build
+        type: choice
+        options: [production, staging]
+        default: production
+      upload_to_release:
+        description: Also upload to the GitHub release for this version
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# NOTE there is deliberately no workflow-level `concurrency` here. It could only
+# key on the triggering ref, which for workflow_dispatch is a branch name, so a
+# dispatch and an automatic run for the same version would land in different
+# groups and race each other's uploads. The `build` job carries the group
+# instead, keyed on the tag `resolve` derives from package.json — the one value
+# every event shape agrees on. `resolve` is read-only, so it need not serialise.
+
+jobs:
+  # Everything that does not need Windows: work out which channel we are
+  # building, which tag it belongs to, and whether that release already has the
+  # installer. Keeps the Windows runner off the clock for a no-op run.
+  resolve:
+    runs-on: ubuntu-latest
+    # Tag pushes are already filtered by the trigger and dispatch is always
+    # wanted, so only the release event needs a look: it fires for every release
+    # in the repo, including ones not named after a version.
+    if: >-
+      github.event_name != 'release' ||
+      startsWith(github.event.release.tag_name, 'v')
+    outputs:
+      channel: ${{ steps.event.outputs.channel }}
+      checkout_ref: ${{ steps.event.outputs.checkout_ref }}
+      checkout_sha: ${{ steps.sha.outputs.checkout_sha }}
+      upload: ${{ steps.event.outputs.upload }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      out_dir: ${{ steps.version.outputs.out_dir }}
+      exe_name: ${{ steps.version.outputs.exe_name }}
+      yml_name: ${{ steps.version.outputs.yml_name }}
+      skip: ${{ steps.existing.outputs.skip }}
+
+    steps:
+      - name: Resolve channel and ref from the triggering event
+        id: event
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_UPLOAD: ${{ inputs.upload_to_release }}
+        run: |
+          set -euo pipefail
+
+          case "$EVENT" in
+            push)
+              if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+                # The tag exists, so build exactly the tree it points at.
+                EVENT_TAG="$REF_NAME"
+                CHECKOUT_REF="$REF_NAME"
+                UPLOAD=true
+              else
+                # A branch push. Only reachable while a branch is temporarily
+                # added to the trigger to test the workflow before it is on the
+                # default branch, where workflow_dispatch needs it to live.
+                # Build and keep the artifact; never touch a release.
+                EVENT_TAG=""
+                CHECKOUT_REF="$REF_NAME"
+                UPLOAD=false
+              fi
+              ;;
+            release)
+              # `published` only, so the tag always exists by now — build the
+              # tree it points at, not the branch the release targets. Those two
+              # drift the moment anything else merges to that branch.
+              EVENT_TAG="$RELEASE_TAG"
+              CHECKOUT_REF="$RELEASE_TAG"
+              UPLOAD=true
+              ;;
+            workflow_dispatch)
+              # No tag to go on; the version guard derives it from package.json.
+              EVENT_TAG=""
+              CHECKOUT_REF="${GITHUB_REF}"
+              UPLOAD="$INPUT_UPLOAD"
+              ;;
+            *)
+              echo "::error::Unsupported event: $EVENT"
+              exit 1
+              ;;
+          esac
+
+          if [ -n "$EVENT_TAG" ]; then
+            case "$EVENT_TAG" in
+              *-staging) CHANNEL=staging ;;
+              *)         CHANNEL=production ;;
+            esac
+          else
+            # No tag to read the channel from: the dispatch dropdown decides,
+            # and a branch push carries no input at all.
+            CHANNEL="${INPUT_CHANNEL:-production}"
+          fi
+
+          {
+            echo "channel=$CHANNEL"
+            echo "event_tag=$EVENT_TAG"
+            echo "checkout_ref=$CHECKOUT_REF"
+            echo "upload=$UPLOAD"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "channel=$CHANNEL event_tag=${EVENT_TAG:-<none>} ref=$CHECKOUT_REF upload=$UPLOAD"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.event.outputs.checkout_ref }}
+
+      # Pin the exact commit for the build job. For a dispatch, checkout_ref is
+      # a branch, and `build` resolving it again minutes later can pick up a
+      # different tree than the version guard below just approved.
+      - name: Record the resolved commit
+        id: sha
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "checkout_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Building $(git rev-parse --short HEAD)"
+
+      # Every artifact name, the update manifest and the release we upload to
+      # derive from package.json, never from the tag. A tag that disagrees with
+      # package.json would silently ship a mislabelled build, so stop instead.
+      # Mirrors the branch/version guard in scripts/rebuild-and-package.sh.
+      - name: Check package.json version against the tag
+        id: version
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.event.outputs.channel }}
+          EVENT_TAG: ${{ steps.event.outputs.event_tag }}
+        run: |
+          set -euo pipefail
+
+          VERSION=$(node -p "require('./package.json').version")
+
+          if [ "$CHANNEL" = "staging" ]; then
+            EXPECTED_TAG="v${VERSION}-staging"
+            OUT_DIR="release-staging"
+            EXE_NAME="Sayso-Beta-${VERSION}-x64-win.exe"
+            YML_NAME="staging.yml"
+          else
+            EXPECTED_TAG="v${VERSION}"
+            OUT_DIR="release"
+            EXE_NAME="Sayso-${VERSION}-x64-win.exe"
+            YML_NAME="latest.yml"
+          fi
+
+          if [ -n "$EVENT_TAG" ] && [ "$EVENT_TAG" != "$EXPECTED_TAG" ]; then
+            echo "::error::Version mismatch: tag is ${EVENT_TAG}, package.json on this ref is ${VERSION} (expected tag ${EXPECTED_TAG})."
+            echo "Artifact names and the update manifest come from package.json, so this build would be mislabelled."
+            echo "Bump the version on development and merge it into staging before tagging. See docs/VERSIONING.md."
+            exit 1
+          fi
+
+          {
+            echo "version=$VERSION"
+            echo "tag=$EXPECTED_TAG"
+            echo "out_dir=$OUT_DIR"
+            echo "exe_name=$EXE_NAME"
+            echo "yml_name=$YML_NAME"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Building ${EXE_NAME} for ${EXPECTED_TAG}"
+
+      # `release: published` and the tag push it also fires both land on the same
+      # version. Whichever ran first already attached the assets.
+      #
+      # All three names are checked, not just the .exe: the upload step pushes
+      # them in one `gh` call that can fail part way, and skipping on the exe
+      # alone would leave a release with an installer and no update manifest
+      # that no later trigger ever repairs. A partial upload rebuilds instead,
+      # and the upload step fills in only what is missing.
+      - name: Skip if the release already has every Windows asset
+        id: existing
+        if: steps.event.outputs.upload == 'true' && github.event_name != 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          EXE_NAME: ${{ steps.version.outputs.exe_name }}
+          YML_NAME: ${{ steps.version.outputs.yml_name }}
+        run: |
+          set -euo pipefail
+
+          ATTACHED=$(gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)
+
+          MISSING=()
+          for name in "$EXE_NAME" "${EXE_NAME}.blockmap" "$YML_NAME"; do
+            grep -Fxq "$name" <<<"$ATTACHED" || MISSING+=("$name")
+          done
+
+          if [ ${#MISSING[@]} -eq 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${TAG} already has all three Windows assets; nothing to build."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Missing from ${TAG}: ${MISSING[*]}"
+          fi
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.skip != 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    # Keyed on the resolved tag rather than the triggering ref, so a manual
+    # dispatch and an automatic run for the same version serialise instead of
+    # racing to `gh release upload` the same three files — which can leave a
+    # latest.yml whose sha512 belongs to the other run's installer.
+    concurrency:
+      group: release-windows-${{ needs.resolve.outputs.tag }}
+      cancel-in-progress: false
+
+    env:
+      CHANNEL: ${{ needs.resolve.outputs.channel }}
+      APP_VERSION: ${{ needs.resolve.outputs.version }}
+      TAG: ${{ needs.resolve.outputs.tag }}
+      OUT_DIR: ${{ needs.resolve.outputs.out_dir }}
+      EXE_NAME: ${{ needs.resolve.outputs.exe_name }}
+      YML_NAME: ${{ needs.resolve.outputs.yml_name }}
+
+    steps:
+      # The commit resolve checked, not the ref name — see "Record the resolved
+      # commit" above.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            electron/native-audio/package-lock.json
+
+      # node-gyp needs Python, and this is an exact pin on purpose: '3.x' would
+      # resolve to whatever CPython is newest on the day the job runs. The
+      # lockfile in electron/native-audio resolves node-gyp@9.4.1, whose bundled
+      # gyp does an unguarded `from packaging.version import Version`
+      # (gyp/pylib/gyp/input.py:17), and actions/setup-python stopped shipping
+      # setuptools/packaging with 3.12. Left floating, rebuild-native-win would
+      # start failing with ModuleNotFoundError on a green repo. 3.11 is the
+      # newest minor node-gyp 9 supports.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # No .env* file is in git, so a clean checkout has none. Vite bakes the
+      # VITE_* values into the renderer and its copy-env-files plugin drops the
+      # file into dist/ and electron/, from where main.ts reads it at runtime
+      # inside the asar. Without this step the app builds fine and then points
+      # at nothing.
+      - name: Write the channel env file
+        shell: bash
+        env:
+          ENV_PRODUCTION: ${{ secrets.ENV_PRODUCTION }}
+          ENV_STAGING: ${{ secrets.ENV_STAGING }}
+        run: |
+          set -euo pipefail
+
+          if [ "$CHANNEL" = "staging" ]; then
+            CONTENT="$ENV_STAGING"
+            FILE=".env.staging"
+            SECRET_NAME="ENV_STAGING"
+          else
+            CONTENT="$ENV_PRODUCTION"
+            FILE=".env.production"
+            SECRET_NAME="ENV_PRODUCTION"
+          fi
+
+          if [ -z "$CONTENT" ]; then
+            echo "::error::Secret ${SECRET_NAME} is empty or missing. See docs/VERSIONING.md."
+            exit 1
+          fi
+
+          # This file is packed into the asar and ships to users. Credentials
+          # that only the build needs must never be in it: the release upload
+          # uses the workflow token and the Sentry plugin reads its own env var.
+          #
+          # Fed by here-string, not a pipe. `grep -q` exits at the first match,
+          # so `printf | grep -q` can leave printf killed by SIGPIPE (141);
+          # under `set -o pipefail` that makes the whole pipeline non-zero and
+          # the `if` false — the guard failing open exactly when a token is
+          # there to find.
+          if grep -qE '^[[:space:]]*(GH_TOKEN|SENTRY_AUTH_TOKEN)=' <<<"$CONTENT"; then
+            echo "::error::${SECRET_NAME} contains GH_TOKEN or SENTRY_AUTH_TOKEN. Remove those lines — this file ships inside the app."
+            exit 1
+          fi
+
+          printf '%s\n' "$CONTENT" > "$FILE"
+          echo "Wrote ${FILE} ($(grep -c '=' "$FILE") variables)"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # electron/native-audio has its own package.json and lockfile (node-gyp,
+      # nan) that the root install does not cover. --ignore-scripts because its
+      # install script is a node-gyp rebuild against system Node, while the
+      # build below targets Electron's headers.
+      - name: Install native addon dependencies
+        working-directory: electron/native-audio
+        run: npm ci --ignore-scripts
+
+      # Deliberately left on the default pwsh shell. This is the shell where the
+      # Unix `file` shellout used to abort the pack (SAYSO-399), so running it
+      # here keeps that regression covered. The beforePack hook rebuilds the
+      # addon again for the packed arch; this run just fails faster if the
+      # toolchain is broken.
+      - name: Build the native audio addon
+        run: npm run rebuild-native-win
+
+      - name: Compile the main process
+        run: npm run build:electron
+
+      - name: Build the renderer
+        shell: pwsh
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          if ($env:CHANNEL -eq 'staging') { npm run build:staging } else { npm run build }
+
+      - name: Package the installer
+        shell: pwsh
+        run: |
+          if ($env:CHANNEL -eq 'staging') {
+            npx electron-builder --win --config build.staging.js --publish never
+          } else {
+            npx electron-builder --win --publish never
+          }
+
+      - name: Verify the build output
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MISSING=0
+          for f in "${OUT_DIR}/${EXE_NAME}" "${OUT_DIR}/${EXE_NAME}.blockmap" "${OUT_DIR}/${YML_NAME}"; do
+            if [ -f "$f" ]; then
+              echo "  ok  $f ($(stat -c %s "$f") bytes)"
+            else
+              echo "::error::Missing expected artifact: $f"
+              MISSING=1
+            fi
+          done
+          [ "$MISSING" -eq 0 ] || exit 1
+
+          # The manifest version is what a client compares against its own, so a
+          # mismatch here would offer users the wrong update.
+          YML_VERSION=$(sed -nE 's/^version:[[:space:]]*(.+)$/\1/p' "${OUT_DIR}/${YML_NAME}" | tr -d '\r')
+          if [ "$YML_VERSION" != "$APP_VERSION" ]; then
+            echo "::error::${YML_NAME} says version ${YML_VERSION}, package.json says ${APP_VERSION}."
+            exit 1
+          fi
+          echo "${YML_NAME} version ${YML_VERSION} matches package.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sayso-Windows-${{ needs.resolve.outputs.tag }}
+          if-no-files-found: error
+          path: |
+            ${{ needs.resolve.outputs.out_dir }}/${{ needs.resolve.outputs.exe_name }}
+            ${{ needs.resolve.outputs.out_dir }}/${{ needs.resolve.outputs.exe_name }}.blockmap
+            ${{ needs.resolve.outputs.out_dir }}/${{ needs.resolve.outputs.yml_name }}
+
+      # The .blockmap goes up with the rest: electron-updater downloads only the
+      # changed chunks of an installer, and needs it next to the .exe to do that.
+      - name: Upload to the GitHub release
+        if: needs.resolve.outputs.upload == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          FILES=(
+            "${OUT_DIR}/${EXE_NAME}"
+            "${OUT_DIR}/${EXE_NAME}.blockmap"
+            "${OUT_DIR}/${YML_NAME}"
+          )
+
+          # This workflow never creates a release. scripts/rebuild-and-package.sh
+          # calls `gh release create` unconditionally, so a release created here
+          # first would make the Mac fresh-export abort at its final step, after
+          # the whole notarize cycle. Converging the two is SAYSO-403.
+          # `gh --jq` throughout: gh embeds its own jq, so this needs no jq on
+          # the runner.
+          if ! IS_DRAFT=$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            echo "::error::Release ${TAG} does not exist. This workflow never creates one — the Mac fresh-export does, or run: gh release create ${TAG} --draft --target staging. Then re-run this workflow, or dispatch it with upload_to_release. The installer from this run is attached to the workflow run as an artifact, so nothing is lost."
+            exit 1
+          fi
+
+          if [ "$IS_DRAFT" = "true" ]; then
+            # Nothing has shipped out of a draft, so replacing assets is safe.
+            echo "Uploading to draft release ${TAG}"
+            gh release upload "$TAG" --clobber "${FILES[@]}"
+          else
+            # Published. Users may already hold these bytes, and the sha512 in
+            # latest.yml points at them, so only fill gaps — never replace. This
+            # is also the repair path for an upload that failed part way.
+            ATTACHED=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+            MISSING=()
+            for f in "${FILES[@]}"; do
+              grep -Fxq "$(basename "$f")" <<<"$ATTACHED" || MISSING+=("$f")
+            done
+
+            if [ ${#MISSING[@]} -eq 0 ]; then
+              echo "::notice::${TAG} is published and already has all three Windows assets; nothing uploaded."
+              exit 0
+            fi
+
+            echo "::warning::${TAG} is already published — adding ${#MISSING[@]} missing asset(s) without replacing anything."
+            gh release upload "$TAG" "${MISSING[@]}"
+          fi
+
+          echo "::notice::${EXE_NAME} attached to ${TAG}."
