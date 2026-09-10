@@ -8,7 +8,7 @@ import { useCoachWindowStore } from '../../store/coachWindowStore';
 import CoachButtons from './CoachButtons';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
-import SessionStoppedDialog from './SessionStoppedDialog';
+import SessionStoppedDialog, { type SessionStoppedReason } from './SessionStoppedDialog';
 import RightSideButtons from './RightSideButtons';
 import useFontSize from '../hooks/useFontSize';
 import usePulseMarketProperty from '../hooks/usePulseMarketProperty';
@@ -52,6 +52,7 @@ export default function CoachWindowMain() {
     //STATE
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
+    const [sessionStoppedReason, setSessionStoppedReason] = useState<SessionStoppedReason>('inactivity');
     const [lpmamaTooltipHeight, setLpmamaTooltipHeight] = useState(0);
     //CONTEXT / HOOKS
     const sessionData = useCoachWindowStore(state => state.sessionData);
@@ -441,6 +442,27 @@ export default function CoachWindowMain() {
 
         const unsubscribe = window.electron.cue.onAutoStop(async () => {
             setIsInsightsLayoutOpen(false);
+            setSessionStoppedReason('inactivity');
+            try {
+                await handleStopCue();
+            } catch (error) {
+                reportCoachError(error);
+            } finally {
+                setShowSessionAutoStopped(true);
+            }
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [])
+
+    useEffect(() => {
+        if (!window.electron?.cue?.onSessionExpired) return;
+
+        const unsubscribe = window.electron.cue.onSessionExpired(async () => {
+            setIsInsightsLayoutOpen(false);
+            setSessionStoppedReason('expired');
             try {
                 await handleStopCue();
             } catch (error) {
@@ -564,6 +586,7 @@ export default function CoachWindowMain() {
             {showSessionAutoStopped && leadType && (
                 <SessionStoppedDialog
                     setShowSessionAutoStopped={setShowSessionAutoStopped}
+                    reason={sessionStoppedReason}
                     ref={sessionStoppedDialogRef}
                 />
             )}

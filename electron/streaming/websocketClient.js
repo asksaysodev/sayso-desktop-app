@@ -305,10 +305,11 @@ class WebSocketClient extends EventEmitter {
     
     if (this.ws) {
       this.ws.removeAllListeners();
+      this.ws.on('error', () => {});
       this.ws.close();
       this.ws = null;
     }
-    
+
     this.state = 'disconnected';
     this.reconnectAttempts = 0;
     this.emit('disconnected');

@@ -62,6 +62,7 @@ export interface CueAPI {
   onInsight: (callback: (data: CueInsightData) => void) => () => void;
   onError: (callback: (data: CueErrorData) => void) => () => void;
   onAutoStop: (callback: (data: unknown) => void) => () => void;
+  onSessionExpired: (callback: (data: unknown) => void) => () => void;
   onLowUserAudio: (callback: (data: CueLowUserAudioData) => void) => () => void;
   onMicRecoveryFailed: (callback: () => void) => () => void;
   onMicRecoverySucceeded: (callback: () => void) => () => void;
