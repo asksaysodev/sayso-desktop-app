@@ -213,6 +213,20 @@ silently.
 | Account / profile | `AskSayso` / `sayso-windows-prod` |
 | Certificate CN | `AskSayso, Inc.` |
 
+The full subject on the issued certificate is:
+
+```
+CN="AskSayso, Inc.", O="AskSayso, Inc.", L=Avondale, S=Arizona, C=US
+```
+
+Note the CN is **quoted**, because it contains a comma. `publisherName` is still
+just `AskSayso, Inc.`: `electron-updater` runs the subject through `parseDn()`,
+which strips the quotes, and then — because `publisherName` itself parses to an
+empty DN — compares it against the CN alone. Verified against the real
+certificate, so the CN-only form is correct and does not need widening to the
+full DN. Anything comparing against the *raw* subject string, though, has to
+cope with those quotes.
+
 Authentication is a service principal (`sayso-github-signing`) holding the
 **Artifact Signing Certificate Profile Signer** role — Owner and Contributor do
 *not* grant signing. Its three `AZURE_*` repo secrets are read by

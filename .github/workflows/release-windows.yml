@@ -488,9 +488,22 @@ jobs:
               continue
             }
 
+            # Compared as a parsed CN, not as a substring of the raw subject.
+            # The real subject reads CN="AskSayso, Inc.", O=..., with the CN
+            # QUOTED because it contains a comma, so a literal `CN=AskSayso,
+            # Inc.` match fails against a perfectly good signature.
+            #
+            # This also mirrors what electron-updater actually does at update
+            # time: parseDn() on the subject, then an exact compare of the CN
+            # against publisherName (windowsExecutableCodeSignatureVerifier.js).
+            # Checking it the same way here makes this a faithful proxy for the
+            # check that matters, rather than a second, looser one.
             $subject = $sig.SignerCertificate.Subject
-            if ($subject -notmatch [regex]::Escape("CN=$expectedCN")) {
-              Write-Host "::error::$name is signed by $subject, expected CN=$expectedCN."
+            $cn = $sig.SignerCertificate.GetNameInfo(
+              [System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
+
+            if ($cn -ne $expectedCN) {
+              Write-Host "::error::$name has CN '$cn', expected '$expectedCN'. Full subject: $subject"
               $failed = $true
               continue
             }
