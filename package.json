@@ -202,7 +202,11 @@
         }
       ],
       "icon": "assets/icon.ico",
-      "publisherName": "AskSayso, Inc."
+      "publisherName": "AskSayso, Inc.",
+      "sign": "./scripts/sign-windows.js",
+      "signingHashAlgorithms": [
+        "sha256"
+      ]
     },
     "nsis": {
       "oneClick": false,
