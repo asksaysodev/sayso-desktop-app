@@ -115,18 +115,39 @@ changed chunks of an installer, and looks for it next to the `.exe`.
 
 | Trigger | What it does |
 |---|---|
-| `release: created` | Fires the moment `fresh-export` saves the draft. Windows assets land in the draft before anyone publishes it. |
-| `push` of a `v*` tag | Covers publishing the draft (which creates the tag) and hand-pushed tags. |
+| `release: published` | Fires when you publish the draft, or create a release without one. |
+| `push` of a `v*` tag | The same Publish (which creates the tag), and hand-pushed tags. |
 | `workflow_dispatch` | Manual. Uploads a workflow artifact only, unless you tick `upload_to_release`. Pick the channel from a dropdown. |
 
 The first two overlap on purpose. Whichever fires first builds; the second finds
-the installer already attached to the release and exits without starting a
-Windows runner.
+the assets already attached to the release and exits without starting a Windows
+runner.
+
+**Both automatic triggers fire at Publish, not before.** GitHub emits no
+`release` event at all for a *draft*, so nothing can run off the draft that
+`fresh-export` creates — a published release is Windows-less for the ~30-60 min
+the job takes, and clients polling `latest.yml` in that window get a 404. To
+avoid that, kick the build off yourself as soon as `fresh-export` finishes, then
+publish once it lands:
+
+```bash
+gh workflow run release-windows.yml --ref staging \
+  -f channel=production -f upload_to_release=true    # -f channel=staging for beta
+gh run watch "$(gh run list --workflow=release-windows.yml -L1 --json databaseId --jq '.[0].databaseId')"
+```
 
 The channel comes from the tag: `v1.4.0` builds production, `v1.4.0-staging`
-builds staging. If the release does not exist yet, the workflow creates it as a
-draft against `staging`, matching what `rebuild-and-package.sh` would have made,
-so the mac upload lands in the same release.
+builds staging.
+
+**The workflow never creates a release.** If the tag has none, it fails and says
+so, keeping the installer as a workflow-run artifact. That is deliberate:
+`rebuild-and-package.sh` calls `gh release create` unconditionally, so a release
+created here first would make `fresh-export` abort at its final step after the
+whole notarize cycle. Converging the two is SAYSO-403.
+
+**Assets are only ever added to a published release, never replaced.** Once a
+release is out, users may already hold those bytes and `latest.yml`'s `sha512`
+points at them. Uploading into a *draft* still replaces freely.
 
 Everything derives from `package.json`, never from the tag. A tag that disagrees
 with the `package.json` on the ref being built fails the run before any compile
@@ -134,7 +155,9 @@ with the `package.json` on the ref being built fails the run before any compile
 
 Note where each trigger reads the workflow from: `release` events use the copy on
 the default branch (`development`), tag pushes use the copy in the tagged tree
-(`staging`). Both branches need this file before the automatic triggers work.
+(`staging`), and `workflow_dispatch` uses the copy on whatever `--ref` you give
+it. Both branches need this file before any of it works — and `development` in
+particular, or the workflow is not listed for dispatch at all.
 
 ### Required secrets
 
@@ -188,7 +211,18 @@ at build time, so packing a production `dist/` with `build.staging.js` produces 
 be the only thing about it that is staging.
 
 Attach the three files per channel to the draft with
-`gh release upload <tag> --clobber`.
+`gh release upload <tag> --clobber`. Drop `--clobber` if the release is already
+published — replacing an asset users may have downloaded invalidates the `sha512`
+in the manifest beside it.
+
+### Toolchain pins
+
+The workflow pins `python-version: '3.11'` rather than `'3.x'`. The lockfile in
+`electron/native-audio` resolves `node-gyp@9.4.1`, whose bundled gyp does an
+unguarded `from packaging.version import Version`, and `actions/setup-python`
+stopped shipping `setuptools`/`packaging` at 3.12. Floating that version means
+`rebuild-native-win` starts failing with `ModuleNotFoundError` on an unchanged
+repo the day a new CPython minor ships. Raise it only alongside a node-gyp bump.
 
 ---
 
