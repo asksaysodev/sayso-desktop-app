@@ -242,7 +242,20 @@ jobs:
   build:
     needs: resolve
     if: needs.resolve.outputs.skip != 'true'
-    runs-on: windows-latest
+    # Pinned, not `windows-latest`, for the same reason python-version is pinned
+    # below: a runner image change must not be able to break a green repo.
+    # `windows-latest` now serves `windows-2025-vs2026`, whose Visual Studio 2026
+    # (VS 18) is unknown to the node-gyp the native addon resolves — 9.4.1, from
+    # `node-gyp: ^9.0.0` in electron/native-audio/package.json. It reads the
+    # version as `undefined` and gives up with "could not find a version of
+    # Visual Studio 2017 or newer to use". VS 2026 support landed in node-gyp
+    # 12.1.0 and was corrected in 13.0.1.
+    #
+    # windows-2022 is VS 2022 v143 — the toolchain binding.gyp targets and the
+    # one on the dev machines. GitHub keeps at most two GA Windows images, so
+    # this pin has a shelf life; the durable fix is upgrading node-gyp, which
+    # also touches the macOS build path and needs a Mac to validate.
+    runs-on: windows-2022
     timeout-minutes: 60
 
     # Keyed on the resolved tag rather than the triggering ref, so a manual
