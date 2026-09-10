@@ -103,10 +103,15 @@ same GitHub draft:
 
 ```bash
 # Run from Git Bash — the beforePack hook shells out to `file`, absent in PowerShell.
-npm run build:electron && npm run build
-npx electron-builder --win --publish never                          # production
-npx electron-builder --win --config build.staging.js --publish never # staging
+npm run build:electron
+npm run build         && npx electron-builder --win --publish never                          # production
+npm run build:staging && npx electron-builder --win --config build.staging.js --publish never # staging
 ```
+
+The renderer must be rebuilt between the two. Vite bakes the `VITE_*` values in
+at build time, so packing a production `dist/` with `build.staging.js` produces a
+`Sayso [beta]` installer that talks to the production backend — `build_env` would
+be the only thing about it that is staging.
 
 | Channel | Artifacts |
 |---|---|
@@ -114,9 +119,14 @@ npx electron-builder --win --config build.staging.js --publish never # staging
 | Staging | `release-staging/Sayso-Beta-{version}-x64-win.exe` + `.blockmap`, `staging.yml` |
 
 `build.win.publisherName` must equal the exact CN of the Authenticode
-certificate the installer is signed with. `electron-updater` compares the two
-before installing an update, and **skips verification entirely if the field is
-missing** — so never drop it to work around a signing failure.
+certificate the installer is signed with. `electron-updater` downloads the new
+installer, then compares the two, and fails the **download** with
+`ERR_UPDATER_INVALID_SIGNATURE` on a mismatch — the update never reaches the
+install step. It **skips verification entirely if the field is missing**, so
+never drop it to work around a signing failure.
+
+Windows builds are unsigned until SAYSO-402. A fresh install works; an in-app
+update is refused by that check. That is expected, not a regression.
 
 ---
 
