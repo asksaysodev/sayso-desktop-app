@@ -166,6 +166,9 @@ particular, or the workflow is not listed for dispatch at all.
 | `ENV_PRODUCTION` | The full text of `.env.production` |
 | `ENV_STAGING` | The full text of `.env.staging` |
 | `SENTRY_AUTH_TOKEN` | Sentry token, for the sourcemap upload |
+| `AZURE_TENANT_ID` | Authenticode signing — see below |
+| `AZURE_CLIENT_ID` | Authenticode signing — see below |
+| `AZURE_CLIENT_SECRET` | Authenticode signing — see below |
 
 No `.env*` file is in git, so a clean CI checkout has none. Vite bakes the
 `VITE_*` values into the renderer and its `copy-env-files` plugin drops the file
@@ -185,14 +188,76 @@ Two rules for those secrets:
 
 ### Signing
 
-Builds from this workflow are **unsigned**. `build.win.publisherName` must equal
-the exact CN of the Authenticode certificate the installer is signed with.
-`electron-updater` downloads the new installer, then compares the two, and fails
-the **download** with `ERR_UPDATER_INVALID_SIGNATURE` on a mismatch — the update
-never reaches the install step. It **skips verification entirely if the field is
-missing**, so never drop it to work around a signing failure. Until the
-certificate is wired up, a Windows build installs correctly from scratch but will
-be refused as an auto-update.
+Windows builds are Authenticode-signed through **Azure Artifact Signing** (the
+service Microsoft used to call Trusted Signing), as `AskSayso, Inc.` — the same
+legal entity as the Apple identity.
+
+Since the June 2023 CA/Browser Forum baseline change the private key must live on
+FIPS 140-2 Level 2 hardware, so there is no `.pfx` anywhere and none can be
+produced. The key is non-exportable inside Azure's HSM. That rules out
+electron-builder's built-in signtool path, so `build.win.sign` points at
+`scripts/sign-windows.js`, which shells out to `signtool` with the Trusted
+Signing dlib. electron-builder calls that hook once per artifact it signs — the
+app exe, `resources/elevate.exe`, the NSIS uninstaller and the installer — so the
+executable *inside* the installer is signed too, which signing the finished
+installer alone would not achieve.
+
+Signing runs **only in CI**. There are no credentials on a laptop by design: a
+local `npm run package` prints a warning and produces an unsigned installer,
+while the same missing credentials in CI fail the build rather than shipping one
+silently.
+
+| Non-secret, in `scripts/sign-windows.js` | |
+|---|---|
+| Endpoint | `https://eus.codesigning.azure.net/` |
+| Account / profile | `AskSayso` / `sayso-windows-prod` |
+| Certificate CN | `AskSayso, Inc.` |
+
+The full subject on the issued certificate is:
+
+```
+CN="AskSayso, Inc.", O="AskSayso, Inc.", L=Avondale, S=Arizona, C=US
+```
+
+Note the CN is **quoted**, because it contains a comma. `publisherName` is still
+just `AskSayso, Inc.`: `electron-updater` runs the subject through `parseDn()`,
+which strips the quotes, and then — because `publisherName` itself parses to an
+empty DN — compares it against the CN alone. Verified against the real
+certificate, so the CN-only form is correct and does not need widening to the
+full DN. Anything comparing against the *raw* subject string, though, has to
+cope with those quotes.
+
+Authentication is a service principal (`sayso-github-signing`) holding the
+**Artifact Signing Certificate Profile Signer** role — Owner and Contributor do
+*not* grant signing. Its three `AZURE_*` repo secrets are read by
+`DefaultAzureCredential` inside the dlib; nothing in this repo touches their
+values.
+
+Four things that will otherwise cost you a day:
+
+- **The client secret expires in 24 months** (set 2026-09-10, so ~2028-09). It
+  lapses as an authentication failure, not as anything that says "expired".
+- **Timestamping is mandatory.** Artifact Signing issues 72-hour certificates
+  that rotate automatically. An untimestamped signature stops validating three
+  days later, including on installers already downloaded. That is what the `/tr`
+  flag in the hook is for, and the CI verify step asserts a countersignature is
+  present so it cannot go missing quietly.
+- **`build.win.signingHashAlgorithms` must stay `["sha256"]`.** Left unset,
+  electron-builder defaults to `["sha1", "sha256"]` and calls the hook twice per
+  file, asking first for a SHA-1 signature Azure cannot issue. The hook throws
+  with a pointer here rather than surfacing an opaque Azure error.
+- **Never drop `build.win.publisherName` to work around a signing failure.** It
+  must equal the certificate CN exactly. `electron-updater` compares the two
+  after downloading and fails with `ERR_UPDATER_INVALID_SIGNATURE` on a mismatch
+  — but when the field is **absent** it skips verification entirely and accepts
+  the update. Removing it does not disable a check, it disables the protection.
+
+Role assignments take a few minutes to propagate, so a 403 on the very first run
+after any permission change is expected. The hook retries three times with
+backoff; if it still fails, wait and re-run before debugging.
+
+Changing the certificate identity after Windows users are on signed builds
+breaks verification for the whole installed base. Treat the CN as permanent.
 
 ### Building by hand
 

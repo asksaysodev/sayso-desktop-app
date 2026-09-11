@@ -129,7 +129,16 @@
       },
       {
         "from": "public/assets",
-        "to": "assets"
+        "to": "assets",
+        "filter": [
+          "**/*",
+          "!icon-staging.icns",
+          "!icon.icns",
+          "!logo-neg-horizontal.png",
+          "!logo-pos-horizontal.png",
+          "!logo-pos-vertical.png",
+          "!slack-icon.png"
+        ]
       }
     ],
     "directories": {
@@ -202,7 +211,11 @@
         }
       ],
       "icon": "assets/icon.ico",
-      "publisherName": "AskSayso, Inc."
+      "publisherName": "AskSayso, Inc.",
+      "sign": "./scripts/sign-windows.js",
+      "signingHashAlgorithms": [
+        "sha256"
+      ]
     },
     "nsis": {
       "oneClick": false,
