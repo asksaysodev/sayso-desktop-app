@@ -150,8 +150,23 @@ package.json `name`. That is why `build.staging.js` sets
 running installer there on every install, each channel destroys the other's
 differential-update base — both then re-download the full ~97 MB every time.
 It also keeps a beta uninstall from targeting production's `%APPDATA%\sayso-app`
-if `deleteAppDataOnUninstall` is ever turned on. The value deliberately matches
-the `app.setName()` call in `electron/main.ts`, so nothing changes at runtime.
+if `deleteAppDataOnUninstall` is ever turned on. The value is chosen to match the
+`app.setName()` call in `electron/main.ts`, so code running after that line sees no
+change. **One thing runs before it:** `Sentry.init` at `main.ts:36`, and
+`@sentry/electron` defaults `release` to `${app.name}@${version}`. That is why
+`electron/sentry.config.ts` pins `release` to the literal `sayso-app@<version>`
+instead of letting it derive — otherwise staging's main process would report a
+different release from its renderers and the two halves of an incident would not
+correlate (SAYSO-355).
+
+**Upgrading a beta installed before SAYSO-404: uninstall it first.** NSIS restores
+`$INSTDIR` from the registry on upgrade, then `instFilesPre` appends `APP_FILENAME`
+if the restored path does not already contain it — and it still does this on a silent
+or `--updated` run. An old beta sits in `\Programs\sayso-app`, which does not contain
+`sayso-app-staging`, so the app would end up one directory deeper at
+`\Programs\sayso-app\sayso-app-staging`. Nothing in the wild is affected — no release has
+ever carried a Windows asset, so every Windows beta is a hand-built local one — but
+uninstall before re-installing on a dev machine. Fresh installs are unaffected.
 
 ### Regenerating the Windows icons
 
