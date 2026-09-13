@@ -4,9 +4,9 @@ name: Release Windows
 # a Mac: the native audio addon needs MSVC and the Windows SDK, and node-gyp
 # cannot cross-compile that from darwin.
 #
-# Builds are UNSIGNED. `build.win.publisherName` is set but no Authenticode
-# certificate is wired up yet (SAYSO-402), so a fresh install works while
-# electron-updater will refuse to install these as an update.
+# Installers are Authenticode-signed through Azure Artifact Signing via the
+# `build.win.sign` hook in scripts/sign-windows.js (SAYSO-402). A run with no
+# AZURE_* credentials fails rather than shipping an unsigned build.
 #
 # Triggers:
 #   release: published  a draft was published, or a release was created without
@@ -19,9 +19,15 @@ name: Release Windows
 #
 # NOTE both automatic triggers fire at Publish, not before: GitHub does not emit
 # `release` events for DRAFT releases at all, so nothing here can run off the
-# draft that `fresh-export` creates. A release is therefore Mac-only for the
-# ~30-60 min this job takes. To get the Windows assets into the draft first, run
-# the dispatch line in docs/VERSIONING.md right after fresh-export finishes.
+# draft a mac `fresh-export` creates. Publish first and the release is Mac-only
+# for the few minutes this job takes — which breaks every Windows client's
+# update check, not just delays it. So dispatch this workflow into the draft
+# first, then publish with `node scripts/release-preflight.js <tag> --publish`,
+# which refuses unless both platforms are attached. See docs/VERSIONING.md.
+#
+# This workflow no longer refuses to create a release. It and the mac scripts
+# both go through scripts/release-upload.js, so whichever finishes first creates
+# the draft and the other joins it (SAYSO-403).
 
 on:
   push:
@@ -571,6 +577,12 @@ jobs:
 
       # The .blockmap goes up with the rest: electron-updater downloads only the
       # changed chunks of an installer, and needs it next to the .exe to do that.
+      #
+      # scripts/release-upload.js is the same create-or-upload the mac scripts
+      # call, so whichever platform finishes first creates the draft and the
+      # other joins it (SAYSO-403). It clobbers freely into a draft and only
+      # fills gaps in a published release — replacing an asset users already
+      # downloaded would invalidate the sha512 in the channel file beside it.
       - name: Upload to the GitHub release
         if: needs.resolve.outputs.upload == 'true'
         shell: bash
@@ -579,44 +591,60 @@ jobs:
         run: |
           set -euo pipefail
 
-          FILES=(
-            "${OUT_DIR}/${EXE_NAME}"
-            "${OUT_DIR}/${EXE_NAME}.blockmap"
+          node scripts/release-upload.js \
+            --tag "$TAG" \
+            --channel "$CHANNEL" \
+            --target staging \
+            "${OUT_DIR}/${EXE_NAME}" \
+            "${OUT_DIR}/${EXE_NAME}.blockmap" \
             "${OUT_DIR}/${YML_NAME}"
-          )
 
-          # This workflow never creates a release. scripts/rebuild-and-package.sh
-          # calls `gh release create` unconditionally, so a release created here
-          # first would make the Mac fresh-export abort at its final step, after
-          # the whole notarize cycle. Converging the two is SAYSO-403.
-          # `gh --jq` throughout: gh embeds its own jq, so this needs no jq on
-          # the runner.
-          if ! IS_DRAFT=$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null); then
-            echo "::error::Release ${TAG} does not exist. This workflow never creates one — the Mac fresh-export does, or run: gh release create ${TAG} --draft --target staging. Then re-run this workflow, or dispatch it with upload_to_release. The installer from this run is attached to the workflow run as an artifact, so nothing is lost."
-            exit 1
-          fi
+  # A release is only safe to publish once BOTH platforms' channel files are on
+  # it. electron-updater resolves the newest release from the atom feed and then
+  # demands that tag's own channel file, throwing
+  # ERR_UPDATER_CHANNEL_FILE_NOT_FOUND on a 404 with no fallback to an older
+  # release. So a release carrying only one platform does not read as "no update
+  # available" to the other one — every update check on every installed client
+  # hard-errors until someone notices.
+  #
+  # This cannot block a publish (GitHub has no such hook), so it fails the run
+  # loudly instead, which is the signal to fix the release rather than leave it
+  # newest. The same script run locally with --publish is the gate that stops it
+  # happening in the first place — see docs/VERSIONING.md.
+  verify:
+    needs: [resolve, build]
+    # always(), so this still runs when `build` was skipped because the assets
+    # were already attached, or failed outright — a release that went out
+    # half-populated has to be caught in both cases. It is gated on `resolve`
+    # having succeeded because every input below comes from it.
+    #
+    # workflow_dispatch is excluded on purpose: dispatching Windows into an
+    # empty draft before the mac build exists is the documented flow, and would
+    # fail here every time.
+    #
+    # Tag pushes are NOT excluded, but the check below skips drafts, so the
+    # `npm version` tag someone pushes days early builds Windows, leaves a draft
+    # for the mac side to join, and stays green. Only a published release — one
+    # clients can actually resolve — is enforced.
+    if: >-
+      always() &&
+      needs.resolve.result == 'success' &&
+      needs.resolve.outputs.upload == 'true' &&
+      github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
 
-          if [ "$IS_DRAFT" = "true" ]; then
-            # Nothing has shipped out of a draft, so replacing assets is safe.
-            echo "Uploading to draft release ${TAG}"
-            gh release upload "$TAG" --clobber "${FILES[@]}"
-          else
-            # Published. Users may already hold these bytes, and the sha512 in
-            # latest.yml points at them, so only fill gaps — never replace. This
-            # is also the repair path for an upload that failed part way.
-            ATTACHED=$(gh release view "$TAG" --json assets --jq '.assets[].name')
-            MISSING=()
-            for f in "${FILES[@]}"; do
-              grep -Fxq "$(basename "$f")" <<<"$ATTACHED" || MISSING+=("$f")
-            done
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_sha }}
 
-            if [ ${#MISSING[@]} -eq 0 ]; then
-              echo "::notice::${TAG} is published and already has all three Windows assets; nothing uploaded."
-              exit 0
-            fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-            echo "::warning::${TAG} is already published — adding ${#MISSING[@]} missing asset(s) without replacing anything."
-            gh release upload "$TAG" "${MISSING[@]}"
-          fi
-
-          echo "::notice::${EXE_NAME} attached to ${TAG}."
+      - name: Check the release carries both platforms
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: node scripts/release-preflight.js "$TAG" --only-if-published

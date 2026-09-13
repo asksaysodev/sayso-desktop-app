@@ -58,18 +58,36 @@ After bumping the version, run the `/changelog` slash command in Claude Code. It
 
 ## Publishing the GitHub release draft
 
-After `fresh-export:staging` completes, a **draft pre-release** is created automatically on GitHub tagged `v{version}-staging`.
+A release holds **both platforms'** artifacts, and the mac and Windows builds
+arrive independently. Publish it with the preflight script, not by clicking
+Publish in the UI:
 
-To publish it:
+```bash
+node scripts/release-preflight.js v1.4.0            # check only
+node scripts/release-preflight.js v1.4.0 --publish  # check, then publish
+```
 
-1. Go to the repo on GitHub → **Releases**
-2. Find the draft tagged `v{version}-staging`
-3. Click **Edit** (pencil icon)
-4. Paste the `/changelog` output into the description
-5. Verify the attached files (DMGs + YML)
-6. Click **Publish release**
+It refuses to publish unless the release carries:
 
-For production releases (tagged `v{version}`), same flow but uncheck **This is a pre-release** before publishing.
+- **both** channel files — `latest.yml` + `latest-mac.yml`, or `staging.yml` +
+  `staging-mac.yml`
+- a version in each that matches the tag
+- every file those manifests reference, plus the `.blockmap` beside each Windows
+  installer
+
+Then paste the `/changelog` output into the description on GitHub.
+
+**Why not just click Publish.** `electron-updater` resolves the newest release
+from the atom feed and then demands *that tag's own* channel file, throwing
+`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND` on a 404 with no fallback to an older
+release. Publishing with one platform's manifest missing therefore does not mean
+"no update available" on the other platform — it means **every update check on
+every installed client hard-errors**, for as long as that release stays newest.
+
+The UI still works and nothing prevents it, so the `verify` job in
+`release-windows.yml` runs the same check after the fact on every publish and
+tag push. A red run there means a live release is half-populated: attach what is
+missing, it needs no re-publish.
 
 ---
 
@@ -83,9 +101,11 @@ git pull origin staging
 npm run fresh-export   # builds production DMGs and creates GitHub draft
 ```
 
-Both release scripts pass `--target staging` to `gh release create`, so the tag
-lands on `staging`. Without it, GitHub tags the repo's default branch
-(`development`) — a tree whose `package.json` may still hold the pre-bump version.
+Both release scripts pass `--target staging` through to `gh release create`, so a
+release created for a new tag lands that tag on `staging`. Without it, GitHub
+tags the repo's default branch (`development`) — a tree whose `package.json` may
+still hold the pre-bump version. It has no effect when the release already
+exists, which it will whenever the Windows build got there first.
 
 `fresh-export` also aborts if the local `package.json` version doesn't match
 `origin/staging`, which is the guard against building production from the wrong
@@ -100,8 +120,8 @@ Then follow the same publish steps above on the production draft.
 Windows installers cannot be built on a Mac — the native audio addon needs MSVC
 and the Windows SDK, and node-gyp cannot cross-compile that from darwin. The
 `.github/workflows/release-windows.yml` workflow builds them on a hosted
-`windows-latest` runner and attaches them to the same GitHub release the mac
-side creates. Nothing about the mac flow changes.
+`windows-2022` runner and attaches them to the same GitHub release the mac side
+uses. Either platform may get there first.
 
 | Channel | Artifacts |
 |---|---|
@@ -139,15 +159,27 @@ gh run watch "$(gh run list --workflow=release-windows.yml -L1 --json databaseId
 The channel comes from the tag: `v1.4.0` builds production, `v1.4.0-staging`
 builds staging.
 
-**The workflow never creates a release.** If the tag has none, it fails and says
-so, keeping the installer as a workflow-run artifact. That is deliberate:
-`rebuild-and-package.sh` calls `gh release create` unconditionally, so a release
-created here first would make `fresh-export` abort at its final step after the
-whole notarize cycle. Converging the two is SAYSO-403.
+**Either platform may run first.** The workflow and both mac scripts upload
+through `scripts/release-upload.js`, which creates the draft when the tag has no
+release and joins the existing one when it does. A Windows-first run no longer
+breaks the mac `fresh-export` at its final step, after the whole notarize cycle
+— which is what SAYSO-403 fixed.
 
 **Assets are only ever added to a published release, never replaced.** Once a
 release is out, users may already hold those bytes and `latest.yml`'s `sha512`
-points at them. Uploading into a *draft* still replaces freely.
+points at them. Uploading into a *draft* still replaces freely. The upload
+script picks between the two itself.
+
+**A `verify` job runs after every publish and tag push** and fails the run if the
+release is missing either platform's channel file. It cannot block the publish —
+GitHub has no such hook — so it is the backstop for a release published from the
+UI, while `release-preflight.js --publish` is the gate that stops it happening.
+
+It runs with `--only-if-published`, so a **draft** is skipped: nothing has
+shipped out of one, and a half-filled draft is the normal state while the two
+platforms arrive. That matters because a pushed `npm version` tag builds Windows
+days before any mac build exists — it now leaves a draft for the mac side to
+join and stays green, rather than going red over a release nobody can resolve.
 
 Everything derives from `package.json`, never from the tag. A tag that disagrees
 with the `package.json` on the ref being built fails the run before any compile
@@ -275,10 +307,15 @@ at build time, so packing a production `dist/` with `build.staging.js` produces 
 `Sayso [beta]` installer that talks to the production backend — `build_env` would
 be the only thing about it that is staging.
 
-Attach the three files per channel to the draft with
-`gh release upload <tag> --clobber`. Drop `--clobber` if the release is already
-published — replacing an asset users may have downloaded invalidates the `sha512`
-in the manifest beside it.
+Attach the three files per channel with:
+
+```bash
+node scripts/release-upload.js --tag v1.4.0   release/Sayso-1.4.0-x64-win.exe release/Sayso-1.4.0-x64-win.exe.blockmap release/latest.yml
+```
+
+It creates the release if there is none, clobbers into a draft, and only fills
+gaps in a published one — replacing an asset users may have downloaded would
+invalidate the `sha512` in the manifest beside it.
 
 ### Toolchain pins
 
@@ -299,4 +336,6 @@ repo the day a new CPython minor ships. Raise it only alongside a node-gyp bump.
 | `npm version minor` | Bump minor version + commit + tag |
 | `npm run fresh-export:staging` | Clean build → notarize → create GH draft (staging) |
 | `npm run fresh-export` | Clean build → notarize → create GH draft (production) |
+| `node scripts/release-upload.js --tag <tag> <files>` | Create-or-upload artifacts onto the release |
+| `node scripts/release-preflight.js <tag> [--publish]` | Check both platforms are attached, then publish |
 | `/changelog` | Generate formatted release notes from git history |
