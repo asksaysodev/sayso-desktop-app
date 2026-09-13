@@ -38,17 +38,13 @@ else
   echo "✅ Tag ${TAG} already on remote."
 fi
 
-# Create the release if missing, otherwise upload assets to the existing one
-if gh release view "${TAG}" >/dev/null 2>&1; then
-  echo "ℹ️  Release ${TAG} already exists — (re)uploading assets..."
-  gh release upload "${TAG}" --clobber "${RELEASE_FILES[@]}"
-else
-  echo "🚀 Creating GitHub Release ${TAG}..."
-  gh release create "${TAG}" \
-    --title "${TAG}" \
-    --draft \
-    --notes "Release ${TAG}" \
-    "${RELEASE_FILES[@]}"
-fi
+# Create the release if missing, otherwise upload assets to the existing one.
+# The tag was pushed above, so --target only matters on a first-ever create.
+node scripts/release-upload.js \
+  --tag "${TAG}" \
+  --channel production \
+  "${RELEASE_FILES[@]}"
 
-echo "✅ Release ${TAG} now has all notarized assets — publish manually when ready!"
+echo ""
+echo "✅ Release ${TAG} now has all notarized macOS assets."
+echo "   Publish with: node scripts/release-preflight.js ${TAG} --publish"

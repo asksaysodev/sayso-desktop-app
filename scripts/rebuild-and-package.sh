@@ -232,8 +232,9 @@ ls -la "${RELEASE_DIR}"/*.dmg 2>/dev/null || echo "No DMGs found"
 echo "🔄 Updating latest-mac.yml with new hashes..."
 node scripts/update-latest-yaml.js
 
-# Create GitHub Release with only the 5 final notarized files
-echo "🚀 Creating GitHub Release v${APP_VERSION}..."
+# Attach the 5 final notarized files to the GitHub Release for this version,
+# creating it if the Windows job has not already. Either platform may go first.
+echo "🚀 Attaching macOS artifacts to release v${APP_VERSION}..."
 
 RELEASE_FILES=(
   "${RELEASE_DIR}/Sayso-${APP_VERSION}-x64-mac.zip"
@@ -251,11 +252,17 @@ for f in "${RELEASE_FILES[@]}"; do
   fi
 done
 
-gh release create "v${APP_VERSION}" \
+node scripts/release-upload.js \
+  --tag "v${APP_VERSION}" \
+  --channel production \
   --target "${RELEASE_BRANCH}" \
-  --title "v${APP_VERSION}" \
-  --draft \
-  --notes "Release v${APP_VERSION}" \
   "${RELEASE_FILES[@]}"
 
-echo "✅ GitHub Release draft v${APP_VERSION} created with notarized files — publish manually when ready!" 
+echo ""
+echo "✅ Release v${APP_VERSION} now carries the notarized macOS artifacts."
+echo ""
+echo "   Next, if the Windows installer is not on it yet:"
+echo "     gh workflow run \"Release Windows\" --ref ${RELEASE_BRANCH} -f channel=production -f upload_to_release=true"
+echo ""
+echo "   Then publish — this checks both platforms first, and refuses if either is missing:"
+echo "     node scripts/release-preflight.js v${APP_VERSION} --publish"

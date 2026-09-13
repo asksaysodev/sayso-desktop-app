@@ -121,6 +121,8 @@ The OS is the source of truth. `src/services/networkReporter.ts` is a side-effec
 
 Release flow (`docs/VERSIONING.md`): there is no `main` branch. `feature/* → development → npm version <patch|minor|major> → staging`. **Bump the version on `development`, never on `staging`** — doing it backwards is what shipped a mislabeled 1.2.5. Both staging and production artifacts build from `staging`; `fresh-export` aborts if local `package.json` disagrees with `origin/staging`. Run `/changelog` after bumping to generate release notes.
 
+One release per version holds **both** platforms' artifacts: macOS is built locally, Windows in `release-windows.yml`, and both attach through `scripts/release-upload.js`, so either may run first. **Publish with `node scripts/release-preflight.js <tag> --publish`, never a bare click in the GitHub UI** — it refuses unless both channel files are attached, and a release missing one makes every update check on that platform fail with `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND` while it is the newest release.
+
 ## Dead code
 
 The dashboard-era leftovers this section used to list were deleted in SAYSO-354
