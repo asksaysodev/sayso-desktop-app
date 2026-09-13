@@ -621,6 +621,11 @@ jobs:
     # workflow_dispatch is excluded on purpose: dispatching Windows into an
     # empty draft before the mac build exists is the documented flow, and would
     # fail here every time.
+    #
+    # Tag pushes are NOT excluded, but the check below skips drafts, so the
+    # `npm version` tag someone pushes days early builds Windows, leaves a draft
+    # for the mac side to join, and stays green. Only a published release — one
+    # clients can actually resolve — is enforced.
     if: >-
       always() &&
       needs.resolve.result == 'success' &&
@@ -642,4 +647,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.resolve.outputs.tag }}
-        run: node scripts/release-preflight.js "$TAG"
+        run: node scripts/release-preflight.js "$TAG" --only-if-published

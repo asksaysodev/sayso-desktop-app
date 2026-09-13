@@ -175,6 +175,12 @@ release is missing either platform's channel file. It cannot block the publish �
 GitHub has no such hook — so it is the backstop for a release published from the
 UI, while `release-preflight.js --publish` is the gate that stops it happening.
 
+It runs with `--only-if-published`, so a **draft** is skipped: nothing has
+shipped out of one, and a half-filled draft is the normal state while the two
+platforms arrive. That matters because a pushed `npm version` tag builds Windows
+days before any mac build exists — it now leaves a draft for the mac side to
+join and stays green, rather than going red over a release nobody can resolve.
+
 Everything derives from `package.json`, never from the tag. A tag that disagrees
 with the `package.json` on the ref being built fails the run before any compile
 — the same guard `rebuild-and-package.sh` applies to the branch.

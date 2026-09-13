@@ -38,16 +38,28 @@ const LOG = '[release-upload]';
 // laptop they are just noise, so they are only emitted under Actions.
 const IN_ACTIONS = Boolean(process.env.GITHUB_ACTIONS);
 
+// A workflow command ends at the first newline, and `%` is its escape
+// character, so a multi-line message has to be encoded or everything after the
+// first line drops off the annotation — which is exactly the remediation text
+// worth reading. Order matters: `%` has to go first.
+function encodeAnnotation(message) {
+  return message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+}
+
 function notice(message) {
-  console.log(IN_ACTIONS ? `::notice::${message}` : `${LOG} ${message}`);
+  if (IN_ACTIONS) console.log(`::notice::${encodeAnnotation(message)}`);
+  else console.log(`${LOG} ${message}`);
 }
 
 function warn(message) {
-  console.log(IN_ACTIONS ? `::warning::${message}` : `${LOG} WARNING: ${message}`);
+  if (IN_ACTIONS) console.log(`::warning::${encodeAnnotation(message)}`);
+  else console.log(`${LOG} WARNING: ${message}`);
 }
 
 function fail(message) {
-  console.error(IN_ACTIONS ? `::error::${message}` : `${LOG} ERROR: ${message}`);
+  // Workflow commands are read from stdout; the plain form goes to stderr.
+  if (IN_ACTIONS) console.log(`::error::${encodeAnnotation(message)}`);
+  else console.error(`${LOG} ERROR: ${message}`);
   process.exit(1);
 }
 
@@ -66,9 +78,14 @@ function ghJson(args) {
   try {
     return { ok: true, data: JSON.parse(gh(args, { capture: true })) };
   } catch (err) {
-    // `gh release view` on a tag with no release exits non-zero, which is a
-    // normal outcome here rather than a failure.
-    return { ok: false, error: err };
+    // `gh release view` exits non-zero for two very different reasons: the
+    // release does not exist, or the call itself failed — a 5xx, a rate limit,
+    // an expired token. Only the first means "nothing here yet". Collapsing
+    // both into that would take the create branch on a transient blip, and
+    // because a draft is not a real tag, `gh release create` then SUCCEEDS and
+    // leaves two drafts on one tag with the assets split between them.
+    const stderr = String(err.stderr || '').trim();
+    return { ok: false, notFound: /release not found/i.test(stderr), stderr, error: err };
   }
 }
 
@@ -139,6 +156,16 @@ function main() {
   assertSingleRelease(tag);
 
   const view = ghJson(['release', 'view', tag, '--json', 'isDraft,assets']);
+
+  // Anything other than a clean "not found" is fatal: see ghJson above for why
+  // guessing here is how a tag ends up with two drafts.
+  if (!view.ok && !view.notFound) {
+    fail(
+      `Could not read release ${tag}: ${view.stderr || view.error.message}\n` +
+        'Refusing to continue — treating a failed lookup as "no release exists" would create a ' +
+        'second draft on this tag. Re-run once GitHub is reachable.'
+    );
+  }
 
   if (!view.ok) {
     console.log(`${LOG} No release for ${tag} yet — creating a draft on ${target}.`);

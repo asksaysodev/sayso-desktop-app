@@ -3,7 +3,15 @@ set -Eeuo pipefail
 
 # Resume the GitHub Release step of rebuild-and-package.sh without rebuilding
 # or re-notarizing. Safe to run multiple times: it pushes the tag if needed,
-# creates the release if it's missing, and (re)uploads all 5 final assets.
+# creates the release if it's missing, and uploads the 5 final assets.
+#
+# NOTE on what "re-upload" means since SAYSO-403. Into a DRAFT this still
+# replaces every asset. Into a PUBLISHED release it only adds the ones that are
+# absent — so re-running this to repair a truncated or wrong-hash asset on a
+# published release uploads NOTHING and still prints a success line. That is
+# deliberate: replacing an asset users already downloaded invalidates the
+# sha512 in the manifest beside it. If you genuinely must, do it by hand and
+# know why: gh release upload <tag> --clobber <file>
 
 # ---------- Config ----------
 APP_NAME="Sayso"
