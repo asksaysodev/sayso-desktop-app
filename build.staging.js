@@ -16,6 +16,7 @@ module.exports = {
   win: {
     ...base.win,
     artifactName: 'Sayso-Beta-${version}-${arch}-win.${ext}',
+    icon: 'assets/icon-staging.ico',
   },
   publish: {
     ...base.publish,
@@ -24,5 +25,6 @@ module.exports = {
   },
   extraMetadata: {
     build_env: 'staging',
+    name: 'sayso-app-staging',
   },
 };

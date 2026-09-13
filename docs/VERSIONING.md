@@ -123,13 +123,71 @@ and the Windows SDK, and node-gyp cannot cross-compile that from darwin. The
 `windows-2022` runner and attaches them to the same GitHub release the mac side
 uses. Either platform may get there first.
 
-| Channel | Artifacts |
-|---|---|
-| Production | `release/Sayso-{version}-x64-win.exe` + `.blockmap`, `latest.yml` |
-| Staging | `release-staging/Sayso-Beta-{version}-x64-win.exe` + `.blockmap`, `staging.yml` |
+| | Production | Staging |
+|---|---|---|
+| Installer | `release/Sayso-{version}-x64-win.exe` + `.blockmap` | `release-staging/Sayso-Beta-{version}-x64-win.exe` + `.blockmap` |
+| Channel file | `latest.yml` | `staging.yml` |
+| Icon | `assets/icon.ico` | `assets/icon-staging.ico` |
+| appId | `com.asksayso.app` | `com.asksayso.app.staging` |
+| NSIS GUID | `1df72287-21cc-56ef-85b6-db3bb8892905` | `f22c30f9-0b55-5c67-bd9a-e6b2879172ba` |
+| Install dir | `%LOCALAPPDATA%\Programs\Sayso` | `%LOCALAPPDATA%\Programs\sayso-app-staging` |
+| Shortcut | `Sayso` | `Sayso [beta]` |
+| Uninstall entry | `Sayso {version}` | `Sayso [beta] {version}` |
 
 The `.blockmap` is not optional. `electron-updater` uses it to download only the
 changed chunks of an installer, and looks for it next to the `.exe`.
+
+The two channels install side by side. Every name and registry key above is a
+default that falls out of the differing `appId` and `productName` — the NSIS
+GUID is `uuid5(appId)`, and it keys both `HKCU\Software\{GUID}` and the
+uninstall entry. `build.staging.js` needs no `nsis` block to get any of it.
+
+The one thing that does *not* fall out of `appId` is `updaterCacheDirName`,
+`APP_PACKAGE_NAME` and the install dir — electron-builder derives those from
+package.json `name`. That is why `build.staging.js` sets
+`extraMetadata.name = 'sayso-app-staging'`: without it both channels write
+`%LOCALAPPDATA%\sayso-app-updater\installer.exe`, and since NSIS copies the
+running installer there on every install, each channel destroys the other's
+differential-update base — both then re-download the full ~97 MB every time.
+It also keeps a beta uninstall from targeting production's `%APPDATA%\sayso-app`
+if `deleteAppDataOnUninstall` is ever turned on. The value deliberately matches
+the `app.setName()` call in `electron/main.ts`, so nothing changes at runtime.
+
+### Regenerating the Windows icons
+
+`win.icon` alone drives the app exe, the installer **and** the uninstaller —
+NSIS takes `MUI_ICON`/`MUI_UNICON` from it unless `assets/installerIcon.ico`
+exists, which it does not. So there is one icon to regenerate per channel.
+
+Doing it is fiddlier than it looks, for two reasons worth not rediscovering:
+
+- **`assets/icon*.icns` are a single 1024×1024 JPEG-2000 `ic10` chunk.** Nothing
+  on Windows decodes that out of the box.
+- **`app-builder icon --format ico` is not the tool**, even though it is
+  electron-builder's own converter. It shells out to `opj_decompress` for
+  JPEG-2000, which ships only for `linux/amd64` and is absent from the Windows
+  `winCodeSign` bundle; its other path reads `is32/il32/ih32/icp6/it32/ic08/ic09`
+  but not `ic10`. And it emits a **single 256×256 entry** regardless. Pointing
+  `win.icon` at an `.icns` hits that same code path, so that does not work either.
+
+Hence `assets/src/icon-1024.png` and `assets/src/icon-staging-1024.png`: the
+artwork in a format any toolchain can open. Regenerate from those, not from the
+`.icns`. The `.ico` must carry **16/32/48/64/128/256 at 32bpp, PNG-compressed**
+— match `assets/icon.ico`. A conforming `.ico` is embedded byte for byte, so
+you can verify by searching the built `.exe` for each frame's bytes.
+
+```python
+# pip install pillow
+from PIL import Image
+im = Image.open("assets/src/icon-staging-1024.png").convert("RGBA")
+im.save("assets/icon-staging.ico", format="ICO",
+        sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])
+```
+
+The PNGs themselves came out of the `.icns` with the same library, which does
+read JPEG-2000 (`Image.open("assets/icon-staging.icns")` — check
+`PIL.features.check_codec("jpg_2000")` first). On a Mac, `sips -s format png`
+does the same job.
 
 ### When it runs
 
