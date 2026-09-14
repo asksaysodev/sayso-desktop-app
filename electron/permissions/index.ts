@@ -9,9 +9,10 @@ const platformModules: Partial<Record<NodeJS.Platform, string>> = {
 // try/catch), this module is imported statically by permissionsManager, which is
 // imported by main.ts BEFORE Sentry.init() — so a throw here is a silent,
 // unreported startup crash. Degrade gracefully instead: fall back to the Windows
-// safe-default provider (granted/complete = true) so an unsupported platform
-// never blocks on a permission step that doesn't exist. Only darwin + win32 are
-// real targets (see docs/IPC_CONTRACT.md).
+// provider, which gates on the mic only and fails open (treats the mic as
+// granted) when `getMediaAccessStatus` is missing or throws — so an unsupported
+// platform never blocks on a permission step that doesn't exist. Only darwin +
+// win32 are real targets (see docs/IPC_CONTRACT.md).
 const modulePath = platformModules[process.platform];
 if (!modulePath) {
   console.warn(

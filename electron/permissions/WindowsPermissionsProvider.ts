@@ -1,28 +1,61 @@
-import type { IPermissionsProvider, PermissionsStatus, RequestMicResult } from './IPermissionsProvider';
+import { shell, systemPreferences } from 'electron';
 
-// Safe defaults so the app never blocks on a permissions step that doesn't exist yet.
+import type {
+  IPermissionsProvider,
+  PermissionRequirements,
+  PermissionsStatus,
+  RequestMicResult,
+} from './IPermissionsProvider';
+
+// Mic is the only gate on Windows (two global switches, no dialog, no per-app
+// switch), system audio needs no permission, and nothing needs a relaunch —
+// see the Windows section of docs/PERMISSIONS_FLOW.md for the full model.
 //
-// TODO (fast-follow): Windows 10/11 DOES have a per-app microphone privacy gate, and
-// `systemPreferences.getMediaAccessStatus('microphone')` works on Windows. A real
-// implementation should report actual mic status and route the user to
-// Settings > Privacy > Microphone when denied. There is no Screen Recording permission
-// model on Windows, so screen stays true and the screen-settings methods are no-ops.
+// `getMediaAccessStatus('microphone')` on Windows maps WinRT
+// DeviceAccessInformation.CurrentStatus: Allowed → 'granted', DeniedByUser →
+// 'denied', DeniedBySystem → 'restricted', Unspecified → 'not-determined',
+// anything else → 'unknown'. For a non-packaged app it reflects both switches.
 class WindowsPermissionsProvider implements IPermissionsProvider {
+  readonly requirements: PermissionRequirements = { screen: false, relaunchOnComplete: false };
+
+  // Only an explicit denial blocks. 'not-determined' and 'unknown' count as
+  // granted — Windows has no dialog to resolve them, so blocking would leave the
+  // user on a screen with nothing to do. Same reasoning if the read throws or
+  // the API is missing (unsupported-platform fallback in index.ts): fail open.
+  private isMicBlocked(): boolean {
+    try {
+      const status = systemPreferences.getMediaAccessStatus('microphone');
+      if (status === 'denied' || status === 'restricted') return true;
+      if (status !== 'granted') {
+        console.warn(`[Permissions] Mic access status is '${status}' — treating as granted`);
+      }
+      return false;
+    } catch (e) {
+      console.warn('[Permissions] Could not read mic access status; treating as granted:', e);
+      return false;
+    }
+  }
+
   async checkGranted(): Promise<PermissionsStatus> {
-    return { granted: true, mic: true, screen: true };
+    const mic = !this.isMicBlocked();
+    return { granted: mic, mic, screen: true };
   }
 
   async checkMic(): Promise<boolean> {
-    // TODO (fast-follow): report the real Win10/11 per-app mic privacy status.
-    return true;
+    return !this.isMicBlocked();
   }
 
   isComplete(): boolean {
-    return true;
+    // Live mic status only. No flag file: a user with the mic granted must never
+    // land on /permissions, and a user who flips the switch off must.
+    return !this.isMicBlocked();
   }
 
   async requestMic(): Promise<RequestMicResult> {
-    return { mic: true, action: 'already-granted' };
+    if (!this.isMicBlocked()) return { mic: true, action: 'already-granted' };
+    // No dialog to ask; send the user to the page with the two switches.
+    await shell.openExternal('ms-settings:privacy-microphone');
+    return { mic: false, action: 'open-settings' };
   }
 
   requestScreen(): void {
@@ -34,7 +67,7 @@ class WindowsPermissionsProvider implements IPermissionsProvider {
   }
 
   markComplete(): void {
-    // No onboarding permissions gate on Windows; nothing to persist.
+    // Completion is the live mic status (see isComplete); nothing to persist.
   }
 }
 

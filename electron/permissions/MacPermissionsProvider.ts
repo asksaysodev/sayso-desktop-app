@@ -3,13 +3,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import * as audioManager from '../audio/audioManager';
-import type { IPermissionsProvider, PermissionsStatus, RequestMicResult } from './IPermissionsProvider';
+import type {
+  IPermissionsProvider,
+  PermissionRequirements,
+  PermissionsStatus,
+  RequestMicResult,
+} from './IPermissionsProvider';
 
 function completeFlagPath(): string {
   return path.join(app.getPath('userData'), 'permissions-complete');
 }
 
 class MacPermissionsProvider implements IPermissionsProvider {
+  // Screen & System Audio Recording is gated, and macOS only picks the grant up
+  // at process launch — hence the relaunch at the end of the permissions step.
+  readonly requirements: PermissionRequirements = { screen: true, relaunchOnComplete: true };
+
   async checkGranted(): Promise<PermissionsStatus> {
     const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
     // Use CGPreflightScreenCaptureAccess (non-prompting) to READ status — never triggers the macOS
@@ -67,6 +76,7 @@ class MacPermissionsProvider implements IPermissionsProvider {
 
   markComplete(): void {
     fs.writeFileSync(completeFlagPath(), '1');
+    console.log('[Permissions] permissions-complete flag written');
   }
 }
 

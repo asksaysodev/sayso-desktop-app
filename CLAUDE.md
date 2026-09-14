@@ -109,7 +109,7 @@ Only `darwin` and `win32` are targets. `docs/IPC_CONTRACT.md` classifies every c
 
 ## Permissions
 
-Mic + screen recording are collected during **first-run onboarding in the splash window**, not lazily at coach-open time; a runtime guard re-surfaces the screen if they're missing. Reads use non-prompting `CGPreflightScreenCaptureAccess`; prompting happens only on explicit user action. macOS binds screen-recording permission at process launch, so granting it mid-session requires a quit-and-reopen — that's why the flow ends in "Quit and Reopen". `isPermissionsComplete()` requires the persisted flag **and** a live mic grant **and** a live screen grant. See `docs/PERMISSIONS_FLOW.md`.
+Mic + screen recording are collected during **first-run onboarding in the splash window**, not lazily at coach-open time; a runtime guard re-surfaces the screen if they're missing. Reads use non-prompting `CGPreflightScreenCaptureAccess`; prompting happens only on explicit user action. macOS binds screen-recording permission at process launch, so granting it mid-session requires a quit-and-reopen — that's why the flow ends in "Quit and Reopen". `isPermissionsComplete()` requires the persisted flag **and** a live mic grant **and** a live screen grant. Windows goes through the same provider but gates on the mic only (two global switches, no dialog, `requestMic` opens `ms-settings:privacy-microphone`), with no flag file and no relaunch; the provider's `requirements` tells the renderer which applies. See `docs/PERMISSIONS_FLOW.md`.
 
 ## Network state
 
