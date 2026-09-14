@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/electron/main';
 
 import provider from './index';
 import type { PermissionsStatus } from './IPermissionsProvider';
+import type { PermissionsCheckResult } from '../shared/permissions';
 
 // app.isPackaged is reliable at module-load time; NODE_ENV is not yet set when
 // this module is imported. (Same reasoning as audioManager.)
@@ -39,7 +40,7 @@ export function isMicGranted(): Promise<boolean> {
 /** Register the permissions-* IPC handlers. Call once during app init. */
 export function registerPermissionsIpc(): void {
   // Check current mic + screen status (non-interactive)
-  ipcMain.handle('permissions-check', async () => {
+  ipcMain.handle('permissions-check', async (): Promise<PermissionsCheckResult> => {
     try {
       const result = await provider.checkGranted();
       if (isDev) console.log('[Permissions] check:', result);
@@ -92,11 +93,10 @@ export function registerPermissionsIpc(): void {
   // only happens if the flag write succeeded, otherwise the next boot would route
   // back to permissions (potential loop). On Windows markComplete() is a no-op
   // (completion is the live mic status) and there is nothing to relaunch for —
-  // the renderer navigates on its own once this resolves.
+  // the renderer navigates on its own once this resolves (SAYSO-417).
   ipcMain.handle('permissions-complete', () => {
     try {
       provider.markComplete();
-      console.log('[Permissions] permissions-complete flag written');
     } catch (e: any) {
       console.error('[MAIN] [Permissions] Failed to write permissions-complete flag:', e);
       Sentry.captureException(e);

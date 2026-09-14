@@ -12,16 +12,10 @@ export interface RequestMicResult {
   error?: string;
 }
 
-// What the running OS actually gates. Static per platform; the renderer reads it
-// from `permissions-check` so it never has to branch on process.platform.
-export interface PermissionRequirements {
-  // Is system-audio capture behind an OS permission? macOS: Screen & System Audio
-  // Recording (ScreenCaptureKit). Windows: no — WASAPI loopback has no gate.
-  screen: boolean;
-  // Must the app relaunch after the permissions step? macOS binds the
-  // screen-recording grant at process launch, so yes. Windows: no.
-  relaunchOnComplete: boolean;
-}
+// Shared with the renderer (it is part of the `permissions-check` payload);
+// re-exported here so the providers import everything from one place.
+import type { PermissionRequirements } from '../shared/permissions';
+export type { PermissionRequirements };
 
 export interface IPermissionsProvider {
   readonly requirements: PermissionRequirements;

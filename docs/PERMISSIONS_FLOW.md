@@ -36,7 +36,7 @@ All permission logic goes through `IPermissionsProvider`, dispatched by platform
 - `checkOSPermissionsGranted()` → `provider.checkGranted()` — returns `{ granted, mic, screen }` (live read, non-prompting). Used by the `start-cue` guard.
 - `isMicGranted()` → `provider.checkMic()` — mic only. Used by the coach-window gate.
 - `isPermissionsComplete()` → `provider.isComplete()` — macOS: `flag && mic && screen`; Windows: live mic only. Used for startup routing.
-- `provider.requirements` — `{ screen, relaunchOnComplete }`, static per platform (macOS `{ true, true }`, Windows `{ false, false }`). Returned by `permissions-check` so the permissions screen lays itself out from it rather than sniffing the platform.
+- `provider.requirements` — `{ screen, relaunchOnComplete }`, static per platform (macOS `{ true, true }`, Windows `{ false, false }`). Returned by `permissions-check` so the permissions screen can lay itself out from it rather than sniffing the platform (screen consumer: SAYSO-417).
 
 ### The completion flag
 - `permissions-complete` file in `{userData}/`, written by the `permissions-complete` IPC when the user finishes the permissions step ("Quit and Reopen").
@@ -134,7 +134,7 @@ Only an explicit denial blocks. Windows has no dialog to resolve an unclear stat
 
 ### No flag file, no relaunch
 - `isComplete()` is the live mic status. There is no `permissions-complete` file on Windows: a user with the mic granted never sees `/permissions`, and a user who flips the switch off is routed there on the next check. `markComplete()` is a no-op.
-- The macOS relaunch exists only because macOS picks up the Screen Recording grant at launch. Windows reflects the switches live, so `requirements.relaunchOnComplete` is `false` and the `permissions-complete` handler returns without calling `app.relaunch()`.
+- The macOS relaunch exists only because macOS picks up the Screen Recording grant at launch. Windows reflects the switches live, so `requirements.relaunchOnComplete` is `false` and the `permissions-complete` handler returns without calling `app.relaunch()`; the screen then navigates on by itself (SAYSO-417).
 
 ### Requesting
 `requestMic()`: already granted → `{ mic: true, action: 'already-granted' }`. Otherwise it opens `ms-settings:privacy-microphone` via `shell.openExternal` and returns `{ mic: false, action: 'open-settings' }`. `requestScreen()` / `openScreenSettings()` are no-ops.

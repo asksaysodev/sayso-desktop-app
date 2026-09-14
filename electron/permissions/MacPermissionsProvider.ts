@@ -76,6 +76,7 @@ class MacPermissionsProvider implements IPermissionsProvider {
 
   markComplete(): void {
     fs.writeFileSync(completeFlagPath(), '1');
+    console.log('[Permissions] permissions-complete flag written');
   }
 }
 

@@ -7,19 +7,9 @@ import type {
   RequestMicResult,
 } from './IPermissionsProvider';
 
-// Windows permission model, and why this provider looks nothing like the macOS one:
-//
-// - Mic is the only gate. Settings → Privacy & security → Microphone has two
-//   switches — "Microphone access" (all apps) and "Let desktop apps access your
-//   microphone" (all desktop apps as one group). Both are on by default. There is
-//   no per-app switch for a desktop app and no consent dialog:
-//   `systemPreferences.askForMediaAccess` is macOS-only. The only lever we have
-//   is opening the Settings page.
-// - System audio needs no permission. The WASAPI module captures the lead's
-//   audio via loopback on the default output device; no OS gate, no prompt.
-// - No relaunch. The macOS relaunch exists only because macOS binds the
-//   screen-recording grant at process launch. Windows reflects the mic switches
-//   live, so completion is the live mic status and there is no flag file.
+// Mic is the only gate on Windows (two global switches, no dialog, no per-app
+// switch), system audio needs no permission, and nothing needs a relaunch —
+// see the Windows section of docs/PERMISSIONS_FLOW.md for the full model.
 //
 // `getMediaAccessStatus('microphone')` on Windows maps WinRT
 // DeviceAccessInformation.CurrentStatus: Allowed → 'granted', DeniedByUser →
@@ -35,7 +25,11 @@ class WindowsPermissionsProvider implements IPermissionsProvider {
   private isMicBlocked(): boolean {
     try {
       const status = systemPreferences.getMediaAccessStatus('microphone');
-      return status === 'denied' || status === 'restricted';
+      if (status === 'denied' || status === 'restricted') return true;
+      if (status !== 'granted') {
+        console.warn(`[Permissions] Mic access status is '${status}' — treating as granted`);
+      }
+      return false;
     } catch (e) {
       console.warn('[Permissions] Could not read mic access status; treating as granted:', e);
       return false;
