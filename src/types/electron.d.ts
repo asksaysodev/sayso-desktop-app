@@ -79,9 +79,16 @@ export interface PermissionsAPI {
   getFlag: () => Promise<boolean>;
 }
 
+export interface PermissionRequirements {
+  screen: boolean;
+  relaunchOnComplete: boolean;
+}
+
 export interface PermissionsStatus {
   mic: boolean;
   screen: boolean;
+  requirements: PermissionRequirements;
+  error?: string;
 }
 
 export interface AutoUpdaterAPI {

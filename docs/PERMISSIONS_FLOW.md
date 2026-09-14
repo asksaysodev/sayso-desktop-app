@@ -2,9 +2,11 @@
 
 ## Overview
 
-Sayso AI Coach requires **microphone** and **screen recording** permissions to function. Permissions are handled during the **first-run onboarding flow** (in the splash window, after login), not lazily at coach-open time. Once granted, a flag is persisted so the permissions screen is skipped on subsequent launches.
+Sayso AI Coach requires **microphone** and, on macOS, **screen recording** permissions to function. Permissions are handled during the **first-run onboarding flow** (in the splash window, after login), not lazily at coach-open time. On macOS a flag is persisted once granted so the permissions screen is skipped on subsequent launches; Windows reads the live mic status instead (see the Windows section below).
 
 A runtime guard additionally blocks a Cue session from starting if permissions are missing and re-surfaces the permissions screen.
+
+Most of this document describes macOS, which has the more involved model. The Windows differences are collected in one section at the end.
 
 ---
 
@@ -28,11 +30,13 @@ A runtime guard additionally blocks a Cue session from starting if permissions a
 
 ## Architecture
 
-### Platform-agnostic layer (`electron/main.ts`)
-All permission logic dispatches by platform so non-macOS builds (Windows, later) drop in cleanly:
+### Platform-dispatched layer (`electron/permissions/`)
+All permission logic goes through `IPermissionsProvider`, dispatched by platform in `electron/permissions/index.ts` (`MacPermissionsProvider` / `WindowsPermissionsProvider`). `permissionsManager.ts` owns the `permissions-*` IPC handlers and the three helpers main uses; handlers never branch on `process.platform`.
 
-- `checkOSPermissionsGranted()` → `checkMacOSPermissions()` — returns `{ granted, mic, screen }` (live read, non-prompting). Non-darwin returns all-granted.
-- `isPermissionsComplete()` → `isMacOSPermissionsComplete()` — returns `flag && mic && screen`. Non-darwin returns `true`.
+- `checkOSPermissionsGranted()` → `provider.checkGranted()` — returns `{ granted, mic, screen }` (live read, non-prompting). Used by the `start-cue` guard.
+- `isMicGranted()` → `provider.checkMic()` — mic only. Used by the coach-window gate.
+- `isPermissionsComplete()` → `provider.isComplete()` — macOS: `flag && mic && screen`; Windows: live mic only. Used for startup routing.
+- `provider.requirements` — `{ screen, relaunchOnComplete }`, static per platform (macOS `{ true, true }`, Windows `{ false, false }`). Returned by `permissions-check` so the permissions screen lays itself out from it rather than sniffing the platform.
 
 ### The completion flag
 - `permissions-complete` file in `{userData}/`, written by the `permissions-complete` IPC when the user finishes the permissions step ("Quit and Reopen").
@@ -104,13 +108,51 @@ This composes correctly with the permission logic: CGPreflight is scoped to the 
 
 Screen-recording (and mic) permission is subject to macOS **responsible-process attribution** — under `npm run dev` the permission is attributed to Electron / the parent (Cursor, Terminal), not to the packaged "Sayso" app. So permission flows **cannot be tested from dev mode**; use the packaged app (`npm run package:staging`).
 
+This is macOS-only. Windows has no per-process attribution — the mic switches apply to every desktop app at once — so the Windows flow *can* be exercised from `npm run dev`.
+
+---
+
+## Windows
+
+`WindowsPermissionsProvider` is deliberately much smaller than the macOS one, because the OS model is:
+
+### Mic is the only gate
+- Settings → Privacy & security → Microphone has two switches: **Microphone access** (all apps) and **Let desktop apps access your microphone** (all desktop apps as one group). Both are on by default.
+- There is **no per-app switch** for a desktop app and **no consent dialog**. `systemPreferences.askForMediaAccess` is macOS-only. The only thing the app can do is open the Settings page.
+- **System audio needs no permission.** The WASAPI native module captures the lead's audio via loopback on the default output device (`AUDCLNT_STREAMFLAGS_LOOPBACK`). No OS gate, no prompt, no restart. `screen` is always `true` on Windows.
+
+### Status read
+`systemPreferences.getMediaAccessStatus('microphone')` works on Windows and, for a non-packaged app, reflects both switches:
+
+| Status | Treated as |
+|---|---|
+| `denied`, `restricted` | **blocked** |
+| `granted`, `not-determined`, `unknown` | granted |
+| read throws / API missing | granted (logged) |
+
+Only an explicit denial blocks. Windows has no dialog to resolve an unclear status, so blocking on one would leave the user on a screen with nothing to do.
+
+### No flag file, no relaunch
+- `isComplete()` is the live mic status. There is no `permissions-complete` file on Windows: a user with the mic granted never sees `/permissions`, and a user who flips the switch off is routed there on the next check. `markComplete()` is a no-op.
+- The macOS relaunch exists only because macOS picks up the Screen Recording grant at launch. Windows reflects the switches live, so `requirements.relaunchOnComplete` is `false` and the `permissions-complete` handler returns without calling `app.relaunch()`.
+
+### Requesting
+`requestMic()`: already granted → `{ mic: true, action: 'already-granted' }`. Otherwise it opens `ms-settings:privacy-microphone` via `shell.openExternal` and returns `{ mic: false, action: 'open-settings' }`. `requestScreen()` / `openScreenSettings()` are no-ops.
+
+### Routing needs nothing new
+The three macOS entry points to `/permissions` all go through the provider, so they work on Windows unchanged: startup (`isPermissionsComplete()` in `main.ts` + `PostAuthRedirect` → `permissions-get-flag`), Cue start (`start-cue` → `checkOSPermissionsGranted()`), and opening the coach window (`isMicGranted()`).
+
+### Testing
+Flip either switch off in Settings → Privacy & security → Microphone and launch: the splash routes to `/permissions`, `start-cue` returns `permissions_denied`, and opening the coach window re-surfaces the splash instead. Flip it back on and relaunch: straight to the tray. Works from `npm run dev`.
+
 ---
 
 ## Summary
 - **Onboarding-time setup**, not lazy at coach-open: handled in the splash `/permissions` screen after login
-- **Platform-agnostic dispatchers**: `checkOSPermissionsGranted` / `isPermissionsComplete`
+- **Platform-dispatched** via `IPermissionsProvider`: `checkOSPermissionsGranted` / `isMicGranted` / `isPermissionsComplete`; `requirements` tells the renderer what the OS gates
 - **Non-prompting reads** (CGPreflight); native dialog only on explicit user action
 - **Persisted flag** = `flag && mic && screen`; cleared by the team-id migration
 - **Screen recording binds at launch** → grant requires app restart; "Quit and Reopen" offered optimistically
 - **Runtime guard** in `start-cue` blocks the session and re-opens the permissions screen
-- **Dev mode can't test permissions** — package and test the real app
+- **Dev mode can't test permissions on macOS** — package and test the real app
+- **Windows**: mic is the only gate (two global switches, no dialog), status read live, no flag, no relaunch; `requestMic` opens `ms-settings:privacy-microphone`

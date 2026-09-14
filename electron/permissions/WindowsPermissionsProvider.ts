@@ -1,28 +1,67 @@
-import type { IPermissionsProvider, PermissionsStatus, RequestMicResult } from './IPermissionsProvider';
+import { shell, systemPreferences } from 'electron';
 
-// Safe defaults so the app never blocks on a permissions step that doesn't exist yet.
+import type {
+  IPermissionsProvider,
+  PermissionRequirements,
+  PermissionsStatus,
+  RequestMicResult,
+} from './IPermissionsProvider';
+
+// Windows permission model, and why this provider looks nothing like the macOS one:
 //
-// TODO (fast-follow): Windows 10/11 DOES have a per-app microphone privacy gate, and
-// `systemPreferences.getMediaAccessStatus('microphone')` works on Windows. A real
-// implementation should report actual mic status and route the user to
-// Settings > Privacy > Microphone when denied. There is no Screen Recording permission
-// model on Windows, so screen stays true and the screen-settings methods are no-ops.
+// - Mic is the only gate. Settings → Privacy & security → Microphone has two
+//   switches — "Microphone access" (all apps) and "Let desktop apps access your
+//   microphone" (all desktop apps as one group). Both are on by default. There is
+//   no per-app switch for a desktop app and no consent dialog:
+//   `systemPreferences.askForMediaAccess` is macOS-only. The only lever we have
+//   is opening the Settings page.
+// - System audio needs no permission. The WASAPI module captures the lead's
+//   audio via loopback on the default output device; no OS gate, no prompt.
+// - No relaunch. The macOS relaunch exists only because macOS binds the
+//   screen-recording grant at process launch. Windows reflects the mic switches
+//   live, so completion is the live mic status and there is no flag file.
+//
+// `getMediaAccessStatus('microphone')` on Windows maps WinRT
+// DeviceAccessInformation.CurrentStatus: Allowed → 'granted', DeniedByUser →
+// 'denied', DeniedBySystem → 'restricted', Unspecified → 'not-determined',
+// anything else → 'unknown'. For a non-packaged app it reflects both switches.
 class WindowsPermissionsProvider implements IPermissionsProvider {
+  readonly requirements: PermissionRequirements = { screen: false, relaunchOnComplete: false };
+
+  // Only an explicit denial blocks. 'not-determined' and 'unknown' count as
+  // granted — Windows has no dialog to resolve them, so blocking would leave the
+  // user on a screen with nothing to do. Same reasoning if the read throws or
+  // the API is missing (unsupported-platform fallback in index.ts): fail open.
+  private isMicBlocked(): boolean {
+    try {
+      const status = systemPreferences.getMediaAccessStatus('microphone');
+      return status === 'denied' || status === 'restricted';
+    } catch (e) {
+      console.warn('[Permissions] Could not read mic access status; treating as granted:', e);
+      return false;
+    }
+  }
+
   async checkGranted(): Promise<PermissionsStatus> {
-    return { granted: true, mic: true, screen: true };
+    const mic = !this.isMicBlocked();
+    return { granted: mic, mic, screen: true };
   }
 
   async checkMic(): Promise<boolean> {
-    // TODO (fast-follow): report the real Win10/11 per-app mic privacy status.
-    return true;
+    return !this.isMicBlocked();
   }
 
   isComplete(): boolean {
-    return true;
+    // Live mic status only. No flag file: a user with the mic granted must never
+    // land on /permissions, and a user who flips the switch off must.
+    return !this.isMicBlocked();
   }
 
   async requestMic(): Promise<RequestMicResult> {
-    return { mic: true, action: 'already-granted' };
+    if (!this.isMicBlocked()) return { mic: true, action: 'already-granted' };
+    // No dialog to ask; send the user to the page with the two switches.
+    await shell.openExternal('ms-settings:privacy-microphone');
+    return { mic: false, action: 'open-settings' };
   }
 
   requestScreen(): void {
@@ -34,7 +73,7 @@ class WindowsPermissionsProvider implements IPermissionsProvider {
   }
 
   markComplete(): void {
-    // No onboarding permissions gate on Windows; nothing to persist.
+    // Completion is the live mic status (see isComplete); nothing to persist.
   }
 }
 

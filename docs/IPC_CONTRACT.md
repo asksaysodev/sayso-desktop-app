@@ -15,7 +15,7 @@ not a target.
 | **universal** | One handler, identical behavior on both platforms. Uses only cross-platform Electron/Node APIs. Nothing to do for Windows. |
 | **platform-dispatched** | Handler delegates to a provider interface with a per-OS implementation (`electron/audio/`, `electron/permissions/`). The Windows behavior lives in the `Windows*Provider`, not in the handler. |
 | **darwin-only** | Only meaningful on macOS. On Windows it is either a no-op or returns a safe default. |
-| **win32-only** | Only meaningful on Windows. (None today — reserved for the Windows mic-privacy gate, see below.) |
+| **win32-only** | Only meaningful on Windows. On macOS it is either a no-op or returns a safe default. (No channel is win32-only today; the Windows mic-privacy gate lives inside `WindowsPermissionsProvider`, see below.) |
 
 ## Convention (how to add platform-specific behavior)
 
@@ -45,18 +45,19 @@ not a target.
 
 | Channel | Kind | Notes |
 |---|---|---|
-| `permissions-check` | invoke | Live mic + screen grant status. Windows provider returns safe defaults today. |
-| `permissions-request-mic` | invoke | Prompts / opens settings for mic. |
+| `permissions-check` | invoke | `{ mic, screen, requirements }`. Live grant status plus the provider's static `requirements: { screen, relaunchOnComplete }` (macOS `{ true, true }`, Windows `{ false, false }`) so the screen lays itself out from the payload, not the platform. Windows: mic = live `getMediaAccessStatus` (`denied`/`restricted` block, anything else counts as granted); `screen` always `true`. |
+| `permissions-request-mic` | invoke | macOS: inline prompt when not-determined, else opens the Microphone privacy pane. Windows: no dialog exists — opens `ms-settings:privacy-microphone` and returns `action: 'open-settings'`. |
 | `permissions-check-screen` | invoke | Screen-recording grant. **darwin-relevant** (ScreenCaptureKit); Windows has no equivalent gate → returns `true`. |
 | `permissions-request-screen` | invoke | Surfaces the macOS Screen Recording prompt. **darwin-only meaning**; Windows no-op. |
 | `permissions-open-screen-settings` | invoke | Opens macOS Screen Recording privacy pane. **darwin-only meaning**; Windows no-op. |
-| `permissions-complete` | invoke | Writes onboarding-complete flag + relaunch. Universal mechanism, provider owns the flag path. |
-| `permissions-get-flag` | invoke | Reads the onboarding-complete flag. |
+| `permissions-complete` | invoke | `provider.markComplete()`, then `app.relaunch()` only when `requirements.relaunchOnComplete` (macOS — the flag write must succeed first). Windows: no flag, no relaunch; returns and the renderer navigates on. |
+| `permissions-get-flag` | invoke | `isComplete()`: flag + live grants on macOS; live mic status on Windows (no flag file). |
 
-> **win32-only (future):** Windows 10/11 has a per-app microphone privacy gate
-> (Settings → Privacy → Microphone) with no macOS analog. When implemented it
-> belongs in `WindowsPermissionsProvider.requestMic()/checkGranted()`, behind
-> the existing interface — no new channel, no handler change.
+> **Windows mic-privacy gate:** Windows 10/11 gates the mic behind two global
+> switches (Settings → Privacy & security → Microphone) with no dialog and no
+> per-app switch. It lives entirely in `WindowsPermissionsProvider` behind the
+> existing interface — no new channel, no handler change. See the Windows
+> section of `docs/PERMISSIONS_FLOW.md`.
 
 ### Auth — **universal** (`electron/auth/`)
 
@@ -220,6 +221,7 @@ engineer knows where the OS seams are outside the provider layer.
 | Tray menu background + `nativeTheme` repaint (`createTrayMenuWindow`) | per-platform | Windows keeps the window transparent and draws the popover surface in CSS (`TrayMenu.css`, gated on `data-platform`) so `border-radius` is visible; the theme-change repaint is skipped there because `prefers-color-scheme` drives it. Intel Macs keep the opaque native background and its repaint. |
 | ShipIt watchdog on update install (~388–431) | darwin-only | `launchctl kickstart` workaround for pended Squirrel.Mac ShipIt jobs. Windows uses its own updater flow. |
 | `x-apple.systempreferences:` deep links | darwin-only | Opening privacy panes — lives inside `MacPermissionsProvider`. |
+| `ms-settings:privacy-microphone` deep link | win32-only | Opens the Microphone privacy page — lives inside `WindowsPermissionsProvider.requestMic()`. |
 | `Menu.setApplicationMenu(null)` in `whenReady()` | win32-only | Windows renders the default app menu as an in-window File/Edit/View strip. macOS keeps it: it supplies ⌘Q and the Edit-role clipboard accelerators. The `before-input-event` DevTools shortcut below exists because removing it also removed F12 / Ctrl+Shift+I. |
 | DevTools shortcut via `before-input-event` (`browser-window-created`) | win32, dev builds only | Restores F12 / Ctrl+Shift+I after the app menu is removed. macOS still has ⌥⌘I from its menu. |
 | `WindowManager.getTitleBarConfig()` | per-platform | `titleBarStyle: 'hiddenInset'` on macOS; Window Controls Overlay (`'hidden'` + `titleBarOverlay`) on Windows, which has no `hiddenInset`. Used by splash, onboarding and app settings. **`titleBarOverlay` is not Windows-only:** `color`/`symbolColor` are (`@platform win32,linux`), but `height` applies on macOS too — it sizes the band the traffic lights sit in. Both platforms get `height`; only Windows gets the colours. |
