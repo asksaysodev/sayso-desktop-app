@@ -77,6 +77,14 @@ try {
         ipcRenderer.on('cue-mic-recovery-succeeded', () => callback());
         return () => ipcRenderer.removeAllListeners('cue-mic-recovery-succeeded');
       },
+      onMicSilent: (callback: () => void) => {
+        ipcRenderer.on('cue-mic-silent', () => callback());
+        return () => ipcRenderer.removeAllListeners('cue-mic-silent');
+      },
+      onMicSilentCleared: (callback: () => void) => {
+        ipcRenderer.on('cue-mic-silent-cleared', () => callback());
+        return () => ipcRenderer.removeAllListeners('cue-mic-silent-cleared');
+      },
       onSmartCapture: (callback: (data: { topic: string; content: string }[]) => void) => {
         ipcRenderer.on('cue-smart-capture', (_event: Event, data: { topic: string; content: string }[]) => callback(data));
         return () => ipcRenderer.removeAllListeners('cue-smart-capture');

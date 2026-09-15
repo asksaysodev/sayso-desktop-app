@@ -43,13 +43,37 @@ let cueStopInFlight: Promise<{ success: boolean; error?: string; deduped?: boole
  *  in-flight start instead of interleaving through its multi-await body (SAYSO-355). */
 let cueStartInFlight: Promise<{ success: boolean; error?: string; sessionId?: string; mic?: boolean; screen?: boolean }> | null = null;
 
-/** Per-session telemetry: chunks + bytes forwarded from native callbacks into AudioStreamer */
-let cueCaptureStats = {
-  userChunks: 0,
-  prospectChunks: 0,
-  userBytes: 0,
-  prospectBytes: 0
-};
+/** Per-session telemetry: chunks + bytes forwarded from native callbacks into AudioStreamer, plus
+ *  signal levels (SAYSO-428) — byte counts alone read "healthy" for a mic that streams silence. */
+function emptyCueCaptureStats() {
+  return {
+    userChunks: 0,
+    prospectChunks: 0,
+    userBytes: 0,
+    prospectBytes: 0,
+    userPeak: 0,
+    userSumSq: 0,
+    userSamples: 0,
+    userSilentMs: 0,
+    prospectPeak: 0,
+    prospectSumSq: 0,
+    prospectSamples: 0,
+  };
+}
+let cueCaptureStats = emptyCueCaptureStats();
+
+/** SAYSO-428: silent-mic watchdog. A user block below the floor counts as silent — a working mic in
+ *  a quiet room still measures around −58 dBFS, so −70 only catches a mic that isn't really
+ *  capturing (muted, zeroed buffers, a raw-array route delivering almost nothing). It only alerts
+ *  when the call itself has audio, so a normal pause with nobody talking never fires it. */
+const CUE_MIC_SILENCE_FLOOR_DB = -70;
+const CUE_PROSPECT_SPEECH_DB = -50;
+// 20s, not 10s: an AirPods test session logged 8.4s of sub-floor blocks purely from the agent
+// listening in a quiet room (their mic noise floor is far lower than the built-in mic's), so a 10s
+// window would eventually cry wolf on a long listening stretch. A genuinely dead mic stays silent
+// indefinitely, so the extra 10s costs nothing real.
+const CUE_MIC_SILENT_ALERT_MS = 20000;
+let cueMicSilence = { silentSinceMs: null as number | null, lastProspectSpeechMs: 0, alerted: false, reported: false };
 
 let cueLowAudioTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -209,6 +233,111 @@ function scheduleCueLowAudioCheck(sessionId: string) {
       /* ignore */
     }
   }, 4000);
+}
+
+// ─── Signal levels + silent-mic watchdog (SAYSO-428) ──────────────────────────
+
+function toDb(linear: number): number {
+  return linear > 0 ? 20 * Math.log10(linear) : -120;
+}
+
+/** Peak / sum-of-squares of one PCM block, in the native format the provider reports. Channel
+ *  layout doesn't matter for level, so interleaved samples are read straight through. */
+function measurePcmBlock(buffer: Buffer, format: AudioFormat): { peak: number; sumSq: number; samples: number; durationMs: number } | null {
+  if (!buffer || buffer.length === 0 || !format?.sampleRate || !format?.channels) return null;
+  const bytesPerSample = format.bitDepth / 8;
+  if (bytesPerSample !== 2 && bytesPerSample !== 4) return null;
+  const samples = Math.floor(buffer.length / bytesPerSample);
+  let peak = 0;
+  let sumSq = 0;
+  for (let i = 0; i < samples; i++) {
+    const offset = i * bytesPerSample;
+    const s = bytesPerSample === 2
+      ? buffer.readInt16LE(offset) / 32768
+      : format.isFloat ? buffer.readFloatLE(offset) : buffer.readInt32LE(offset) / 2147483648;
+    const a = Math.abs(s);
+    if (a > peak) peak = a;
+    sumSq += s * s;
+  }
+  return { peak, sumSq, samples, durationMs: (samples / format.channels / format.sampleRate) * 1000 };
+}
+
+function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioFormat) {
+  const level = measurePcmBlock(buffer, format);
+  if (!level || level.samples === 0) return;
+  cueCaptureStats.userPeak = Math.max(cueCaptureStats.userPeak, level.peak);
+  cueCaptureStats.userSumSq += level.sumSq;
+  cueCaptureStats.userSamples += level.samples;
+
+  const rmsDb = toDb(Math.sqrt(level.sumSq / level.samples));
+  const now = Date.now();
+  if (rmsDb >= CUE_MIC_SILENCE_FLOOR_DB) {
+    cueMicSilence.silentSinceMs = null;
+    if (cueMicSilence.alerted) {
+      cueMicSilence.alerted = false;
+      console.log('[Cue] Microphone signal restored', { sessionId, rmsDb: Number(rmsDb.toFixed(1)) });
+      sendToCoachWindow('cue-mic-silent-cleared');
+    }
+    return;
+  }
+
+  cueCaptureStats.userSilentMs += level.durationMs;
+  if (cueMicSilence.silentSinceMs === null) cueMicSilence.silentSinceMs = now;
+  const silentForMs = now - cueMicSilence.silentSinceMs;
+  const callHasAudio = cueMicSilence.lastProspectSpeechMs >= cueMicSilence.silentSinceMs;
+  if (cueMicSilence.alerted || silentForMs < CUE_MIC_SILENT_ALERT_MS || !callHasAudio) return;
+
+  cueMicSilence.alerted = true;
+  const details = {
+    sessionId,
+    silentForMs,
+    rmsDb: Number(rmsDb.toFixed(1)),
+    peakDb: Number(toDb(level.peak).toFixed(1)),
+    sampleRate: format.sampleRate,
+    channels: format.channels,
+    bitDepth: format.bitDepth,
+  };
+  console.warn('[Cue] Microphone is delivering buffers but no signal while the call has audio', details);
+  if (!cueMicSilence.reported) {
+    // Once per session — the banner can re-show on every silent stretch, the Sentry event can't.
+    cueMicSilence.reported = true;
+    Sentry.captureMessage('[Cue] Microphone delivering silence mid-session', {
+      level: 'warning',
+      tags: { mic_sample_rate: String(format.sampleRate), mic_channels: String(format.channels) },
+      extra: details,
+    });
+  }
+  sendToCoachWindow('cue-mic-silent');
+}
+
+function trackCueProspectLevel(buffer: Buffer, format: AudioFormat) {
+  const level = measurePcmBlock(buffer, format);
+  if (!level || level.samples === 0) return;
+  cueCaptureStats.prospectPeak = Math.max(cueCaptureStats.prospectPeak, level.peak);
+  cueCaptureStats.prospectSumSq += level.sumSq;
+  cueCaptureStats.prospectSamples += level.samples;
+  if (toDb(Math.sqrt(level.sumSq / level.samples)) >= CUE_PROSPECT_SPEECH_DB) {
+    cueMicSilence.lastProspectSpeechMs = Date.now();
+  }
+}
+
+function sendToCoachWindow(channel: string) {
+  try {
+    if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+      global.coachWindow.webContents.send(channel);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function formatCueLevelStats(stats: ReturnType<typeof emptyCueCaptureStats>): string {
+  const rmsDb = (sumSq: number, samples: number) => (samples > 0 ? toDb(Math.sqrt(sumSq / samples)) : -120).toFixed(1);
+  return (
+    `userPeakDb=${toDb(stats.userPeak).toFixed(1)} userRmsDb=${rmsDb(stats.userSumSq, stats.userSamples)} ` +
+    `userSilentSeconds=${(stats.userSilentMs / 1000).toFixed(1)} ` +
+    `prospectPeakDb=${toDb(stats.prospectPeak).toFixed(1)} prospectRmsDb=${rmsDb(stats.prospectSumSq, stats.prospectSamples)}`
+  );
 }
 
 // ─── Mid-session mic-stall watchdog (SAYSO-353) ───────────────────────────────
@@ -403,15 +532,15 @@ export async function stopCue(): Promise<{ success: boolean; error?: string; ded
       await teardownCueStreamsAndNative();
       notifyOnboarding('onboarding:session-stopped');
       console.log(
-        `[Cue] Session teardown complete — capture stats: userChunks=${statsAtStop.userChunks} prospectChunks=${statsAtStop.prospectChunks} userBytes=${statsAtStop.userBytes} prospectBytes=${statsAtStop.prospectBytes}`
+        `[Cue] Session teardown complete — capture stats: userChunks=${statsAtStop.userChunks} prospectChunks=${statsAtStop.prospectChunks} userBytes=${statsAtStop.userBytes} prospectBytes=${statsAtStop.prospectBytes} ${formatCueLevelStats(statsAtStop)}`
       );
-      cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
+      cueCaptureStats = emptyCueCaptureStats();
       return { success: true };
     } catch (error: any) {
       console.error('[MAIN] Error stopping Cue:', error);
       Sentry.captureException(error);
       cueAudioStreamer = null;
-      cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
+      cueCaptureStats = emptyCueCaptureStats();
       return { success: false, error: error.message };
     } finally {
       cueStopInFlight = null;
@@ -482,7 +611,8 @@ export function registerCueIpc(deps: CueIpcDeps): void {
         await teardownCueStreamsAndNative();
       }
 
-      cueCaptureStats = { userChunks: 0, prospectChunks: 0, userBytes: 0, prospectBytes: 0 };
+      cueCaptureStats = emptyCueCaptureStats();
+      cueMicSilence = { silentSinceMs: null, lastProspectSpeechMs: 0, alerted: false, reported: false };
       micRecoveryFailedReportedThisSession = false;
 
       // Create AudioStreamer for 2 audio websockets (user + prospect)
@@ -557,8 +687,13 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       // Set up audio capture callbacks (streaming only - no file saving)
       const cueUserStreamingCallback = (buffer: Buffer, format: unknown) => {
         if (cueAudioStreamer) {
+          if (cueCaptureStats.userChunks === 0) {
+            const f = format as AudioFormat;
+            console.log(`[Cue] First mic buffer: ${f?.sampleRate}Hz/${f?.channels}ch/${f?.bitDepth}bit${f?.isFloat ? ' float' : ''}`, { sessionId });
+          }
           cueCaptureStats.userChunks += 1;
           cueCaptureStats.userBytes += buffer?.length ?? 0;
+          trackCueUserLevel(sessionId, buffer, format as AudioFormat);
           cueAudioStreamer.addUserAudio(buffer, format);
         }
       };
@@ -578,6 +713,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
           if (cueAudioStreamer) {
             cueCaptureStats.prospectChunks += 1;
             cueCaptureStats.prospectBytes += buffer?.length ?? 0;
+            trackCueProspectLevel(buffer, format);
             cueAudioStreamer.addProspectAudio(buffer, format);
           }
         }

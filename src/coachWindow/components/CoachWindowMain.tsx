@@ -22,6 +22,11 @@ import { CUE_CONNECTIVITY_MESSAGE } from '../helpers/cueErrorMessage';
 const MIC_RECOVERY_FAILED_MESSAGE =
     "Sayso lost your microphone and couldn't reconnect it. Click Reset to start a new session.";
 
+// SAYSO-428: same guarded-clear pattern — the silent-mic notice is cleared only while it's still
+// the message on screen.
+const MIC_SILENT_MESSAGE =
+    "Sayso can't hear your microphone — it's sending silence. Check that your input device isn't muted.";
+
 const WINDOW_WIDTH_SIZES = {
     s: { BASE: 380, MAX_WIDTH: 900 },
     m: { BASE: 400, MAX_WIDTH: 900 },
@@ -391,6 +396,23 @@ export default function CoachWindowMain() {
         if (window.electron?.cue?.onMicRecoverySucceeded) {
             unsubscribeFns.push(window.electron.cue.onMicRecoverySucceeded(() => {
                 if (useCoachWindowStore.getState().error === MIC_RECOVERY_FAILED_MESSAGE) {
+                    useCoachWindowStore.setState({ error: null });
+                }
+            }));
+        }
+
+        if (window.electron?.cue?.onMicSilent) {
+            unsubscribeFns.push(window.electron.cue.onMicSilent(() => {
+                // Never overwrite the recovery-failed banner: that one carries the actionable Reset copy.
+                if (useCoachWindowStore.getState().error !== MIC_RECOVERY_FAILED_MESSAGE) {
+                    useCoachWindowStore.setState({ error: MIC_SILENT_MESSAGE });
+                }
+            }));
+        }
+
+        if (window.electron?.cue?.onMicSilentCleared) {
+            unsubscribeFns.push(window.electron.cue.onMicSilentCleared(() => {
+                if (useCoachWindowStore.getState().error === MIC_SILENT_MESSAGE) {
                     useCoachWindowStore.setState({ error: null });
                 }
             }));
