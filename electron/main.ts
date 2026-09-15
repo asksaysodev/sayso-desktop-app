@@ -944,7 +944,8 @@ function closeOnboardingWindowForSignOut(): void {
 /**
  * Creates and positions the custom tray menu window near the tray icon
  */
-const TRAY_MENU_WIDTH = 230; 
+// Windows shows the longer "Alt + Shift + S" combo, so its menu needs a little more room.
+const TRAY_MENU_WIDTH = IS_WINDOWS ? 270 : 230;
 function createTrayMenuWindow() {
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
     if (trayMenuWindow.isVisible()) {
