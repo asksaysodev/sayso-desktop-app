@@ -1174,7 +1174,7 @@ const shortcuts = [
         sendToOnboardingWindow('onboarding:coach-opened');
       }
     },
-    keyCombination: 'Control+S'
+    keyCombination: IS_WINDOWS ? 'Alt+Shift+S' : 'Control+S'
   },
   {
     // Toggle playbook window
@@ -1189,7 +1189,7 @@ const shortcuts = [
         createPlaybookWindow();
       }
     },
-    keyCombination: 'Control+B'
+    keyCombination: IS_WINDOWS ? 'Alt+Shift+B' : 'Control+B'
   }
 ];
 
