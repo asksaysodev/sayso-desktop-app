@@ -45,12 +45,12 @@ not a target.
 
 | Channel | Kind | Notes |
 |---|---|---|
-| `permissions-check` | invoke | `{ mic, screen, requirements }`. Live grant status plus the provider's static `requirements: { screen, relaunchOnComplete }` (macOS `{ true, true }`, Windows `{ false, false }`) so the screen can lay itself out from the payload, not the platform (consumer lands in SAYSO-417). Windows: mic = live `getMediaAccessStatus` (`denied`/`restricted` block, anything else counts as granted); `screen` always `true`. |
+| `permissions-check` | invoke | `{ mic, screen, requirements }`. Live grant status plus the provider's static `requirements: { screen, relaunchOnComplete }` (macOS `{ true, true }`, Windows `{ false, false }`) so the screen can lay itself out from the payload, not the platform. Windows: mic = live `getMediaAccessStatus` (`denied`/`restricted` block, anything else counts as granted); `screen` always `true`. |
 | `permissions-request-mic` | invoke | macOS: inline prompt when not-determined, else opens the Microphone privacy pane. Windows: no dialog exists — opens `ms-settings:privacy-microphone` and returns `action: 'open-settings'`. |
 | `permissions-check-screen` | invoke | Screen-recording grant. **darwin-relevant** (ScreenCaptureKit); Windows has no equivalent gate → returns `true`. |
 | `permissions-request-screen` | invoke | Surfaces the macOS Screen Recording prompt. **darwin-only meaning**; Windows no-op. |
 | `permissions-open-screen-settings` | invoke | Opens macOS Screen Recording privacy pane. **darwin-only meaning**; Windows no-op. |
-| `permissions-complete` | invoke | `provider.markComplete()`, then `app.relaunch()` only when `requirements.relaunchOnComplete` (macOS — the flag write must succeed first). Windows: no flag, no relaunch; returns, and the renderer navigates on (SAYSO-417). |
+| `permissions-complete` | invoke | `provider.markComplete()`, then `app.relaunch()` only when `requirements.relaunchOnComplete` (macOS — the flag write must succeed first). Windows: no flag, no relaunch; returns, and the renderer navigates to `/` itself. |
 | `permissions-get-flag` | invoke | `isComplete()`: flag + live grants on macOS; live mic status on Windows (no flag file). |
 
 > **Windows mic-privacy gate:** Windows 10/11 gates the mic behind two global

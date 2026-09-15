@@ -333,6 +333,53 @@ async function loadAuthUserProfile(accessToken: string, email: string | undefine
   }
 }
 
+// The full session load an authenticated boot runs at whenReady: reconcile every cached
+// value, fetch the account profile and report the app version. Shared by both boot
+// branches — the permissions splash runs it un-awaited so a session that never presses
+// Continue is still loaded. Never throws — each leg owns its recovery. The caller owns
+// replayPendingOnboardingStatus(), which must run exactly once per path.
+async function loadBootSession(accessToken: string, email: string | undefined): Promise<void> {
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  void cacheStore.refreshKey('playbooks', accessToken)
+    .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
+  void cacheStore.refreshKey('openLastUsed', accessToken)
+    .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
+
+  const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
+    axios.get(`${backendBaseUrl()}/accounts/${email}`, { headers, timeout: 5000 }),
+    cacheStore.refreshKey('fontSize', accessToken),
+    cacheStore.refreshKey('enabledFeatures', accessToken),
+  ]);
+
+  if (profileResult.status === 'fulfilled') {
+    // The session can end while the fetch is in flight (tray Log Out, or a sign-out
+    // from the splash). Never repopulate a profile for a user who is no longer signed
+    // in — the same guard scheduleProfileRetry already makes.
+    if (authManager.getState().user?.email === email) {
+      setAuthUser(profileResult.value.data.data);
+    } else {
+      console.log('[MAIN] boot session load: session changed during the profile fetch — dropping it');
+    }
+  } else {
+    console.warn('[MAIN] Silent auth succeeded but profile fetch failed — retrying in background', profileResult.reason);
+    if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
+    scheduleProfileRetry(email);
+  }
+
+  if (fontSizeResult.status === 'rejected') {
+    cacheStore.reportCacheFailure('fontSize', fontSizeResult.reason);
+    cacheStore.scheduleRetry('fontSize');
+  }
+
+  if (featuresResult.status === 'rejected') {
+    cacheStore.reportCacheFailure('enabledFeatures', featuresResult.reason);
+    cacheStore.scheduleRetry('enabledFeatures');
+  }
+
+  maybeReportAppVersion(backendBaseUrl(), accessToken, global.authUser);
+}
+
 authManager.on('signed-in', (state: AuthState) => {
   console.log('[AuthManager] signed-in:', state.user?.email);
   global.authAccessToken = state.accessToken;
@@ -1690,49 +1737,12 @@ app.whenReady().then(async () => {
       // Token restored but permissions flow was never completed — show splash.
       // PostAuthRedirect will see the user is authenticated and route to /permissions.
       console.log('[MAIN] Authenticated but permissions-complete flag missing — showing splash for permissions');
+      authUserReady = loadBootSession(authState.accessToken!, authState.user?.email);
       createSplashWindow();
     } else {
-      const headers = { Authorization: `Bearer ${authState.accessToken}` };
-
-      // Not awaited: this is the common "app relaunched, still signed in"
-      // boot path, and playbooks prefetch has nothing to block on — the
-      // cache read above already hydrated whatever was on disk, and this
-      // just reconciles it in the background.
-      void cacheStore.refreshKey('playbooks', authState.accessToken!)
-        .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
-      void cacheStore.refreshKey('openLastUsed', authState.accessToken!)
-        .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
-
-      // Fetch profile, font size, and enabled features in parallel before any window opens.
-      const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
-        axios.get(`${backendBaseUrl()}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
-        cacheStore.refreshKey('fontSize', authState.accessToken!),
-        cacheStore.refreshKey('enabledFeatures', authState.accessToken!),
-      ]);
-
-      if (profileResult.status === 'fulfilled') {
-        // Route through setAuthUser so the tray is told, rather than assigning
-        // global.authUser directly and leaving every listener stale.
-        setAuthUser(profileResult.value.data.data);
-      } else {
-        console.warn('[MAIN] Silent auth succeeded but profile fetch failed — retrying in background', profileResult.reason);
-        if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
-        scheduleProfileRetry(authState.user?.email);
-      }
-
-      if (fontSizeResult.status === 'rejected') {
-        cacheStore.reportCacheFailure('fontSize', fontSizeResult.reason);
-        cacheStore.scheduleRetry('fontSize');
-      }
-
-      if (featuresResult.status === 'rejected') {
-        cacheStore.reportCacheFailure('enabledFeatures', featuresResult.reason);
-        cacheStore.scheduleRetry('enabledFeatures');
-      }
-
-	  maybeReportAppVersion(backendBaseUrl(), authState.accessToken!, global.authUser);
-
+      await loadBootSession(authState.accessToken!, authState.user?.email);
       replayPendingOnboardingStatus();
+
       // Open onboarding directly if not yet complete — no splash shown.
       if (shouldOpenOnboarding()) {
         console.log('[MAIN] Permissions complete but onboarding not done — opening onboarding window');

@@ -36,7 +36,7 @@ All permission logic goes through `IPermissionsProvider`, dispatched by platform
 - `checkOSPermissionsGranted()` → `provider.checkGranted()` — returns `{ granted, mic, screen }` (live read, non-prompting). Used by the `start-cue` guard.
 - `isMicGranted()` → `provider.checkMic()` — mic only. Used by the coach-window gate.
 - `isPermissionsComplete()` → `provider.isComplete()` — macOS: `flag && mic && screen`; Windows: live mic only. Used for startup routing.
-- `provider.requirements` — `{ screen, relaunchOnComplete }`, static per platform (macOS `{ true, true }`, Windows `{ false, false }`). Returned by `permissions-check` so the permissions screen can lay itself out from it rather than sniffing the platform (screen consumer: SAYSO-417).
+- `provider.requirements` — `{ screen, relaunchOnComplete }`, static per platform (macOS `{ true, true }`, Windows `{ false, false }`). Returned by `permissions-check` so the permissions screen can lay itself out from it rather than sniffing the platform.
 
 ### The completion flag
 - `permissions-complete` file in `{userData}/`, written by the `permissions-complete` IPC when the user finishes the permissions step ("Quit and Reopen").
@@ -134,13 +134,31 @@ Only an explicit denial blocks. Windows has no dialog to resolve an unclear stat
 
 ### No flag file, no relaunch
 - `isComplete()` is the live mic status. There is no `permissions-complete` file on Windows: a user with the mic granted never sees `/permissions`, and a user who flips the switch off is routed there on the next check. `markComplete()` is a no-op.
-- The macOS relaunch exists only because macOS picks up the Screen Recording grant at launch. Windows reflects the switches live, so `requirements.relaunchOnComplete` is `false` and the `permissions-complete` handler returns without calling `app.relaunch()`; the screen then navigates on by itself (SAYSO-417).
+- The macOS relaunch exists only because macOS picks up the Screen Recording grant at launch. Windows reflects the switches live, so `requirements.relaunchOnComplete` is `false` and the `permissions-complete` handler returns without calling `app.relaunch()`; the permissions screen navigates to `/` itself once the invoke resolves.
 
 ### Requesting
 `requestMic()`: already granted → `{ mic: true, action: 'already-granted' }`. Otherwise it opens `ms-settings:privacy-microphone` via `shell.openExternal` and returns `{ mic: false, action: 'open-settings' }`. `requestScreen()` / `openScreenSettings()` are no-ops.
 
 ### Routing needs nothing new
 The three macOS entry points to `/permissions` all go through the provider, so they work on Windows unchanged: startup (`isPermissionsComplete()` in `main.ts` + `PostAuthRedirect` → `permissions-get-flag`), Cue start (`start-cue` → `checkOSPermissionsGranted()`), and opening the coach window (`isMicGranted()`).
+
+### First-run flow
+The screen lays itself out from `requirements`, so on Windows it renders one row, one hint and no relaunch:
+
+```
+/permissions  (mic-only layout — requirements.screen === false)
+    ↓ "Open Microphone Settings" → ms-settings:privacy-microphone   (clicking again reopens it)
+    ↓ polls permissions-check every 1.5s → the Microphone row turns green on its own
+    ↓ "Continue" → permissions-complete (no flag, no relaunch) → navigate('/')
+    ↓ PostAuthRedirect → permissions-get-flag → splash-login-success
+    ↓ main awaits the session load it started at boot, closes the splash, opens onboarding if pending
+```
+
+The poll is what replaces the macOS relaunch. Windows has no dialog and no per-app switch, so the only way the row can turn green is the screen noticing the switch flip itself. It is gated on `!requirements.relaunchOnComplete` (macOS keeps its click-again behaviour), runs from mount rather than from the first click, and clears both on grant and on unmount.
+
+`loadBootSession()` in `main.ts` runs on **both** authenticated boot branches. The permissions-splash branch starts it un-awaited and parks the promise in `authUserReady`, so the splash still appears immediately while the profile fetch and the cache reconcile run behind it. `splash-login-success` awaits that same promise before deciding on onboarding.
+
+Starting it at boot rather than on Continue is deliberate: the splash is not the only way out of `/permissions`. A user can close it with the title-bar X, fix the microphone in Settings themselves, and open Cue straight from the tray — `open-coach-window` only gates on `isMicGranted()`, so it never routes back through the splash. Tying the load to Continue left that session with no playbooks, no font size and no profile until an offline→online flap. `replayPendingOnboardingStatus()` is deliberately **not** inside the helper, because each path must replay exactly once.
 
 ### Testing
 Flip either switch off in Settings → Privacy & security → Microphone and launch: the splash routes to `/permissions`, `start-cue` returns `permissions_denied`, and opening the coach window re-surfaces the splash instead. Flip it back on and relaunch: straight to the tray. Works from `npm run dev`.
@@ -155,4 +173,4 @@ Flip either switch off in Settings → Privacy & security → Microphone and lau
 - **Screen recording binds at launch** → grant requires app restart; "Quit and Reopen" offered optimistically
 - **Runtime guard** in `start-cue` blocks the session and re-opens the permissions screen
 - **Dev mode can't test permissions on macOS** — package and test the real app
-- **Windows**: mic is the only gate (two global switches, no dialog), status read live, no flag, no relaunch; `requestMic` opens `ms-settings:privacy-microphone`
+- **Windows**: mic is the only gate (two global switches, no dialog), status read live, no flag, no relaunch; `requestMic` opens `ms-settings:privacy-microphone`; the screen renders mic-only from `requirements`, polls the live status, and continues through `/`
