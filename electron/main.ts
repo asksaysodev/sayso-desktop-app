@@ -82,11 +82,6 @@ export const authManager = new AuthManager();
 // The token-refreshed handler checks this to run the deferred profile/features fetch.
 let startupOfflinePending = false;
 
-// True when whenReady() took the permissions-splash branch and skipped the session load.
-// Drained by splash-login-success: on a platform that relaunches after the permissions step
-// (macOS) the next boot re-runs it, but where nothing relaunches (Windows) nothing would.
-let bootSessionLoadDeferred = false;
-
 function broadcastToAllWindows(channel: string, data?: unknown): void {
   BrowserWindow.getAllWindows().forEach((win: BrowserWindowType) => {
     if (!win.isDestroyed()) win.webContents.send(channel, data);
@@ -338,10 +333,11 @@ async function loadAuthUserProfile(accessToken: string, email: string | undefine
   }
 }
 
-// The full session load a normal signed-in boot runs at whenReady: reconcile every cached
-// value, fetch the account profile, report the app version and replay a pending onboarding
-// status. Extracted so the boot that defers it (permissions splash, where none of this runs)
-// can run it later from splash-login-success. Never throws — each leg owns its recovery.
+// The full session load an authenticated boot runs at whenReady: reconcile every cached
+// value, fetch the account profile and report the app version. Shared by both boot
+// branches — the permissions splash runs it un-awaited so a session that never presses
+// Continue is still loaded. Never throws — each leg owns its recovery. The caller owns
+// replayPendingOnboardingStatus(), which must run exactly once per path.
 async function loadBootSession(accessToken: string, email: string | undefined): Promise<void> {
   const headers = { Authorization: `Bearer ${accessToken}` };
 
@@ -357,7 +353,14 @@ async function loadBootSession(accessToken: string, email: string | undefined): 
   ]);
 
   if (profileResult.status === 'fulfilled') {
-    setAuthUser(profileResult.value.data.data);
+    // The session can end while the fetch is in flight (tray Log Out, or a sign-out
+    // from the splash). Never repopulate a profile for a user who is no longer signed
+    // in — the same guard scheduleProfileRetry already makes.
+    if (authManager.getState().user?.email === email) {
+      setAuthUser(profileResult.value.data.data);
+    } else {
+      console.log('[MAIN] boot session load: session changed during the profile fetch — dropping it');
+    }
   } else {
     console.warn('[MAIN] Silent auth succeeded but profile fetch failed — retrying in background', profileResult.reason);
     if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
@@ -375,13 +378,10 @@ async function loadBootSession(accessToken: string, email: string | undefined): 
   }
 
   maybeReportAppVersion(backendBaseUrl(), accessToken, global.authUser);
-
-  replayPendingOnboardingStatus();
 }
 
 authManager.on('signed-in', (state: AuthState) => {
   console.log('[AuthManager] signed-in:', state.user?.email);
-  bootSessionLoadDeferred = false;
   global.authAccessToken = state.accessToken;
   broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated, accessToken: state.accessToken });
   if (state.accessToken) {
@@ -1737,10 +1737,11 @@ app.whenReady().then(async () => {
       // Token restored but permissions flow was never completed — show splash.
       // PostAuthRedirect will see the user is authenticated and route to /permissions.
       console.log('[MAIN] Authenticated but permissions-complete flag missing — showing splash for permissions');
-      bootSessionLoadDeferred = true;
+      authUserReady = loadBootSession(authState.accessToken!, authState.user?.email);
       createSplashWindow();
     } else {
       await loadBootSession(authState.accessToken!, authState.user?.email);
+      replayPendingOnboardingStatus();
 
       // Open onboarding directly if not yet complete — no splash shown.
       if (shouldOpenOnboarding()) {
@@ -2186,18 +2187,6 @@ ipcMain.on('complete-onboarding', (_event) => {
 
 // Handler for the splash window to signal successful login — closes splash, then opens onboarding if needed
 ipcMain.on('splash-login-success', async () => {
-  // A boot that routed to the permissions splash skipped the whole session load at
-  // whenReady, and on a platform with no relaunch (Windows) nothing else re-runs it.
-  // Assigning to authUserReady means the await below covers it, so shouldOpenOnboarding()
-  // reads a real profile rather than racing the splash's own update-user-auth.
-  if (bootSessionLoadDeferred) {
-    bootSessionLoadDeferred = false;
-    const state = authManager.getState();
-    if (state.isAuthenticated && state.accessToken) {
-      console.log('[MAIN] splash-login-success — running the boot session load deferred at whenReady');
-      authUserReady = loadBootSession(state.accessToken, state.user?.email);
-    }
-  }
   // Wait for the sign-in profile fetch so the gate reads a fresh
   // onboarding_status rather than a stale `false` from before login.
   await authUserReady;

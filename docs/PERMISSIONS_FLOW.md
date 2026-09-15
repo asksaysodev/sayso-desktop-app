@@ -151,12 +151,14 @@ The screen lays itself out from `requirements`, so on Windows it renders one row
     ↓ polls permissions-check every 1.5s → the Microphone row turns green on its own
     ↓ "Continue" → permissions-complete (no flag, no relaunch) → navigate('/')
     ↓ PostAuthRedirect → permissions-get-flag → splash-login-success
-    ↓ main runs the session load it deferred at whenReady, closes the splash, opens onboarding if pending
+    ↓ main awaits the session load it started at boot, closes the splash, opens onboarding if pending
 ```
 
 The poll is what replaces the macOS relaunch. Windows has no dialog and no per-app switch, so the only way the row can turn green is the screen noticing the switch flip itself. It is gated on `!requirements.relaunchOnComplete` (macOS keeps its click-again behaviour), runs from mount rather than from the first click, and clears both on grant and on unmount.
 
-The deferred session load matters because a boot that lands on `/permissions` skips the profile fetch and cache reconcile in `whenReady` — `loadBootSession()` in `main.ts`. macOS re-runs it on the relaunch; Windows has no relaunch, so `splash-login-success` drains the `bootSessionLoadDeferred` flag and runs it there instead, and the tray comes back with playbooks and the right font size.
+`loadBootSession()` in `main.ts` runs on **both** authenticated boot branches. The permissions-splash branch starts it un-awaited and parks the promise in `authUserReady`, so the splash still appears immediately while the profile fetch and the cache reconcile run behind it. `splash-login-success` awaits that same promise before deciding on onboarding.
+
+Starting it at boot rather than on Continue is deliberate: the splash is not the only way out of `/permissions`. A user can close it with the title-bar X, fix the microphone in Settings themselves, and open Cue straight from the tray — `open-coach-window` only gates on `isMicGranted()`, so it never routes back through the splash. Tying the load to Continue left that session with no playbooks, no font size and no profile until an offline→online flap. `replayPendingOnboardingStatus()` is deliberately **not** inside the helper, because each path must replay exactly once.
 
 ### Testing
 Flip either switch off in Settings → Privacy & security → Microphone and launch: the splash routes to `/permissions`, `start-cue` returns `permissions_denied`, and opening the coach window re-surfaces the splash instead. Flip it back on and relaunch: straight to the tray. Works from `npm run dev`.
