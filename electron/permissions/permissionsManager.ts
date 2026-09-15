@@ -93,7 +93,7 @@ export function registerPermissionsIpc(): void {
   // only happens if the flag write succeeded, otherwise the next boot would route
   // back to permissions (potential loop). On Windows markComplete() is a no-op
   // (completion is the live mic status) and there is nothing to relaunch for —
-  // the renderer navigates on its own once this resolves (SAYSO-417).
+  // the renderer navigates on its own once this resolves.
   ipcMain.handle('permissions-complete', () => {
     try {
       provider.markComplete();
