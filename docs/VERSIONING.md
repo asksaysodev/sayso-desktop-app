@@ -40,16 +40,12 @@ The step-by-step commands for staging and production, both platforms, live in
 
 ---
 
-## Generate the changelog
+## Generate the release notes
 
-After bumping the version, run the `/changelog` slash command in Claude Code. It will:
-- Compare the two most recent git tags
-- Group commits into Features, Fixes, Style, and Chore/Infra
-- Output a formatted summary ready to paste into the GitHub release
-
-```
-/changelog
-```
+Ask Claude Code for release notes (e.g. "release notes from 1.3.0 to 1.3.1"). The
+`sayso-release-notes` skill in `.claude/skills/` diffs the previous shipped
+`vX.Y.Z` tag against `staging` and writes user-facing Features / Fixes / Style
+bullets with SAYSO IDs, leaving out build, CI and refactor-only changes.
 
 ---
 
@@ -72,7 +68,8 @@ It refuses to publish unless the release carries:
 - every file those manifests reference, plus the `.blockmap` beside each Windows
   installer
 
-Then paste the `/changelog` output into the description on GitHub.
+Before publishing, replace the draft's placeholder description with the release
+notes: `gh release edit <tag> --notes-file notes.md`.
 
 **Why not just click Publish.** `electron-updater` resolves the newest release
 from the atom feed and then demands *that tag's own* channel file, throwing
@@ -403,4 +400,4 @@ repo the day a new CPython minor ships. Raise it only alongside a node-gyp bump.
 | `npm run fresh-export` | Clean build → notarize → create GH draft (production) |
 | `node scripts/release-upload.js --tag <tag> <files>` | Create-or-upload artifacts onto the release |
 | `node scripts/release-preflight.js <tag> [--publish]` | Check both platforms are attached, then publish |
-| `/changelog` | Generate formatted release notes from git history |
+| `sayso-release-notes` skill | Generate user-facing release notes from git history |

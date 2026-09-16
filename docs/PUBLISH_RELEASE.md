@@ -35,15 +35,20 @@ whatever commit the tag points at. The release scripts create the tag on
 Start Windows first so both build in parallel. Whichever finishes first creates
 the draft and the other joins it. Follow the Windows run with `gh run watch`.
 
-## 3. Publish
+## 3. Release notes, then publish
+
+Ask Claude Code for release notes (e.g. "release notes from 1.3.0 to 1.3.1"; uses
+the `sayso-release-notes` skill), save them to `notes.md`, then replace the draft's
+placeholder description and publish (don't commit `notes.md`):
 
 ```bash
-node scripts/release-preflight.js vX.Y.Z-staging --publish   # production: vX.Y.Z
+gh release edit vX.Y.Z-staging --notes-file notes.md          # production: vX.Y.Z
+node scripts/release-preflight.js vX.Y.Z-staging --publish    # production: vX.Y.Z
 ```
 
-It refuses unless both platforms are attached. **Never click Publish on GitHub
-instead:** a release missing one platform breaks the update check for every user
-on that platform. Then add release notes (`sayso-release-notes` skill in Claude Code).
+The preflight refuses unless both platforms are attached. **Never click Publish on
+GitHub instead:** a release missing one platform breaks the update check for every
+user on that platform.
 
 ## Production
 
