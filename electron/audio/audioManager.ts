@@ -62,18 +62,32 @@ function emptyCueCaptureStats() {
 }
 let cueCaptureStats = emptyCueCaptureStats();
 
-/** SAYSO-428: silent-mic watchdog. A user block below the floor counts as silent — a working mic in
- *  a quiet room still measures around −58 dBFS, so −70 only catches a mic that isn't really
- *  capturing (muted, zeroed buffers, a raw-array route delivering almost nothing). It only alerts
- *  when the call itself has audio, so a normal pause with nobody talking never fires it. */
-const CUE_MIC_SILENCE_FLOOR_DB = -70;
+/** SAYSO-428: silent-mic watchdog. A user block below the floor counts as silent. −80 dBFS, not −70:
+ *  a dead mic reads around −100 (zeroed buffers, muted input), while a quiet room on a low-noise
+ *  AirPods mic reads −70 to −75 — an AirPods test session logged 8.4s of sub-−70 blocks from the
+ *  agent merely listening. The floor has to sit below a real quiet room or this cries wolf on the
+ *  agent listening through a long prospect monologue, which is routine on a sales call. It also
+ *  only alerts when the call itself has audio, so a pause with nobody talking never fires it. */
+const CUE_MIC_SILENCE_FLOOR_DB = -80;
 const CUE_PROSPECT_SPEECH_DB = -50;
 // 20s, not 10s: an AirPods test session logged 8.4s of sub-floor blocks purely from the agent
 // listening in a quiet room (their mic noise floor is far lower than the built-in mic's), so a 10s
 // window would eventually cry wolf on a long listening stretch. A genuinely dead mic stays silent
 // indefinitely, so the extra 10s costs nothing real.
 const CUE_MIC_SILENT_ALERT_MS = 20000;
-let cueMicSilence = { silentSinceMs: null as number | null, lastProspectSpeechMs: 0, alerted: false, reported: false };
+/** Re-notify the coach window every 30s while the mic stays silent: the renderer can drop the banner
+ *  on its own (the error close button, or the offline→online clearError), and a latched `alerted`
+ *  would then hide a still-dead mic for the rest of the call. Native's recovery banner re-fires for
+ *  the same reason. The Sentry report stays once per session. */
+const CUE_MIC_SILENT_RENOTIFY_MS = 30000;
+let cueMicSilence = {
+  silentSinceMs: null as number | null,
+  lastProspectSpeechMs: 0,
+  lastProspectRmsDb: -120,
+  alerted: false,
+  alertedAtMs: 0,
+  reported: false,
+};
 
 let cueLowAudioTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -265,11 +279,14 @@ function measurePcmBlock(buffer: Buffer, format: AudioFormat): { peak: number; s
 function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioFormat) {
   const level = measurePcmBlock(buffer, format);
   if (!level || level.samples === 0) return;
+  // Stats describe what we actually send (post-gain). The watchdog subtracts the AGC gain the native
+  // side reports, so a dead mic on a multi-channel route can't be masked by up to +36 dB of boost.
   cueCaptureStats.userPeak = Math.max(cueCaptureStats.userPeak, level.peak);
   cueCaptureStats.userSumSq += level.sumSq;
   cueCaptureStats.userSamples += level.samples;
 
-  const rmsDb = toDb(Math.sqrt(level.sumSq / level.samples));
+  const gainDb = typeof format.gainDb === 'number' && isFinite(format.gainDb) ? format.gainDb : 0;
+  const rmsDb = toDb(Math.sqrt(level.sumSq / level.samples)) - gainDb;
   const now = Date.now();
   if (rmsDb >= CUE_MIC_SILENCE_FLOOR_DB) {
     cueMicSilence.silentSinceMs = null;
@@ -285,14 +302,23 @@ function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioForma
   if (cueMicSilence.silentSinceMs === null) cueMicSilence.silentSinceMs = now;
   const silentForMs = now - cueMicSilence.silentSinceMs;
   const callHasAudio = cueMicSilence.lastProspectSpeechMs >= cueMicSilence.silentSinceMs;
-  if (cueMicSilence.alerted || silentForMs < CUE_MIC_SILENT_ALERT_MS || !callHasAudio) return;
+  if (silentForMs < CUE_MIC_SILENT_ALERT_MS || !callHasAudio) return;
+  if (cueMicSilence.alerted && now - cueMicSilence.alertedAtMs < CUE_MIC_SILENT_RENOTIFY_MS) return;
 
+  const renotify = cueMicSilence.alerted;
   cueMicSilence.alerted = true;
+  cueMicSilence.alertedAtMs = now;
+  if (renotify) {
+    sendToCoachWindow('cue-mic-silent'); // still dead — re-show in case the banner was dismissed
+    return;
+  }
   const details = {
     sessionId,
     silentForMs,
     rmsDb: Number(rmsDb.toFixed(1)),
-    peakDb: Number(toDb(level.peak).toFixed(1)),
+    gainDb: Number(gainDb.toFixed(1)),
+    peakDb: Number((toDb(level.peak) - gainDb).toFixed(1)),
+    prospectRmsDb: Number(cueMicSilence.lastProspectRmsDb.toFixed(1)),
     sampleRate: format.sampleRate,
     channels: format.channels,
     bitDepth: format.bitDepth,
@@ -316,7 +342,9 @@ function trackCueProspectLevel(buffer: Buffer, format: AudioFormat) {
   cueCaptureStats.prospectPeak = Math.max(cueCaptureStats.prospectPeak, level.peak);
   cueCaptureStats.prospectSumSq += level.sumSq;
   cueCaptureStats.prospectSamples += level.samples;
-  if (toDb(Math.sqrt(level.sumSq / level.samples)) >= CUE_PROSPECT_SPEECH_DB) {
+  const rmsDb = toDb(Math.sqrt(level.sumSq / level.samples));
+  if (rmsDb > cueMicSilence.lastProspectRmsDb) cueMicSilence.lastProspectRmsDb = rmsDb;
+  if (rmsDb >= CUE_PROSPECT_SPEECH_DB) {
     cueMicSilence.lastProspectSpeechMs = Date.now();
   }
 }
@@ -612,7 +640,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       }
 
       cueCaptureStats = emptyCueCaptureStats();
-      cueMicSilence = { silentSinceMs: null, lastProspectSpeechMs: 0, alerted: false, reported: false };
+      cueMicSilence = { silentSinceMs: null, lastProspectSpeechMs: 0, lastProspectRmsDb: -120, alerted: false, alertedAtMs: 0, reported: false };
       micRecoveryFailedReportedThisSession = false;
 
       // Create AudioStreamer for 2 audio websockets (user + prospect)
@@ -713,6 +741,9 @@ export function registerCueIpc(deps: CueIpcDeps): void {
           if (cueAudioStreamer) {
             cueCaptureStats.prospectChunks += 1;
             cueCaptureStats.prospectBytes += buffer?.length ?? 0;
+            if (cueCaptureStats.prospectChunks === 1) {
+              console.log(`[Cue] First prospect buffer: ${format?.sampleRate}Hz/${format?.channels}ch/${format?.bitDepth}bit`, { sessionId });
+            }
             trackCueProspectLevel(buffer, format);
             cueAudioStreamer.addProspectAudio(buffer, format);
           }

@@ -122,6 +122,10 @@ struct StreamingData {
     int channels;
     int bitDepth;
     bool isFloat;
+    // SAYSO-428: dB of AGC gain already applied to this block (0 when untouched). The JS silence
+    // watchdog subtracts it so it judges the mic's real level, not the boosted one — otherwise the
+    // gain would hide the very failure that watchdog exists to catch.
+    float gainDb = 0;
 };
 
 // Async callback handler (runs on main thread)
@@ -175,6 +179,8 @@ static void MicStreamingAsyncCallback(uv_async_t* handle) {
     Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(data->bitDepth));
     Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(data->isFloat));
     
+    Nan::Set(format, Nan::New("gainDb").ToLocalChecked(), Nan::New<Number>(data->gainDb));
+
     // Invoke callback
     Local<Function> callback = Nan::New(g_micStreamingCallback);
     Local<Value> argv[2] = {buffer, format};
@@ -1681,8 +1687,21 @@ static const float kMicLimiterKnee = 0.9f;
 // would lock the estimate onto room noise during the opening seconds and boost it ~30 dB before the
 // first word pulled the gain back down (seen in the offline replay of a real session).
 static const float kMicAgcSpeechOverNoise = 4.0f;   // +12 dB above the noise floor = speech
-static const float kMicAgcNoiseFloorRise = 1.002f;  // noise floor tracks down instantly, up ~0.017 dB/block
+static const float kMicAgcNoiseFloorRise = 1.02f;   // floor tracks down instantly, up ~0.17 dB/block (~1.7 dB/s)
 static const float kMicAgcMinRms = 1e-5f;           // ≈ −100 dBFS: digital silence never counts as speech
+// A live mic never sits this quiet. Blocks below it are warm-up or zeroed buffers, and they must not
+// seed the noise floor: a floor parked at −100 dBFS makes ordinary room noise clear the +12 dB gate,
+// and the gain then locks onto the noise instead of speech (offline replay: room noise at −70 dBFS
+// boosted to −35). Until a real block arrives the floor stays unseeded and no gain is applied.
+static const float kMicAgcFloorMinRms = 3e-5f;      // ≈ −90 dBFS
+// The gain holds at unity for the first few blocks while the floor is seeded, and the first-speech
+// jump needs two consecutive speech blocks. Without both, a near-silent warm-up buffer (AVAudioEngine
+// routinely delivers one — this file already handles `no_tap_buffers`) seeds the floor at −100 dBFS,
+// the next block of ordinary room noise clears the +12 dB gate, and the jump locks the gain onto that
+// noise. The faster floor recovery above bounds the same failure mid-session: from a floor collapsed
+// by one quiet block it now takes ~3s, not ~140s, before room noise stops reading as speech.
+static const int kMicAgcWarmupBlocks = 5;           // ~0.5s of floor seeding before the gain may move
+static const int kMicAgcSpeechBlocksToLock = 2;     // consecutive speech blocks before the first jump
 static const int kMicAgcStatusFirstBlocks = 50;     // first status event ~5s after the format is seen
 static const int kMicAgcStatusEveryBlocks = 300;    // then ~every 30s while multi-channel
 
@@ -1696,20 +1715,13 @@ static float g_micAgcGain = 1.0f;
 static float g_micAgcSpeechLevel = 0; // 0 = no speech block seen yet since the format was adopted
 static float g_micAgcNoiseFloor = 0;  // 0 = not yet seeded
 static int g_micAgcBlocks = 0;
+static int g_micAgcSpeechRun = 0;     // consecutive speech blocks, for the first-speech lock
+static bool g_micLayoutMismatchReported = false;
 
 static std::string SaysoFormatDb(float linear) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%.1f", linear > 0 ? 20.0 * log10(linear) : -120.0);
     return std::string(buf);
-}
-
-// Returns samples of channel `c`, frame `i`, for either buffer layout.
-static inline float SaysoMicSample(AVAudioPCMBuffer* buffer, bool isFloat32, bool interleaved, int channels, int c, int i) {
-    if (isFloat32) {
-        return interleaved ? buffer.floatChannelData[0][i * channels + c] : buffer.floatChannelData[c][i];
-    }
-    const int16_t s = interleaved ? buffer.int16ChannelData[0][i * channels + c] : buffer.int16ChannelData[c][i];
-    return (float)s / 32768.0f;
 }
 
 // Frames that are safely readable across every channel buffer — never trusts frameLength alone.
@@ -1736,9 +1748,24 @@ static void SaysoMicDownmixWithGain(AVAudioPCMBuffer* buffer, bool isFloat32, bo
     out.resize(frames);
     const float invChannels = 1.0f / (float)channels;
     double sumSq = 0;
+    // Channel pointers hoisted out of the sample loop: `buffer.floatChannelData` is an ObjC property
+    // access, and reading it per sample cost ~144k message sends/s on the tap thread.
+    float* const* floatChannels = isFloat32 ? buffer.floatChannelData : nullptr;
+    int16_t* const* int16Channels = isFloat32 ? nullptr : buffer.int16ChannelData;
+    if ((isFloat32 && !floatChannels) || (!isFloat32 && !int16Channels)) {
+        out.clear();
+        return;
+    }
     for (int i = 0; i < frames; i++) {
         float sum = 0;
-        for (int c = 0; c < channels; c++) sum += SaysoMicSample(buffer, isFloat32, interleaved, channels, c, i);
+        for (int c = 0; c < channels; c++) {
+            if (isFloat32) {
+                sum += interleaved ? floatChannels[0][i * channels + c] : floatChannels[c][i];
+            } else {
+                const int16_t v = interleaved ? int16Channels[0][i * channels + c] : int16Channels[c][i];
+                sum += (float)v / 32768.0f;
+            }
+        }
         const float mono = sum * invChannels;
         out[i] = mono;
         sumSq += (double)mono * mono;
@@ -1747,20 +1774,27 @@ static void SaysoMicDownmixWithGain(AVAudioPCMBuffer* buffer, bool isFloat32, bo
     const float blockRms = frames > 0 ? (float)sqrt(sumSq / frames) : 0;
     const float prevGain = g_micAgcGain;
 
-    if (g_micAgcNoiseFloor <= 0) {
-        g_micAgcNoiseFloor = std::max(blockRms, kMicAgcMinRms);
-    } else if (blockRms < g_micAgcNoiseFloor) {
-        g_micAgcNoiseFloor = std::max(blockRms, kMicAgcMinRms); // a quieter block IS the new floor
-    } else {
-        g_micAgcNoiseFloor = std::min(g_micAgcNoiseFloor * kMicAgcNoiseFloorRise, blockRms);
+    if (blockRms >= kMicAgcFloorMinRms) {
+        if (g_micAgcNoiseFloor <= 0 || blockRms < g_micAgcNoiseFloor) {
+            g_micAgcNoiseFloor = blockRms;                       // a quieter real block IS the new floor
+        } else {
+            g_micAgcNoiseFloor = std::min(g_micAgcNoiseFloor * kMicAgcNoiseFloorRise, blockRms);
+        }
     }
 
-    if (blockRms > kMicAgcMinRms && blockRms > g_micAgcNoiseFloor * kMicAgcSpeechOverNoise) {
+    const bool isSpeech = g_micAgcNoiseFloor > 0 && blockRms > kMicAgcMinRms &&
+                          blockRms > g_micAgcNoiseFloor * kMicAgcSpeechOverNoise;
+    g_micAgcSpeechRun = isSpeech ? g_micAgcSpeechRun + 1 : 0;
+
+    // During warm-up only the floor is seeded; the gain stays at unity (audio untouched).
+    if (isSpeech && g_micAgcBlocks >= kMicAgcWarmupBlocks) {
         if (g_micAgcSpeechLevel <= 0) {
-            // First speech block: jump straight to the right gain rather than ramping, so the opening
-            // word isn't lost and a loud multi-channel interface isn't slammed into the limiter.
-            g_micAgcSpeechLevel = blockRms;
-            g_micAgcGain = std::min(kMicAgcMaxGain, std::max(1.0f, kMicAgcTargetRms / blockRms));
+            if (g_micAgcSpeechRun >= kMicAgcSpeechBlocksToLock) {
+                // First speech: jump straight to the right gain rather than ramping, so the opening
+                // word isn't lost and a loud multi-channel interface isn't slammed into the limiter.
+                g_micAgcSpeechLevel = blockRms;
+                g_micAgcGain = std::min(kMicAgcMaxGain, std::max(1.0f, kMicAgcTargetRms / blockRms));
+            }
         } else {
             // Fast attack, slow release on the speech-level estimate.
             const float coeff = blockRms > g_micAgcSpeechLevel ? 0.5f : 0.05f;
@@ -1846,6 +1880,8 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
             g_micAgcSpeechLevel = 0;
             g_micAgcNoiseFloor = 0;
             g_micAgcBlocks = 0;
+            g_micAgcSpeechRun = 0;
+            g_micLayoutMismatchReported = false;
             const bool downmix = channels > 1 && (isFloat32 || isInt16);
             EmitLifecycleEvent("mic_input_format sample_rate=" + std::to_string((int)bufferFormat.sampleRate) +
                                " channels=" + std::to_string(channels) +
@@ -1862,6 +1898,16 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
             // the JS converter's interleaved-downmix path out of the mic pipeline entirely.
             const int frames = SaysoMicReadableFrames(buffer, interleaved, channels, isFloat32 ? sizeof(float) : sizeof(int16_t));
             if (frames <= 0) {
+                // Without this the tap would drop every buffer for the whole session with no
+                // diagnostic, and the only symptom would be the JS stall watchdog restarting the
+                // engine in a loop.
+                if (!g_micLayoutMismatchReported) {
+                    g_micLayoutMismatchReported = true;
+                    const AudioBufferList* abl = buffer.audioBufferList;
+                    EmitLifecycleEvent("mic_downmix_layout_mismatch_failed channels=" + std::to_string(channels) +
+                                       " buffers=" + std::to_string(abl ? (int)abl->mNumberBuffers : -1) +
+                                       " interleaved=" + (interleaved ? "1" : "0"));
+                }
                 delete streamData;
                 return;
             }
@@ -1872,6 +1918,7 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
             memcpy(streamData->audioData.data(), mono.data(), dataSize);
             streamData->bitDepth = 32;
             streamData->isFloat = true;
+            streamData->gainDb = g_micAgcGain > 0 ? (float)(20.0 * log10(g_micAgcGain)) : 0.0f;
             channels = 1;
 
             g_micAgcBlocks++;
