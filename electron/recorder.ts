@@ -1,6 +1,7 @@
 import type { IAudioProvider, StreamingCallback } from './audio/IAudioProvider';
 const nativeAudio: IAudioProvider = require('./audio').default;
 import * as Sentry from '@sentry/electron/main';
+import { collectMicDiagnostics, type MicStartOrigin } from './audio/micDiagnostics';
 
 // Store streaming callback for user audio
 let userStreamingCallback: StreamingCallback | null = null;
@@ -23,9 +24,19 @@ function setUserStreamingCallback(callback: StreamingCallback | null) {
  * Uses native AVAudioEngine for microphone capture
  * @param {Object} options - Streaming options
  * @param {Function} options.streamingCallback - Callback function(buffer, format)
+ * @param {MicStartOrigin} options.origin - Which path is starting the mic (SAYSO-431 failure diagnostics)
+ * @param {string} options.sessionId - Cue session, for the failure report
  * @returns {Promise<Object>} { success: boolean }
  */
-async function startUserStreaming({ streamingCallback }: { streamingCallback: StreamingCallback }) {
+async function startUserStreaming({
+  streamingCallback,
+  origin = 'user',
+  sessionId,
+}: {
+  streamingCallback: StreamingCallback;
+  origin?: MicStartOrigin;
+  sessionId?: string | null;
+}) {
   if (!streamingCallback || typeof streamingCallback !== 'function') {
     throw new Error('[RECORDER] streamingCallback is required for startUserStreaming');
   }
@@ -60,7 +71,13 @@ async function startUserStreaming({ streamingCallback }: { streamingCallback: St
     // error properties by default (no extraErrorDataIntegration configured), so `error.micStartReason`
     // itself never reaches the event; a tag makes the reason queryable/facetable instead of only
     // grep-in-message searchable.
-    Sentry.captureException(error, micStartReason ? { tags: { mic_start_reason: micStartReason } } : undefined);
+    // SAYSO-431: the reason says *that* the engine got no audio, never why. Bounded wait, never throws.
+    const diagnostics = await collectMicDiagnostics(nativeAudio, { origin, sessionId });
+    console.warn(`🎤 [RECORDER] Mic start failure diagnostics: ${diagnostics.summary}`);
+    Sentry.captureException(error, {
+      tags: { ...(micStartReason ? { mic_start_reason: micStartReason } : {}), ...diagnostics.tags },
+      extra: diagnostics.extra,
+    });
     // Clear callback on error
     setUserStreamingCallback(null);
     throw error;
