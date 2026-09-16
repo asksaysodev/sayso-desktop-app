@@ -199,6 +199,17 @@ macOS today delivers:
 | System audio (SCK) | 48000 | 2 (stereo) | 32 | true |
 | Microphone (AVAudioEngine) | 48000 (auto) | 1 (mono) | 32 | true |
 
+The macOS mic path **always** delivers mono (SAYSO-428). The hardware can be
+multi-channel — joining a WebRTC call in Safari flips the built-in MacBook mic
+to its raw 48 kHz / 3-channel, non-interleaved array, ~30 dB quieter — so the
+tap averages channels to mono natively (reading each channel buffer, never
+past channel 0) and applies an AGC in float before JS quantizes to PCM16. The
+route is announced on the lifecycle channel instead of via a format change:
+`mic_input_format sample_rate=48000 channels=3 interleaved=0 common_format=1 downmix=1 agc=1`
+on the first buffer of every engine build, then
+`mic_agc_status gain_db=… speech_db=… source_channels=3` ~5s in and every ~30s
+while downmixing.
+
 **Windows is not required to match 48 kHz / float exactly.** Downstream
 `streaming/audioConverter.js` resamples/downmixes to the wire format
 (16 kHz mono S16) using the `format` you report — so report the format

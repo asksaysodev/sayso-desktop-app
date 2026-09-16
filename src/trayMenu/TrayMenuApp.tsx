@@ -162,7 +162,7 @@ const TrayMenuApp = () => {
                 {isCoachOpen ? 'Close Coach' : 'Launch Coach'}
               </span>
               <span className="tray-menu-shortcut">
-                {IS_WINDOWS ? 'Alt + Shift + S' : 'Control + S'}
+                {IS_WINDOWS ? 'Alt + Shift + S' : 'Ctrl + S'}
               </span>
             </button>
             <div className="tray-menu-separator" />
@@ -180,7 +180,7 @@ const TrayMenuApp = () => {
                 {isPlaybookWindowOpen ? 'Hide Playbooks' : 'Show Playbooks'}
               </span>
               <span className="tray-menu-shortcut">
-                {IS_WINDOWS ? 'Alt + Shift + B' : 'Control + B'}
+                {IS_WINDOWS ? 'Alt + Shift + B' : 'Ctrl + B'}
               </span>
             </button>
             <div className="tray-menu-separator" />

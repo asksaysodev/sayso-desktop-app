@@ -26,6 +26,10 @@ export interface AudioFormat {
   channels: number;
   bitDepth: number;
   isFloat: boolean;
+  /** SAYSO-428 (macOS mic only): dB of AGC gain the native side already applied to this block, 0 when
+   *  untouched. Absent on providers/builds that predate it — treat as 0. Consumers judging the mic's
+   *  real level must subtract it; the boost would otherwise mask a dead mic. */
+  gainDb?: number;
 }
 
 export type StreamingCallback = (buffer: Buffer, format: AudioFormat) => void;

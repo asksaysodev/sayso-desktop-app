@@ -122,6 +122,10 @@ struct StreamingData {
     int channels;
     int bitDepth;
     bool isFloat;
+    // SAYSO-428: dB of AGC gain already applied to this block (0 when untouched). The JS silence
+    // watchdog subtracts it so it judges the mic's real level, not the boosted one — otherwise the
+    // gain would hide the very failure that watchdog exists to catch.
+    float gainDb = 0;
 };
 
 // Async callback handler (runs on main thread)
@@ -175,6 +179,8 @@ static void MicStreamingAsyncCallback(uv_async_t* handle) {
     Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(data->bitDepth));
     Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(data->isFloat));
     
+    Nan::Set(format, Nan::New("gainDb").ToLocalChecked(), Nan::New<Number>(data->gainDb));
+
     // Invoke callback
     Local<Function> callback = Nan::New(g_micStreamingCallback);
     Local<Value> argv[2] = {buffer, format};
@@ -1660,6 +1666,157 @@ static bool WaitForMicFirstTapMs(int timeoutMs) {
     return g_micFirstTapSeen.load(std::memory_order_acquire);
 }
 
+// ─── SAYSO-428: multi-channel mic downmix + raw-array gain ────────────────────
+// Joining a WebRTC call in Safari (WebKit's voice processing) flips the built-in MacBook mic from
+// its processed mono stream to the raw 3-mic array: 48 kHz / 3ch, NON-interleaved (one
+// AudioBuffer per channel), and ~30 dB quieter (measured −66 vs −36 dBFS RMS on the same speech).
+// The tap used to memcpy floatChannelData[0] for frameLength*channels samples — reading past the
+// end of channel 0's buffer — and audioConverter.js then averaged those bytes as if interleaved,
+// so the agent's side went untranscribed for the whole call. Multi-channel input is now averaged
+// to mono here, and an AGC restores speech level in float before JS quantizes to PCM16 (at −66
+// dBFS a PCM16 sample has ~16 codes of resolution; boosting after quantization can't recover that).
+// Mono input is passed through untouched, exactly as before.
+
+static const float kMicAgcTargetRms = 0.025f;       // ≈ −32 dBFS: speech-block level of a normal built-in mic
+static const float kMicAgcMaxGain = 63.1f;          // +36 dB cap — measured raw-array deficit is ~30 dB
+static const float kMicAgcGainRisePerBlock = 1.059f; // +0.5 dB per block (~+5 dB/s at 48k/4800) — slow up
+static const float kMicLimiterKnee = 0.9f;
+// Speech is detected RELATIVE to the tracked noise floor, not against an absolute threshold: raw-array
+// speech sits at ~−67 dBFS while normal-mic speech sits at ~−33, so no fixed gate separates the two.
+// Gain starts at 1.0 and only moves once a block stands ≥12 dB above the noise floor — an absolute gate
+// would lock the estimate onto room noise during the opening seconds and boost it ~30 dB before the
+// first word pulled the gain back down (seen in the offline replay of a real session).
+static const float kMicAgcSpeechOverNoise = 4.0f;   // +12 dB above the noise floor = speech
+static const float kMicAgcNoiseFloorRise = 1.02f;   // floor tracks down instantly, up ~0.17 dB/block (~1.7 dB/s)
+static const float kMicAgcMinRms = 1e-5f;           // ≈ −100 dBFS: digital silence never counts as speech
+// A live mic never sits this quiet. Blocks below it are warm-up or zeroed buffers, and they must not
+// seed the noise floor: a floor parked at −100 dBFS makes ordinary room noise clear the +12 dB gate,
+// and the gain then locks onto the noise instead of speech (offline replay: room noise at −70 dBFS
+// boosted to −35). Until a real block arrives the floor stays unseeded and no gain is applied.
+static const float kMicAgcFloorMinRms = 3e-5f;      // ≈ −90 dBFS
+// The gain holds at unity for the first few blocks while the floor is seeded, and the first-speech
+// jump needs two consecutive speech blocks. Without both, a near-silent warm-up buffer (AVAudioEngine
+// routinely delivers one — this file already handles `no_tap_buffers`) seeds the floor at −100 dBFS,
+// the next block of ordinary room noise clears the +12 dB gate, and the jump locks the gain onto that
+// noise. The faster floor recovery above bounds the same failure mid-session: from a floor collapsed
+// by one quiet block it now takes ~3s, not ~140s, before room noise stops reading as speech.
+static const int kMicAgcWarmupBlocks = 5;           // ~0.5s of floor seeding before the gain may move
+static const int kMicAgcSpeechBlocksToLock = 2;     // consecutive speech blocks before the first jump
+static const int kMicAgcStatusFirstBlocks = 50;     // first status event ~5s after the format is seen
+static const int kMicAgcStatusEveryBlocks = 300;    // then ~every 30s while multi-channel
+
+// Set on SaysoMicRouteRestartQueue whenever a fresh engine is built; consumed by the tap block so
+// all state below is only ever touched on the tap's delivery thread (one tap exists at a time —
+// MicEngineTeardownOnly removes the old tap before a new engine installs its own).
+static std::atomic<bool> g_micTapStateResetRequested{true};
+static int g_micTapLastChannels = 0;
+static double g_micTapLastSampleRate = 0;
+static float g_micAgcGain = 1.0f;
+static float g_micAgcSpeechLevel = 0; // 0 = no speech block seen yet since the format was adopted
+static float g_micAgcNoiseFloor = 0;  // 0 = not yet seeded
+static int g_micAgcBlocks = 0;
+static int g_micAgcSpeechRun = 0;     // consecutive speech blocks, for the first-speech lock
+static bool g_micLayoutMismatchReported = false;
+
+static std::string SaysoFormatDb(float linear) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.1f", linear > 0 ? 20.0 * log10(linear) : -120.0);
+    return std::string(buf);
+}
+
+// Frames that are safely readable across every channel buffer — never trusts frameLength alone.
+static int SaysoMicReadableFrames(AVAudioPCMBuffer* buffer, bool interleaved, int channels, size_t bytesPerSample) {
+    const AudioBufferList* abl = buffer.audioBufferList;
+    int frames = (int)buffer.frameLength;
+    if (!abl || abl->mNumberBuffers == 0) return 0;
+    if (interleaved) {
+        size_t avail = abl->mBuffers[0].mDataByteSize / (bytesPerSample * (size_t)channels);
+        return std::min(frames, (int)avail);
+    }
+    if ((int)abl->mNumberBuffers < channels) return 0;
+    for (int c = 0; c < channels; c++) {
+        size_t avail = abl->mBuffers[c].mDataByteSize / bytesPerSample;
+        frames = std::min(frames, (int)avail);
+    }
+    return frames;
+}
+
+// Averages all channels into `out` (mono float32) and applies the AGC + soft limiter in place.
+// Called only from the mic tap block for channels > 1.
+static void SaysoMicDownmixWithGain(AVAudioPCMBuffer* buffer, bool isFloat32, bool interleaved, int channels,
+                                    int frames, std::vector<float>& out) {
+    out.resize(frames);
+    const float invChannels = 1.0f / (float)channels;
+    double sumSq = 0;
+    // Channel pointers hoisted out of the sample loop: `buffer.floatChannelData` is an ObjC property
+    // access, and reading it per sample cost ~144k message sends/s on the tap thread.
+    float* const* floatChannels = isFloat32 ? buffer.floatChannelData : nullptr;
+    int16_t* const* int16Channels = isFloat32 ? nullptr : buffer.int16ChannelData;
+    if ((isFloat32 && !floatChannels) || (!isFloat32 && !int16Channels)) {
+        out.clear();
+        return;
+    }
+    for (int i = 0; i < frames; i++) {
+        float sum = 0;
+        for (int c = 0; c < channels; c++) {
+            if (isFloat32) {
+                sum += interleaved ? floatChannels[0][i * channels + c] : floatChannels[c][i];
+            } else {
+                const int16_t v = interleaved ? int16Channels[0][i * channels + c] : int16Channels[c][i];
+                sum += (float)v / 32768.0f;
+            }
+        }
+        const float mono = sum * invChannels;
+        out[i] = mono;
+        sumSq += (double)mono * mono;
+    }
+
+    const float blockRms = frames > 0 ? (float)sqrt(sumSq / frames) : 0;
+    const float prevGain = g_micAgcGain;
+
+    if (blockRms >= kMicAgcFloorMinRms) {
+        if (g_micAgcNoiseFloor <= 0 || blockRms < g_micAgcNoiseFloor) {
+            g_micAgcNoiseFloor = blockRms;                       // a quieter real block IS the new floor
+        } else {
+            g_micAgcNoiseFloor = std::min(g_micAgcNoiseFloor * kMicAgcNoiseFloorRise, blockRms);
+        }
+    }
+
+    const bool isSpeech = g_micAgcNoiseFloor > 0 && blockRms > kMicAgcMinRms &&
+                          blockRms > g_micAgcNoiseFloor * kMicAgcSpeechOverNoise;
+    g_micAgcSpeechRun = isSpeech ? g_micAgcSpeechRun + 1 : 0;
+
+    // During warm-up only the floor is seeded; the gain stays at unity (audio untouched).
+    if (isSpeech && g_micAgcBlocks >= kMicAgcWarmupBlocks) {
+        if (g_micAgcSpeechLevel <= 0) {
+            if (g_micAgcSpeechRun >= kMicAgcSpeechBlocksToLock) {
+                // First speech: jump straight to the right gain rather than ramping, so the opening
+                // word isn't lost and a loud multi-channel interface isn't slammed into the limiter.
+                g_micAgcSpeechLevel = blockRms;
+                g_micAgcGain = std::min(kMicAgcMaxGain, std::max(1.0f, kMicAgcTargetRms / blockRms));
+            }
+        } else {
+            // Fast attack, slow release on the speech-level estimate.
+            const float coeff = blockRms > g_micAgcSpeechLevel ? 0.5f : 0.05f;
+            g_micAgcSpeechLevel += coeff * (blockRms - g_micAgcSpeechLevel);
+            const float desired = std::min(kMicAgcMaxGain, std::max(1.0f, kMicAgcTargetRms / g_micAgcSpeechLevel));
+            g_micAgcGain = desired < g_micAgcGain ? desired : std::min(desired, g_micAgcGain * kMicAgcGainRisePerBlock);
+        }
+    }
+    // Between words the gain holds — silence never pumps the noise floor up.
+
+    for (int i = 0; i < frames; i++) {
+        const float g = prevGain + (g_micAgcGain - prevGain) * ((float)i / (float)frames); // no zipper steps
+        float y = out[i] * g;
+        const float a = fabs(y);
+        if (a > kMicLimiterKnee) {
+            const float headroom = 1.0f - kMicLimiterKnee;
+            y = copysign(kMicLimiterKnee + headroom * (float)tanh((a - kMicLimiterKnee) / headroom), y);
+        }
+        out[i] = y;
+    }
+}
+
 // Starts engine and blocks until the realtime tap enqueues at least one buffer (or timeout).
 // SAYSO-347: `failReason`, when non-null, is set to one of "no_input_node" / "tap_install_failed" /
 // "engine_start_failed" / "no_tap_buffers" on failure — the same collapsing bug this ticket fixed one
@@ -1669,6 +1826,7 @@ static bool WaitForMicFirstTapMs(int timeoutMs) {
 // unaffected.
 static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** failReason = nullptr) {
     g_micFirstTapSeen.store(false, std::memory_order_release);
+    g_micTapStateResetRequested.store(true); // SAYSO-428: new engine → re-announce format, reset AGC
 
     g_micEngine = [[AVAudioEngine alloc] init];
     g_micInputNode = [g_micEngine inputNode];
@@ -1704,14 +1862,75 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
         AVAudioFormat* bufferFormat = buffer.format;
         int channels = (int)bufferFormat.channelCount;
         int frameLength = (int)buffer.frameLength;
-        if (frameLength <= 0) {
+        if (frameLength <= 0 || channels <= 0) {
             return;
         }
-        
+
+        const bool isFloat32 = bufferFormat.commonFormat == AVAudioPCMFormatFloat32;
+        const bool isInt16 = bufferFormat.commonFormat == AVAudioPCMFormatInt16;
+        const bool interleaved = bufferFormat.isInterleaved;
+
+        // SAYSO-428: (re)announce the input format on the first buffer of every engine build and on
+        // any change, and reset the AGC so a new route never inherits the previous route's gain.
+        if (g_micTapStateResetRequested.exchange(false) ||
+            channels != g_micTapLastChannels || bufferFormat.sampleRate != g_micTapLastSampleRate) {
+            g_micTapLastChannels = channels;
+            g_micTapLastSampleRate = bufferFormat.sampleRate;
+            g_micAgcGain = 1.0f;
+            g_micAgcSpeechLevel = 0;
+            g_micAgcNoiseFloor = 0;
+            g_micAgcBlocks = 0;
+            g_micAgcSpeechRun = 0;
+            g_micLayoutMismatchReported = false;
+            const bool downmix = channels > 1 && (isFloat32 || isInt16);
+            EmitLifecycleEvent("mic_input_format sample_rate=" + std::to_string((int)bufferFormat.sampleRate) +
+                               " channels=" + std::to_string(channels) +
+                               " interleaved=" + (interleaved ? "1" : "0") +
+                               " common_format=" + std::to_string((unsigned long)bufferFormat.commonFormat) +
+                               " downmix=" + (downmix ? "1" : "0") + " agc=" + (downmix ? "1" : "0"));
+        }
+
         StreamingData* streamData = new StreamingData();
         size_t dataSize = 0;
-        
-        if (bufferFormat.commonFormat == AVAudioPCMFormatFloat32) {
+
+        if (channels > 1 && (isFloat32 || isInt16)) {
+            // SAYSO-428: average channels (either layout) into mono float32 + AGC. Emitting mono keeps
+            // the JS converter's interleaved-downmix path out of the mic pipeline entirely.
+            const int frames = SaysoMicReadableFrames(buffer, interleaved, channels, isFloat32 ? sizeof(float) : sizeof(int16_t));
+            if (frames <= 0) {
+                // Without this the tap would drop every buffer for the whole session with no
+                // diagnostic, and the only symptom would be the JS stall watchdog restarting the
+                // engine in a loop.
+                if (!g_micLayoutMismatchReported) {
+                    g_micLayoutMismatchReported = true;
+                    const AudioBufferList* abl = buffer.audioBufferList;
+                    EmitLifecycleEvent("mic_downmix_layout_mismatch_failed channels=" + std::to_string(channels) +
+                                       " buffers=" + std::to_string(abl ? (int)abl->mNumberBuffers : -1) +
+                                       " interleaved=" + (interleaved ? "1" : "0"));
+                }
+                delete streamData;
+                return;
+            }
+            std::vector<float> mono;
+            SaysoMicDownmixWithGain(buffer, isFloat32, interleaved, channels, frames, mono);
+            dataSize = (size_t)frames * sizeof(float);
+            streamData->audioData.resize(dataSize);
+            memcpy(streamData->audioData.data(), mono.data(), dataSize);
+            streamData->bitDepth = 32;
+            streamData->isFloat = true;
+            streamData->gainDb = g_micAgcGain > 0 ? (float)(20.0 * log10(g_micAgcGain)) : 0.0f;
+            channels = 1;
+
+            g_micAgcBlocks++;
+            if (g_micAgcBlocks == kMicAgcStatusFirstBlocks ||
+                (g_micAgcBlocks > kMicAgcStatusFirstBlocks &&
+                 (g_micAgcBlocks - kMicAgcStatusFirstBlocks) % kMicAgcStatusEveryBlocks == 0)) {
+                EmitLifecycleEvent("mic_agc_status gain_db=" + SaysoFormatDb(g_micAgcGain) +
+                                   " speech_db=" + (g_micAgcSpeechLevel > 0 ? SaysoFormatDb(g_micAgcSpeechLevel) : std::string("none")) +
+                                   " noise_db=" + SaysoFormatDb(g_micAgcNoiseFloor) +
+                                   " source_channels=" + std::to_string(g_micTapLastChannels));
+            }
+        } else if (isFloat32) {
             float* floatData = buffer.floatChannelData[0];
             dataSize = frameLength * channels * sizeof(float);
             streamData->audioData.resize(dataSize);
