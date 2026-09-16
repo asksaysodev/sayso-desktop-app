@@ -45,7 +45,7 @@ The step-by-step commands for staging and production, both platforms, live in
 Ask Claude Code for release notes (e.g. "release notes from 1.3.0 to 1.3.1"). The
 `sayso-release-notes` skill in `.claude/skills/` diffs the previous shipped
 `vX.Y.Z` tag against `staging` and writes user-facing Features / Fixes / Style
-bullets with SAYSO IDs, leaving out build, CI and refactor-only changes.
+bullets without internal issue IDs (the notes are public), leaving out build, CI and refactor-only changes.
 
 ---
 

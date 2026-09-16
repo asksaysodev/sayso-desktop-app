@@ -5,8 +5,8 @@ description: >
   Sayso desktop-app version from git history. Triggers include: "release notes",
   "changelog", "what changed in this version", "summarize the diff between versions",
   "what's in 1.2.x", or preparing notes before/after merging to staging. It captures
-  the team's exact format (Features / Fixes / Style, with SAYSO-xxx IDs) and the rules
-  for what to include vs. omit, which Claude cannot guess.
+  the team's exact format (Features / Fixes / Style, no internal issue IDs) and the
+  rules for what to include vs. omit, which Claude cannot guess.
 ---
 
 # Sayso Release Notes Generator
@@ -34,13 +34,14 @@ Default range is **previous release tag → current `staging` HEAD**.
 
 ```
 git log <base>..<target> --no-merges --pretty=format:'%s'    # commit subjects
-git log <base>..<target> --merges   --pretty=format:'%s'     # PR merges (SAYSO IDs live here)
+git log <base>..<target> --merges   --pretty=format:'%s'     # PR merges (branch names group related commits)
 git diff <base>..<target> --stat                              # files changed, for context
 ```
 
-Extract `SAYSO-<n>` IDs from both commit subjects (`fix(SAYSO-268): ...`) and merge
-PR branch names (`feature/sayso-268-...`). Collapse multiple commits/PRs for the same
-SAYSO ID into a single bullet.
+Use the `SAYSO-<n>` IDs in commit subjects (`fix(SAYSO-268): ...`) and merge PR
+branch names (`feature/sayso-268-...`) only to group work: collapse multiple
+commits/PRs for the same ID into a single bullet. The IDs themselves never appear in
+the output.
 
 ## Output format
 
@@ -49,10 +50,10 @@ Exactly these three sections, in this order. **Omit any section that has no item
 
 ```
 Features
-- <new capability the user can see> (SAYSO-xxx)
+- <new capability the user can see>
 
 Fixes
-- Fixed <user-visible problem> (SAYSO-xxx)
+- Fixed <user-visible problem>
 
 Style
 - <visual / copy / layout change>
@@ -62,7 +63,8 @@ Rules:
 - **User-facing only.** Write from the user's perspective ("Fixed sign-out getting
   stuck on the loading screen"), not the implementation ("gate boot on single-instance
   lock"). Translate technical commit messages into what the user experiences.
-- Append the `(SAYSO-xxx)` ID when one exists; omit the parenthetical if there's no ID.
+- **No internal references.** The notes are public (GitHub release description), so
+  never include `SAYSO-xxx` IDs, PR numbers, branch names, or commit hashes.
 - One bullet per logical change. Merge duplicate/follow-up commits for the same issue.
 
 ## What to OMIT entirely
