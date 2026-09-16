@@ -237,6 +237,10 @@ class AudioStreamer {
     if (error.code === 'WS_CLOSED_NO_ERROR') {
       return;
     }
+    // stop() ran while a connect was in flight (SAYSO-414). Deliberate, not a failure.
+    if (error.code === 'WS_DISCONNECTED') {
+      return;
+    }
     const failures = this._report.failures;
     const existing = failures.get(speaker);
     if (existing && (isTransientNetworkError(error) || !isTransientNetworkError(existing.error))) {

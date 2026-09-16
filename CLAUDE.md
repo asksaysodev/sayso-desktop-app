@@ -109,7 +109,7 @@ Only `darwin` and `win32` are targets. `docs/IPC_CONTRACT.md` classifies every c
 
 ## Permissions
 
-Mic + screen recording are collected during **first-run onboarding in the splash window**, not lazily at coach-open time; a runtime guard re-surfaces the screen if they're missing. Reads use non-prompting `CGPreflightScreenCaptureAccess`; prompting happens only on explicit user action. macOS binds screen-recording permission at process launch, so granting it mid-session requires a quit-and-reopen — that's why the flow ends in "Quit and Reopen". `isPermissionsComplete()` requires the persisted flag **and** a live mic grant **and** a live screen grant. See `docs/PERMISSIONS_FLOW.md`.
+Mic + screen recording are collected during **first-run onboarding in the splash window**, not lazily at coach-open time; a runtime guard re-surfaces the screen if they're missing. Reads use non-prompting `CGPreflightScreenCaptureAccess`; prompting happens only on explicit user action. macOS binds screen-recording permission at process launch, so granting it mid-session requires a quit-and-reopen — that's why the flow ends in "Quit and Reopen". `isPermissionsComplete()` requires the persisted flag **and** a live mic grant **and** a live screen grant. Windows goes through the same provider but gates on the mic only (two global switches, no dialog, `requestMic` opens `ms-settings:privacy-microphone`), with no flag file and no relaunch; the provider's `requirements` tells the renderer which applies, and the permissions screen lays itself out from it (one row, a live mic poll, "Continue") instead of branching on the platform. See `docs/PERMISSIONS_FLOW.md`.
 
 ## Network state
 
@@ -120,6 +120,8 @@ The OS is the source of truth. `src/services/networkReporter.ts` is a side-effec
 `autoDownload = false`; the user opts in. Splash window is the interruption surface, App Settings → Software Update the self-service one. An update detected during an active coach session does **not** show the splash — it rechecks every 10 min and opens once the session ends. Download-complete auto-restarts via `quitAndInstall()`. Main is the single source of update state, pushed as `update:state-changed`. See `docs/UPDATE_FLOW.md`.
 
 Release flow (`docs/VERSIONING.md`): there is no `main` branch. `feature/* → development → npm version <patch|minor|major> → staging`. **Bump the version on `development`, never on `staging`** — doing it backwards is what shipped a mislabeled 1.2.5. Both staging and production artifacts build from `staging`; `fresh-export` aborts if local `package.json` disagrees with `origin/staging`. Run `/changelog` after bumping to generate release notes.
+
+One release per version holds **both** platforms' artifacts: macOS is built locally, Windows in `release-windows.yml`, and both attach through `scripts/release-upload.js`, so either may run first. **Publish with `node scripts/release-preflight.js <tag> --publish`, never a bare click in the GitHub UI** — it refuses unless both channel files are attached, and a release missing one makes every update check on that platform fail with `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND` while it is the newest release.
 
 ## Dead code
 

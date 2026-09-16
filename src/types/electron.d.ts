@@ -4,6 +4,7 @@
  */
 
 import { UpdateState } from './update';
+import { PermissionsCheckResult } from './permissions';
 
 export interface ElectronIpcRenderer {
   invoke: <T = unknown>(channel: string, ...args: unknown[]) => Promise<T>;
@@ -66,23 +67,20 @@ export interface CueAPI {
   onLowUserAudio: (callback: (data: CueLowUserAudioData) => void) => () => void;
   onMicRecoveryFailed: (callback: () => void) => () => void;
   onMicRecoverySucceeded: (callback: () => void) => () => void;
+  onMicSilent: (callback: () => void) => () => void;
+  onMicSilentCleared: (callback: () => void) => () => void;
   onSmartCapture: (callback: (data: CueSmartCaptureItem[]) => void) => () => void;
 }
 
 
 export interface PermissionsAPI {
-  check: () => Promise<PermissionsStatus>;
+  check: () => Promise<PermissionsCheckResult>;
   requestMic: () => Promise<{ mic: boolean; action: string; error?: string }>;
   checkScreen: () => Promise<boolean>;
   requestScreen: () => Promise<void>;
   openScreenSettings: () => Promise<void>;
   complete: () => Promise<{ error?: string } | void>;
   getFlag: () => Promise<boolean>;
-}
-
-export interface PermissionsStatus {
-  mic: boolean;
-  screen: boolean;
 }
 
 export interface AutoUpdaterAPI {

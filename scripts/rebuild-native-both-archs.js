@@ -1,13 +1,20 @@
 const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { archOfBinary } = require('./binary-arch');
 
 /**
- * Rebuilds the native audio module for arm64 (default)
+ * Rebuilds the native audio module for the host's default architecture.
  * The beforePack hook will rebuild for the correct architecture during packaging
  * This is just a fallback to ensure we have at least one architecture built
  */
-console.log('🔧 Rebuilding native audio module (arm64 as default)...');
+// win32 is pinned ahead of process.arch on purpose: a Windows-on-ARM box would
+// otherwise select arm64 and fail with MSB8020, since a standard C++ Build Tools
+// install carries no ARM64 MSVC toolset.
+const defaultArch =
+  process.platform === 'win32' ? 'x64' : process.arch === 'arm64' ? 'arm64' : 'x64';
+
+console.log(`🔧 Rebuilding native audio module (${defaultArch} as default)...`);
 console.log('📝 Note: beforePack hook will rebuild for each architecture during packaging');
 
 const nativeAudioDir = path.join(__dirname, '..', 'electron', 'native-audio');
@@ -20,10 +27,10 @@ try {
     fs.rmSync(buildDir, { recursive: true, force: true });
   }
   
-  // Rebuild for arm64 (default, will be rebuilt by beforePack hook for each arch)
-  console.log(`\n🏗️  Building for arm64 (default)...`);
+  // Rebuild for the default arch (will be rebuilt by beforePack hook for each arch)
+  console.log(`\n🏗️  Building for ${defaultArch} (default)...`);
   execSync(
-    `npx node-gyp rebuild --target=${electronVersion} --arch=arm64 --dist-url=https://electronjs.org/headers`,
+    `npx node-gyp rebuild --target=${electronVersion} --arch=${defaultArch} --dist-url=https://electronjs.org/headers`,
     { 
       cwd: nativeAudioDir,
       stdio: 'inherit' 
@@ -36,8 +43,11 @@ try {
     throw new Error(`Native module not found at ${modulePath}`);
   }
   
-  const fileOutput = execSync(`file "${modulePath}"`, { encoding: 'utf-8' });
-  console.log(`✅ Default native module built: ${fileOutput.trim()}`);
+  const builtArch = archOfBinary(modulePath);
+  console.log(`✅ Default native module built: ${modulePath} (${builtArch})`);
+  if (builtArch !== 'unknown' && builtArch !== defaultArch) {
+    console.warn(`⚠️  Architecture mismatch: expected ${defaultArch}, built ${builtArch}`);
+  }
   console.log('✅ The beforePack hook will rebuild this for each architecture during packaging');
   
 } catch (error) {

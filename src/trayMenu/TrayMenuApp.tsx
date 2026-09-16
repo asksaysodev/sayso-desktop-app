@@ -7,6 +7,7 @@ import { usePlaybookWindow } from '@/hooks/usePlaybookWindow';
 import { useEnabledFeatures } from '@/hooks/useEnabledFeatures';
 import { useNetworkState } from '@/hooks/useNetworkState';
 import { UpdatePhase } from '@/types/update';
+import { IS_WINDOWS } from '@/utils/platform';
 
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
@@ -161,7 +162,7 @@ const TrayMenuApp = () => {
                 {isCoachOpen ? 'Close Coach' : 'Launch Coach'}
               </span>
               <span className="tray-menu-shortcut">
-                Ctrl + S
+                {IS_WINDOWS ? 'Alt + Shift + S' : 'Ctrl + S'}
               </span>
             </button>
             <div className="tray-menu-separator" />
@@ -179,7 +180,7 @@ const TrayMenuApp = () => {
                 {isPlaybookWindowOpen ? 'Hide Playbooks' : 'Show Playbooks'}
               </span>
               <span className="tray-menu-shortcut">
-                Ctrl + B
+                {IS_WINDOWS ? 'Alt + Shift + B' : 'Ctrl + B'}
               </span>
             </button>
             <div className="tray-menu-separator" />

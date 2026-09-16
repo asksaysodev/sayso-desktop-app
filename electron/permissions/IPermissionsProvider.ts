@@ -12,7 +12,14 @@ export interface RequestMicResult {
   error?: string;
 }
 
+// Shared with the renderer (it is part of the `permissions-check` payload);
+// re-exported here so the providers import everything from one place.
+import type { PermissionRequirements } from '../shared/permissions';
+export type { PermissionRequirements };
+
 export interface IPermissionsProvider {
+  readonly requirements: PermissionRequirements;
+
   // Live mic + screen grant status (non-prompting). Used for polling + the cue pre-flight.
   checkGranted(): Promise<PermissionsStatus>;
 
@@ -20,8 +27,9 @@ export interface IPermissionsProvider {
   // mic-only gates — skips the screen-recording preflight (and its diagnostic).
   checkMic(): Promise<boolean>;
 
-  // Are all OS permissions required to run granted (and onboarding flag set)? For startup routing.
-  // Self-heals the completion flag when live grants are present.
+  // Are all OS permissions required to run granted (and, where one exists, the
+  // onboarding flag set)? For startup routing. macOS self-heals the completion
+  // flag when live grants are present; Windows has no flag and reads live only.
   isComplete(): boolean;
 
   // Request microphone access. May prompt or open System Settings. Never restarts the app.
@@ -34,5 +42,6 @@ export interface IPermissionsProvider {
   openScreenSettings(): Promise<void>;
 
   // Persist the onboarding "permissions complete" flag. Throws on write failure.
+  // No-op on platforms where completion is derived from live OS state.
   markComplete(): void;
 }

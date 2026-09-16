@@ -21,6 +21,7 @@ import { WindowManager } from './utils/windowManager';
 import { loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, IS_WINDOWS, ALLOW_VIBRANCY } from './utils/platform';
+import { isWindowsTaskbarLight } from './utils/windowsTrayTheme';
 import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage, READ_ONLY_VOLUME_MESSAGE } from './utils/transientErrors';
 import { enforceApplicationsFolderLocation, isOutsideApplicationsFolder } from './utils/applicationsFolder';
 import { enforceMinimumMacOSVersion } from './utils/osVersion';
@@ -98,6 +99,13 @@ function setAuthUser(user: AuthUser | null): void {
 }
 
 /**
+ * The onboarding tour only has macOS scenery so far — the Windows version is
+ * SAYSO-420. Skipping it here writes no status, so Windows accounts still get
+ * the tour once this flips.
+ */
+const ONBOARDING_TOUR_AVAILABLE = !IS_WINDOWS;
+
+/**
  * Whether the onboarding window should be opened for the current account.
  *
  * SAYSO-338: a missing profile reads as `undefined`, which is NOT the same as
@@ -107,6 +115,7 @@ function setAuthUser(user: AuthUser | null): void {
  * carries an explicit `null` status and still gets onboarding.
  */
 function shouldOpenOnboarding(): boolean {
+  if (!ONBOARDING_TOUR_AVAILABLE) return false;
   if (onboardingStatusThisSession) return false;
   const profile = global.authUser || undefined;
   if (!profile) return false;
@@ -330,6 +339,53 @@ async function loadAuthUserProfile(accessToken: string, email: string | undefine
     if (!isTransientNetworkError(err)) Sentry.captureException(err);
     scheduleProfileRetry(email);
   }
+}
+
+// The full session load an authenticated boot runs at whenReady: reconcile every cached
+// value, fetch the account profile and report the app version. Shared by both boot
+// branches — the permissions splash runs it un-awaited so a session that never presses
+// Continue is still loaded. Never throws — each leg owns its recovery. The caller owns
+// replayPendingOnboardingStatus(), which must run exactly once per path.
+async function loadBootSession(accessToken: string, email: string | undefined): Promise<void> {
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  void cacheStore.refreshKey('playbooks', accessToken)
+    .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
+  void cacheStore.refreshKey('openLastUsed', accessToken)
+    .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
+
+  const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
+    axios.get(`${backendBaseUrl()}/accounts/${email}`, { headers, timeout: 5000 }),
+    cacheStore.refreshKey('fontSize', accessToken),
+    cacheStore.refreshKey('enabledFeatures', accessToken),
+  ]);
+
+  if (profileResult.status === 'fulfilled') {
+    // The session can end while the fetch is in flight (tray Log Out, or a sign-out
+    // from the splash). Never repopulate a profile for a user who is no longer signed
+    // in — the same guard scheduleProfileRetry already makes.
+    if (authManager.getState().user?.email === email) {
+      setAuthUser(profileResult.value.data.data);
+    } else {
+      console.log('[MAIN] boot session load: session changed during the profile fetch — dropping it');
+    }
+  } else {
+    console.warn('[MAIN] Silent auth succeeded but profile fetch failed — retrying in background', profileResult.reason);
+    if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
+    scheduleProfileRetry(email);
+  }
+
+  if (fontSizeResult.status === 'rejected') {
+    cacheStore.reportCacheFailure('fontSize', fontSizeResult.reason);
+    cacheStore.scheduleRetry('fontSize');
+  }
+
+  if (featuresResult.status === 'rejected') {
+    cacheStore.reportCacheFailure('enabledFeatures', featuresResult.reason);
+    cacheStore.scheduleRetry('enabledFeatures');
+  }
+
+  maybeReportAppVersion(backendBaseUrl(), accessToken, global.authUser);
 }
 
 authManager.on('signed-in', (state: AuthState) => {
@@ -675,7 +731,7 @@ if (app.isPackaged) {
           }
         }
         app.removeAllListeners('window-all-closed');
-        updater.quitAndInstall(false, true);
+        updater.quitAndInstall(true, true);
       } catch (err) {
         Sentry.captureException(err);
         setUpdateState({
@@ -896,7 +952,8 @@ function closeOnboardingWindowForSignOut(): void {
 /**
  * Creates and positions the custom tray menu window near the tray icon
  */
-const TRAY_MENU_WIDTH = 230; 
+// Windows shows the longer "Alt + Shift + S" combo, so its menu needs a little more room.
+const TRAY_MENU_WIDTH = IS_WINDOWS ? 270 : 230;
 function createTrayMenuWindow() {
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
     if (trayMenuWindow.isVisible()) {
@@ -1020,10 +1077,19 @@ function positionTrayMenu() {
 }
 
 /**
- * Registers the tray icon and sets up click handlers
+ * Builds the tray glyph for the current platform.
+ *
+ * The `…Template.png` assets are pure-black-plus-alpha macOS template images:
+ * `setTemplateImage(true)` lets the OS invert them for the menu bar. That flag
+ * is a no-op on Windows, which would paint the raw black glyph onto the (by
+ * default dark) taskbar, so Windows gets its own pre-coloured pair and picks
+ * between them from the taskbar theme.
  */
-function registerTrayIconMenu() {
-  const trayIconFile = IS_STAGING ? 'staging-tray-icon44Template.png' : 'tray-icon44Template.png';
+function createTrayIcon(useWhiteGlyph: boolean): Electron.NativeImage | null {
+  const stagingPrefix = IS_STAGING ? 'staging-' : '';
+  const trayIconFile = IS_WINDOWS && useWhiteGlyph
+    ? `${stagingPrefix}tray-icon44-white.png`
+    : `${stagingPrefix}tray-icon44Template.png`;
   const iconPath = path.join(__dirname, `../public/assets/${trayIconFile}`);
 
   let icon = nativeImage.createFromPath(iconPath);
@@ -1031,14 +1097,45 @@ function registerTrayIconMenu() {
   if (icon.isEmpty()) {
     console.error('Tray icon failed to load! Icon is empty.');
     Sentry.captureMessage('Tray icon failed to load - icon is empty', 'error');
-    return;
+    return null;
   }
 
-  icon = icon.resize({ width: 19, height: 19 });
-  icon.setTemplateImage(true);
+  const size = IS_WINDOWS ? 16 : 19;
+  icon = icon.resize({ width: size, height: size });
+  if (IS_MAC) icon.setTemplateImage(true);
+
+  return icon;
+}
+
+/**
+ * Repaints the Windows tray glyph to contrast with the current taskbar theme.
+ */
+async function refreshWindowsTrayIcon() {
+  if (!IS_WINDOWS || !tray || tray.isDestroyed()) return;
+
+  const taskbarIsLight = await isWindowsTaskbarLight();
+  if (!tray || tray.isDestroyed()) return;
+
+  const icon = createTrayIcon(!taskbarIsLight);
+  if (icon) tray.setImage(icon);
+}
+
+/**
+ * Registers the tray icon and sets up click handlers
+ */
+function registerTrayIconMenu() {
+  // Assume a dark taskbar (the Windows 11 default) so the first paint is right
+  // in the common case; the async theme read below corrects a light one.
+  const icon = createTrayIcon(true);
+  if (!icon) return;
 
   tray = new Tray(icon);
   if (tray) {
+    if (IS_WINDOWS) {
+      void refreshWindowsTrayIcon();
+      nativeTheme.on('updated', () => { void refreshWindowsTrayIcon(); });
+    }
+
     tray.setToolTip(IS_STAGING ? 'Sayso Staging' : 'Sayso');
 
     tray.on('click', () => {
@@ -1086,7 +1183,7 @@ const shortcuts = [
         sendToOnboardingWindow('onboarding:coach-opened');
       }
     },
-    keyCombination: 'Control+S'
+    keyCombination: IS_WINDOWS ? 'Alt+Shift+S' : 'Control+S'
   },
   {
     // Toggle playbook window
@@ -1101,7 +1198,7 @@ const shortcuts = [
         createPlaybookWindow();
       }
     },
-    keyCombination: 'Control+B'
+    keyCombination: IS_WINDOWS ? 'Alt+Shift+B' : 'Control+B'
   }
 ];
 
@@ -1649,49 +1746,12 @@ app.whenReady().then(async () => {
       // Token restored but permissions flow was never completed — show splash.
       // PostAuthRedirect will see the user is authenticated and route to /permissions.
       console.log('[MAIN] Authenticated but permissions-complete flag missing — showing splash for permissions');
+      authUserReady = loadBootSession(authState.accessToken!, authState.user?.email);
       createSplashWindow();
     } else {
-      const headers = { Authorization: `Bearer ${authState.accessToken}` };
-
-      // Not awaited: this is the common "app relaunched, still signed in"
-      // boot path, and playbooks prefetch has nothing to block on — the
-      // cache read above already hydrated whatever was on disk, and this
-      // just reconciles it in the background.
-      void cacheStore.refreshKey('playbooks', authState.accessToken!)
-        .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
-      void cacheStore.refreshKey('openLastUsed', authState.accessToken!)
-        .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
-
-      // Fetch profile, font size, and enabled features in parallel before any window opens.
-      const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
-        axios.get(`${backendBaseUrl()}/accounts/${authState.user?.email}`, { headers, timeout: 5000 }),
-        cacheStore.refreshKey('fontSize', authState.accessToken!),
-        cacheStore.refreshKey('enabledFeatures', authState.accessToken!),
-      ]);
-
-      if (profileResult.status === 'fulfilled') {
-        // Route through setAuthUser so the tray is told, rather than assigning
-        // global.authUser directly and leaving every listener stale.
-        setAuthUser(profileResult.value.data.data);
-      } else {
-        console.warn('[MAIN] Silent auth succeeded but profile fetch failed — retrying in background', profileResult.reason);
-        if (!isTransientNetworkError(profileResult.reason)) Sentry.captureException(profileResult.reason);
-        scheduleProfileRetry(authState.user?.email);
-      }
-
-      if (fontSizeResult.status === 'rejected') {
-        cacheStore.reportCacheFailure('fontSize', fontSizeResult.reason);
-        cacheStore.scheduleRetry('fontSize');
-      }
-
-      if (featuresResult.status === 'rejected') {
-        cacheStore.reportCacheFailure('enabledFeatures', featuresResult.reason);
-        cacheStore.scheduleRetry('enabledFeatures');
-      }
-
-	  maybeReportAppVersion(backendBaseUrl(), authState.accessToken!, global.authUser);
-
+      await loadBootSession(authState.accessToken!, authState.user?.email);
       replayPendingOnboardingStatus();
+
       // Open onboarding directly if not yet complete — no splash shown.
       if (shouldOpenOnboarding()) {
         console.log('[MAIN] Permissions complete but onboarding not done — opening onboarding window');
@@ -2110,6 +2170,7 @@ ipcMain.on('set-font-size', (_event, size: string) => {
 });
 
 ipcMain.on('open-onboarding-window', () => {
+  if (!ONBOARDING_TOUR_AVAILABLE) return;
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
     console.log('[MAIN] open-onboarding-window: blocked — splash still open');
     return;

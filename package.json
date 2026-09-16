@@ -1,6 +1,6 @@
 {
   "name": "sayso-app",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Sayso Desktop App",
   "main": "electron/main.js",
   "repository": {
@@ -125,11 +125,24 @@
     "extraResources": [
       {
         "from": "assets",
-        "to": "assets"
+        "to": "assets",
+        "filter": [
+          "**/*",
+          "!src/**"
+        ]
       },
       {
         "from": "public/assets",
-        "to": "assets"
+        "to": "assets",
+        "filter": [
+          "**/*",
+          "!icon-staging.icns",
+          "!icon.icns",
+          "!logo-neg-horizontal.png",
+          "!logo-pos-horizontal.png",
+          "!logo-pos-vertical.png",
+          "!slack-icon.png"
+        ]
       }
     ],
     "directories": {
@@ -192,7 +205,29 @@
       ]
     },
     "win": {
-      "target": "nsis"
+      "artifactName": "${productName}-${version}-${arch}-win.${ext}",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "publisherName": "AskSayso, Inc.",
+      "sign": "./scripts/sign-windows.js",
+      "signingHashAlgorithms": [
+        "sha256"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "linux": {
       "target": "AppImage"

@@ -1,6 +1,7 @@
 const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { archOfBinary } = require('./binary-arch');
 
 exports.default = async function(context) {
   let arch = context.arch;
@@ -40,6 +41,7 @@ exports.default = async function(context) {
   console.log(`[BEFORE_PACK] Rebuilding native audio module for ${arch} (electron ${electronVersion})`);
 
   const nativeAudioDir = path.join(__dirname, '..', 'electron', 'native-audio');
+  let builtArch = 'unknown';
 
   try {
     console.log('Cleaning previous build...');
@@ -62,11 +64,27 @@ exports.default = async function(context) {
       throw new Error(`Native module not found at ${modulePath}`);
     }
 
-    const fileOutput = execSync(`file "${modulePath}"`, { encoding: 'utf-8' });
-    console.log(`[BEFORE_PACK] Native module built: ${fileOutput.trim()}`);
+    builtArch = archOfBinary(modulePath);
+    console.log(`[BEFORE_PACK] Native module built: ${modulePath} (${builtArch})`);
 
   } catch (error) {
     console.error(`[BEFORE_PACK] Failed to rebuild native module for ${arch}:`, error.message);
     throw error;
+  }
+
+  // Deliberately outside the try: a mismatch is not a rebuild failure, and the
+  // catch above would relabel it as one.
+  if (builtArch !== 'unknown' && builtArch !== arch) {
+    const message = `[BEFORE_PACK] Architecture mismatch: expected ${arch}, built ${builtArch}`;
+
+    // macOS repairs itself — the afterPack hook (verify-and-fix-native-module.js)
+    // rebuilds and copies over the packed module. Nothing does on Windows, where
+    // that hook returns early on non-darwin, so a wrong-arch module would ship
+    // silently inside the installer and only fail when a user opens Cue.
+    if (process.platform === 'darwin') {
+      console.warn(`${message} — afterPack will rebuild`);
+    } else {
+      throw new Error(message);
+    }
   }
 };

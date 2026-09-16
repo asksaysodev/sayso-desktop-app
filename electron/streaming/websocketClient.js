@@ -43,6 +43,8 @@ class WebSocketClient extends EventEmitter {
     this.reconnectTimer = null;
     this.shouldReconnect = false;
     this.lastError = null;
+    // Settles the in-flight _connect() promise when disconnect() abandons it
+    this._abortPendingConnect = null;
     
     // Callbacks (also emit events)
     if (options.onConnected) {
@@ -89,11 +91,7 @@ class WebSocketClient extends EventEmitter {
     }
     
     // Close existing connection if any
-    if (this.ws) {
-      this.ws.removeAllListeners();
-      this.ws.close();
-      this.ws = null;
-    }
+    this._closeSocket();
     
     this.shouldReconnect = true;
     this.reconnectAttempts = 0;
@@ -123,13 +121,10 @@ class WebSocketClient extends EventEmitter {
         
         // Connection timeout
         const timeout = setTimeout(() => {
+          this._abortPendingConnect = null;
           if (this.state === 'connecting') {
             console.error(`⏱️ [WebSocketClient:${this.speaker}] Connection timeout`);
-            if (this.ws) {
-              this.ws.removeAllListeners();
-              this.ws.on('error', () => {});
-              this.ws.close();
-            }
+            this._closeSocket();
             const timeoutError = new Error('Connection timeout');
             timeoutError.code = 'ETIMEDOUT';
             this.lastError = timeoutError;
@@ -137,10 +132,16 @@ class WebSocketClient extends EventEmitter {
             reject(timeoutError);
           }
         }, CONNECTION_CONFIG.timeout);
+
+        this._abortPendingConnect = (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        };
         
         // Connection opened
         this.ws.on('open', () => {
           clearTimeout(timeout);
+          this._abortPendingConnect = null;
           this.state = 'connected';
           this.reconnectAttempts = 0;
           this.lastError = null;
@@ -164,6 +165,7 @@ class WebSocketClient extends EventEmitter {
         // Connection error
         this.ws.on('error', (error) => {
           clearTimeout(timeout);
+          this._abortPendingConnect = null;
           console.error(`❌ [WebSocketClient:${this.speaker}] WebSocket error:`, error.message);
           this.lastError = error;
           this.state = 'error';
@@ -174,6 +176,7 @@ class WebSocketClient extends EventEmitter {
         // Connection closed
         this.ws.on('close', (code, reason) => {
           clearTimeout(timeout);
+          this._abortPendingConnect = null;
           this._handleDisconnect(code);
         });
         
@@ -303,16 +306,39 @@ class WebSocketClient extends EventEmitter {
       this.reconnectTimer = null;
     }
     
-    if (this.ws) {
-      this.ws.removeAllListeners();
-      this.ws.on('error', () => {});
-      this.ws.close();
-      this.ws = null;
-    }
+    this._closeSocket();
 
+    // A connect() still mid-handshake just lost its listeners, so it would never
+    // settle and start() would hang on it. Reject with a marked error that the
+    // streamer knows not to report — nothing failed, we hung up on purpose.
+    if (this._abortPendingConnect) {
+      const abortError = new Error(`[WebSocketClient:${this.speaker}] Disconnected before connection was established`);
+      abortError.code = 'WS_DISCONNECTED';
+      const abort = this._abortPendingConnect;
+      this._abortPendingConnect = null;
+      abort(abortError);
+    }
+    
     this.state = 'disconnected';
     this.reconnectAttempts = 0;
     this.emit('disconnected');
+  }
+
+  /**
+   * Detach and close the current socket. Closing one that is still CONNECTING
+   * makes `ws` abort the handshake and emit 'error' on the next tick; with every
+   * listener removed that becomes an uncaught exception (SAYSO-414), so a no-op
+   * handler has to stay attached.
+   * @private
+   */
+  _closeSocket() {
+    if (!this.ws) {
+      return;
+    }
+    this.ws.removeAllListeners();
+    this.ws.on('error', () => {});
+    this.ws.close();
+    this.ws = null;
   }
 
   /**

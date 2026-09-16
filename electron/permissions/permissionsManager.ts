@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/electron/main';
 
 import provider from './index';
 import type { PermissionsStatus } from './IPermissionsProvider';
+import type { PermissionsCheckResult } from '../shared/permissions';
 
 // app.isPackaged is reliable at module-load time; NODE_ENV is not yet set when
 // this module is imported. (Same reasoning as audioManager.)
@@ -31,23 +32,24 @@ export function isMicGranted(): Promise<boolean> {
 }
 
 // IPC classification: every permissions-* channel is PLATFORM-DISPATCHED via the
-// active IPermissionsProvider (mac = real mic/screen gates; win32 = safe defaults,
-// with the Windows mic-privacy gate as a future win32-only addition behind the
-// same interface). Handlers stay thin — no process.platform here. See
-// docs/IPC_CONTRACT.md.
+// active IPermissionsProvider (mac = mic + screen-recording gates and a relaunch;
+// win32 = the mic privacy switches only, no flag, no relaunch). The provider's
+// `requirements` tells the renderer which of those apply, so handlers stay thin —
+// no process.platform here. See docs/IPC_CONTRACT.md.
 
 /** Register the permissions-* IPC handlers. Call once during app init. */
 export function registerPermissionsIpc(): void {
   // Check current mic + screen status (non-interactive)
-  ipcMain.handle('permissions-check', async () => {
+  ipcMain.handle('permissions-check', async (): Promise<PermissionsCheckResult> => {
     try {
       const result = await provider.checkGranted();
       if (isDev) console.log('[Permissions] check:', result);
-      return { mic: result.mic, screen: result.screen };
+      return { mic: result.mic, screen: result.screen, requirements: provider.requirements };
     } catch (e: any) {
       console.error('[MAIN] [Permissions] Error checking permissions:', e);
       Sentry.captureException(e);
-      return { mic: false, screen: false, error: e.message };
+      // `requirements` is static, so the screen can still lay itself out on error.
+      return { mic: false, screen: false, requirements: provider.requirements, error: e.message };
     }
   });
 
@@ -86,25 +88,26 @@ export function registerPermissionsIpc(): void {
     }
   });
 
-  // Write permissions-complete flag then relaunch. Only relaunch if the write succeeded —
-  // otherwise the next boot would route back to permissions (potential loop).
-  // This is the macOS onboarding flow (the relaunch lets SCK re-read a freshly
-  // granted screen-recording permission). On Windows markComplete() is a no-op and
-  // this channel isn't reached by the onboarding UI; if it ever were, the relaunch
-  // is harmless (no loop — WindowsPermissionsProvider.isComplete() is always true).
+  // Persist completion, then relaunch only where the OS needs it. On macOS the
+  // relaunch lets SCK re-read a freshly granted screen-recording permission; it
+  // only happens if the flag write succeeded, otherwise the next boot would route
+  // back to permissions (potential loop). On Windows markComplete() is a no-op
+  // (completion is the live mic status) and there is nothing to relaunch for —
+  // the renderer navigates on its own once this resolves.
   ipcMain.handle('permissions-complete', () => {
     try {
       provider.markComplete();
-      console.log('[Permissions] permissions-complete flag written');
     } catch (e: any) {
       console.error('[MAIN] [Permissions] Failed to write permissions-complete flag:', e);
       Sentry.captureException(e);
       return { error: e.message };
     }
+    if (!provider.requirements.relaunchOnComplete) return;
     app.relaunch();
     app.quit();
   });
 
-  // Returns whether the permissions-complete flag is set (for renderer routing)
+  // Returns whether permissions are complete (for renderer routing): flag + live
+  // grants on macOS, live mic status on Windows.
   ipcMain.handle('permissions-get-flag', () => isPermissionsComplete());
 }

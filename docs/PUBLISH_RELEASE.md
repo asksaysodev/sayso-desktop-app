@@ -53,17 +53,34 @@ Run the export script:
 npm run fresh-export
 ```
 
-This will clean previous builds, rebuild everything, create DMGs for both Intel and Apple Silicon Macs, sign and notarize them, then automatically create a draft release on GitHub with both DMG files uploaded.
+This will clean previous builds, rebuild everything, create DMGs for both Intel and Apple Silicon Macs, sign and notarize them, then attach them to the GitHub release for that version — creating it as a draft if the Windows build has not already.
 
-### 3. Publish on GitHub
+### 3. Build the Windows installer into the same draft
 
-1. Go to https://github.com/asksaysodev/sayso-desktop-app/releases
-2. Find the draft release (tagged `v1.0.1`)
-3. Make sure both DMG files are there (arm64 and Intel)
-4. Add release notes describing what changed
-5. Click "Publish release"
+Windows installers are built in CI, not on the Mac. Kick that off against the
+draft:
 
-### 4. Users Get Auto-Updated
+```bash
+gh workflow run "Release Windows" --ref staging -f channel=production -f upload_to_release=true
+```
+
+Order does not matter — run this before the mac build if you prefer, and the mac
+script will join the release it created.
+
+### 4. Publish
+
+```bash
+node scripts/release-preflight.js v1.0.1 --publish
+```
+
+This refuses to publish unless **both** platforms' update manifests are attached
+(`latest.yml` and `latest-mac.yml`). Publishing with one missing makes every
+update check on the other platform hard-error — see
+[VERSIONING.md](VERSIONING.md).
+
+Add release notes describing what changed on GitHub; `/changelog` generates them.
+
+### 5. Users Get Auto-Updated
 
 Once published, users get the update automatically on their next app launch. The app detects their Mac type (Intel or Apple Silicon), downloads the right DMG, and prompts them to restart.
 
@@ -79,5 +96,5 @@ Both files must be uploaded to the same GitHub release for auto-updates to work 
 
 The auto-update system uses two tools:
 
-1. **electron-builder** runs on your machine and uploads releases to GitHub
-2. **update-electron-app** runs on users machines and downloads updates from GitHub
+1. **electron-builder** packages the app; `scripts/release-upload.js` attaches the artifacts to the GitHub release
+2. **electron-updater** runs on users' machines and downloads updates from that release

@@ -145,7 +145,9 @@ node scripts/update-latest-yaml.js --staging
 
 RELEASE_TAG="v${APP_VERSION}-staging"
 
-echo "🚀 Creating GitHub Pre-Release ${RELEASE_TAG}..."
+# Attach the notarized files to the pre-release for this version, creating it if
+# the Windows job has not already. Either platform may go first.
+echo "🚀 Attaching macOS artifacts to pre-release ${RELEASE_TAG}..."
 
 RELEASE_FILES=(
   "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.zip"
@@ -162,20 +164,17 @@ for f in "${RELEASE_FILES[@]}"; do
   fi
 done
 
-GH_RELEASE_FILES=(
-  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.zip"
-  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.zip"
-  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.dmg"
-  "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-arm64-mac.dmg"
-  "${RELEASE_DIR}/staging-mac.yml"
-)
-
-gh release create "${RELEASE_TAG}" \
+node scripts/release-upload.js \
+  --tag "${RELEASE_TAG}" \
+  --channel staging \
   --target "${RELEASE_BRANCH}" \
-  --title "${RELEASE_TAG}" \
-  --prerelease \
-  --draft \
-  --notes "Staging release ${RELEASE_TAG}" \
-  "${GH_RELEASE_FILES[@]}"
+  "${RELEASE_FILES[@]}"
 
-echo "✅ GitHub Pre-Release draft ${RELEASE_TAG} created — publish manually when ready!"
+echo ""
+echo "✅ Pre-release ${RELEASE_TAG} now carries the notarized macOS artifacts."
+echo ""
+echo "   Next, if the Windows installer is not on it yet:"
+echo "     gh workflow run \"Release Windows\" --ref ${RELEASE_BRANCH} -f channel=staging -f upload_to_release=true"
+echo ""
+echo "   Then publish — this checks both platforms first, and refuses if either is missing:"
+echo "     node scripts/release-preflight.js ${RELEASE_TAG} --publish"
