@@ -99,6 +99,13 @@ function setAuthUser(user: AuthUser | null): void {
 }
 
 /**
+ * The onboarding tour only has macOS scenery so far — the Windows version is
+ * SAYSO-420. Skipping it here writes no status, so Windows accounts still get
+ * the tour once this flips.
+ */
+const ONBOARDING_TOUR_AVAILABLE = !IS_WINDOWS;
+
+/**
  * Whether the onboarding window should be opened for the current account.
  *
  * SAYSO-338: a missing profile reads as `undefined`, which is NOT the same as
@@ -108,6 +115,7 @@ function setAuthUser(user: AuthUser | null): void {
  * carries an explicit `null` status and still gets onboarding.
  */
 function shouldOpenOnboarding(): boolean {
+  if (!ONBOARDING_TOUR_AVAILABLE) return false;
   if (onboardingStatusThisSession) return false;
   const profile = global.authUser || undefined;
   if (!profile) return false;
@@ -2162,6 +2170,7 @@ ipcMain.on('set-font-size', (_event, size: string) => {
 });
 
 ipcMain.on('open-onboarding-window', () => {
+  if (!ONBOARDING_TOUR_AVAILABLE) return;
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
     console.log('[MAIN] open-onboarding-window: blocked — splash still open');
     return;
