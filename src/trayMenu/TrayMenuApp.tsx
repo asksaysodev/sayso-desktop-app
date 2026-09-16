@@ -8,12 +8,16 @@ import { useEnabledFeatures } from '@/hooks/useEnabledFeatures';
 import { useNetworkState } from '@/hooks/useNetworkState';
 import { UpdatePhase } from '@/types/update';
 import { IS_WINDOWS } from '@/utils/platform';
+import apiClient from '@/config/axios';
+
+const WEB_APP_URL = 'https://app.asksayso.com/';
 
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [account, setAccount] = useState<Account | null>(null);
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('idle');
+  const [isOpeningAccount, setIsOpeningAccount] = useState(false);
   const { isReconnecting } = useNetworkState();
   const { toggleAppSettingsWindow } = useAppSettingsWindow();
   const { isPlaybookWindowOpen, togglePlaybookWindow } = usePlaybookWindow();
@@ -123,10 +127,53 @@ const TrayMenuApp = () => {
     window.electron?.ipcRenderer?.send('quit-app');
   };
 
+  /**
+   * Opens the web app signed in, landing on the dashboard.
+   *
+   * The hash carries a single-use token minted by the server, not this app's access
+   * token. Sending the access token was the old approach and it silently failed: the
+   * web app needs a refresh token to call setSession, main never gives renderers one
+   * (by design), and supabase-js reads an `access_token` hash with no refresh token as
+   * a failed implicit-grant callback — clearing any session the browser already had.
+   * The server-minted token_hash lets the browser mint a session of its own instead,
+   * with no refresh-token family shared between the two clients (SAYSO-433).
+   *
+   * The server may also decline to mint one, returning `token_hash: null`, while a
+   * password reset for this account is still pending — the two share a single slot in
+   * Supabase and minting here would kill the reset link. Treated like any other miss.
+   *
+   * Every failure path still opens the page. Landing on the login screen is a worse
+   * outcome than being signed in, but it is a far better one than nothing happening.
+   */
   const handlePressMyAccount = async () => {
-    const token: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
-    const url = new URL('https://app.asksayso.com/settings');
-    if (token) url.hash = `access_token=${token}`;
+    if (isOpeningAccount) return;
+
+    const url = new URL(WEB_APP_URL);
+
+    // Offline, the request can only burn the axios timeout before failing. Skip it and
+    // open the page immediately — this row stays usable while reconnecting on purpose.
+    if (isAuthenticated && !isReconnecting) {
+      setIsOpeningAccount(true);
+      try {
+        // Deliberately shorter than the client default: this request sits between a
+        // click and a browser opening, so a slow network should cost a second or two
+        // and then fall through, not hold the window closed for the full timeout.
+        const { data } = await apiClient.post<{ token_hash: string | null }>(
+          '/auth/desktop-handoff',
+          null,
+          { timeout: 5000 },
+        );
+        if (data?.token_hash) {
+          url.hash = `token_hash=${encodeURIComponent(data.token_hash)}`;
+        }
+      } catch (error) {
+        // Not user-facing: the page still opens, at the login screen.
+        Sentry.captureException(error, { tags: { flow: 'desktop_handoff' } });
+      } finally {
+        setIsOpeningAccount(false);
+      }
+    }
+
     window.electron?.openExternal(url.toString());
   };
 
@@ -203,7 +250,9 @@ const TrayMenuApp = () => {
               className="tray-menu-item"
               onClick={handlePressMyAccount}
             >
-              <span className="tray-menu-item-label">My Account</span>
+              <span className="tray-menu-item-label">
+                {isOpeningAccount ? 'Opening…' : 'My Account'}
+              </span>
               <ExternalLink size={16} />
             </button>
 

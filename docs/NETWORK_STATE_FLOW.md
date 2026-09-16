@@ -25,7 +25,7 @@ A few specific concerns surfaced during review that shaped the final design:
 2. **"Are we going to spam Sentry over a weekend?"** Yes, with the original design. Fixed here by pausing.
 3. **"`net.isOnline()` returning `true` is unreliable."** Confirmed by Electron docs — `true` means "some link might be up," not "you can reach the internet." We never rely on `true` from a one-shot check; we react to the OS-pushed event instead.
 4. **"`powerMonitor` doesn't notice network changes, right?"** Correct. None of its 11 events are network-related. Wake/unlock are useful as *additional* triggers (force a refresh after sleep) but not as the primary signal.
-5. **"My Account was disabled while reconnecting."** It just opens a browser URL — the app itself makes no request, so disabling it was wrong. Removed.
+5. **"My Account was disabled while reconnecting."** Disabling it was wrong and was removed. The row stays clickable in every state. It does now make one request — a session handoff token for the web app (SAYSO-433) — but that request is *skipped* while reconnecting rather than attempted and failed, and the page opens either way, just at the login screen.
 6. **"Coach window kept showing the stale 'token expired' error after coming back online."** Fixed: `clearError()` is called when the network state transitions back to online.
 7. **"Opening the app while offline showed the login splash."** Fixed: if `init()` fails transiently and we have a stored refresh token, we boot silently into the tray and defer profile/features fetch until the network returns.
 
