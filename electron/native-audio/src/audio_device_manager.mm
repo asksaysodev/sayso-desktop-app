@@ -2200,8 +2200,11 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
     }
 
     NSError* error = nil;
+    // Set before starting: the config-change observer is already attached and can mark the engine
+    // stopped while startAndReturnError is still returning. Storing the result afterwards would
+    // overwrite that with `true`. A failed start clears it again via MicEngineTeardownOnly below.
+    g_micEngineRunning.store(true);
     BOOL ok = [g_micEngine startAndReturnError:&error];
-    g_micEngineRunning.store(ok);
 
     if (!ok) {
         NSLog(@"❌ [NATIVE] Failed to start microphone capture: %@ (code=%ld)",
