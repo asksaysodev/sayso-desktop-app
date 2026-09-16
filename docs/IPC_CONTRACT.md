@@ -69,6 +69,7 @@ not a target.
 | `auth:get-token` | invoke |
 | `auth:force-refresh-token` | invoke |
 | `auth:get-state` | invoke |
+| `auth:open-web-app` | invoke |
 | `get-user-auth` | send |
 | `update-user-auth` | send |
 

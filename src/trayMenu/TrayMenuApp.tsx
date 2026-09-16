@@ -8,9 +8,6 @@ import { useEnabledFeatures } from '@/hooks/useEnabledFeatures';
 import { useNetworkState } from '@/hooks/useNetworkState';
 import { UpdatePhase } from '@/types/update';
 import { IS_WINDOWS } from '@/utils/platform';
-import apiClient from '@/config/axios';
-
-const WEB_APP_URL = 'https://app.asksayso.com/';
 
 const TrayMenuApp = () => {
   const [isCoachOpen, setIsCoachOpen] = useState(false);
@@ -128,32 +125,24 @@ const TrayMenuApp = () => {
   };
 
   /**
-   * Opens the web app signed in, landing on the dashboard.
+   * Opens the web app signed in, on the dashboard.
+   *
+   * Main owns the whole flow — fetching the one-time handoff token and launching the
+   * browser — so no credential crosses into this window and a sign-out mid-request
+   * cannot leave us opening a signed-in browser (SAYSO-433). All this tracks is whether
+   * a request is in flight, to keep the row from firing twice.
+   *
+   * Never rejects in practice: main opens the page on every failure path.
    */
   const handlePressMyAccount = async () => {
     if (isOpeningAccount) return;
 
-    const url = new URL(WEB_APP_URL);
-
-    if (isAuthenticated && !isReconnecting) {
-      setIsOpeningAccount(true);
-      try {
-        const { data } = await apiClient.post<{ token_hash: string | null }>(
-          '/auth/desktop-handoff',
-          null,
-          { timeout: 5000 },
-        );
-        if (data?.token_hash) {
-          url.hash = `token_hash=${encodeURIComponent(data.token_hash)}`;
-        }
-      } catch (error) {
-        Sentry.captureException(error, { tags: { flow: 'desktop_handoff' } });
-      } finally {
-        setIsOpeningAccount(false);
-      }
+    setIsOpeningAccount(true);
+    try {
+      await window.electron?.openWebApp();
+    } finally {
+      setIsOpeningAccount(false);
     }
-
-    window.electron?.openExternal(url.toString());
   };
 
   const handleAuthPress = () => {
@@ -228,6 +217,10 @@ const TrayMenuApp = () => {
             <button
               className="tray-menu-item"
               onClick={handlePressMyAccount}
+              // Deliberately NOT disabled while reconnecting: this row opens a browser
+              // page in every state, and disabling it offline was a documented mistake
+              // (docs/NETWORK_STATE_FLOW.md, item 5). Only an in-flight request blocks.
+              disabled={isOpeningAccount}
             >
               <span className="tray-menu-item-label">
                 {isOpeningAccount ? 'Opening…' : 'My Account'}
