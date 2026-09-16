@@ -25,6 +25,7 @@ import { isWindowsTaskbarLight } from './utils/windowsTrayTheme';
 import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage, READ_ONLY_VOLUME_MESSAGE } from './utils/transientErrors';
 import { enforceApplicationsFolderLocation, isOutsideApplicationsFolder } from './utils/applicationsFolder';
 import { enforceMinimumMacOSVersion } from './utils/osVersion';
+import { getAssetPath } from './utils/assetPath';
 import type { UpdateState } from './shared/update';
 import { AuthManager } from './auth/AuthManager';
 import type { AuthState } from './auth/AuthManager';
@@ -1090,7 +1091,7 @@ function createTrayIcon(useWhiteGlyph: boolean): Electron.NativeImage | null {
   const trayIconFile = IS_WINDOWS && useWhiteGlyph
     ? `${stagingPrefix}tray-icon44-white.png`
     : `${stagingPrefix}tray-icon44Template.png`;
-  const iconPath = path.join(__dirname, `../public/assets/${trayIconFile}`);
+  const iconPath = getAssetPath(trayIconFile);
 
   let icon = nativeImage.createFromPath(iconPath);
 
@@ -2360,7 +2361,7 @@ const createAppSettingsWindow = (tab?: string, source: 'coach' | 'independent' =
     const windowConfig = WindowManager.getAppSettingsWindowConfig();
     const appSettingsWindow = new BrowserWindow({
         ...windowConfig,
-        icon: path.join(__dirname, '../public/assets/icon.icns'),
+        icon: getAssetPath('icon.icns'),
         ...WindowManager.getTitleBarConfig('#02192f', 30),
         webPreferences: {
             preload: preloadScriptPath,
@@ -2411,7 +2412,7 @@ const createCoachWindow = () => {
   
   const coachWindow = new BrowserWindow({
     ...windowConfig,
-    icon: path.join(__dirname, '../public/assets/icon.icns'),
+    icon: getAssetPath('icon.icns'),
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
@@ -2517,7 +2518,7 @@ const createPlaybookWindow = (source: 'coach' | 'independent' = 'independent') =
 
   const playbookWindow = new BrowserWindow({
     ...windowConfig,
-    icon: path.join(__dirname, '../public/assets/icon.icns'),
+    icon: getAssetPath('icon.icns'),
     webPreferences: {
       preload: preloadScriptPath,
       contextIsolation: true,
