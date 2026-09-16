@@ -33,13 +33,10 @@ pre-release and the production release are built from it.
 
 ---
 
-## Building a staging release
+## Building a release
 
-```bash
-npm run fresh-export:staging
-```
-
-Requires `.env.staging` to exist locally (gitignored — get it from the team).
+The step-by-step commands for staging and production, both platforms, live in
+[PUBLISH_RELEASE.md](PUBLISH_RELEASE.md). The sections below are background.
 
 ---
 
@@ -93,13 +90,8 @@ missing, it needs no re-publish.
 
 ## Production release
 
-```bash
-# After the staging build has been validated
-git checkout staging
-git pull origin staging
-
-npm run fresh-export   # builds production DMGs and creates GitHub draft
-```
+Built from the same `staging` commit once the staging build is validated — steps
+in [PUBLISH_RELEASE.md](PUBLISH_RELEASE.md).
 
 Both release scripts pass `--target staging` through to `gh release create`, so a
 release created for a new tag lands that tag on `staging`. Without it, GitHub

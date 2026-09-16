@@ -1,100 +1,54 @@
-# Publishing a New Release
+# Publishing a Release
 
-How to publish a new version of Sayso with automatic updates.
+Everything runs from a Mac. macOS is built, signed and notarized **locally**
+(certificates live in the keychain). Windows is built and signed **in GitHub
+Actions** on a Windows runner (Azure Artifact Signing) — you only start it. Both
+land in one draft release, which you publish once both are there.
 
-## Prerequisites
+## One-time setup (Mac)
 
-### 1. GitHub Personal Access Token
+- "Developer ID Application: AskSayso, Inc." certificate in the keychain
+- Notary credentials saved as the keychain profile `NotaryProfile`
+- `.env.production` (GH_TOKEN, SENTRY_AUTH_TOKEN) and `.env.staging` in the repo root
+- `gh auth login`
 
-
-Add to .env
-```
-GH_TOKEN=ghp_your_token_here
-```
-
-To get a GitHub token:
-1. Click your profile picture on GitHub → Settings
-2. Scroll all the way down → Developer settings
-3. Personal access tokens → Tokens (classic)
-4. Generate new token (classic)
-5. Give it `repo` scope
-
-## Release Process
-
-### 1. Update Version Number
-
-Bump on `development`, before merging into `staging` — never on `staging` itself.
-See [VERSIONING.md](VERSIONING.md) for why. Production builds run from `staging`
-and abort if the local version doesn't match `origin/staging`.
-
-Edit `package.json` and bump the version:
-
-```
-"version": "1.0.1"  // From 1.0.0
-```
-
-Version format is `MAJOR.MINOR.PATCH`:
-- **PATCH** (1.0.0 → 1.0.1): Bug fixes only
-- **MINOR** (1.0.0 → 1.1.0): New features (backwards compatible)
-- **MAJOR** (1.0.0 → 2.0.0): Breaking changes
-
-You can also use these commands:
-```
-npm version patch  # For bug fixes
-npm version minor  # For new features
-npm version major  # For breaking changes
-```
-
-### 2. Build and Upload Release
-
-Run the export script:
-
-```
-npm run fresh-export
-```
-
-This will clean previous builds, rebuild everything, create DMGs for both Intel and Apple Silicon Macs, sign and notarize them, then attach them to the GitHub release for that version — creating it as a draft if the Windows build has not already.
-
-### 3. Build the Windows installer into the same draft
-
-Windows installers are built in CI, not on the Mac. Kick that off against the
-draft:
+## 1. Bump and merge (skip if `staging` already has the new version)
 
 ```bash
-gh workflow run "Release Windows" --ref staging -f channel=production -f upload_to_release=true
+git checkout development && git pull
+npm version patch                 # or minor / major
+git push origin development       # do NOT push tags (no --tags / --follow-tags)
+git checkout staging && git pull && git merge development && git push origin staging
 ```
 
-Order does not matter — run this before the mac build if you prefer, and the mac
-script will join the release it created.
+Never push release tags by hand: a `v*` tag push starts the Windows build from
+whatever commit the tag points at. The release scripts create the tag on
+`staging` when the release is published.
 
-### 4. Publish
+## 2. Build both platforms (from `staging`)
+
+| | Staging | Production |
+|---|---|---|
+| Windows (CI, ~5 min) | `gh workflow run "Release Windows" --ref staging -f channel=staging -f upload_to_release=true` | same, with `-f channel=production` |
+| macOS (this Mac, ~15 min) | `npm run fresh-export:staging` | `npm run fresh-export` |
+
+Start Windows first so both build in parallel. Whichever finishes first creates
+the draft and the other joins it. Follow the Windows run with `gh run watch`.
+
+## 3. Publish
 
 ```bash
-node scripts/release-preflight.js v1.0.1 --publish
+node scripts/release-preflight.js vX.Y.Z-staging --publish   # production: vX.Y.Z
 ```
 
-This refuses to publish unless **both** platforms' update manifests are attached
-(`latest.yml` and `latest-mac.yml`). Publishing with one missing makes every
-update check on the other platform hard-error — see
-[VERSIONING.md](VERSIONING.md).
+It refuses unless both platforms are attached. **Never click Publish on GitHub
+instead:** a release missing one platform breaks the update check for every user
+on that platform. Then add release notes (`sayso-release-notes` skill in Claude Code).
 
-Add release notes describing what changed on GitHub; `/changelog` generates them.
+## Production
 
-### 5. Users Get Auto-Updated
+Once staging is validated, repeat steps 2–3 with the production commands from
+the same `staging` commit.
 
-Once published, users get the update automatically on their next app launch. The app detects their Mac type (Intel or Apple Silicon), downloads the right DMG, and prompts them to restart.
-
-## Architecture Support
-
-The build process creates binaries for:
-- **arm64**: MacBooks with Apple Silicon (M1, M2, M3, M4)
-- **x64**: MacBooks with Intel processors
-
-Both files must be uploaded to the same GitHub release for auto-updates to work correctly.
-
-## How It Works
-
-The auto-update system uses two tools:
-
-1. **electron-builder** packages the app; `scripts/release-upload.js` attaches the artifacts to the GitHub release
-2. **electron-updater** runs on users' machines and downloads updates from that release
+Background (branch flow, Windows secrets and signing internals, why the preflight
+exists): [VERSIONING.md](VERSIONING.md).
