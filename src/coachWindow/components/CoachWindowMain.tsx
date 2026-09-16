@@ -8,12 +8,13 @@ import { useCoachWindowStore } from '../../store/coachWindowStore';
 import CoachButtons from './CoachButtons';
 import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
-import SessionStoppedDialog from './SessionStoppedDialog';
+import SessionStoppedDialog, { type SessionStoppedReason } from './SessionStoppedDialog';
 import RightSideButtons from './RightSideButtons';
 import useFontSize from '../hooks/useFontSize';
 import usePulseMarketProperty from '../hooks/usePulseMarketProperty';
 import ZipCodeDropdown from './ZipCodeDropdown';
 import Pulse from './Pulse';
+import * as Sentry from "@sentry/electron/renderer";
 import { reportCoachError } from '@/utils/errorReporting';
 import { CUE_CONNECTIVITY_MESSAGE } from '../helpers/cueErrorMessage';
 
@@ -57,6 +58,7 @@ export default function CoachWindowMain() {
     //STATE
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
+    const [sessionStoppedReason, setSessionStoppedReason] = useState<SessionStoppedReason>('inactivity');
     const [lpmamaTooltipHeight, setLpmamaTooltipHeight] = useState(0);
     //CONTEXT / HOOKS
     const sessionData = useCoachWindowStore(state => state.sessionData);
@@ -463,8 +465,39 @@ export default function CoachWindowMain() {
 
         const unsubscribe = window.electron.cue.onAutoStop(async () => {
             setIsInsightsLayoutOpen(false);
+            setSessionStoppedReason('inactivity');
             try {
                 await handleStopCue();
+            } catch (error) {
+                reportCoachError(error);
+            } finally {
+                setShowSessionAutoStopped(true);
+            }
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [])
+
+    useEffect(() => {
+        if (!window.electron?.cue?.onSessionExpired) return;
+
+        // The server only sends session_expired once the Redis session is gone, so
+        // POST /cue/session/stop could only 404 — handleStopCue would surface
+        // CUE_STOP_MESSAGE and a Sentry event for an expected close. Local teardown
+        // releases capture without that call.
+        const unsubscribe = window.electron.cue.onSessionExpired(async () => {
+            Sentry.addBreadcrumb({
+                category: 'cue.session',
+                message: 'Server expired cue session',
+                level: 'info',
+                data: { sessionId: useCoachWindowStore.getState().sessionData?.sessionId },
+            });
+            setIsInsightsLayoutOpen(false);
+            setSessionStoppedReason('expired');
+            try {
+                await useCoachWindowStore.getState().cue_handleLocalTeardown();
             } catch (error) {
                 reportCoachError(error);
             } finally {
@@ -586,6 +619,7 @@ export default function CoachWindowMain() {
             {showSessionAutoStopped && leadType && (
                 <SessionStoppedDialog
                     setShowSessionAutoStopped={setShowSessionAutoStopped}
+                    reason={sessionStoppedReason}
                     ref={sessionStoppedDialogRef}
                 />
             )}

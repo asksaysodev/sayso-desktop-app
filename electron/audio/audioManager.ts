@@ -691,9 +691,11 @@ export function registerCueIpc(deps: CueIpcDeps): void {
               }
             }
 
-            if (message && message.type === 'auto_stop') {
+            if (message && (message.type === 'auto_stop' || message.type === 'session_expired')) {
               if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-                global.coachWindow.webContents.send('cue-auto-stop');
+                global.coachWindow.webContents.send(
+                  message.type === 'auto_stop' ? 'cue-auto-stop' : 'cue-session-expired'
+                );
 
                 if (process.platform === 'darwin') {
                   app.setBadgeCount(app.getBadgeCount() + 1);

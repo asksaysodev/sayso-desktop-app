@@ -24,6 +24,7 @@ const REPORT_SETTLE_CAP_MS = 2000;
  * each other when the cause is shared.
  */
 const REPORT_GRACE_MS = 1000;
+const SESSION_ENDED_TYPES = ['auto_stop', 'session_expired'];
 
 function newReportState() {
   return { failures: new Map(), reported: false, pending: false, timer: null };
@@ -160,25 +161,11 @@ class AudioStreamer {
       // Listen for messages from prospect websocket (insights come through here)
       this.prospectWebSocket.on('message', (message) => {
         // Check if it's a message we care about forwarding
-        if (message && typeof message === 'object' && (message.type === 'insight' || message.type === 'auto_stop' || message.type === 'smart_capture')) {
+        if (message && typeof message === 'object' && (message.type === 'insight' || SESSION_ENDED_TYPES.includes(message.type) || message.type === 'smart_capture')) {
           if (this.onMessage) {
-            if (message.type === 'auto_stop') {
+            if (SESSION_ENDED_TYPES.includes(message.type)) {
               this.autoStopping = true;
-              // Cancel pending reconnect timers synchronously — before the IPC round-trip
-              if (this.userWebSocket) {
-                this.userWebSocket.shouldReconnect = false;
-                if (this.userWebSocket.reconnectTimer) {
-                  clearTimeout(this.userWebSocket.reconnectTimer);
-                  this.userWebSocket.reconnectTimer = null;
-                }
-              }
-              if (this.prospectWebSocket) {
-                this.prospectWebSocket.shouldReconnect = false;
-                if (this.prospectWebSocket.reconnectTimer) {
-                  clearTimeout(this.prospectWebSocket.reconnectTimer);
-                  this.prospectWebSocket.reconnectTimer = null;
-                }
-              }
+              this._cancelPendingReconnects();
             }
             this.onMessage(message);
           }
@@ -211,6 +198,22 @@ class AudioStreamer {
       }
       this.isStreaming = false;
       throw error;
+    }
+  }
+
+  /**
+   * Cancel pending reconnect timers on both sockets, synchronously — before the
+   * IPC round-trip, so neither socket redials a session the server has ended.
+   * @private
+   */
+  _cancelPendingReconnects() {
+    for (const socket of [this.userWebSocket, this.prospectWebSocket]) {
+      if (!socket) continue;
+      socket.shouldReconnect = false;
+      if (socket.reconnectTimer) {
+        clearTimeout(socket.reconnectTimer);
+        socket.reconnectTimer = null;
+      }
     }
   }
 
