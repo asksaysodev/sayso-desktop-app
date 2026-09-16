@@ -34,6 +34,57 @@ export interface AudioFormat {
 
 export type StreamingCallback = (buffer: Buffer, format: AudioFormat) => void;
 
+/** SAYSO-431: one HAL device as native sees it. `null` fields mean the device doesn't implement that
+ *  property or the read failed — never a default value. */
+export interface MicDeviceSnapshot {
+  id: number;
+  name: string | null;
+  uid: string | null;
+  /** built_in / bluetooth / bluetooth_le / usb / virtual / aggregate / continuity_wired / … / other / unknown */
+  transport: string;
+  nominalSampleRate: number | null;
+  inputChannels: number | null;
+  isAlive: boolean | null;
+  /** Any process (ours included) is doing IO on the device. */
+  isRunningSomewhere: boolean | null;
+  /** Process holding exclusive access; -1 when nobody does. */
+  hogModePid: number | null;
+  inputMuted: boolean | null;
+  inputVolume: number | null;
+}
+
+/** SAYSO-431: snapshot returned by getMicInputDiagnostics. Tap counters cover the current (or last
+ *  failed) engine build; `msSinceLast*` on the tap are process-wide. */
+export interface MicInputDiagnostics {
+  defaultInput: MicDeviceSnapshot | null;
+  openedInputId: number | null;
+  /** Only set when the device our engine opened is no longer the OS default. */
+  openedInput: MicDeviceSnapshot | null;
+  capturing: boolean;
+  routeRecovering: boolean;
+  /** We started the engine and have seen neither a teardown nor a configuration-change stop since. */
+  engineRunning: boolean;
+  engineBuilds: number;
+  msSinceEngineBuilt: number | null;
+  msSinceDefaultInputChange: number | null;
+  msSinceEngineConfigChange: number | null;
+  engineConfigChanges: number;
+  tap: {
+    callbacks: number;
+    delivered: number;
+    droppedNoHandle: number;
+    droppedNoCallback: number;
+    droppedEmpty: number;
+    droppedLayout: number;
+    droppedUnsupported: number;
+    msSinceLastCallback: number | null;
+    msSinceLastDelivered: number | null;
+    lastSampleRate: number | null;
+    lastChannels: number | null;
+    lastCommonFormat: number | null;
+  };
+}
+
 export interface IAudioProvider {
   initialize(): Promise<void>;
 
@@ -58,6 +109,11 @@ export interface IAudioProvider {
   // Optional so a stale native build without the method stays contract-compatible — callers
   // should treat its absence as "not recovering" (fail open, don't block on it).
   isMicRouteRecovering?(): Promise<boolean>;
+
+  // SAYSO-431: diagnostics attached to mic stall / start-failure reports. Optional, and resolves null
+  // when the native build lacks it or a snapshot is already in flight — callers must never block a
+  // restart or a report on it.
+  getMicInputDiagnostics?(): Promise<MicInputDiagnostics | null>;
 
   // Streaming
   setStreamingCallback(callback: StreamingCallback | null): void;

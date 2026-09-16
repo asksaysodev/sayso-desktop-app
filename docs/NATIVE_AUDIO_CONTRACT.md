@@ -18,7 +18,7 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 
 ---
 
-## The NAN surface (13 methods)
+## The NAN surface (14 methods)
 
 `Init` (`NAN_MODULE_INIT`) must export exactly these. Names are case-sensitive.
 
@@ -37,6 +37,7 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 | 11 | `setStreamingCallback` | `void` | no (sync) |
 | 12 | `setMicrophoneStreamingCallback` | `void` | no (sync) |
 | 13 | `setLifecycleEventCallback` | `void` | no (sync) |
+| 14 | `getMicInputDiagnostics` | `Promise<MicInputDiagnostics \| null>` | yes — **optional** (SAYSO-431) |
 
 > The macOS `.mm` also still exports the dead trio `listOutputDevices`,
 > `createMultiOutputDevice`, `deleteMultiOutputDevice` — **do not implement
@@ -156,6 +157,26 @@ Intended consumer: JS-side recovery watchdogs, so they can skip intervening
 while native recovery is already in flight rather than racing it. JS callers
 must tolerate the method being absent (older native builds).
 
+### `getMicInputDiagnostics()` → `Promise<MicInputDiagnostics | null>` (SAYSO-431)
+Point-in-time snapshot attached to mic stall and mic-start-failure reports: the
+OS default input (name, UID, transport, sample rate, input channels, alive,
+running-somewhere, hog-mode pid, mute, volume), the device the engine opened if
+it is no longer the default, engine/route state, time since the last
+default-input change and engine configuration change, and tap counters for the
+current engine build (buffers received vs. delivered, drops by reason). Shape:
+`MicInputDiagnostics` in `electron/audio/IAudioProvider.ts`.
+
+- **Optional.** Windows does not implement it yet; `index.js` resolves `null`
+  when the method is absent. Consumers treat `null` as "no diagnostics".
+- **Async and non-blocking.** HAL reads are IPC to `coreaudiod`, the daemon most
+  likely to be misbehaving when this is called, so they must not run on the JS
+  thread. At most one snapshot may be in flight; a concurrent call resolves
+  `null` immediately rather than queueing more blocked work.
+- **Never rejects**, never touches engine state, and never reads the engine
+  object off its owning queue — only atomics and HAL properties.
+- Consumers must time-box it (`electron/audio/micDiagnostics.ts` uses 500ms) and
+  must never delay a restart or a report on it indefinitely.
+
 ### `setStreamingCallback(fn | null)`
 Registers the JS callback for **system-audio** chunks. `null` clears it. Called
 with `(buffer, format)` — see below. Passing `null` must be safe at any time.
@@ -168,8 +189,10 @@ silence the other. `null` clears only the mic callback.
 Diagnostics channel (SAYSO-355). Registers a JS callback invoked with a single
 short snake_case string per capture-lifecycle anomaly — e.g.
 `sck_start_watchdog_fired gen=3 stage=getting_shareable_content timeout_ms=10000`,
-`sck_orphan_stream_stopped gen=3`. Events ending in `_failed` are escalated by
-the consumer (Sentry).
+`sck_orphan_stream_stopped gen=3`, and on macOS the mic route changes
+`mic_default_input_changed from="…" from_transport=… to="…" to_transport=… capturing=0|1`
+and `mic_engine_config_change ignored=0|1 since_attach_ms=…` (SAYSO-431). Events
+ending in `_failed` are escalated by the consumer (Sentry).
 `null` clears the callback but must NOT free the underlying async plumbing —
 freeing on callback-clear is the UAF class documented in SAYSO-349. JS callers
 must tolerate the method being absent (older native builds): guard with a

@@ -19,6 +19,7 @@
 #include <vector>
 #include <string>
 #include <unistd.h>
+#include <time.h>
 
 using namespace v8;
 
@@ -91,7 +92,8 @@ static bool g_defaultInputListenerRegistered = false;
 static AudioDeviceID g_lastKnownDefaultInputDevice = kAudioObjectUnknown;
 
 // Last HAL default input device id the running AVAudioEngine was started against (follow-OS-default mode).
-static AudioDeviceID g_micOpenedInputDeviceId = kAudioObjectUnknown;
+// SAYSO-431: atomic so GetMicInputDiagnostics can read it off the restart queue; every writer is still on it.
+static std::atomic<AudioDeviceID> g_micOpenedInputDeviceId{kAudioObjectUnknown};
 // SAYSO-361: no mutex here — StartMicrophoneCapture, StopMicrophoneCapture, and
 // SaysoPerformMicRestartIfCapturing all execute exclusively on SaysoMicRouteRestartQueue (a
 // single serial queue), which alone already guarantees mutual exclusion for g_micEngine and the
@@ -112,8 +114,45 @@ static std::atomic<bool> g_micRouteRecovering{false};
 // ~30s ceiling regardless of how many backoff steps that spans. Only touched on the queue.
 static int64_t g_micRouteRecoveryStartMs = 0;
 
+// SAYSO-431: diagnostics read by GetMicInputDiagnostics from a background queue, written from the
+// HAL listener thread, AVFoundation's notification thread, SaysoMicRouteRestartQueue and the
+// realtime tap — all atomics, none of them ever read g_micEngine itself (it can be released under
+// a reader that isn't on the restart queue). Timestamps are SaysoRealtimeNowMs (0 = never).
+static std::atomic<int64_t> g_micLastDefaultInputChangeMs{0};
+static std::atomic<int64_t> g_micLastEngineConfigChangeMs{0};
+static std::atomic<uint64_t> g_micEngineConfigChanges{0};
+static std::atomic<uint64_t> g_micEngineBuilds{0};
+static std::atomic<int64_t> g_micEngineBuiltAtMs{0};
+static std::atomic<bool> g_micEngineRunning{false}; // started by us, not yet torn down or stopped by a config change
+// Tap counters, reset on every engine build: callbacks = buffers AVAudioEngine handed us, delivered =
+// buffers forwarded to JS. callbacks=0 after a no_tap_buffers failure means the engine never pulled
+// audio; callbacks>0 with delivered=0 means we dropped every buffer ourselves.
+static std::atomic<uint64_t> g_micTapCallbacks{0};
+static std::atomic<uint64_t> g_micTapDelivered{0};
+static std::atomic<uint64_t> g_micTapDroppedNoHandle{0};
+static std::atomic<uint64_t> g_micTapDroppedNoCallback{0};
+static std::atomic<uint64_t> g_micTapDroppedEmpty{0};
+static std::atomic<uint64_t> g_micTapDroppedLayout{0};
+static std::atomic<uint64_t> g_micTapDroppedUnsupported{0};
+// Process-wide (not reset per build), so a stall shows how long ago audio last arrived at all.
+static std::atomic<int64_t> g_micTapLastCallbackMs{0};
+static std::atomic<int64_t> g_micTapLastDeliveredMs{0};
+// Format of the last buffer the tap saw, delivered or not. Separate from SAYSO-428's non-atomic
+// g_micTapLastChannels/SampleRate, which only the tap thread may read.
+static std::atomic<int> g_micDiagTapSampleRate{0};
+static std::atomic<int> g_micDiagTapChannels{0};
+static std::atomic<unsigned long> g_micDiagTapCommonFormat{0};
+
 static void SaysoScheduleMicRouteDebouncedRestart();
 static int64_t SaysoNowMs();
+
+// SAYSO-431: wall-clock ms without allocating — SaysoNowMs builds an NSDate, which the realtime tap
+// must not do. Same epoch as SaysoNowMs.
+static int64_t SaysoRealtimeNowMs() {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
+}
 
 // Structure to pass audio data to async callback
 struct StreamingData {
@@ -1108,6 +1147,155 @@ static bool SaysoIsBluetoothInputDevice(AudioDeviceID deviceID) {
            transportType == kAudioDeviceTransportTypeBluetoothLE;
 }
 
+// ─── SAYSO-431: HAL property readers for mic diagnostics ─────────────────────
+// All of these are safe off the main thread and allocate no autoreleased objects (CF only), so they
+// can run on a plain GCD queue. Every read checks AudioObjectHasProperty first: a device that doesn't
+// implement a property (most have no input-scope volume on element 0, Bluetooth HFP has no mute)
+// reports "unknown", never a stale or zeroed value.
+
+// Transport as a short token. Raw FourCCs rather than the SDK constants so this compiles against
+// SDKs predating Continuity Capture (iPhone as a mic — a real route for a sales agent).
+static const char* SaysoTransportTypeName(UInt32 transport) {
+    switch (transport) {
+        case 'bltn': return "built_in";
+        case 'blue': return "bluetooth";
+        case 'blea': return "bluetooth_le";
+        case 'usb ': return "usb";
+        case 'virt': return "virtual";
+        case 'grup': return "aggregate";
+        case 'fgrp': return "auto_aggregate";
+        case 'hdmi': return "hdmi";
+        case 'dprt': return "displayport";
+        case 'airp': return "airplay";
+        case 'thun': return "thunderbolt";
+        case 'pci ': return "pci";
+        case '1394': return "firewire";
+        case 'eavb': return "avb";
+        case 'ccwd': return "continuity_wired";
+        case 'ccwl': return "continuity_wireless";
+        case 0: return "unknown";
+        default: return "other";
+    }
+}
+
+static bool SaysoReadHalPod(AudioObjectID object, AudioObjectPropertySelector selector,
+                            AudioObjectPropertyScope scope, AudioObjectPropertyElement element,
+                            void* out, UInt32 size) {
+    if (object == kAudioObjectUnknown) {
+        return false;
+    }
+    AudioObjectPropertyAddress pa = { selector, scope, element };
+    if (!AudioObjectHasProperty(object, &pa)) {
+        return false;
+    }
+    UInt32 sz = size;
+    return AudioObjectGetPropertyData(object, &pa, 0, nullptr, &sz, out) == noErr && sz == size;
+}
+
+static bool SaysoReadHalString(AudioObjectID object, AudioObjectPropertySelector selector, std::string& out) {
+    CFStringRef ref = nullptr;
+    if (!SaysoReadHalPod(object, selector, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain,
+                         &ref, sizeof(ref)) || !ref) {
+        return false;
+    }
+    char buf[512];
+    bool ok = CFStringGetCString(ref, buf, sizeof(buf), kCFStringEncodingUTF8);
+    CFRelease(ref);
+    if (ok) {
+        out = buf;
+    }
+    return ok;
+}
+
+static int SaysoReadInputChannelCount(AudioObjectID device) {
+    AudioObjectPropertyAddress pa = {
+        kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeInput, kAudioObjectPropertyElementMain
+    };
+    if (device == kAudioObjectUnknown || !AudioObjectHasProperty(device, &pa)) {
+        return -1;
+    }
+    UInt32 size = 0;
+    if (AudioObjectGetPropertyDataSize(device, &pa, 0, nullptr, &size) != noErr || size < sizeof(AudioBufferList)) {
+        return -1;
+    }
+    std::vector<uint8_t> storage(size);
+    AudioBufferList* abl = reinterpret_cast<AudioBufferList*>(storage.data());
+    if (AudioObjectGetPropertyData(device, &pa, 0, nullptr, &size, abl) != noErr) {
+        return -1;
+    }
+    int channels = 0;
+    for (UInt32 i = 0; i < abl->mNumberBuffers; i++) {
+        channels += (int)abl->mBuffers[i].mNumberChannels;
+    }
+    return channels;
+}
+
+// Input-scope scalar on the main element, falling back to channel 1 — most built-in and USB mics
+// only expose per-channel controls.
+static bool SaysoReadInputScalar(AudioObjectID device, AudioObjectPropertySelector selector, void* out, UInt32 size) {
+    return SaysoReadHalPod(device, selector, kAudioObjectPropertyScopeInput, kAudioObjectPropertyElementMain, out, size) ||
+           SaysoReadHalPod(device, selector, kAudioObjectPropertyScopeInput, 1, out, size);
+}
+
+struct SaysoMicDeviceSnapshot {
+    AudioDeviceID id = kAudioObjectUnknown;
+    bool hasName = false;
+    std::string name;
+    bool hasUid = false;
+    std::string uid;
+    UInt32 transport = 0;
+    Float64 nominalSampleRate = -1;
+    int inputChannels = -1;
+    int isAlive = -1;            // -1 unknown, else 0/1
+    int isRunningSomewhere = -1;
+    bool hasHogPid = false;
+    pid_t hogPid = -1;
+    int muted = -1;
+    Float32 volume = -1;          // -1 unknown
+};
+
+static SaysoMicDeviceSnapshot SaysoSnapshotMicDevice(AudioDeviceID device) {
+    SaysoMicDeviceSnapshot snap;
+    snap.id = device;
+    if (device == kAudioObjectUnknown) {
+        return snap;
+    }
+    snap.hasName = SaysoReadHalString(device, kAudioObjectPropertyName, snap.name);
+    snap.hasUid = SaysoReadHalString(device, kAudioDevicePropertyDeviceUID, snap.uid);
+    SaysoReadHalPod(device, kAudioDevicePropertyTransportType, kAudioObjectPropertyScopeGlobal,
+                    kAudioObjectPropertyElementMain, &snap.transport, sizeof(snap.transport));
+    SaysoReadHalPod(device, kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal,
+                    kAudioObjectPropertyElementMain, &snap.nominalSampleRate, sizeof(snap.nominalSampleRate));
+    snap.inputChannels = SaysoReadInputChannelCount(device);
+    UInt32 flag = 0;
+    if (SaysoReadHalPod(device, kAudioDevicePropertyDeviceIsAlive, kAudioObjectPropertyScopeGlobal,
+                        kAudioObjectPropertyElementMain, &flag, sizeof(flag))) {
+        snap.isAlive = flag ? 1 : 0;
+    }
+    if (SaysoReadHalPod(device, kAudioDevicePropertyDeviceIsRunningSomewhere, kAudioObjectPropertyScopeGlobal,
+                        kAudioObjectPropertyElementMain, &flag, sizeof(flag))) {
+        snap.isRunningSomewhere = flag ? 1 : 0;
+    }
+    snap.hasHogPid = SaysoReadHalPod(device, kAudioDevicePropertyHogMode, kAudioObjectPropertyScopeGlobal,
+                                     kAudioObjectPropertyElementMain, &snap.hogPid, sizeof(snap.hogPid));
+    if (SaysoReadInputScalar(device, kAudioDevicePropertyMute, &flag, sizeof(flag))) {
+        snap.muted = flag ? 1 : 0;
+    }
+    SaysoReadInputScalar(device, kAudioDevicePropertyVolumeScalar, &snap.volume, sizeof(snap.volume));
+    return snap;
+}
+
+// Lifecycle events are `key=value` lines; a device name with a quote or newline would break parsing.
+static std::string SaysoEventSafe(const char* value) {
+    std::string out = value ? value : "";
+    for (char& c : out) {
+        if (c == '"' || c == '\n' || c == '\r') {
+            c = '\'';
+        }
+    }
+    return out;
+}
+
 static OSStatus SaysoDefaultInputDeviceListenerProc(AudioObjectID /*inObjectID*/,
                                                     UInt32 inNumberAddresses,
                                                     const AudioObjectPropertyAddress* inAddresses,
@@ -1132,6 +1320,7 @@ static OSStatus SaysoDefaultInputDeviceListenerProc(AudioObjectID /*inObjectID*/
 
         AudioDeviceID previous = g_lastKnownDefaultInputDevice;
         g_lastKnownDefaultInputDevice = newDevice;
+        g_micLastDefaultInputChangeMs.store(SaysoRealtimeNowMs());
 
         dispatch_async(dispatch_get_main_queue(), ^{
             NSString* prevName = SaysoCopyAudioDeviceName(previous);
@@ -1142,6 +1331,18 @@ static OSStatus SaysoDefaultInputDeviceListenerProc(AudioObjectID /*inObjectID*/
                   (unsigned)newDevice, newName,
                   newUid ? newUid : @"(nil)",
                   g_isMicCapturing ? "YES" : "NO");
+            // SAYSO-431: the NSLog above only reaches the unified log; this reaches the packaged log file.
+            UInt32 prevTransport = 0;
+            UInt32 newTransport = 0;
+            SaysoReadHalPod(previous, kAudioDevicePropertyTransportType, kAudioObjectPropertyScopeGlobal,
+                            kAudioObjectPropertyElementMain, &prevTransport, sizeof(prevTransport));
+            SaysoReadHalPod(newDevice, kAudioDevicePropertyTransportType, kAudioObjectPropertyScopeGlobal,
+                            kAudioObjectPropertyElementMain, &newTransport, sizeof(newTransport));
+            EmitLifecycleEvent(std::string("mic_default_input_changed from=\"") + SaysoEventSafe([prevName UTF8String]) +
+                               "\" from_transport=" + SaysoTransportTypeName(prevTransport) +
+                               " to=\"" + SaysoEventSafe([newName UTF8String]) +
+                               "\" to_transport=" + SaysoTransportTypeName(newTransport) +
+                               " capturing=" + (g_isMicCapturing ? "1" : "0"));
             if (g_isMicCapturing) {
                 SaysoScheduleMicRouteDebouncedRestart();
             }
@@ -1609,7 +1810,18 @@ static void SaysoObserveMicEngineConfigChange(AVAudioEngine* engine) {
                      queue:nil
                 usingBlock:^(NSNotification* _Nonnull note) {
                     int64_t sinceAttachMs = SaysoNowMs() - g_micEngineObserverAttachedAtMs;
-                    if (sinceAttachMs < kMicEngineConfigChangeCooldownMs) {
+                    // SAYSO-431: record every notification, echoes included — a stall right after a
+                    // real one is the signature of the audio graph being rebuilt under us.
+                    const bool ignored = sinceAttachMs < kMicEngineConfigChangeCooldownMs;
+                    g_micLastEngineConfigChangeMs.store(SaysoRealtimeNowMs());
+                    g_micEngineConfigChanges.fetch_add(1);
+                    // AVAudioEngine stops and uninitializes itself before posting this — the ignored
+                    // echo included, so an ignored notification can leave the engine stopped with
+                    // nothing scheduled to restart it. Diagnostics must show that, not hide it.
+                    g_micEngineRunning.store(false);
+                    EmitLifecycleEvent(std::string("mic_engine_config_change ignored=") + (ignored ? "1" : "0") +
+                                       " since_attach_ms=" + std::to_string(sinceAttachMs));
+                    if (ignored) {
                         // Fires implausibly soon after we just built this engine — likely an echo
                         // of our own rebuild (e.g. AVAudioEngine's own format renegotiation) rather
                         // than a genuine external route change. Ignoring it here avoids a
@@ -1641,6 +1853,7 @@ static void SaysoRemoveMicEngineConfigChangeObserver() {
 // hardware-format-changed callback (any device/route change, not necessarily on this engine) then
 // fires at the dead listener and frees an already-recycled PartitionAlloc slot — see SAYSO-APP-5T.
 static void MicEngineTeardownOnly() {
+    g_micEngineRunning.store(false);
     SaysoRemoveMicEngineConfigChangeObserver();
     if (g_micInputNode) {
         [g_micInputNode removeTapOnBus:0];
@@ -1827,6 +2040,16 @@ static void SaysoMicDownmixWithGain(AVAudioPCMBuffer* buffer, bool isFloat32, bo
 static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** failReason = nullptr) {
     g_micFirstTapSeen.store(false, std::memory_order_release);
     g_micTapStateResetRequested.store(true); // SAYSO-428: new engine → re-announce format, reset AGC
+    // SAYSO-431: counters describe the current (or last failed) engine build only.
+    g_micEngineBuilds.fetch_add(1);
+    g_micEngineBuiltAtMs.store(SaysoRealtimeNowMs());
+    g_micTapCallbacks.store(0);
+    g_micTapDelivered.store(0);
+    g_micTapDroppedNoHandle.store(0);
+    g_micTapDroppedNoCallback.store(0);
+    g_micTapDroppedEmpty.store(0);
+    g_micTapDroppedLayout.store(0);
+    g_micTapDroppedUnsupported.store(0);
 
     g_micEngine = [[AVAudioEngine alloc] init];
     g_micInputNode = [g_micEngine inputNode];
@@ -1848,13 +2071,17 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
         if (!buffer) {
             return;
         }
+        g_micTapCallbacks.fetch_add(1, std::memory_order_relaxed);
+        g_micTapLastCallbackMs.store(SaysoRealtimeNowMs(), std::memory_order_relaxed);
         
         if (!g_micStreamingAsyncHandle) {
+            g_micTapDroppedNoHandle.fetch_add(1, std::memory_order_relaxed);
             NSLog(@"⚠️ [NATIVE] Mic callback skipped - microphone streaming async handle is null");
             return;
         }
         
         if (g_micStreamingCallback.IsEmpty()) {
+            g_micTapDroppedNoCallback.fetch_add(1, std::memory_order_relaxed);
             NSLog(@"⚠️ [NATIVE] Mic callback skipped - microphone streaming callback is empty");
             return;
         }
@@ -1862,7 +2089,11 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
         AVAudioFormat* bufferFormat = buffer.format;
         int channels = (int)bufferFormat.channelCount;
         int frameLength = (int)buffer.frameLength;
+        g_micDiagTapSampleRate.store((int)bufferFormat.sampleRate, std::memory_order_relaxed);
+        g_micDiagTapChannels.store(channels, std::memory_order_relaxed);
+        g_micDiagTapCommonFormat.store((unsigned long)bufferFormat.commonFormat, std::memory_order_relaxed);
         if (frameLength <= 0 || channels <= 0) {
+            g_micTapDroppedEmpty.fetch_add(1, std::memory_order_relaxed);
             return;
         }
 
@@ -1901,6 +2132,7 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
                 // Without this the tap would drop every buffer for the whole session with no
                 // diagnostic, and the only symptom would be the JS stall watchdog restarting the
                 // engine in a loop.
+                g_micTapDroppedLayout.fetch_add(1, std::memory_order_relaxed);
                 if (!g_micLayoutMismatchReported) {
                     g_micLayoutMismatchReported = true;
                     const AudioBufferList* abl = buffer.audioBufferList;
@@ -1945,6 +2177,7 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
             streamData->bitDepth = 16;
             streamData->isFloat = false;
         } else {
+            g_micTapDroppedUnsupported.fetch_add(1, std::memory_order_relaxed);
             NSLog(@"⚠️ [NATIVE] Unsupported audio format: %lu", (unsigned long)bufferFormat.commonFormat);
             delete streamData;
             return;
@@ -1954,6 +2187,8 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
         streamData->channels = channels;
         
         g_micFirstTapSeen.store(true, std::memory_order_release);
+        g_micTapDelivered.fetch_add(1, std::memory_order_relaxed);
+        g_micTapLastDeliveredMs.store(SaysoRealtimeNowMs(), std::memory_order_relaxed);
         g_micStreamingAsyncHandle->data = streamData;
         uv_async_send(g_micStreamingAsyncHandle);
     }];
@@ -1965,6 +2200,10 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
     }
 
     NSError* error = nil;
+    // Set before starting: the config-change observer is already attached and can mark the engine
+    // stopped while startAndReturnError is still returning. Storing the result afterwards would
+    // overwrite that with `true`. A failed start clears it again via MicEngineTeardownOnly below.
+    g_micEngineRunning.store(true);
     BOOL ok = [g_micEngine startAndReturnError:&error];
 
     if (!ok) {
@@ -2362,6 +2601,200 @@ NAN_METHOD(IsMicRouteRecovering) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(g_micRouteRecovering.load()));
 }
 
+// ─── SAYSO-431: mic diagnostics snapshot ──────────────────────────────────────
+// Point-in-time answer to "why did the mic stop": what the OS default input is and whether another
+// process holds it, whether our engine is still running, when the route/graph last changed, and
+// whether the tap received buffers at all. Attached to the stall and mic-start-failure Sentry events.
+//
+// Async on purpose. HAL property reads are synchronous IPC to coreaudiod, which is exactly the
+// daemon that is misbehaving when these events fire; a sync NAN call could block the main process
+// indefinitely. The reads run on a GCD utility queue and the promise settles via uv_async (same
+// ownership model as PendingSckStart: the block is the only writer and sends exactly once, the JS
+// thread closes the handle and frees). At most one snapshot is in flight — if coreaudiod hangs, later
+// calls resolve null immediately instead of parking one GCD thread per stall tick.
+struct PendingMicDiagnostics {
+    uv_async_t async;
+    Nan::Persistent<v8::Promise::Resolver> resolver;
+    int64_t takenAtMs = 0;
+    SaysoMicDeviceSnapshot defaultInput;
+    bool hasOpened = false;       // opened device differs from the default and is known
+    SaysoMicDeviceSnapshot openedInput;
+    AudioDeviceID openedId = kAudioObjectUnknown;
+    bool capturing = false;
+    bool routeRecovering = false;
+    bool engineRunning = false;
+    uint64_t engineBuilds = 0;
+    int64_t engineBuiltAtMs = 0;
+    int64_t lastDefaultInputChangeMs = 0;
+    int64_t lastEngineConfigChangeMs = 0;
+    uint64_t engineConfigChanges = 0;
+    uint64_t tapCallbacks = 0;
+    uint64_t tapDelivered = 0;
+    uint64_t tapDroppedNoHandle = 0;
+    uint64_t tapDroppedNoCallback = 0;
+    uint64_t tapDroppedEmpty = 0;
+    uint64_t tapDroppedLayout = 0;
+    uint64_t tapDroppedUnsupported = 0;
+    int64_t tapLastCallbackMs = 0;
+    int64_t tapLastDeliveredMs = 0;
+    int tapSampleRate = 0;
+    int tapChannels = 0;
+    unsigned long tapCommonFormat = 0;
+};
+
+static std::atomic<bool> g_micDiagnosticsInFlight{false};
+
+static Local<Value> SaysoMsSinceOrNull(int64_t nowMs, int64_t thenMs) {
+    if (thenMs <= 0) {
+        return Nan::Null();
+    }
+    return Nan::New<Number>((double)std::max<int64_t>(0, nowMs - thenMs));
+}
+
+static Local<Object> SaysoMicDeviceSnapshotToJs(const SaysoMicDeviceSnapshot& d) {
+    Local<Object> o = Nan::New<Object>();
+    auto str = [](bool has, const std::string& v) -> Local<Value> {
+        return has ? Local<Value>(Nan::New<String>(v.c_str()).ToLocalChecked()) : Local<Value>(Nan::Null());
+    };
+    auto tri = [](int v) -> Local<Value> {
+        return v < 0 ? Local<Value>(Nan::Null()) : Local<Value>(Nan::New<v8::Boolean>(v == 1));
+    };
+    Nan::Set(o, Nan::New("id").ToLocalChecked(), Nan::New<Number>((double)d.id));
+    Nan::Set(o, Nan::New("name").ToLocalChecked(), str(d.hasName, d.name));
+    Nan::Set(o, Nan::New("uid").ToLocalChecked(), str(d.hasUid, d.uid));
+    Nan::Set(o, Nan::New("transport").ToLocalChecked(),
+             Nan::New<String>(SaysoTransportTypeName(d.transport)).ToLocalChecked());
+    Nan::Set(o, Nan::New("nominalSampleRate").ToLocalChecked(),
+             d.nominalSampleRate > 0 ? Local<Value>(Nan::New<Number>(d.nominalSampleRate)) : Local<Value>(Nan::Null()));
+    Nan::Set(o, Nan::New("inputChannels").ToLocalChecked(),
+             d.inputChannels >= 0 ? Local<Value>(Nan::New<Number>(d.inputChannels)) : Local<Value>(Nan::Null()));
+    Nan::Set(o, Nan::New("isAlive").ToLocalChecked(), tri(d.isAlive));
+    Nan::Set(o, Nan::New("isRunningSomewhere").ToLocalChecked(), tri(d.isRunningSomewhere));
+    Nan::Set(o, Nan::New("hogModePid").ToLocalChecked(),
+             d.hasHogPid ? Local<Value>(Nan::New<Number>((double)d.hogPid)) : Local<Value>(Nan::Null()));
+    Nan::Set(o, Nan::New("inputMuted").ToLocalChecked(), tri(d.muted));
+    Nan::Set(o, Nan::New("inputVolume").ToLocalChecked(),
+             d.volume >= 0 ? Local<Value>(Nan::New<Number>(d.volume)) : Local<Value>(Nan::Null()));
+    return o;
+}
+
+static void MicDiagnosticsSettledCb(uv_async_t* handle) {
+    PendingMicDiagnostics* p = static_cast<PendingMicDiagnostics*>(handle->data);
+    if (!p) {
+        return;
+    }
+    Nan::HandleScope scope;
+    Isolate* isolate = Isolate::GetCurrent();
+    Local<Context> context = isolate->GetCurrentContext();
+    Local<Promise::Resolver> res = Nan::New(p->resolver);
+    p->resolver.Reset();
+
+    const int64_t now = p->takenAtMs;
+    Local<Object> result = Nan::New<Object>();
+    Nan::Set(result, Nan::New("defaultInput").ToLocalChecked(),
+             p->defaultInput.id != kAudioObjectUnknown ? Local<Value>(SaysoMicDeviceSnapshotToJs(p->defaultInput))
+                                                       : Local<Value>(Nan::Null()));
+    Nan::Set(result, Nan::New("openedInputId").ToLocalChecked(),
+             p->openedId != kAudioObjectUnknown ? Local<Value>(Nan::New<Number>((double)p->openedId))
+                                                : Local<Value>(Nan::Null()));
+    Nan::Set(result, Nan::New("openedInput").ToLocalChecked(),
+             p->hasOpened ? Local<Value>(SaysoMicDeviceSnapshotToJs(p->openedInput)) : Local<Value>(Nan::Null()));
+    Nan::Set(result, Nan::New("capturing").ToLocalChecked(), Nan::New<v8::Boolean>(p->capturing));
+    Nan::Set(result, Nan::New("routeRecovering").ToLocalChecked(), Nan::New<v8::Boolean>(p->routeRecovering));
+    Nan::Set(result, Nan::New("engineRunning").ToLocalChecked(), Nan::New<v8::Boolean>(p->engineRunning));
+    Nan::Set(result, Nan::New("engineBuilds").ToLocalChecked(), Nan::New<Number>((double)p->engineBuilds));
+    Nan::Set(result, Nan::New("msSinceEngineBuilt").ToLocalChecked(), SaysoMsSinceOrNull(now, p->engineBuiltAtMs));
+    Nan::Set(result, Nan::New("msSinceDefaultInputChange").ToLocalChecked(),
+             SaysoMsSinceOrNull(now, p->lastDefaultInputChangeMs));
+    Nan::Set(result, Nan::New("msSinceEngineConfigChange").ToLocalChecked(),
+             SaysoMsSinceOrNull(now, p->lastEngineConfigChangeMs));
+    Nan::Set(result, Nan::New("engineConfigChanges").ToLocalChecked(), Nan::New<Number>((double)p->engineConfigChanges));
+
+    Local<Object> tap = Nan::New<Object>();
+    Nan::Set(tap, Nan::New("callbacks").ToLocalChecked(), Nan::New<Number>((double)p->tapCallbacks));
+    Nan::Set(tap, Nan::New("delivered").ToLocalChecked(), Nan::New<Number>((double)p->tapDelivered));
+    Nan::Set(tap, Nan::New("droppedNoHandle").ToLocalChecked(), Nan::New<Number>((double)p->tapDroppedNoHandle));
+    Nan::Set(tap, Nan::New("droppedNoCallback").ToLocalChecked(), Nan::New<Number>((double)p->tapDroppedNoCallback));
+    Nan::Set(tap, Nan::New("droppedEmpty").ToLocalChecked(), Nan::New<Number>((double)p->tapDroppedEmpty));
+    Nan::Set(tap, Nan::New("droppedLayout").ToLocalChecked(), Nan::New<Number>((double)p->tapDroppedLayout));
+    Nan::Set(tap, Nan::New("droppedUnsupported").ToLocalChecked(), Nan::New<Number>((double)p->tapDroppedUnsupported));
+    Nan::Set(tap, Nan::New("msSinceLastCallback").ToLocalChecked(), SaysoMsSinceOrNull(now, p->tapLastCallbackMs));
+    Nan::Set(tap, Nan::New("msSinceLastDelivered").ToLocalChecked(), SaysoMsSinceOrNull(now, p->tapLastDeliveredMs));
+    Nan::Set(tap, Nan::New("lastSampleRate").ToLocalChecked(),
+             p->tapSampleRate > 0 ? Local<Value>(Nan::New<Number>(p->tapSampleRate)) : Local<Value>(Nan::Null()));
+    Nan::Set(tap, Nan::New("lastChannels").ToLocalChecked(),
+             p->tapChannels > 0 ? Local<Value>(Nan::New<Number>(p->tapChannels)) : Local<Value>(Nan::Null()));
+    Nan::Set(tap, Nan::New("lastCommonFormat").ToLocalChecked(),
+             p->tapCommonFormat > 0 ? Local<Value>(Nan::New<Number>((double)p->tapCommonFormat)) : Local<Value>(Nan::Null()));
+    Nan::Set(result, Nan::New("tap").ToLocalChecked(), tap);
+
+    res->Resolve(context, result).Check();
+    g_micDiagnosticsInFlight.store(false);
+
+    uv_close(reinterpret_cast<uv_handle_t*>(handle), [](uv_handle_t* h) {
+        PendingMicDiagnostics* self = static_cast<PendingMicDiagnostics*>(h->data);
+        delete self;
+    });
+}
+
+// Resolves the snapshot object, or null when a previous snapshot is still in flight. Never rejects.
+NAN_METHOD(GetMicInputDiagnostics) {
+    Isolate* isolate = info.GetIsolate();
+    Local<Context> context = isolate->GetCurrentContext();
+    MaybeLocal<Promise::Resolver> maybeResolver = Promise::Resolver::New(context);
+    if (maybeResolver.IsEmpty()) {
+        return;
+    }
+    Local<Promise::Resolver> resolver = maybeResolver.ToLocalChecked();
+
+    if (g_micDiagnosticsInFlight.exchange(true)) {
+        resolver->Resolve(context, Nan::Null()).Check();
+        info.GetReturnValue().Set(resolver->GetPromise());
+        return;
+    }
+
+    PendingMicDiagnostics* p = new PendingMicDiagnostics();
+    p->resolver.Reset(resolver);
+    p->async.data = p;
+    uv_async_init(uv_default_loop(), &p->async, MicDiagnosticsSettledCb);
+
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        // Atomics first, so they describe the moment of the call rather than after a slow HAL read.
+        p->takenAtMs = SaysoRealtimeNowMs();
+        p->openedId = g_micOpenedInputDeviceId.load();
+        p->capturing = g_isMicCapturing.load();
+        p->routeRecovering = g_micRouteRecovering.load();
+        p->engineRunning = g_micEngineRunning.load();
+        p->engineBuilds = g_micEngineBuilds.load();
+        p->engineBuiltAtMs = g_micEngineBuiltAtMs.load();
+        p->lastDefaultInputChangeMs = g_micLastDefaultInputChangeMs.load();
+        p->lastEngineConfigChangeMs = g_micLastEngineConfigChangeMs.load();
+        p->engineConfigChanges = g_micEngineConfigChanges.load();
+        p->tapCallbacks = g_micTapCallbacks.load();
+        p->tapDelivered = g_micTapDelivered.load();
+        p->tapDroppedNoHandle = g_micTapDroppedNoHandle.load();
+        p->tapDroppedNoCallback = g_micTapDroppedNoCallback.load();
+        p->tapDroppedEmpty = g_micTapDroppedEmpty.load();
+        p->tapDroppedLayout = g_micTapDroppedLayout.load();
+        p->tapDroppedUnsupported = g_micTapDroppedUnsupported.load();
+        p->tapLastCallbackMs = g_micTapLastCallbackMs.load();
+        p->tapLastDeliveredMs = g_micTapLastDeliveredMs.load();
+        p->tapSampleRate = g_micDiagTapSampleRate.load();
+        p->tapChannels = g_micDiagTapChannels.load();
+        p->tapCommonFormat = g_micDiagTapCommonFormat.load();
+
+        const AudioDeviceID defaultId = SaysoGetCurrentDefaultInputDeviceID();
+        p->defaultInput = SaysoSnapshotMicDevice(defaultId);
+        if (p->openedId != kAudioObjectUnknown && p->openedId != defaultId) {
+            p->hasOpened = true;
+            p->openedInput = SaysoSnapshotMicDevice(p->openedId);
+        }
+        uv_async_send(&p->async);
+    });
+
+    info.GetReturnValue().Set(resolver->GetPromise());
+}
+
 // Set streaming callback for real-time audio chunks
 NAN_METHOD(SetStreamingCallback) {
     if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
@@ -2685,6 +3118,9 @@ NAN_MODULE_INIT(Init) {
 
     Nan::Set(target, Nan::New("isMicRouteRecovering").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(IsMicRouteRecovering)).ToLocalChecked());
+
+    Nan::Set(target, Nan::New("getMicInputDiagnostics").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(GetMicInputDiagnostics)).ToLocalChecked());
 
     Nan::Set(target, Nan::New("setLifecycleEventCallback").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(SetLifecycleEventCallback)).ToLocalChecked());

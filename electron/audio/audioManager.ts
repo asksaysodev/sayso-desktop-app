@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/electron/main';
 
 import { isTransientNetworkError } from '../utils/transientErrors';
 import type { IAudioProvider, AudioFormat } from './IAudioProvider';
+import { collectMicDiagnostics, installMicDiagnosticsListeners } from './micDiagnostics';
 
 // recorder + audioStreamer are CommonJS modules. Require them LAZILY (not at
 // module top): recorder.ts eagerly pulls in the native audio chain
@@ -51,6 +52,7 @@ function emptyCueCaptureStats() {
     prospectChunks: 0,
     userBytes: 0,
     prospectBytes: 0,
+    userLastChunkAtMs: 0, // SAYSO-431: stall reports say how long the mic had been quiet
     userPeak: 0,
     userSumSq: 0,
     userSamples: 0,
@@ -117,6 +119,7 @@ export interface CueIpcDeps {
 
 /** Load the platform audio provider. Call once, after logging is configured. */
 export function initAudioProvider(): void {
+  installMicDiagnosticsListeners();
   try {
     provider = require('./index').default;
     // Native lifecycle diagnostics (SAYSO-355): route to console so the prod file logger captures
@@ -421,14 +424,28 @@ function startCueMicStallWatchdog(sessionId: string, streamingCallback: (buffer:
     }
 
     cueMicStallRecovering = true;
-    console.warn('[Cue] User audio stalled — no new chunks in', CUE_MIC_STALL_CHECK_MS, 'ms, attempting one restart', {
-      sessionId,
-    });
-    Sentry.captureMessage('[Cue] User audio stall detected mid-session', 'warning');
     try {
+      // SAYSO-431: snapshot BEFORE the stop/start below — afterwards it would describe our own restart.
+      const lastChunkAtMs = cueCaptureStats.userLastChunkAtMs;
+      const diagnostics = await collectMicDiagnostics(provider, {
+        origin: 'watchdog',
+        sessionId,
+        msSinceLastUserChunk: lastChunkAtMs > 0 ? Date.now() - lastChunkAtMs : null,
+      });
+      // The snapshot can take up to its timeout; a Stop (or a new session) in that window owns the mic now.
+      if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
+      console.warn('[Cue] User audio stalled — no new chunks in', CUE_MIC_STALL_CHECK_MS, 'ms, attempting one restart', {
+        sessionId,
+        diagnostics: diagnostics.summary,
+      });
+      Sentry.captureMessage('[Cue] User audio stall detected mid-session', {
+        level: 'warning',
+        tags: diagnostics.tags,
+        extra: diagnostics.extra,
+      });
       await getRecorder().stopUserStreaming();
       if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
-      await getRecorder().startUserStreaming({ streamingCallback });
+      await getRecorder().startUserStreaming({ streamingCallback, origin: 'watchdog', sessionId });
     } catch (error) {
       console.error('[Cue] Error restarting user streaming after stall:', error);
       Sentry.captureException(error);
@@ -468,7 +485,7 @@ async function ensureCueUserMicDeliversJsChunks(
   });
   await getRecorder().stopUserStreaming();
   if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
-  await getRecorder().startUserStreaming({ streamingCallback });
+  await getRecorder().startUserStreaming({ streamingCallback, origin: 'delivery_check', sessionId });
   await waitForCueUserChunks(sessionId, CUE_MIC_JS_RESTART_WAIT_MS);
 }
 
@@ -723,11 +740,12 @@ export function registerCueIpc(deps: CueIpcDeps): void {
           }
           cueCaptureStats.userChunks += 1;
           cueCaptureStats.userBytes += buffer?.length ?? 0;
+          cueCaptureStats.userLastChunkAtMs = Date.now();
           trackCueUserLevel(sessionId, buffer, format as AudioFormat);
           cueAudioStreamer.addUserAudio(buffer, format);
         }
       };
-      await getRecorder().startUserStreaming({ streamingCallback: cueUserStreamingCallback });
+      await getRecorder().startUserStreaming({ streamingCallback: cueUserStreamingCallback, origin: 'user', sessionId });
       await ensureCueUserMicDeliversJsChunks(sessionId, cueUserStreamingCallback);
 
       if (!provider) {
