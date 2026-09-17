@@ -62,7 +62,7 @@ After changing anything in `electron/*.ts`, run `npm run build:electron` — Ele
   | `onboarding-window.html` | `src/onboardingWindow/` | First-run onboarding |
 
   Adding a window means: new root HTML + new `src/<name>Window/` + a `rollupOptions.input` entry + a `create…Window()` in `electron/main.ts`.
-- There is **no `src/views/`**. Dashboard, account, admin and checkout UI live in the `sayso-web-app` repo, not here. The tray's "My Account" just opens `app.asksayso.com` with a token in the URL fragment.
+- There is **no `src/views/`**. Dashboard, account, admin and checkout UI live in the `sayso-web-app` repo, not here. The tray's "My Account" opens `app.asksayso.com` with a single-use handoff token in the URL fragment, minted by `POST /auth/desktop-handoff` and redeemed there with `verifyOtp`. Never put this app's `access_token` in that fragment — see `docs/AUTH_ARCHITECTURE.md`.
 - Path alias `@/*` → `./src/*` (renderer only; `electron/` uses relative requires).
 - Each window entry point (`src/*/index.tsx`) mounts its own React root, its own `QueryClient`, calls `Sentry.init`, and **must** `import '@/services/networkReporter'` — see Network state below — and `import '@/utils/platform'`, whose side effect writes `document.documentElement.dataset.platform` so CSS can gate on the platform. Gate on the negation (`:root:not([data-platform="darwin"])`) rather than `[data-platform="win32"]` for any rule that paints something macOS must not get: the attribute hangs off a side-effect import with no named binding, so if that import is ever dropped a positive gate paints nothing — which on the transparent tray window means an invisible, still click-blocking rectangle. See `docs/IPC_CONTRACT.md`.
 

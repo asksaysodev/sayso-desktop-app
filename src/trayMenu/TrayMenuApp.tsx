@@ -14,6 +14,7 @@ const TrayMenuApp = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [account, setAccount] = useState<Account | null>(null);
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('idle');
+  const [isOpeningAccount, setIsOpeningAccount] = useState(false);
   const { isReconnecting } = useNetworkState();
   const { toggleAppSettingsWindow } = useAppSettingsWindow();
   const { isPlaybookWindowOpen, togglePlaybookWindow } = usePlaybookWindow();
@@ -123,11 +124,25 @@ const TrayMenuApp = () => {
     window.electron?.ipcRenderer?.send('quit-app');
   };
 
+  /**
+   * Opens the web app signed in, on the dashboard.
+   *
+   * Main owns the whole flow — fetching the one-time handoff token and launching the
+   * browser — so no credential crosses into this window and a sign-out mid-request
+   * cannot leave us opening a signed-in browser (SAYSO-433). All this tracks is whether
+   * a request is in flight, to keep the row from firing twice.
+   *
+   * Never rejects in practice: main opens the page on every failure path.
+   */
   const handlePressMyAccount = async () => {
-    const token: string | null = await window.electron?.ipcRenderer?.invoke('auth:get-token') ?? null;
-    const url = new URL('https://app.asksayso.com/settings');
-    if (token) url.hash = `access_token=${token}`;
-    window.electron?.openExternal(url.toString());
+    if (isOpeningAccount) return;
+
+    setIsOpeningAccount(true);
+    try {
+      await window.electron?.openWebApp();
+    } finally {
+      setIsOpeningAccount(false);
+    }
   };
 
   const handleAuthPress = () => {
@@ -202,8 +217,14 @@ const TrayMenuApp = () => {
             <button
               className="tray-menu-item"
               onClick={handlePressMyAccount}
+              // Deliberately NOT disabled while reconnecting: this row opens a browser
+              // page in every state, and disabling it offline was a documented mistake
+              // (docs/NETWORK_STATE_FLOW.md, item 5). Only an in-flight request blocks.
+              disabled={isOpeningAccount}
             >
-              <span className="tray-menu-item-label">My Account</span>
+              <span className="tray-menu-item-label">
+                {isOpeningAccount ? 'Opening…' : 'My Account'}
+              </span>
               <ExternalLink size={16} />
             </button>
 

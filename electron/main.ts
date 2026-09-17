@@ -1971,6 +1971,65 @@ ipcMain.handle('auth:get-state', () => {
   return authManager.getState();
 });
 
+const WEB_APP_URL = 'https://app.asksayso.com/';
+
+/**
+ * Opens the web app in the browser with the user already signed in, on the dashboard.
+ *
+ * Lives in main rather than the tray because the token must not have to cross into a
+ * renderer for this, because main reads the live session instead of a captured React
+ * value (a sign-out mid-flight cannot leave us opening a signed-in browser), and because
+ * the renderer's shared axios interceptor would retry a timeout three times with backoff
+ * — turning a 5 s ceiling into ~26 s of the user staring at "Opening…".
+ *
+ * The hash carries a single-use token minted by the server, never this app's access
+ * token. Sending the access token was the old approach and it failed silently: the web
+ * app needs a refresh token to call setSession, main never gives renderers one by
+ * design, and supabase-js reads an `access_token` hash with no refresh token as a failed
+ * implicit-grant callback — clearing whatever session the browser already had. The
+ * server-minted token_hash lets the browser mint a session of its own (SAYSO-433).
+ *
+ * Every path opens the page. Landing on the login screen is worse than being signed in
+ * and far better than a click that does nothing.
+ */
+ipcMain.handle('auth:open-web-app', async () => {
+  const openPlain = () => shell.openExternal(WEB_APP_URL);
+
+  if (global.networkState === 'reconnecting') {
+    openPlain();
+    return;
+  }
+
+  try {
+    const token = await authManager.getAccessToken();
+    if (!token) {
+      openPlain();
+      return;
+    }
+
+    const res = await axios.post(`${backendBaseUrl()}/auth/desktop-handoff`, null, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 5000,
+    });
+
+    const tokenHash = res.data?.token_hash;
+    if (!tokenHash) {
+      // Expected while a password reset is outstanding: the two share one Supabase
+      // token slot, so the server declines rather than killing the reset link.
+      console.log('[MAIN] Handoff declined:', res.data?.reason ?? 'no token returned');
+      openPlain();
+      return;
+    }
+
+    shell.openExternal(`${WEB_APP_URL}#token_hash=${encodeURIComponent(tokenHash)}`);
+  } catch (err: any) {
+    // A blip or a 5xx is expected state, not a bug worth a Sentry event.
+    if (!isTransientNetworkError(err)) Sentry.captureException(err);
+    console.warn('[MAIN] Handoff failed, opening web app signed out:', err?.message);
+    openPlain();
+  }
+});
+
 // ─── Network state (renderer-driven) ────────────────────────────────────────
 // Renderers report online/offline via OS events (window.addEventListener).
 // Main mirrors the state globally and broadcasts so all windows stay in sync.
