@@ -6,7 +6,8 @@ import { IS_MAC, IS_WINDOWS } from './platform';
 /**
  * What the tray menu popover is positioned against. `'cursor'` is a click on
  * the tray icon itself; `'tray'` is any open that didn't come from the icon —
- * a Dock click, an app launch — where the cursor is somewhere unrelated.
+ * a Dock click or a Windows shortcut click — where the cursor is somewhere
+ * unrelated.
  */
 type TrayMenuAnchor = 'cursor' | 'tray';
 
