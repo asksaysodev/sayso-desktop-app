@@ -125,9 +125,11 @@ class WindowManager {
         // Not a tray click, so the cursor's x says nothing about the icon. Every
         // menu bar lays the extras out right-aligned, so the icon's distance
         // from its own display's right edge carries over to this display. An
-        // icon the menu bar has no room for (notch, crowded bar) reports empty
-        // bounds; pin that to the right edge, where the extras live.
-        const trayHidden = trayBounds.width === 0 && trayBounds.height === 0;
+        // icon with no real position — hidden by the notch or a crowded bar, or
+        // not laid out yet right after `new Tray()` — reports the origin, where
+        // no status item can be (the Apple menu is there); pin that to the
+        // right edge, where the extras live.
+        const trayHidden = trayBounds.x === 0 && trayBounds.y === 0;
         const trayDisplay = screen.getDisplayMatching(trayBounds).bounds;
         const fromRight = trayHidden
           ? 0

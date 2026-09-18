@@ -1839,17 +1839,9 @@ app.whenReady().then(async () => {
   }
 
   // macOS only: Dock click, or re-opening the app while it is running. Not
-  // emitted for the initial launch — that is the reveal just below.
+  // emitted for the initial launch, which deliberately opens nothing when
+  // signed in — the app just appears in the tray.
   app.on('activate', handleLauncherActivation);
-
-  // A user-launched app that opened no window (signed in, permissions and
-  // onboarding done) would give no sign it started. Launch at login is the
-  // opposite case — appearing silently in the tray is the point. macOS only for
-  // now: wasOpenedAtLogin has no Windows equivalent, see SAYSO-436.
-  if (IS_MAC && BrowserWindow.getAllWindows().length === 0 && !app.getLoginItemSettings().wasOpenedAtLogin) {
-    console.log('[MAIN] Launched with no window to show — opening tray menu');
-    showTrayMenu('tray');
-  }
 });
 
 // Cleanup audio capture before app quits
