@@ -937,6 +937,16 @@ let trayMenuHiddenAt = 0;
 // A Dock click on an open menu blurs it (hiding it) just before 'activate'
 // fires; without this the activate would immediately re-show it.
 const LAUNCHER_TOGGLE_GRACE_MS = 300;
+// Set once boot has built the tray and routed the first window. A Windows
+// launcher click can arrive during boot, when opening the menu or a splash
+// isn't safe yet.
+let launcherActivationReady = false;
+// Windows: a launcher-opened menu may never be given focus, and blur is the only
+// thing that closes it. Without focus it closes itself instead — after this
+// long untouched, or as soon as the pointer leaves it (SAYSO-436).
+const UNFOCUSED_MENU_TIMEOUT_MS = 5000;
+const UNFOCUSED_MENU_POLL_MS = 200;
+let unfocusedMenuTimer: NodeJS.Timeout | null = null;
 let onboardingWindowInstance: BrowserWindowType | null = null;
 let onboardingClosedIntentionally = false;
 let isAppQuitting = false;
@@ -1043,6 +1053,7 @@ function showTrayMenu(anchor: TrayMenuAnchor = 'cursor') {
     trayMenuShownAt = Date.now();
     trayMenuWindow.show();
     trayMenuWindow.focus();
+    if (IS_WINDOWS && anchor === 'tray') armUnfocusedMenuDismissal();
     trayMenuWindow.webContents.send('coach-window-state', {
       isOpen: isCoachWindowOpen()
     });
@@ -1066,6 +1077,7 @@ function showTrayMenu(anchor: TrayMenuAnchor = 'cursor') {
  * Hides the tray menu window
  */
 function hideTrayMenu() {
+  disarmUnfocusedMenuDismissal();
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
     if (trayMenuWindow.isVisible()) trayMenuHiddenAt = Date.now();
     trayMenuWindow.hide();
@@ -1073,6 +1085,51 @@ function hideTrayMenu() {
     // linger on other Spaces (incl. fullscreen) while hidden.
     trayMenuWindow.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
   }
+}
+
+/**
+ * Closes a menu that was shown but never given focus (see UNFOCUSED_MENU_TIMEOUT_MS).
+ *
+ * Windows only grants focus to the process the user's click launched. For a
+ * launcher click that is the short-lived second instance, not us, so the
+ * menu can appear without ever being focused — and a window that never had
+ * focus never blurs, which would leave it on screen until an item is clicked.
+ * Polls because an unfocused window gets no event for "the user clicked
+ * elsewhere". Stands down as soon as the menu is focused (normal blur
+ * dismissal takes over) or hidden.
+ */
+function armUnfocusedMenuDismissal() {
+  disarmUnfocusedMenuDismissal();
+  const shownAt = Date.now();
+  let pointerEntered = false;
+
+  unfocusedMenuTimer = setInterval(() => {
+    const win = trayMenuWindow;
+    if (!win || win.isDestroyed() || !win.isVisible() || win.isFocused()) {
+      disarmUnfocusedMenuDismissal();
+      return;
+    }
+
+    const cursor = electronScreen.getCursorScreenPoint();
+    const b = win.getBounds();
+    const pointerOver = cursor.x >= b.x && cursor.x < b.x + b.width
+      && cursor.y >= b.y && cursor.y < b.y + b.height;
+    if (pointerOver) {
+      pointerEntered = true;
+      return;
+    }
+
+    if (pointerEntered || Date.now() - shownAt >= UNFOCUSED_MENU_TIMEOUT_MS) {
+      console.log('[MAIN] tray menu never got focus — closing it (pointer left or timed out)');
+      hideTrayMenu();
+    }
+  }, UNFOCUSED_MENU_POLL_MS);
+}
+
+function disarmUnfocusedMenuDismissal() {
+  if (!unfocusedMenuTimer) return;
+  clearInterval(unfocusedMenuTimer);
+  unfocusedMenuTimer = null;
 }
 
 /**
@@ -1088,7 +1145,9 @@ function positionTrayMenu() {
 }
 
 /**
- * The user clicked the app icon itself (the macOS Dock) rather than the tray.
+ * The user clicked the app icon itself rather than the tray: the macOS Dock
+ * ('activate'), or on Windows the taskbar, desktop or Start-menu shortcut
+ * while the app is already running ('second-instance', SAYSO-436).
  *
  * Stand-in until the hub window exists (SAYSO-435): with nothing else to show,
  * open the tray menu, as tray-first apps like Loom do. Before this the click
@@ -1120,12 +1179,16 @@ function handleLauncherActivation() {
     return;
   }
 
-  if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
+  // The Dock icon toggles the menu. A Windows shortcut click always opens it:
+  // the click itself usually blurs the open menu, and a second instance takes
+  // far longer than the toggle grace to start, so a toggle there would close
+  // and immediately re-open it.
+  if (IS_MAC && trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
     console.log('[MAIN] launcher activation — tray menu open, closing it');
     hideTrayMenu();
     return;
   }
-  if (Date.now() - trayMenuHiddenAt < LAUNCHER_TOGGLE_GRACE_MS) {
+  if (IS_MAC && Date.now() - trayMenuHiddenAt < LAUNCHER_TOGGLE_GRACE_MS) {
     console.log('[MAIN] launcher activation — tray menu just closed by this click, leaving it closed');
     return;
   }
@@ -1589,9 +1652,19 @@ function setupDeepLinkHandling(): void {
   // held, its argv is forwarded to the primary via 'second-instance'.
   app.on('second-instance', (_event: Event, argv: string[]) => {
     if (isDev) console.log('Second instance detected, command line:', argv);
-    focusExistingWindow();
     const url = findDeepLinkArg(argv);
-    if (url) handleDeepLink(url);
+    if (url) {
+      focusExistingWindow();
+      handleDeepLink(url);
+      return;
+    }
+    // A plain launcher click (taskbar, desktop or Start-menu shortcut). During
+    // boot there is no tray yet to open a menu from; keep the old behaviour.
+    if (launcherActivationReady) {
+      handleLauncherActivation();
+    } else {
+      focusExistingWindow();
+    }
   });
 
   // Cold launch: the URL is in this process's own argv. handleDeepLink defers
@@ -1840,8 +1913,11 @@ app.whenReady().then(async () => {
 
   // macOS only: Dock click, or re-opening the app while it is running. Not
   // emitted for the initial launch, which deliberately opens nothing when
-  // signed in — the app just appears in the tray.
+  // signed in — the app just appears in the tray. Windows launcher clicks come
+  // through 'second-instance' instead, which waits for this point via
+  // launcherActivationReady.
   app.on('activate', handleLauncherActivation);
+  launcherActivationReady = true;
 });
 
 // Cleanup audio capture before app quits
