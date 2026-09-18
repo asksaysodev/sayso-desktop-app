@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process';
 import { nativeImage } from 'electron/common';
 import * as Sentry from '@sentry/electron/main';
 import sentryConfig from './sentry.config';
-import { WindowManager } from './utils/windowManager';
+import { WindowManager, type TrayMenuAnchor } from './utils/windowManager';
 import { loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, IS_WINDOWS, ALLOW_VIBRANCY } from './utils/platform';
@@ -929,6 +929,14 @@ let tray: TrayType | null = null;
 let trayMenuWindow: BrowserWindowType | null = null;
 let trayMenuShownAt = 0;
 const TRAY_BLUR_GRACE_MS = 250;
+// What the open menu is positioned against. Kept for the menu's lifetime, not
+// just the reveal: the renderer re-measures after showing and the resulting
+// set-tray-menu-height re-position must not jump a Dock-opened menu to the Dock.
+let trayMenuAnchor: TrayMenuAnchor = 'cursor';
+let trayMenuHiddenAt = 0;
+// A Dock click on an open menu blurs it (hiding it) just before 'activate'
+// fires; without this the activate would immediately re-show it.
+const LAUNCHER_TOGGLE_GRACE_MS = 300;
 let onboardingWindowInstance: BrowserWindowType | null = null;
 let onboardingClosedIntentionally = false;
 let isAppQuitting = false;
@@ -1024,7 +1032,8 @@ function createTrayMenuWindow() {
 /**
  * Shows the tray menu window positioned near the tray icon
  */
-function showTrayMenu() {
+function showTrayMenu(anchor: TrayMenuAnchor = 'cursor') {
+  trayMenuAnchor = anchor;
   const reveal = () => {
     if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
     // Pin to all workspaces (incl. fullscreen) while visible so macOS doesn't
@@ -1058,6 +1067,7 @@ function showTrayMenu() {
  */
 function hideTrayMenu() {
   if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    if (trayMenuWindow.isVisible()) trayMenuHiddenAt = Date.now();
     trayMenuWindow.hide();
     // Revoke the all-workspaces pin set during show so the window doesn't
     // linger on other Spaces (incl. fullscreen) while hidden.
@@ -1072,9 +1082,55 @@ function positionTrayMenu() {
   if (!trayMenuWindow || trayMenuWindow.isDestroyed() || !tray) return;
 
   const { x, y } = WindowManager.calculateTrayMenuPosition(
-    tray.getBounds(), TRAY_MENU_WIDTH, trayMenuWindow.getBounds().height,
+    tray.getBounds(), TRAY_MENU_WIDTH, trayMenuWindow.getBounds().height, trayMenuAnchor,
   );
   trayMenuWindow.setPosition(x, y, false);
+}
+
+/**
+ * The user clicked the app icon itself (the macOS Dock) rather than the tray.
+ *
+ * Stand-in until the hub window exists (SAYSO-435): with nothing else to show,
+ * open the tray menu, as tray-first apps like Loom do. Before this the click
+ * built a splash window only for it to find the user signed in and close
+ * itself again — or, once the tray menu had been opened (it is hidden, never
+ * closed, so it counts as a window), did nothing at all.
+ */
+function handleLauncherActivation() {
+  // A framed window already on screen is what the user is after.
+  const framed = [splashWindowInstance, onboardingWindowInstance, global.appSettingsWindow]
+    .find((win): win is BrowserWindowType => !!win && !win.isDestroyed());
+  if (framed) {
+    console.log('[MAIN] launcher activation — focusing open framed window');
+    if (framed.isMinimized()) framed.restore();
+    framed.show();
+    framed.focus();
+    return;
+  }
+
+  // Mirrors the boot routing: signed out, or signed in without the permissions
+  // flow finished, still belongs on the splash.
+  const { isAuthenticated } = authManager.getState();
+  const needsSplash = isAuthenticated
+    ? !permissions.isPermissionsComplete()
+    : !authManager.isNetworkRetryPending();
+  if (needsSplash) {
+    console.log('[MAIN] launcher activation — not signed in or permissions incomplete, showing splash');
+    createSplashWindow();
+    return;
+  }
+
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
+    console.log('[MAIN] launcher activation — tray menu open, closing it');
+    hideTrayMenu();
+    return;
+  }
+  if (Date.now() - trayMenuHiddenAt < LAUNCHER_TOGGLE_GRACE_MS) {
+    console.log('[MAIN] launcher activation — tray menu just closed by this click, leaving it closed');
+    return;
+  }
+  console.log('[MAIN] launcher activation — opening tray menu');
+  showTrayMenu('tray');
 }
 
 /**
@@ -1782,17 +1838,18 @@ app.whenReady().then(async () => {
     openCoachFromProtocol();
   }
 
-  app.on('activate', () => {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createSplashWindow();
-      setupGlobalShortcut();
-    } else if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
-      splashWindowInstance.restore();
-      splashWindowInstance.focus();
-    }
-  });
+  // macOS only: Dock click, or re-opening the app while it is running. Not
+  // emitted for the initial launch — that is the reveal just below.
+  app.on('activate', handleLauncherActivation);
+
+  // A user-launched app that opened no window (signed in, permissions and
+  // onboarding done) would give no sign it started. Launch at login is the
+  // opposite case — appearing silently in the tray is the point. macOS only for
+  // now: wasOpenedAtLogin has no Windows equivalent, see SAYSO-436.
+  if (IS_MAC && BrowserWindow.getAllWindows().length === 0 && !app.getLoginItemSettings().wasOpenedAtLogin) {
+    console.log('[MAIN] Launched with no window to show — opening tray menu');
+    showTrayMenu('tray');
+  }
 });
 
 // Cleanup audio capture before app quits
@@ -2333,7 +2390,7 @@ ipcMain.on('set-tray-menu-height', (_event: Electron.IpcMainEvent, height: numbe
     return;
   }
 
-  const { x, y } = WindowManager.calculateTrayMenuPosition(tray.getBounds(), TRAY_MENU_WIDTH, target);
+  const { x, y } = WindowManager.calculateTrayMenuPosition(tray.getBounds(), TRAY_MENU_WIDTH, target, trayMenuAnchor);
   trayMenuWindow.setBounds({ x, y, width: TRAY_MENU_WIDTH, height: target });
 });
 

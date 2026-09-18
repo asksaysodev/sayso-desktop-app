@@ -3,6 +3,13 @@ import { screen } from 'electron';
 import { WINDOW_CONFIG } from './windowConfig';
 import { IS_MAC, IS_WINDOWS } from './platform';
 
+/**
+ * What the tray menu popover is positioned against. `'cursor'` is a click on
+ * the tray icon itself; `'tray'` is any open that didn't come from the icon —
+ * a Dock click, an app launch — where the cursor is somewhere unrelated.
+ */
+type TrayMenuAnchor = 'cursor' | 'tray';
+
 class WindowManager {
   static getActiveDisplay() {
     const cursorPoint = screen.getCursorScreenPoint();
@@ -83,29 +90,54 @@ class WindowManager {
    * taskbar): resizing from the current top-left first and repositioning
    * afterwards leaves one frame of wrong geometry, with the menu extended down
    * over the taskbar before it snaps back.
+   *
+   * `anchor` only changes anything on macOS; everywhere else the menu is always
+   * placed against `trayBounds`.
    */
   static calculateTrayMenuPosition(
     trayBounds: { x: number; y: number; width: number; height: number },
     width: number,
     height: number,
+    anchor: TrayMenuAnchor = 'cursor',
   ) {
-    // macOS: tray.getBounds() can report the primary display even when the icon
-    // was clicked on a secondary display's menu bar, so the cursor is the more
-    // reliable signal there. Everywhere else trayBounds is trustworthy, and the
+    // macOS: tray.getBounds() reports whichever display's copy of the icon it
+    // likes — the primary one when the icon was clicked on a secondary menu
+    // bar, and another monitor's when a fullscreen app has hidden this one's
+    // menu bar. So the display always comes from the cursor there: where the
+    // tray icon was clicked, or where the user just clicked the Dock or
+    // launched the app from. Everywhere else trayBounds is trustworthy, and the
     // cursor's display would be the wrong one to clamp against whenever the
     // tray sits on another monitor's taskbar.
     const cursorPoint = screen.getCursorScreenPoint();
-    const { workArea } = IS_MAC
+    const display = IS_MAC
       ? screen.getDisplayNearestPoint(cursorPoint)
       : screen.getDisplayMatching(trayBounds);
+    const { workArea } = display;
 
     let x: number;
     let y: number;
 
     if (IS_MAC) {
-      // Center horizontally around the cursor (where the icon was clicked),
-      // and place just below this display's menu bar.
-      x = Math.round(cursorPoint.x - width / 2);
+      let centreX: number;
+      if (anchor === 'cursor') {
+        centreX = cursorPoint.x;
+      } else {
+        // Not a tray click, so the cursor's x says nothing about the icon. Every
+        // menu bar lays the extras out right-aligned, so the icon's distance
+        // from its own display's right edge carries over to this display. An
+        // icon the menu bar has no room for (notch, crowded bar) reports empty
+        // bounds; pin that to the right edge, where the extras live.
+        const trayHidden = trayBounds.width === 0 && trayBounds.height === 0;
+        const trayDisplay = screen.getDisplayMatching(trayBounds).bounds;
+        const fromRight = trayHidden
+          ? 0
+          : trayDisplay.x + trayDisplay.width - (trayBounds.x + trayBounds.width / 2);
+        centreX = display.bounds.x + display.bounds.width - fromRight;
+      }
+
+      // Center horizontally around the anchor, and place just below this
+      // display's menu bar.
+      x = Math.round(centreX - width / 2);
       y = Math.round(workArea.y + 5);
 
       // Clamp to this display's bounds
@@ -300,3 +332,4 @@ class WindowManager {
 }
 
 export { WindowManager };
+export type { TrayMenuAnchor };
