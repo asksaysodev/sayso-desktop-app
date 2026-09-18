@@ -1913,8 +1913,9 @@ app.whenReady().then(async () => {
 
   // macOS only: Dock click, or re-opening the app while it is running. Not
   // emitted for the initial launch, which deliberately opens nothing when
-  // signed in — the app just appears in the tray. Windows routes launcher
-  // clicks through 'second-instance', gated on the same flag.
+  // signed in — the app just appears in the tray. Windows launcher clicks come
+  // through 'second-instance' instead, which waits for this point via
+  // launcherActivationReady.
   app.on('activate', handleLauncherActivation);
   launcherActivationReady = true;
 });
