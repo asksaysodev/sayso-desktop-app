@@ -100,6 +100,9 @@
   },
   "build": {
     "appId": "com.asksayso.app",
+    "extraMetadata": {
+      "app_id": "com.asksayso.app"
+    },
     "productName": "Sayso",
     "publish": {
       "provider": "github",
@@ -128,7 +131,8 @@
         "to": "assets",
         "filter": [
           "**/*",
-          "!src/**"
+          "!src/**",
+          "!installer.nsh"
         ]
       },
       {
@@ -222,6 +226,7 @@
       ]
     },
     "nsis": {
+      "include": "installer.nsh",
       "oneClick": false,
       "perMachine": false,
       "allowElevation": false,

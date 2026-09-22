@@ -1,4 +1,12 @@
 import { SidebarOptionType } from "./AppSettingsWindowApp";
+import { IS_WINDOWS } from "@/utils/platform";
+
+// Shared with GeneralSettings.tsx so the rendered row and this search index can't
+// drift. Windows has no menu-bar tray: the equivalent surface is the taskbar
+// notification area, and "your computer" avoids naming a Mac on a PC.
+export const LAUNCH_AT_LOGIN_DESCRIPTION = IS_WINDOWS
+    ? 'Automatically start Sayso in the taskbar when your computer starts'
+    : 'Automatically start Sayso in the tray when your Mac starts';
 
 export interface SettingsRegistryEntry {
     id: string;
@@ -20,8 +28,8 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
     {
         id: 'launch-at-login',
         label: 'Launch at Login',
-        description: 'Automatically start Sayso in the tray when your Mac starts',
-        keywords: ['launch', 'login', 'startup', 'autostart', 'auto start', 'start', 'mac', 'tray', 'general'],
+        description: LAUNCH_AT_LOGIN_DESCRIPTION,
+        keywords: ['launch', 'login', 'startup', 'autostart', 'auto start', 'start', 'mac', 'windows', 'computer', 'tray', 'taskbar', 'general'],
         section: 'general',
     },
     {

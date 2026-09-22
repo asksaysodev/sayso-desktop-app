@@ -3,6 +3,7 @@ import SettingsContentLayout from "./SettingsContentLayout";
 import useCoachSettingsContext from "../context/CoachSettingsContext";
 import useDebounce from "@/hooks/useDebounce";
 import SettingsToggle from "./SettingsToggle";
+import { LAUNCH_AT_LOGIN_DESCRIPTION } from "../settingsRegistry";
 
 export default function GeneralSettings() {
     const [timeDelay, setTimeDelay] = useState<number | undefined>(undefined);
@@ -44,7 +45,7 @@ export default function GeneralSettings() {
             <div id="launch-at-login" className="cue-setting-item">
                 <div className="cue-setting-left">
                     <span className="cue-setting-label">Launch at Login</span>
-                    <p className="cue-setting-description">Automatically start Sayso in the tray when your Mac starts</p>
+                    <p className="cue-setting-description">{LAUNCH_AT_LOGIN_DESCRIPTION}</p>
                 </div>
                 <div className="cue-setting-right">
                     <SettingsToggle
