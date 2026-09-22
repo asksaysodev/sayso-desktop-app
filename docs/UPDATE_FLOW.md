@@ -72,6 +72,16 @@ If a read-only failure ever does reach `electron-updater`, `classifyUpdaterError
 ### 11. Single source of truth in main process
 `updateState` in `main.ts` is the only authoritative update state. All UI surfaces (splash `UpdateGate`, tray `TrayMenuApp`, App Settings `SoftwareUpdateSettings`) subscribe via `update:state-changed` IPC and hydrate via `update:get-state` on mount.
 
+### 12. Which updater errors reach Sentry (SAYSO-427)
+
+`updater.on('error')` is the single reporting point: `classifyUpdaterError(err) === 'fatal'` → `Sentry.captureException`. Everything else — `'offline'`, `'transient'`, `'read-only-volume'` — is suppressed and gets friendly copy from `updaterErrorMessage()` instead of the raw message.
+
+The catch is how electron-updater delivers an HTTP failure. `GitHubProvider` catches the original `HttpError` and re-throws it twice through `newError()`, which is just `new Error(message)` plus a `code` — `statusCode` does not survive, and the status is left only as text inside the interpolated stack (`HttpError: 504 …`). The asset-download path never has an `HttpError` at all; it throws `Cannot download "<url>", status 504: …`. So `getStatus()` reads the status field when there is one and otherwise parses it out of the message.
+
+Keyed on the **status alone**, deliberately: `ERR_UPDATER_INVALID_RELEASE_FEED` / `ERR_UPDATER_LATEST_VERSION_NOT_FOUND` / `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND` wrap real failures too — a 404 because no production release exists, a missing channel file — and those must keep reporting.
+
+This matters twice over: the hourly check runs through `runAfterNetworkSettles()`, which retries on `isTransientNetworkError()`, and every retry re-emits `'error'`. Both predicates read the same status, which is what keeps a retried failure from being reported once per attempt.
+
 ---
 
 ## IPC Contract

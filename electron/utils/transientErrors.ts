@@ -12,14 +12,44 @@ export function isTransientUpstreamStatus(status: number | undefined): boolean {
   return status === 429 || status === 502 || status === 503 || status === 504 || status === 618;
 }
 
+// Some errors carry no status field at all, only the status as *text* in the
+// message (SAYSO-427). electron-updater's GitHubProvider catches the original
+// HttpError and re-throws it twice through newError(), which is just
+// `new Error(message)` with a `code` — `statusCode` is gone, and the status
+// survives only inside the interpolated inner stack ("HttpError: 504 …"). The
+// asset-download path never has an HttpError to begin with; it throws a plain
+// Error reading `Cannot download "<url>", status 504: …`.
+//
+// Keyed on the status alone, deliberately: the same ERR_UPDATER_* wrappers also
+// carry real failures — a 404 when no production release exists, a missing
+// channel file — and those must keep reporting.
+const WRAPPED_STATUS_PATTERNS = [
+  /HttpError: (\d{3})\b/, // GitHubProvider newError wrappers
+  /\bstatus (\d{3})\b/, // httpExecutor's download error
+];
+
+// First match wins, which is the real status: the wrapper interpolates the
+// inner stack *before* the releases feed it appends, so a stray "HttpError: 502"
+// inside someone's release notes can't shadow it. No /g — that would carry
+// `lastIndex` between calls.
+function parseWrappedStatus(message: string): number | undefined {
+  for (const pattern of WRAPPED_STATUS_PATTERNS) {
+    const match = pattern.exec(message);
+    if (match) return Number(match[1]);
+  }
+  return undefined;
+}
+
 // Three shapes carry an HTTP status in this codebase and they all spell it
 // differently: electron-updater uses `statusCode`, AuthError uses `status`, and
 // axios buries it in `response.status`. Reading only the first meant every
 // axios 429/502/503/504 classified as fatal — reported to Sentry and never
 // retried — which is why AuthManager grew its own predicate to work around it.
+// A real field always wins; the message is only read when there is none.
 function getStatus(err: any): number | undefined {
   const status = err?.statusCode ?? err?.status ?? err?.response?.status;
-  return typeof status === 'number' ? status : undefined;
+  if (typeof status === 'number') return status;
+  return parseWrappedStatus(`${err?.message ?? ''}`);
 }
 
 // One shared vocabulary of environmental network failures. Both questions this
