@@ -154,13 +154,24 @@ correlate (SAYSO-355).
 Enabling the toggle writes two `HKCU` values — the entry itself under
 `…\CurrentVersion\Run` and the Task Manager approval flag under
 `…\CurrentVersion\Explorer\StartupApproved\Run`. Electron names both after the
-**AppUserModelId**, so `main.ts` pins that to `build.appId` (SAYSO-453); before
-that it fell back to `electron.app.<app.name>`. The AUMID is read from
-package.json rather than hardcoded, which is why `build.staging.js` injects
-`extraMetadata.build.appId` — the `appId` at the top of that file only reaches
-electron-builder, so without the `extraMetadata` copy the packaged beta would
-run with production's identity and the two channels would fight over one value.
-This is the same mechanism `extraMetadata.name` uses above.
+**AppUserModelId**, so `main.ts` pins that to the appId (SAYSO-453); before that
+it fell back to `electron.app.<app.name>`.
+
+**`build.appId` is not readable at runtime.** electron-builder deletes the entire
+`build` key when it writes the packaged `package.json` — it is in
+`ignoredPackageMetadataProperties` (`app-builder-lib/out/fileTransformer.js`) — and
+the cleanup runs *after* `extraMetadata` is applied, so nesting the value under
+`build` in `extraMetadata` does not survive either. Reading `pkg.build.appId` in main
+therefore throws at module scope in any packaged build, on every platform.
+
+So each channel publishes a **top-level `app_id`** through `extraMetadata`, which
+does survive — the same mechanism `build_env` and `extraMetadata.name` above rely on.
+Production sets it in `package.json` `build.extraMetadata` next to `appId`; staging
+sets it in `build.staging.js` from the same `STAGING_APP_ID` const that feeds its
+`appId`. Keep each pair in sync. `main.ts` reads
+`pkg.app_id ?? pkg.build?.appId ?? 'com.asksayso.app'`: the first for packaged
+builds, the second for `npm run dev` (on disk `build` is still there), and the
+literal purely so a missing key can never throw where a throw kills the process.
 
 Two edges the default tooling leaves open, both handled:
 

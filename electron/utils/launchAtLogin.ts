@@ -33,8 +33,16 @@ export function migrateLegacyWindowsLoginItem(appId: string): void {
     // Scope 'machine' entries live under HKLM and were not written by this app —
     // a per-user install cannot have created them, and removing them would need
     // elevation we do not have.
+    //
+    // Registry value names are case-insensitive, so compare them that way — an entry
+    // differing from appId only in case is the SAME entry, not a stale one, and
+    // deleting it would drop a login item Electron had reported as present.
+    const appIdLower = appId.toLowerCase();
     const stale = settings.launchItems.filter(
-      item => item.scope === 'user' && item.name !== appId && item.path.toLowerCase() === exePath
+      item =>
+        item.scope === 'user' &&
+        item.name.toLowerCase() !== appIdLower &&
+        item.path.toLowerCase() === exePath
     );
     if (stale.length === 0) return;
 
@@ -42,15 +50,20 @@ export function migrateLegacyWindowsLoginItem(appId: string): void {
     // if they disabled the old entry there, the re-registered one stays disabled.
     const wasEnabled = stale.some(item => item.enabled);
 
-    for (const item of stale) {
-      app.setLoginItemSettings({ openAtLogin: false, name: item.name });
-    }
-
-    // Only register under the new name if one is not already there. openAtLogin
-    // reads the current-AUMID value, so `true` means both names existed and the
-    // loop above just cleaned up the duplicate.
+    // Register BEFORE removing, never after. If the write fails (policy, roaming
+    // profile, locked registry) the catch below swallows it, and having deleted first
+    // would leave the user with no startup entry at all — silently worse than the
+    // stranded one being migrated. This order fails safe: the worst case is a
+    // duplicate pointing at the same exe, and the single-instance lock absorbs that.
+    //
+    // openAtLogin reads the current-AUMID value, so `true` means an entry under the
+    // new name already exists and the removal below is just dropping the duplicate.
     if (!settings.openAtLogin) {
       app.setLoginItemSettings({ openAtLogin: true, enabled: wasEnabled });
+    }
+
+    for (const item of stale) {
+      app.setLoginItemSettings({ openAtLogin: false, name: item.name });
     }
 
     console.log(

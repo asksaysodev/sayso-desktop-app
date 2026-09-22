@@ -28,14 +28,13 @@ module.exports = {
   extraMetadata: {
     build_env: 'staging',
     name: 'sayso-app-staging',
-    // main.ts reads build.appId to pin the Windows AppUserModelId, which names the
-    // Launch at Login registry value. The appId above only reaches electron-builder,
-    // so without this the packaged staging app.asar would still carry production's
-    // appId and the two channels would fight over one Run value. extraMetadata is
-    // deep-merged into package.json, so this overrides build.appId and leaves the
-    // rest of the build block intact.
-    build: {
-      appId: STAGING_APP_ID,
-    },
+    // The appId above only reaches electron-builder. main.ts needs it at RUNTIME to
+    // pin the Windows AppUserModelId, which names the Launch at Login registry value,
+    // so it has to be published into the packaged package.json — otherwise staging
+    // runs under production's identity and the two channels fight over one Run value.
+    // It has to ride on a top-level key: electron-builder strips `build` wholesale
+    // when writing that file, after extraMetadata is applied, so nesting it under
+    // `build` here would silently vanish. Keep in sync with appId above via the const.
+    app_id: STAGING_APP_ID,
   },
 };

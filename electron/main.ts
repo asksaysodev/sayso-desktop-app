@@ -42,7 +42,11 @@ Sentry.init(sentryConfig);
 // VITE_BACKEND_BASE_URL and would pin every main-process call to localhost in
 // packaged builds. A getter keeps the DRY win without the ordering dependency.
 const backendBaseUrl = () => process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
-const pkg = require('../package.json') as { build_env?: string; build: { appId: string } };
+const pkg = require('../package.json') as {
+  build_env?: string;
+  app_id?: string;
+  build?: { appId?: string };
+};
 const IS_STAGING = pkg.build_env === 'staging';
 
 if (IS_STAGING) {
@@ -82,9 +86,18 @@ if (IS_STAGING) {
 // identity, and — the reason this exists — the value NAME that
 // app.setLoginItemSettings() writes under HKCU\…\CurrentVersion\Run. Unset, Electron
 // derives "electron.app.<app.name>", which matches neither our appId nor the AUMID
-// electron-builder stamps on the Start Menu/desktop shortcuts. Pin it to build.appId
-// so all three agree. Read from package.json rather than hardcoded — build.staging.js
-// injects its own appId through extraMetadata, so this is correct on both channels.
+// electron-builder stamps on the Start Menu/desktop shortcuts. Pin it to the appId so
+// all three agree.
+//
+// Sourced from package.json rather than hardcoded, but NOT from `build.appId`:
+// electron-builder deletes the whole `build` key when it writes the packaged
+// package.json (app-builder-lib ignoredPackageMetadataProperties), and it does so
+// AFTER applying extraMetadata, so `build` is unreadable at runtime and cannot be
+// injected back. Each channel therefore publishes a top-level `app_id` through
+// extraMetadata, which survives — the same mechanism IS_STAGING's `build_env` uses.
+// `build.appId` remains the dev fallback (on disk the key is still there), and the
+// literal is a backstop so a missing key degrades instead of throwing at module
+// scope, where a throw would kill the main process on every platform.
 //
 // Packaged only: an unpackaged dev run has no shortcuts to group with, and claiming
 // the production AUMID would let a dev-build toggle overwrite the INSTALLED app's Run
@@ -94,7 +107,7 @@ if (IS_STAGING) {
 // Must stay at module scope: setAppUserModelId has to precede any window, tray,
 // notification or login-item call, and everything in app.whenReady() runs behind
 // early-return guards (OS version, /Applications) that would skip it.
-const APP_ID = pkg.build.appId;
+const APP_ID = pkg.app_id ?? pkg.build?.appId ?? 'com.asksayso.app';
 if (IS_WINDOWS && app.isPackaged) app.setAppUserModelId(APP_ID);
 
 // ─── Auth: single source of truth ────────────────────────────────────────────
