@@ -122,6 +122,7 @@ uses. Either platform may get there first.
 | Install dir | `%LOCALAPPDATA%\Programs\Sayso` | `%LOCALAPPDATA%\Programs\sayso-app-staging` |
 | Shortcut | `Sayso` | `Sayso [beta]` |
 | Uninstall entry | `Sayso {version}` | `Sayso [beta] {version}` |
+| Launch at Login value | `com.asksayso.app` | `com.asksayso.app.staging` |
 
 The `.blockmap` is not optional. `electron-updater` uses it to download only the
 changed chunks of an installer, and looks for it next to the `.exe`.
@@ -147,6 +148,34 @@ change. **One thing runs before it:** `Sentry.init` at `main.ts:36`, and
 instead of letting it derive — otherwise staging's main process would report a
 different release from its renderers and the two halves of an incident would not
 correlate (SAYSO-355).
+
+### Launch at Login registry entries
+
+Enabling the toggle writes two `HKCU` values — the entry itself under
+`…\CurrentVersion\Run` and the Task Manager approval flag under
+`…\CurrentVersion\Explorer\StartupApproved\Run`. Electron names both after the
+**AppUserModelId**, so `main.ts` pins that to `build.appId` (SAYSO-453); before
+that it fell back to `electron.app.<app.name>`. The AUMID is read from
+package.json rather than hardcoded, which is why `build.staging.js` injects
+`extraMetadata.build.appId` — the `appId` at the top of that file only reaches
+electron-builder, so without the `extraMetadata` copy the packaged beta would
+run with production's identity and the two channels would fight over one value.
+This is the same mechanism `extraMetadata.name` uses above.
+
+Two edges the default tooling leaves open, both handled:
+
+- **Uninstall.** electron-builder's uninstaller removes its own `Uninstall\` and
+  `Software\{GUID}` keys and never touches `Run`, so an uninstall used to leave a
+  startup entry pointing at a deleted exe, listed in Task Manager forever.
+  `assets/installer.nsh` (wired up as `nsis.include`, path relative to
+  `directories.buildResources`) deletes both values in `customUnInstall`, current
+  and legacy names. It is guarded with `${ifNot} ${isUpdated}` because **the
+  installer runs the old uninstaller with `--updated` on every update** — without
+  the guard, updating would silently turn the setting off for everyone.
+  `extraResources` excludes the `.nsh` so it isn't shipped inside the app.
+- **Existing entries.** `electron/utils/launchAtLogin.ts` rehomes a value written
+  under the old name on the next launch, keyed on the exe path rather than the
+  name, preserving the Task Manager enabled state.
 
 **Upgrading a beta installed before SAYSO-404: uninstall it first.** NSIS restores
 `$INSTDIR` from the registry on upgrade, then `instFilesPre` appends `APP_FILENAME`

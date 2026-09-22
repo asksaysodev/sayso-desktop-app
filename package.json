@@ -128,7 +128,8 @@
         "to": "assets",
         "filter": [
           "**/*",
-          "!src/**"
+          "!src/**",
+          "!installer.nsh"
         ]
       },
       {
@@ -222,6 +223,7 @@
       ]
     },
     "nsis": {
+      "include": "installer.nsh",
       "oneClick": false,
       "perMachine": false,
       "allowElevation": false,

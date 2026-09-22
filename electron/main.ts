@@ -25,6 +25,7 @@ import { isWindowsTaskbarLight } from './utils/windowsTrayTheme';
 import { classifyUpdaterError, isTransientNetworkError, updaterErrorMessage, READ_ONLY_VOLUME_MESSAGE } from './utils/transientErrors';
 import { enforceApplicationsFolderLocation, isOutsideApplicationsFolder } from './utils/applicationsFolder';
 import { enforceMinimumMacOSVersion } from './utils/osVersion';
+import { migrateLegacyWindowsLoginItem } from './utils/launchAtLogin';
 import { getAssetPath } from './utils/assetPath';
 import type { UpdateState } from './shared/update';
 import { AuthManager } from './auth/AuthManager';
@@ -41,7 +42,8 @@ Sentry.init(sentryConfig);
 // VITE_BACKEND_BASE_URL and would pin every main-process call to localhost in
 // packaged builds. A getter keeps the DRY win without the ordering dependency.
 const backendBaseUrl = () => process.env.VITE_BACKEND_BASE_URL || 'http://localhost:4000';
-const IS_STAGING = (require('../package.json') as { build_env?: string }).build_env === 'staging';
+const pkg = require('../package.json') as { build_env?: string; build: { appId: string } };
+const IS_STAGING = pkg.build_env === 'staging';
 
 if (IS_STAGING) {
   // Give staging its own safeStorage keychain entry so it doesn't conflict
@@ -74,6 +76,26 @@ if (IS_STAGING) {
   app.setName('Sayso');
   app.setPath('userData', path.join(app.getPath('appData'), 'sayso-app'));
 }
+
+// ─── Windows app identity (AppUserModelId) ───────────────────────────────────
+// Windows keys three things off the AUMID: taskbar grouping, toast notification
+// identity, and — the reason this exists — the value NAME that
+// app.setLoginItemSettings() writes under HKCU\…\CurrentVersion\Run. Unset, Electron
+// derives "electron.app.<app.name>", which matches neither our appId nor the AUMID
+// electron-builder stamps on the Start Menu/desktop shortcuts. Pin it to build.appId
+// so all three agree. Read from package.json rather than hardcoded — build.staging.js
+// injects its own appId through extraMetadata, so this is correct on both channels.
+//
+// Packaged only: an unpackaged dev run has no shortcuts to group with, and claiming
+// the production AUMID would let a dev-build toggle overwrite the INSTALLED app's Run
+// value with a path to the dev binary. Dev keeps Electron's default, consistent with
+// the separate app name + userData dir above.
+//
+// Must stay at module scope: setAppUserModelId has to precede any window, tray,
+// notification or login-item call, and everything in app.whenReady() runs behind
+// early-return guards (OS version, /Applications) that would skip it.
+const APP_ID = pkg.build.appId;
+if (IS_WINDOWS && app.isPackaged) app.setAppUserModelId(APP_ID);
 
 // ─── Auth: single source of truth ────────────────────────────────────────────
 // Owns all token state for the app's lifetime. Renderers ask main via IPC.
@@ -1765,6 +1787,10 @@ app.whenReady().then(async () => {
   if (!enforceApplicationsFolderLocation()) return;
 
   if (IS_WINDOWS) Menu.setApplicationMenu(null);
+
+  // Rehome any Run value written under the pre-AUMID name (see launchAtLogin.ts).
+  // Must run before the settings window can read the toggle, and it is cheap.
+  migrateLegacyWindowsLoginItem(APP_ID);
 
   if (IS_WINDOWS && isDev) {
     app.on('browser-window-created', (_event, window) => {
