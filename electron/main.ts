@@ -34,6 +34,8 @@ import * as audioManager from './audio/audioManager';
 import * as permissions from './permissions/permissionsManager';
 import * as cacheStore from './store/cacheManager';
 import { removeLegacyCacheFiles } from './store/persistentStore';
+import { formatLogArgs } from './shared/redact';
+import { enforceLogRetention } from './utils/logRetention';
 
 Sentry.init(sentryConfig);
 
@@ -814,15 +816,18 @@ function setupLogging() {
     const originalLog = console.log;
     const originalError = console.error;
     const originalWarn = console.warn;
+    const originalInfo = console.info;
+    const originalDebug = console.debug;
     
+    // THE serialization boundary for the log file. Redaction lives here and
+    // nowhere else, so no call site can reintroduce the leak that SAYSO-460
+    // found
     function writeToFile(level: string, ...args: any[]) {
       const timestamp = new Date().toISOString();
-      const message = args.map(arg => 
-        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-      ).join(' ');
-      
+      const message = formatLogArgs(args);
+
       const logEntry = `[${timestamp}] [${level}] ${message}\n`;
-      
+
       try {
         fs.appendFileSync(logFile, logEntry);
       } catch (err: any) {
@@ -830,22 +835,40 @@ function setupLogging() {
         originalError(`Failed to write to log file: ${err.message}`);
       }
     }
-    
+
     console.log = (...args) => {
       originalLog(...args);
       writeToFile('INFO', ...args);
     };
-    
+
     console.error = (...args) => {
       originalError(...args);
       writeToFile('ERROR', ...args);
     };
-    
+
     console.warn = (...args) => {
       originalWarn(...args);
       writeToFile('WARN', ...args);
     };
-    
+
+    // Nothing calls these two today. They are patched anyway because Sentry's
+    // console integration already captures every level — so a future
+    // `console.info(err)` would reach Sentry while silently missing both the log
+    // file and the redaction above.
+    console.info = (...args) => {
+      originalInfo(...args);
+      writeToFile('INFO', ...args);
+    };
+
+    console.debug = (...args) => {
+      originalDebug(...args);
+      writeToFile('DEBUG', ...args);
+    };
+
+    // After the patch, so the pruner's own output is persisted; before the first
+    // real write, so purging today's contaminated file can't race an append.
+    enforceLogRetention(logDir);
+
     console.log(`[MAIN] Logging to file: ${logFile}`);
   }
 }
