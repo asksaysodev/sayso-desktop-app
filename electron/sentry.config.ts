@@ -1,3 +1,6 @@
+import type { Breadcrumb, ErrorEvent } from '@sentry/electron/main';
+import { redactSentryEvent, redactSentryBreadcrumb } from './shared/redact';
+
 const pkg = require('../package.json') as { build_env?: string; version: string };
 
 export default {
@@ -9,4 +12,6 @@ export default {
   // identical to src/config/sentry.ts or main+renderer events of one incident split across two
   // releases (SAYSO-355). Channel separation is `environment`'s job, not `release`'s.
   release: `sayso-app@${pkg.version}`,
+  beforeSend: (event: ErrorEvent) => redactSentryEvent(event),
+  beforeBreadcrumb: (breadcrumb: Breadcrumb) => redactSentryBreadcrumb(breadcrumb),
 };

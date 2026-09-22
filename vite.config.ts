@@ -40,9 +40,16 @@ export default defineConfig({
     include: ['ws'],
   },
   resolve: {
-    alias: {
-      '@': resolve(__dirname, './src'),
-    },
+    // Array form so one entry can be a RegExp. '@' keeps object-form semantics:
+    // a string `find` matches only an exact hit or the `find + '/'` prefix, so
+    // it can never swallow '@sentry/…'.
+    alias: [
+      { find: '@', replacement: resolve(__dirname, './src') },
+      {
+        find: /^\.\.\/\.\.\/electron\/shared\/redact$/,
+        replacement: resolve(__dirname, './electron/shared/redact.ts'),
+      },
+    ],
   },
   base: './', // Use relative paths for Electron
   build: {
