@@ -40,7 +40,7 @@ directory**:
 | File | Location | What it is |
 |---|---|---|
 | `sayso-<YYYY-MM-DD>.log` | `<userData>/logs/` | **The one you almost always want.** Daily app log. |
-| `main.log` | `<userData>/logs/` (Windows) · `~/Library/Logs/<app>/` (macOS) | Auto-updater log (electron-log). Only for update problems. |
+| `main.log` | `<userData>/logs/` (Windows) · `~/Library/Logs/Sayso/` (macOS) | Auto-updater log (electron-log). Only for update problems. |
 | `debug-startup.log` | `<userData>/` | One line per launch. Only for "it won't start". |
 | `shipit-watchdog.log` | `~/Library/Logs/<app>/` (macOS only) | Update install watchdog. |
 
@@ -49,9 +49,14 @@ each use their own directory:
 
 | Channel | macOS | Windows |
 |---|---|---|
-| Production | `~/Library/Application Support/Sayso/` | `%APPDATA%\Sayso\` |
+| Production | `~/Library/Application Support/sayso-app/` | `%APPDATA%\sayso-app\` |
 | Staging | `~/Library/Application Support/sayso-app-staging/` | `%APPDATA%\sayso-app-staging\` |
 | Dev (unpackaged) | `~/Library/Application Support/sayso-app-dev/` | `%APPDATA%\sayso-app-dev\` |
+
+Production is **`sayso-app`, not `Sayso`**, even though the app displays as Sayso.
+`main.ts` calls `app.setName('Sayso')` for the keychain item name but then pins
+`userData` back to `sayso-app`, so renaming doesn't relocate everyone's auth and
+permissions state and read as a fresh install.
 
 Note the daily log is only written when `NODE_ENV=production`, which every packaged
 build sets. A developer running `npm run dev` produces no daily log.
@@ -63,13 +68,13 @@ build sets. A developer running `npm run dev` produces no daily log.
 > **macOS** — open Finder, press `⇧⌘G`, paste this and hit Enter, then send the
 > newest `sayso-*.log`:
 > ```
-> ~/Library/Application Support/Sayso/logs
+> ~/Library/Application Support/sayso-app/logs
 > ```
 >
 > **Windows** — press `Win+R`, paste this and hit Enter, then send the newest
 > `sayso-*.log`:
 > ```
-> %APPDATA%\Sayso\logs
+> %APPDATA%\sayso-app\logs
 > ```
 
 Ask for the specific day that the problem happened. There is no in-app "export

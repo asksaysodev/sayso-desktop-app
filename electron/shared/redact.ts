@@ -106,9 +106,17 @@ export function isSensitiveKey(key: string): boolean {
 }
 
 /**
- * Strings above this length are truncated before scrubbing — five regexes over a
- * multi-megabyte `response.data` is the one place this module could show up in a
- * profile.
+ * Cap on the length of a single scrubbed string, applied AFTER scrubbing.
+ *
+ * The order matters and is the whole point: truncating first can cut a bare JWT
+ * mid-payload, leaving `<header>.<partial payload>` with only one dot, which
+ * JWT_PATTERN (two dots) no longer matches — so the fragment goes to disk. It is
+ * not a usable credential without its signature, but the payload still base64s
+ * back to `{"sub":…,"phone":…}`, which is exactly the PII this module exists to
+ * keep out of a support log.
+ *
+ * Scrubbing first costs ~5 ms on a 5 MB string (measured), and a log argument
+ * that large would already be the bigger problem. Correctness wins.
  */
 const MAX_SCRUB_LENGTH = 8192;
 
@@ -132,24 +140,31 @@ const BEARER_PATTERN = /\bbearer\s+[A-Za-z0-9._~+/=-]{8,}/gi;
  * (alg=none). base64url charset only, so it cannot run past a closing quote.
  * This also covers the Supabase anon key, which is JWT-shaped; that key is
  * publishable, so over-redacting it is an accepted trade.
+ *
+ * Deliberately NOT anchored with `\b`: a word character immediately before `eyJ`
+ * suppresses the boundary and would let a concatenated token through
+ * (`'user' + token`). The three-segment shape is specific enough on its own that
+ * scanning from any offset costs nothing in false positives.
  */
-const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g;
+const JWT_PATTERN = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g;
 
 /** Credentials embedded in a URL — proxy URLs, git remotes. */
 const URL_CREDENTIALS_PATTERN = /\/\/[^/\s:@]+:[^/\s@]+@/g;
 
 export function scrubString(input: string): string {
   if (!input) return input;
-  const text =
-    input.length > MAX_SCRUB_LENGTH
-      ? input.slice(0, MAX_SCRUB_LENGTH) + '…[truncated ' + (input.length - MAX_SCRUB_LENGTH) + ' chars]'
-      : input;
 
-  return text
+  const scrubbed = input
     .replace(KEY_VALUE_PATTERN, '$1"' + REDACTED + '"')
     .replace(BEARER_PATTERN, 'Bearer ' + REDACTED)
     .replace(JWT_PATTERN, REDACTED_JWT)
     .replace(URL_CREDENTIALS_PATTERN, '//' + REDACTED + '@');
+
+  // Truncate only after every pattern has had the whole string to match against.
+  return scrubbed.length > MAX_SCRUB_LENGTH
+    ? scrubbed.slice(0, MAX_SCRUB_LENGTH) +
+        '…[truncated ' + (scrubbed.length - MAX_SCRUB_LENGTH) + ' chars]'
+    : scrubbed;
 }
 
 /** Duck-typed: an Error subclass from another realm still has both fields. */
