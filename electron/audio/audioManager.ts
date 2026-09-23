@@ -69,7 +69,10 @@ let cueCaptureStats = emptyCueCaptureStats();
  *  AirPods mic reads −70 to −75 — an AirPods test session logged 8.4s of sub-−70 blocks from the
  *  agent merely listening. The floor has to sit below a real quiet room or this cries wolf on the
  *  agent listening through a long prospect monologue, which is routine on a sales call. It also
- *  only alerts when the call itself has audio, so a pause with nobody talking never fires it. */
+ *  only alerts when the call itself has audio, so a pause with nobody talking never fires it.
+ *  Logs + reports to Sentry only: the coach-window banner was removed in SAYSO-468 because this floor
+ *  is miscalibrated for Windows drivers that zero silence (−100 to −165 dBFS on a working mic), so it
+ *  fired whenever the agent listened for 20s. Detection stays as data for the redesign (SAYSO-469). */
 const CUE_MIC_SILENCE_FLOOR_DB = -80;
 const CUE_PROSPECT_SPEECH_DB = -50;
 // 20s, not 10s: an AirPods test session logged 8.4s of sub-floor blocks purely from the agent
@@ -77,17 +80,11 @@ const CUE_PROSPECT_SPEECH_DB = -50;
 // window would eventually cry wolf on a long listening stretch. A genuinely dead mic stays silent
 // indefinitely, so the extra 10s costs nothing real.
 const CUE_MIC_SILENT_ALERT_MS = 20000;
-/** Re-notify the coach window every 30s while the mic stays silent: the renderer can drop the banner
- *  on its own (the error close button, or the offline→online clearError), and a latched `alerted`
- *  would then hide a still-dead mic for the rest of the call. Native's recovery banner re-fires for
- *  the same reason. The Sentry report stays once per session. */
-const CUE_MIC_SILENT_RENOTIFY_MS = 30000;
 let cueMicSilence = {
   silentSinceMs: null as number | null,
   lastProspectSpeechMs: 0,
   lastProspectRmsDb: -120,
   alerted: false,
-  alertedAtMs: 0,
   reported: false,
 };
 
@@ -296,7 +293,6 @@ function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioForma
     if (cueMicSilence.alerted) {
       cueMicSilence.alerted = false;
       console.log('[Cue] Microphone signal restored', { sessionId, rmsDb: Number(rmsDb.toFixed(1)) });
-      sendToCoachWindow('cue-mic-silent-cleared');
     }
     return;
   }
@@ -305,16 +301,9 @@ function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioForma
   if (cueMicSilence.silentSinceMs === null) cueMicSilence.silentSinceMs = now;
   const silentForMs = now - cueMicSilence.silentSinceMs;
   const callHasAudio = cueMicSilence.lastProspectSpeechMs >= cueMicSilence.silentSinceMs;
-  if (silentForMs < CUE_MIC_SILENT_ALERT_MS || !callHasAudio) return;
-  if (cueMicSilence.alerted && now - cueMicSilence.alertedAtMs < CUE_MIC_SILENT_RENOTIFY_MS) return;
+  if (silentForMs < CUE_MIC_SILENT_ALERT_MS || !callHasAudio || cueMicSilence.alerted) return;
 
-  const renotify = cueMicSilence.alerted;
-  cueMicSilence.alerted = true;
-  cueMicSilence.alertedAtMs = now;
-  if (renotify) {
-    sendToCoachWindow('cue-mic-silent'); // still dead — re-show in case the banner was dismissed
-    return;
-  }
+  cueMicSilence.alerted = true; // once per silent stretch; cleared when the signal comes back
   const details = {
     sessionId,
     silentForMs,
@@ -328,7 +317,7 @@ function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioForma
   };
   console.warn('[Cue] Microphone is delivering buffers but no signal while the call has audio', details);
   if (!cueMicSilence.reported) {
-    // Once per session — the banner can re-show on every silent stretch, the Sentry event can't.
+    // Once per session — the warning logs on every silent stretch, the Sentry event doesn't.
     cueMicSilence.reported = true;
     Sentry.captureMessage('[Cue] Microphone delivering silence mid-session', {
       level: 'warning',
@@ -336,7 +325,6 @@ function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioForma
       extra: details,
     });
   }
-  sendToCoachWindow('cue-mic-silent');
 }
 
 function trackCueProspectLevel(buffer: Buffer, format: AudioFormat) {
@@ -349,16 +337,6 @@ function trackCueProspectLevel(buffer: Buffer, format: AudioFormat) {
   if (rmsDb > cueMicSilence.lastProspectRmsDb) cueMicSilence.lastProspectRmsDb = rmsDb;
   if (rmsDb >= CUE_PROSPECT_SPEECH_DB) {
     cueMicSilence.lastProspectSpeechMs = Date.now();
-  }
-}
-
-function sendToCoachWindow(channel: string) {
-  try {
-    if (global.coachWindow && !global.coachWindow.isDestroyed()) {
-      global.coachWindow.webContents.send(channel);
-    }
-  } catch {
-    /* ignore */
   }
 }
 
@@ -657,7 +635,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       }
 
       cueCaptureStats = emptyCueCaptureStats();
-      cueMicSilence = { silentSinceMs: null, lastProspectSpeechMs: 0, lastProspectRmsDb: -120, alerted: false, alertedAtMs: 0, reported: false };
+      cueMicSilence = { silentSinceMs: null, lastProspectSpeechMs: 0, lastProspectRmsDb: -120, alerted: false, reported: false };
       micRecoveryFailedReportedThisSession = false;
 
       // Create AudioStreamer for 2 audio websockets (user + prospect)
