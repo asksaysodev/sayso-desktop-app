@@ -187,8 +187,6 @@ call site.
 | `cue-low-user-audio` | Mic-silence warning. |
 | `cue-mic-recovery-failed` | Mid-session mic route recovery exhausted its ~30s backoff (SAYSO-353) — mic audio is lost and the native side has stopped actively retrying, but it is not truly terminal: a later device-change notification can still recover it (see `cue-mic-recovery-succeeded`). The banner tells the user to Reset since that's the reliable fix, not because recovery is provably impossible. |
 | `cue-mic-recovery-succeeded` | Native mic route recovery succeeded after a prior `cue-mic-recovery-failed` was already shown (SAYSO-353) — clears that banner. |
-| `cue-mic-silent` | Mic buffers keep arriving but carry no signal (below −70 dBFS for 20s) while the call has audio (SAYSO-428) — the stall watchdog can't see this because it counts chunks. Logged + one Sentry warning per session. |
-| `cue-mic-silent-cleared` | Mic signal came back after `cue-mic-silent` (SAYSO-428) — clears that banner if it's still the one showing. |
 
 **Network / update / windows / features**
 
