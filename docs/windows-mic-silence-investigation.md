@@ -6,7 +6,7 @@ los drivers de Windows, que convierten el silencio en ceros digitales.
 **Fix aplicado:** el banner se quitó en Mac y Windows hasta nuevo aviso
 ([SAYSO-468](https://linear.app/sayso-app/issue/SAYSO-468), commit `7f9001f`,
 detalle en §7). La detección sigue corriendo, pero solo loguea. El rediseño va
-en [SAYSO-469](https://linear.app/sayso-app/issue/SAYSO-469), que empieza
+en [SAYSO-458](https://linear.app/sayso-app/issue/SAYSO-458), que empieza
 investigando cómo lo hace Discord.
 **Versión observada:** 1.3.3 · logs del 2026-09-22 (usuario) y 2026-09-23
 (máquina de desarrollo Windows).
@@ -235,12 +235,18 @@ muerto.
    Si se quedó callado, es este mismo falso positivo. Si habló y el banner no se
    iba, es un mic muerto real: correr en su máquina la probe de §A.1.
 2. ~~**SAYSO-468:** quitar el banner.~~ Hecho (§7), falta el PR.
-3. **SAYSO-469:** rediseñar la detección. Investigar cómo lo hacen Discord, Zoom
+3. **SAYSO-458:** detectar de forma confiable un mic muteado o muerto (reemplaza a SAYSO-469, marcado duplicado; SAYSO-461 cancelado). Investigar cómo lo hacen Discord, Zoom
    y Meet, y distinguir un mic muerto de un silencio que el driver pone en cero.
 4. Ticket aparte: firmar `native_audio.node` en CI (§5.2).
 5. Opcional: la prueba de "Mejoras de audio" y la del HyperX en Mac (§4.1).
-6. Limpieza local: el `.node` de `build/Release` todavía tiene el bloque diag.
-   Correr `npm run rebuild-native-win`.
+6. ~~Limpieza local: el `.node` de `build/Release` todavía tiene el bloque diag.~~
+   Recompilado limpio durante SAYSO-459.
+7. **SAYSO-459:** lo que en §3.3 no sabíamos ahora llega a Sentry, sin pedir
+   logs. En Windows, `getMicInputDiagnostics` reporta nombre e id del mic, mute,
+   volumen, form factor y cuántos paquetes marcó WASAPI como `SILENT`. La alerta
+   de silencio lleva el contexto de la sesión. Hay un evento al recuperarse
+   (`silentTotalMs`) y otro al cerrar una sesión en la que el mic nunca
+   captó voz (pico ≤ −60 dB en ≥60 s de audio).
 
 ---
 
@@ -251,7 +257,7 @@ habla, el mic se detecta bien. Pero cuando se queda callado, el mic o el driver
 (lo que sea) entregan entre −120 dBFS (Realtek) e incluso −165 dBFS (HyperX).
 Eso queda muy por debajo del piso de −80, así que cualquier tramo de 20 s
 escuchando al prospect disparaba el banner con un mic que funciona. Se quita en
-**las dos plataformas** hasta rediseñar la detección (SAYSO-469).
+**las dos plataformas** hasta rediseñar la detección (SAYSO-458).
 
 **Qué cambió** (branch
 `fix/sayso-468-remove-sayso-cant-hear-your-microphone-alert-dialog`, commit

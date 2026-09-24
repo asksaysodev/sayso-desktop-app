@@ -37,7 +37,7 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 | 11 | `setStreamingCallback` | `void` | no (sync) |
 | 12 | `setMicrophoneStreamingCallback` | `void` | no (sync) |
 | 13 | `setLifecycleEventCallback` | `void` | no (sync) |
-| 14 | `getMicInputDiagnostics` | `Promise<MicInputDiagnostics \| null>` | yes — **optional** (SAYSO-431) |
+| 14 | `getMicInputDiagnostics` | `Promise<MicInputDiagnostics \| null>` | yes — **optional** (SAYSO-431; Windows SAYSO-459) |
 
 > The macOS `.mm` also still exports the dead trio `listOutputDevices`,
 > `createMultiOutputDevice`, `deleteMultiOutputDevice` — **do not implement
@@ -166,8 +166,8 @@ default-input change and engine configuration change, and tap counters for the
 current engine build (buffers received vs. delivered, drops by reason). Shape:
 `MicInputDiagnostics` in `electron/audio/IAudioProvider.ts`.
 
-- **Optional.** Windows does not implement it yet; `index.js` resolves `null`
-  when the method is absent. Consumers treat `null` as "no diagnostics".
+- **Optional.** `index.js` resolves `null` when the method is absent (older
+  native builds). Consumers treat `null` as "no diagnostics".
 - **Async and non-blocking.** HAL reads are IPC to `coreaudiod`, the daemon most
   likely to be misbehaving when this is called, so they must not run on the JS
   thread. At most one snapshot may be in flight; a concurrent call resolves
@@ -176,6 +176,42 @@ current engine build (buffers received vs. delivered, drops by reason). Shape:
   object off its owning queue — only atomics and HAL properties.
 - Consumers must time-box it (`electron/audio/micDiagnostics.ts` uses 500ms) and
   must never delay a restart or a report on it indefinitely.
+- **Callers:** mic start failures and the stall watchdog (SAYSO-431), and the
+  silence alert, silence recovery and no-speech teardown events
+  (SAYSO-459). Never per buffer.
+
+**Windows (SAYSO-459).** Same shape, filled from MMDevice/WASAPI. The JS thread
+only creates the promise. All COM reads run on a thread-pool timer thread that
+joins the MTA for the call, and the result returns through `uv_async`. The
+opened endpoint id is read from `PathState::diagOpenedEndpointId` under its own
+`diagLock`, never `engineLock`, so a snapshot doesn't wait behind a route
+restart.
+
+| Field | Windows source |
+|---|---|
+| `name` | `PKEY_Device_FriendlyName` |
+| `uid` | `IMMDevice::GetId` (endpoint id string) |
+| `transport` | `PKEY_Device_EnumeratorName`, lower-cased; `bth*` → `bluetooth` |
+| `inputMuted` / `inputVolume` | `IAudioEndpointVolume::GetMute` / `GetMasterVolumeLevelScalar` |
+| `nominalSampleRate` / `inputChannels` | `IAudioClient::GetMixFormat` on a fresh, never-initialized client |
+| `isAlive` | `IMMDevice::GetState == DEVICE_STATE_ACTIVE` |
+| `formFactor` *(Windows only)* | `PKEY_AudioEndpoint_FormFactor` |
+| `state` *(Windows only)* | `IMMDevice::GetState` as a name |
+| `openedInputId` | the opened endpoint id **string** (a number on macOS) |
+| `engineRunning` | same as `capturing` (no engine/capture split) |
+| `tap.callbacks` / `tap.delivered` | packets pushed by the capture thread / chunks passed to the JS callback, since the last `startMicrophoneCapture` |
+| `tap.silentFlagged` *(Windows only)* | packets WASAPI flagged `AUDCLNT_BUFFERFLAGS_SILENT` |
+| `tap.droppedOverflow` *(Windows only)* | chunks dropped by the bounded delivery queue |
+
+Always `null` or `0` on Windows: `id`, `isRunningSomewhere`, `hogModePid`,
+`msSinceEngineConfigChange`, `engineConfigChanges`, `tap.lastCommonFormat`, and
+the mac-only drop reasons (`droppedNoHandle`, `droppedEmpty`, `droppedLayout`,
+`droppedUnsupported`).
+
+**Personal data.** `name` is the OS endpoint name. For Bluetooth devices it can
+contain the owner's name (for example "Lucas's AirPods"). macOS has sent it
+since SAYSO-431, and it is accepted as device identity. No credential, token or
+email appears in any field.
 
 ### `setStreamingCallback(fn | null)`
 Registers the JS callback for **system-audio** chunks. `null` clears it. Called
@@ -342,11 +378,9 @@ The bar, learned from real macOS incidents:
 
 - **mac** (`OS=="mac"`): `src/audio_device_manager.mm` + CoreAudio,
   CoreFoundation, Foundation, ScreenCaptureKit, AVFoundation, CoreMedia; C++20 /
-  libc++, deployment target 13.0.
+  libc++, deployment target 11.0 (must stay below 13.0, SAYSO-A3).
 - **win** (`OS=="win"`): `src/audio_device_manager_win.cpp` + `ole32`,
   `mmdevapi`, `ksuser`.
 
-Verify: `node-gyp rebuild` (or `npm run rebuild-native-both`) still produces
-`build/Release/native_audio.node` on macOS; on Windows the stub compiles + links
-and every method resolves to a not-implemented error/false until the WASAPI work
-lands.
+Verify: `npm run rebuild-native` (macOS) or `npm run rebuild-native-win`
+(Windows) produces `build/Release/native_audio.node`.
