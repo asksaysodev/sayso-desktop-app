@@ -245,7 +245,8 @@ muerto.
    logs. En Windows, `getMicInputDiagnostics` reporta nombre e id del mic, mute,
    volumen, form factor y cuántos paquetes marcó WASAPI como `SILENT`. La alerta
    de silencio lleva el contexto de la sesión. Hay un evento al recuperarse
-   (`silentTotalMs`) y otro al cerrar una sesión con el mic ≥80 % en silencio.
+   (`silentTotalMs`) y otro al cerrar una sesión en la que el mic nunca
+   captó voz (pico ≤ −60 dB en ≥60 s de audio).
 
 ---
 

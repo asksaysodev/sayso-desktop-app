@@ -83,8 +83,9 @@ const CUE_PROSPECT_SPEECH_DB = -50;
 // 20s, not 10s: an AirPods test session logged 8.4s of sub-floor blocks purely from the agent
 // listening in a quiet room (their mic noise floor is far lower than the built-in mic's), so a 10s
 // window would eventually cry wolf on a long listening stretch. A genuinely dead mic stays silent
-// indefinitely, so the extra 10s costs nothing real.
-const CUE_MIC_SILENT_ALERT_MS = 20000;
+// indefinitely, so the extra 10s costs nothing real. Raised to 30s in SAYSO-459: on Windows a
+// working mic reads as zeros while the agent listens, and 20s fired on routine listening stretches.
+const CUE_MIC_SILENT_ALERT_MS = 30000;
 function emptyCueMicSilence() {
   return {
     silentSinceMs: null as number | null,
@@ -97,8 +98,14 @@ function emptyCueMicSilence() {
   };
 }
 let cueMicSilence = emptyCueMicSilence();
+/** Recovery event gate. The alert still fires whenever a Windows user listens for 30s (drivers zero a
+ *  working mic between words), so a shorter silence ending is just the user talking again. */
+const CUE_MIC_RECOVERY_REPORT_MIN_MS = 60000;
 const CUE_SILENT_SESSION_MIN_AUDIO_MS = 60000;
-const CUE_SILENT_SESSION_FRACTION = 0.8;
+/** Teardown event gate: the session's loudest mic sample never reached this. A silent *fraction*
+ *  can't be the gate — Windows drivers zero a working mic between words, so every listen-heavy call
+ *  would qualify. A peak this low means the mic never heard speech at all. */
+const CUE_SILENT_SESSION_MAX_PEAK_DB = -60;
 
 let cueLowAudioTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -309,7 +316,12 @@ function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioForma
       cueMicSilence.lastSilentTotalMs = silentTotalMs;
       const restored = { sessionId, silentTotalMs, rmsDb: Number(rmsDb.toFixed(1)) };
       console.log('[Cue] Microphone signal restored', restored);
-      if (cueMicSilence.reported && !cueMicSilence.recoveryReported) {
+      if (
+        cueMicSilence.reported &&
+        !cueMicSilence.recoveryReported &&
+        silentTotalMs !== null &&
+        silentTotalMs >= CUE_MIC_RECOVERY_REPORT_MIN_MS
+      ) {
         cueMicSilence.recoveryReported = true;
         void reportCueMicRecovered(restored, summarizeCueLevelStats(cueCaptureStats, now));
       }
@@ -389,22 +401,22 @@ async function reportCueMicRecovered(
 function bucketSilentFraction(fraction: number): string {
   if (fraction >= 0.95) return '95_100';
   if (fraction >= 0.9) return '90_94';
-  return '80_89';
+  if (fraction >= 0.8) return '80_89';
+  return '0_79';
 }
 
-/** Separates "healthy mic, quiet user" from "dead mic" at a glance. */
+/** Separates "digital zeros" from "faint signal, never speech". Only sessions at or below
+ *  CUE_SILENT_SESSION_MAX_PEAK_DB are reported, so there is no "normal" bucket. */
 function bucketUserPeak(peakDb: number): string {
-  if (peakDb < -90) return 'dead';
-  if (peakDb <= -60) return 'quiet';
-  return 'normal';
+  return peakDb < -90 ? 'dead' : 'quiet';
 }
 
-function isMostlySilentSession(stats: CueCaptureStats, silence: ReturnType<typeof emptyCueMicSilence>): boolean {
+function isNoSpeechSession(stats: CueCaptureStats, silence: ReturnType<typeof emptyCueMicSilence>): boolean {
   return (
     stats.userChunks > 0 &&
     stats.userAudioMs >= CUE_SILENT_SESSION_MIN_AUDIO_MS &&
     silence.lastProspectSpeechMs > 0 &&
-    stats.userSilentMs / stats.userAudioMs >= CUE_SILENT_SESSION_FRACTION
+    toDb(stats.userPeak) <= CUE_SILENT_SESSION_MAX_PEAK_DB
   );
 }
 
@@ -417,7 +429,7 @@ async function reportCueSilentSession(
   try {
     const diagnostics = await diagnosticsPending;
     const fraction = session.userSilentFraction ?? 1;
-    Sentry.captureMessage('[Cue] Session ended with mic mostly silent', {
+    Sentry.captureMessage('[Cue] Session ended without hearing speech from the mic', {
       level: 'warning',
       tags: {
         ...diagnostics.tags,
@@ -684,9 +696,12 @@ export async function stopCue(): Promise<{ success: boolean; error?: string; ded
     const silenceAtStop = { ...cueMicSilence };
     const sessionIdAtStop: string | null = cueAudioStreamer?.sessionId ?? null;
     const sessionAtStop = summarizeCueLevelStats(statsAtStop, stopAtMs);
-    if (isMostlySilentSession(statsAtStop, silenceAtStop)) {
+    if (isNoSpeechSession(statsAtStop, silenceAtStop)) {
+      // Awaited so the snapshot lands before teardown: native stop clears the opened endpoint id
+      // first, which a parallel snapshot reported as mic_route=not_open. Qualifying sessions are
+      // rare and the snapshot is time-boxed to 500ms; reportCueSilentSession never throws.
       const diagnostics = collectMicDiagnostics(provider, { origin: 'session_teardown', sessionId: sessionIdAtStop });
-      void reportCueSilentSession(diagnostics, sessionIdAtStop, sessionAtStop, silenceAtStop);
+      await reportCueSilentSession(diagnostics, sessionIdAtStop, sessionAtStop, silenceAtStop);
     }
     try {
       await teardownCueStreamsAndNative();

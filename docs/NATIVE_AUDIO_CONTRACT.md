@@ -177,7 +177,7 @@ current engine build (buffers received vs. delivered, drops by reason). Shape:
 - Consumers must time-box it (`electron/audio/micDiagnostics.ts` uses 500ms) and
   must never delay a restart or a report on it indefinitely.
 - **Callers:** mic start failures and the stall watchdog (SAYSO-431), and the
-  silence alert, silence recovery and mostly-silent teardown events
+  silence alert, silence recovery and no-speech teardown events
   (SAYSO-459). Never per buffer.
 
 **Windows (SAYSO-459).** Same shape, filled from MMDevice/WASAPI. The JS thread
