@@ -57,12 +57,17 @@ function emptyCueCaptureStats() {
     userSumSq: 0,
     userSamples: 0,
     userSilentMs: 0,
+    userAudioMs: 0,
     prospectPeak: 0,
     prospectSumSq: 0,
     prospectSamples: 0,
+    sessionStartedAtMs: 0,
+    firstUserBufferAtMs: 0,
   };
 }
+type CueCaptureStats = ReturnType<typeof emptyCueCaptureStats>;
 let cueCaptureStats = emptyCueCaptureStats();
+let cuePreviousTeardownAtMs = 0;
 
 /** SAYSO-428: silent-mic watchdog. A user block below the floor counts as silent. −80 dBFS, not −70:
  *  a dead mic reads around −100 (zeroed buffers, muted input), while a quiet room on a low-noise
@@ -72,7 +77,7 @@ let cueCaptureStats = emptyCueCaptureStats();
  *  only alerts when the call itself has audio, so a pause with nobody talking never fires it.
  *  Logs + reports to Sentry only: the coach-window banner was removed in SAYSO-468 because this floor
  *  is miscalibrated for Windows drivers that zero silence (−100 to −165 dBFS on a working mic), so it
- *  fired whenever the agent listened for 20s. Detection stays as data for the redesign (SAYSO-469). */
+ *  fired whenever the agent listened for 20s. Detection stays as data for the redesign (SAYSO-458). */
 const CUE_MIC_SILENCE_FLOOR_DB = -80;
 const CUE_PROSPECT_SPEECH_DB = -50;
 // 20s, not 10s: an AirPods test session logged 8.4s of sub-floor blocks purely from the agent
@@ -80,13 +85,20 @@ const CUE_PROSPECT_SPEECH_DB = -50;
 // window would eventually cry wolf on a long listening stretch. A genuinely dead mic stays silent
 // indefinitely, so the extra 10s costs nothing real.
 const CUE_MIC_SILENT_ALERT_MS = 20000;
-let cueMicSilence = {
-  silentSinceMs: null as number | null,
-  lastProspectSpeechMs: 0,
-  lastProspectRmsDb: -120,
-  alerted: false,
-  reported: false,
-};
+function emptyCueMicSilence() {
+  return {
+    silentSinceMs: null as number | null,
+    lastProspectSpeechMs: 0,
+    lastProspectRmsDb: -120,
+    alerted: false,
+    reported: false,
+    recoveryReported: false,
+    lastSilentTotalMs: null as number | null,
+  };
+}
+let cueMicSilence = emptyCueMicSilence();
+const CUE_SILENT_SESSION_MIN_AUDIO_MS = 60000;
+const CUE_SILENT_SESSION_FRACTION = 0.8;
 
 let cueLowAudioTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -284,15 +296,23 @@ function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioForma
   cueCaptureStats.userPeak = Math.max(cueCaptureStats.userPeak, level.peak);
   cueCaptureStats.userSumSq += level.sumSq;
   cueCaptureStats.userSamples += level.samples;
+  cueCaptureStats.userAudioMs += level.durationMs;
 
   const gainDb = typeof format.gainDb === 'number' && isFinite(format.gainDb) ? format.gainDb : 0;
   const rmsDb = toDb(Math.sqrt(level.sumSq / level.samples)) - gainDb;
   const now = Date.now();
   if (rmsDb >= CUE_MIC_SILENCE_FLOOR_DB) {
+    const silentTotalMs = cueMicSilence.silentSinceMs !== null ? now - cueMicSilence.silentSinceMs : null;
     cueMicSilence.silentSinceMs = null;
     if (cueMicSilence.alerted) {
       cueMicSilence.alerted = false;
-      console.log('[Cue] Microphone signal restored', { sessionId, rmsDb: Number(rmsDb.toFixed(1)) });
+      cueMicSilence.lastSilentTotalMs = silentTotalMs;
+      const restored = { sessionId, silentTotalMs, rmsDb: Number(rmsDb.toFixed(1)) };
+      console.log('[Cue] Microphone signal restored', restored);
+      if (cueMicSilence.reported && !cueMicSilence.recoveryReported) {
+        cueMicSilence.recoveryReported = true;
+        void reportCueMicRecovered(restored, summarizeCueLevelStats(cueCaptureStats, now));
+      }
     }
     return;
   }
@@ -318,12 +338,98 @@ function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioForma
   console.warn('[Cue] Microphone is delivering buffers but no signal while the call has audio', details);
   if (!cueMicSilence.reported) {
     // Once per session — the warning logs on every silent stretch, the Sentry event doesn't.
+    // Latch before the async report, so a buffer arriving during the snapshot can't double-fire.
     cueMicSilence.reported = true;
+    void reportCueMicSilence(details, summarizeCueLevelStats(cueCaptureStats, now));
+  }
+}
+
+// ─── Mic silence reporting (SAYSO-459) ────────────────────────────────────────
+// Native device reads happen only here — at alert, recovery and a qualifying teardown — never per
+// buffer. Callers pass plain copies of session state: start-cue reassigns cueCaptureStats and
+// cueMicSilence, so nothing below may read module state after an await. Never throws.
+
+type CueSessionSummary = ReturnType<typeof summarizeCueLevelStats>;
+
+async function reportCueMicSilence(details: Record<string, unknown> & { sessionId: string }, session: CueSessionSummary) {
+  try {
+    const diagnostics = await collectMicDiagnostics(provider, { origin: 'silence_alert', sessionId: details.sessionId });
+    console.warn('[Cue] Microphone silence diagnostics', { sessionId: details.sessionId, diagnostics: diagnostics.summary });
     Sentry.captureMessage('[Cue] Microphone delivering silence mid-session', {
       level: 'warning',
-      tags: { mic_sample_rate: String(format.sampleRate), mic_channels: String(format.channels) },
-      extra: details,
+      tags: { ...diagnostics.tags, mic_sample_rate: String(details.sampleRate), mic_channels: String(details.channels) },
+      extra: { ...details, cue_session: session, ...diagnostics.extra },
     });
+  } catch (error) {
+    console.error('[Cue] Failed to report mic silence:', error);
+  }
+}
+
+async function reportCueMicRecovered(
+  restored: { sessionId: string; silentTotalMs: number | null; rmsDb: number },
+  session: CueSessionSummary,
+) {
+  try {
+    const diagnostics = await collectMicDiagnostics(provider, { origin: 'silence_recovered', sessionId: restored.sessionId });
+    Sentry.captureMessage('[Cue] Microphone signal restored after silence', {
+      level: 'info',
+      tags: diagnostics.tags,
+      extra: {
+        ...restored,
+        silentAfterAlertMs: restored.silentTotalMs !== null ? restored.silentTotalMs - CUE_MIC_SILENT_ALERT_MS : null,
+        cue_session: session,
+        ...diagnostics.extra,
+      },
+    });
+  } catch (error) {
+    console.error('[Cue] Failed to report mic recovery:', error);
+  }
+}
+
+function bucketSilentFraction(fraction: number): string {
+  if (fraction >= 0.95) return '95_100';
+  if (fraction >= 0.9) return '90_94';
+  return '80_89';
+}
+
+/** Separates "healthy mic, quiet user" from "dead mic" at a glance. */
+function bucketUserPeak(peakDb: number): string {
+  if (peakDb < -90) return 'dead';
+  if (peakDb <= -60) return 'quiet';
+  return 'normal';
+}
+
+function isMostlySilentSession(stats: CueCaptureStats, silence: ReturnType<typeof emptyCueMicSilence>): boolean {
+  return (
+    stats.userChunks > 0 &&
+    stats.userAudioMs >= CUE_SILENT_SESSION_MIN_AUDIO_MS &&
+    silence.lastProspectSpeechMs > 0 &&
+    stats.userSilentMs / stats.userAudioMs >= CUE_SILENT_SESSION_FRACTION
+  );
+}
+
+async function reportCueSilentSession(
+  diagnosticsPending: ReturnType<typeof collectMicDiagnostics>,
+  sessionId: string | null,
+  session: CueSessionSummary,
+  silence: ReturnType<typeof emptyCueMicSilence>,
+) {
+  try {
+    const diagnostics = await diagnosticsPending;
+    const fraction = session.userSilentFraction ?? 1;
+    Sentry.captureMessage('[Cue] Session ended with mic mostly silent', {
+      level: 'warning',
+      tags: {
+        ...diagnostics.tags,
+        mic_silent_bucket: bucketSilentFraction(fraction),
+        mic_user_peak_bucket: bucketUserPeak(session.userPeakDb),
+        mic_ended_silent: String(silence.silentSinceMs !== null),
+        mic_silence_alerted: String(silence.reported),
+      },
+      extra: { sessionId, lastSilentTotalMs: silence.lastSilentTotalMs, cue_session: session, ...diagnostics.extra },
+    });
+  } catch (error) {
+    console.error('[Cue] Failed to report silent session:', error);
   }
 }
 
@@ -340,12 +446,35 @@ function trackCueProspectLevel(buffer: Buffer, format: AudioFormat) {
   }
 }
 
-function formatCueLevelStats(stats: ReturnType<typeof emptyCueCaptureStats>): string {
-  const rmsDb = (sumSq: number, samples: number) => (samples > 0 ? toDb(Math.sqrt(sumSq / samples)) : -120).toFixed(1);
+const round1 = (n: number) => Math.round(n * 10) / 10;
+const rmsDbOf = (sumSq: number, samples: number) => (samples > 0 ? toDb(Math.sqrt(sumSq / samples)) : -120);
+
+/** SAYSO-459: session context for Sentry — one flat object (Sentry's normalizeDepth is 3). Unknowns
+ *  are null, never undefined and never a 0 that reads like a measurement. */
+function summarizeCueLevelStats(stats: CueCaptureStats, nowMs: number) {
+  return {
+    userPeakDb: round1(toDb(stats.userPeak)),
+    userRmsDb: round1(rmsDbOf(stats.userSumSq, stats.userSamples)),
+    userSilentMs: Math.round(stats.userSilentMs),
+    userAudioMs: Math.round(stats.userAudioMs),
+    userSilentFraction: stats.userAudioMs > 0 ? Math.round((stats.userSilentMs / stats.userAudioMs) * 1000) / 1000 : null,
+    userChunks: stats.userChunks,
+    userBytes: stats.userBytes,
+    prospectPeakDb: round1(toDb(stats.prospectPeak)),
+    prospectRmsDb: round1(rmsDbOf(stats.prospectSumSq, stats.prospectSamples)),
+    prospectChunks: stats.prospectChunks,
+    prospectBytes: stats.prospectBytes,
+    sessionDurationMs: stats.sessionStartedAtMs > 0 ? nowMs - stats.sessionStartedAtMs : null,
+    msSinceFirstUserBuffer: stats.firstUserBufferAtMs > 0 ? nowMs - stats.firstUserBufferAtMs : null,
+    msSincePreviousTeardown: cuePreviousTeardownAtMs > 0 ? nowMs - cuePreviousTeardownAtMs : null,
+  };
+}
+
+function formatCueLevelStats(s: CueSessionSummary): string {
   return (
-    `userPeakDb=${toDb(stats.userPeak).toFixed(1)} userRmsDb=${rmsDb(stats.userSumSq, stats.userSamples)} ` +
-    `userSilentSeconds=${(stats.userSilentMs / 1000).toFixed(1)} ` +
-    `prospectPeakDb=${toDb(stats.prospectPeak).toFixed(1)} prospectRmsDb=${rmsDb(stats.prospectSumSq, stats.prospectSamples)}`
+    `userPeakDb=${s.userPeakDb.toFixed(1)} userRmsDb=${s.userRmsDb.toFixed(1)} ` +
+    `userSilentSeconds=${(s.userSilentMs / 1000).toFixed(1)} userAudioSeconds=${(s.userAudioMs / 1000).toFixed(1)} ` +
+    `prospectPeakDb=${s.prospectPeakDb.toFixed(1)} prospectRmsDb=${s.prospectRmsDb.toFixed(1)}`
   );
 }
 
@@ -550,12 +679,20 @@ export async function stopCue(): Promise<{ success: boolean; error?: string; ded
   }
 
   const stopWork = (async (): Promise<{ success: boolean; error?: string }> => {
+    const stopAtMs = Date.now();
     const statsAtStop = { ...cueCaptureStats };
+    const silenceAtStop = { ...cueMicSilence };
+    const sessionIdAtStop: string | null = cueAudioStreamer?.sessionId ?? null;
+    const sessionAtStop = summarizeCueLevelStats(statsAtStop, stopAtMs);
+    if (isMostlySilentSession(statsAtStop, silenceAtStop)) {
+      const diagnostics = collectMicDiagnostics(provider, { origin: 'session_teardown', sessionId: sessionIdAtStop });
+      void reportCueSilentSession(diagnostics, sessionIdAtStop, sessionAtStop, silenceAtStop);
+    }
     try {
       await teardownCueStreamsAndNative();
       notifyOnboarding('onboarding:session-stopped');
       console.log(
-        `[Cue] Session teardown complete — capture stats: userChunks=${statsAtStop.userChunks} prospectChunks=${statsAtStop.prospectChunks} userBytes=${statsAtStop.userBytes} prospectBytes=${statsAtStop.prospectBytes} ${formatCueLevelStats(statsAtStop)}`
+        `[Cue] Session teardown complete — capture stats: userChunks=${statsAtStop.userChunks} prospectChunks=${statsAtStop.prospectChunks} userBytes=${statsAtStop.userBytes} prospectBytes=${statsAtStop.prospectBytes} ${formatCueLevelStats(sessionAtStop)}`
       );
       cueCaptureStats = emptyCueCaptureStats();
       return { success: true };
@@ -566,6 +703,7 @@ export async function stopCue(): Promise<{ success: boolean; error?: string; ded
       cueCaptureStats = emptyCueCaptureStats();
       return { success: false, error: error.message };
     } finally {
+      if (statsAtStop.sessionStartedAtMs > 0) cuePreviousTeardownAtMs = Date.now();
       cueStopInFlight = null;
     }
   })();
@@ -635,7 +773,8 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       }
 
       cueCaptureStats = emptyCueCaptureStats();
-      cueMicSilence = { silentSinceMs: null, lastProspectSpeechMs: 0, lastProspectRmsDb: -120, alerted: false, reported: false };
+      cueCaptureStats.sessionStartedAtMs = Date.now();
+      cueMicSilence = emptyCueMicSilence();
       micRecoveryFailedReportedThisSession = false;
 
       // Create AudioStreamer for 2 audio websockets (user + prospect)
@@ -713,6 +852,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       const cueUserStreamingCallback = (buffer: Buffer, format: unknown) => {
         if (cueAudioStreamer) {
           if (cueCaptureStats.userChunks === 0) {
+            cueCaptureStats.firstUserBufferAtMs = Date.now();
             const f = format as AudioFormat;
             console.log(`[Cue] First mic buffer: ${f?.sampleRate}Hz/${f?.channels}ch/${f?.bitDepth}bit${f?.isFloat ? ' float' : ''}`, { sessionId });
           }

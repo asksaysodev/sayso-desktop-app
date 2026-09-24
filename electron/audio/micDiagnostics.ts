@@ -10,6 +10,12 @@ import type { IAudioProvider, MicDeviceSnapshot, MicInputDiagnostics } from './I
  *  on a user click than on the stall watchdog's eighth restart in a row. */
 export type MicStartOrigin = 'user' | 'delivery_check' | 'watchdog';
 
+/** SAYSO-459: every path that attaches a snapshot. The three start origins keep their
+ *  `mic_start_origin` tag so existing Sentry searches still match; the rest aren't mic starts. */
+export type MicDiagnosticsOrigin = MicStartOrigin | 'silence_alert' | 'silence_recovered' | 'session_teardown';
+
+const MIC_START_ORIGINS: ReadonlySet<MicDiagnosticsOrigin> = new Set<MicDiagnosticsOrigin>(['user', 'delivery_check', 'watchdog']);
+
 /** HAL reads are IPC to coreaudiod — the daemon most likely to be wedged when these events fire.
  *  A cold snapshot of a built-in mic measured ~60ms; Bluetooth routes read slower. */
 const MIC_DIAGNOSTICS_TIMEOUT_MS = 500;
@@ -86,7 +92,7 @@ async function takeSnapshot(provider: IAudioProvider | null): Promise<{ status: 
 /** Never throws, and resolves within MIC_DIAGNOSTICS_TIMEOUT_MS. */
 export async function collectMicDiagnostics(
   provider: IAudioProvider | null,
-  context: { origin: MicStartOrigin; sessionId?: string | null; msSinceLastUserChunk?: number | null },
+  context: { origin: MicDiagnosticsOrigin; sessionId?: string | null; msSinceLastUserChunk?: number | null },
 ): Promise<MicDiagnosticsReport> {
   const { status, snapshot } = await takeSnapshot(provider);
 
@@ -101,7 +107,8 @@ export async function collectMicDiagnostics(
     msSinceEngineConfigChange: snapshot?.msSinceEngineConfigChange ?? null,
   };
 
-  const tags: Record<string, string> = { mic_start_origin: context.origin, mic_diag: status };
+  const tags: Record<string, string> = { mic_diag_origin: context.origin, mic_diag: status };
+  if (MIC_START_ORIGINS.has(context.origin)) tags.mic_start_origin = context.origin;
   const extra: Record<string, unknown> = { mic_timing: timing };
   let summary = `origin=${context.origin} diag=${status}`;
 
@@ -120,10 +127,14 @@ export async function collectMicDiagnostics(
     extra.mic_tap = tap;
     extra.mic_engine = engine;
 
-    const drops = tap.droppedNoHandle + tap.droppedNoCallback + tap.droppedEmpty + tap.droppedLayout + tap.droppedUnsupported;
+    const drops = tap.droppedNoHandle + tap.droppedNoCallback + tap.droppedEmpty + tap.droppedLayout + tap.droppedUnsupported + (tap.droppedOverflow ?? 0);
     summary +=
       ` input="${input?.name ?? 'none'}" transport=${tags.mic_transport} channels=${input?.inputChannels ?? '?'}` +
       ` running_somewhere=${tags.mic_running_somewhere} hog=${tags.mic_hog_mode} muted=${input?.inputMuted ?? '?'}` +
+      ` volume=${input?.inputVolume != null ? input.inputVolume.toFixed(2) : '?'}` +
+      (input?.formFactor !== undefined ? ` form_factor=${input.formFactor ?? '?'}` : '') +
+      (input?.state !== undefined ? ` state=${input.state ?? '?'}` : '') +
+      (tap.silentFlagged !== undefined ? ` silent_flagged=${tap.silentFlagged}` : '') +
       ` engine_running=${snapshot.engineRunning} route=${tags.mic_route} recovering=${snapshot.routeRecovering}` +
       ` engine_builds=${snapshot.engineBuilds} tap=${tap.delivered}/${tap.callbacks} drops=${drops}` +
       ` tap_format=${tap.lastSampleRate ?? '?'}Hz/${tap.lastChannels ?? '?'}ch` +

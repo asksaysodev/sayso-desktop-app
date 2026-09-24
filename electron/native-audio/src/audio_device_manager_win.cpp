@@ -2,17 +2,16 @@
 // native_audio — Windows backend (WASAPI)
 //
 // Implements the frozen 13-method NAN surface documented in
-// docs/NATIVE_AUDIO_CONTRACT.md, mirroring the responsibilities of the macOS
+// docs/NATIVE_AUDIO_CONTRACT.md, plus the optional getMicInputDiagnostics
+// (SAYSO-459, bottom of this file), mirroring the responsibilities of the macOS
 // reference implementation (src/audio_device_manager.mm) with the Windows/
 // WASAPI equivalents documented in docs/AUDIO_MODULE_WINDOWS_ASSESSMENT.md and
 // docs/WINDOWS_AUDIO_PLAN.md. index.js and binding.gyp are frozen inputs —
 // nothing here changes what JS calls or how the addon is built.
 //
-// STAGE (this file is built up in compiling checkpoints):
+// STAGES (all four landed; the capture bodies are real, not placeholders):
 //   1. Native state, COM/device infrastructure, all 13 NAN exports, callback
 //      plumbing, synchronization primitives, async delivery infrastructure.
-//      [THIS STAGE — system-audio and mic *capture* bodies are still
-//      placeholders; everything else below is real.]
 //   2. Microphone capture (open/close the default capture endpoint).
 //   3. System-audio loopback capture (open/close the default render endpoint).
 //   4. Device-change recovery (debounce/coalesce/backoff on both paths).
@@ -105,6 +104,7 @@
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
+#include <endpointvolume.h>
 #include <ksmedia.h>
 #include <threadpoolapiset.h>
 #include <propsys.h>
@@ -112,6 +112,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <condition_variable>
 #include <cstdio>
 #include <cstring>
@@ -185,7 +186,27 @@ struct AudioDeliveryChannel {
   uv_async_t* asyncHandle = nullptr;            // JS thread only: create/close
   Nan::Persistent<v8::Function> callback;       // JS thread only: set/clear
 
+  // SAYSO-459: tap counters for getMicInputDiagnostics. Relaxed atomic writes only — no lock, no
+  // allocation — so the capture thread pays a few increments per packet. Read at snapshot time.
+  std::atomic<uint64_t> diagPushed{0};          // packets handed over by the capture thread
+  std::atomic<uint64_t> diagSilentFlagged{0};   // ...of which WASAPI flagged AUDCLNT_BUFFERFLAGS_SILENT
+  std::atomic<uint64_t> diagDelivered{0};       // chunks passed to the JS callback
+  std::atomic<uint64_t> diagNoCallback{0};      // chunks drained with no JS callback set
+  std::atomic<uint64_t> diagOverflow{0};        // chunks dropped by the bounded queue
+  std::atomic<int64_t> diagLastPushMs{0};
+  std::atomic<int64_t> diagLastDeliveredMs{0};
+  std::atomic<int> diagLastSampleRate{0};
+  std::atomic<int> diagLastChannels{0};
+
   AudioDeliveryChannel(const char* n, size_t cap) : name(n), capacity(cap) {}
+
+  void ResetDiagCounters() {
+    diagPushed.store(0, std::memory_order_relaxed);
+    diagSilentFlagged.store(0, std::memory_order_relaxed);
+    diagDelivered.store(0, std::memory_order_relaxed);
+    diagNoCallback.store(0, std::memory_order_relaxed);
+    diagOverflow.store(0, std::memory_order_relaxed);
+  }
 
   // Producer side. Called from a WASAPI capture thread. Never touches V8.
   void Push(StreamingData* data) {
@@ -201,6 +222,7 @@ struct AudioDeliveryChannel {
     }
     if (overflowed) {
       dropped.fetch_add(1, std::memory_order_relaxed);
+      diagOverflow.fetch_add(1, std::memory_order_relaxed);
     }
     if (asyncHandle) {
       uv_async_send(asyncHandle);
@@ -238,6 +260,10 @@ struct AudioDeliveryChannel {
         Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(data->isFloat));
         Local<Value> argv[2] = {buffer, format};
         Nan::Call(fn, Nan::GetCurrentContext()->Global(), 2, argv);
+        diagDelivered.fetch_add(1, std::memory_order_relaxed);
+        diagLastDeliveredMs.store(static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
+      } else {
+        diagNoCallback.fetch_add(1, std::memory_order_relaxed);
       }
       delete data;
     }
@@ -287,6 +313,11 @@ void ChannelDrainCallback(uv_async_t* handle) {
 
 AudioDeliveryChannel g_systemChannel("system_audio", 64);
 AudioDeliveryChannel g_micChannel("microphone", 64);
+
+// SAYSO-459: mic engine timing for getMicInputDiagnostics. GetTickCount64 ms; 0 = never.
+std::atomic<int64_t> g_micDiagLastDefaultCaptureChangeMs{0};  // set from the IMMNotificationClient thread
+std::atomic<uint64_t> g_micDiagEngineBuilds{0};               // successful mic opens (start + route restarts)
+std::atomic<int64_t> g_micDiagEngineBuiltAtMs{0};
 
 // ── COM / MMDevice infrastructure ──────────────────────────────────────────
 
@@ -360,6 +391,7 @@ class SaysoNotificationClient : public IMMNotificationClient {
       return S_OK;  // only the console role feeds GetDefaultAudioEndpoint(..., eConsole) reads elsewhere
     }
     if (flow == eCapture) {
+      g_micDiagLastDefaultCaptureChangeMs.store(static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
       EmitLifecycleEvent("default_capture_device_changed id=" + WideToUtf8(pwstrDefaultDeviceId));
       ScheduleMicRouteDebouncedRestart();
     } else if (flow == eRender) {
@@ -486,10 +518,28 @@ struct PathState {
   // work — and the OS thread it may ultimately own — could still be live.
   std::atomic<bool> claimActive{false};
   std::condition_variable claimReleasedCv;  // notified whenever claimActive is cleared
+
+  // SAYSO-459: copy of openedEndpointId for getMicInputDiagnostics. Its own lock, held only for a
+  // string copy, so a snapshot never waits behind engineLock during a (long) route restart — the
+  // moment a snapshot is most useful. Written wherever openedEndpointId is.
+  std::mutex diagLock;
+  std::wstring diagOpenedEndpointId;  // guarded by diagLock
 };
 
 PathState g_micState;
 PathState g_systemState;
+
+void SetDiagOpenedEndpointId(PathState& state, const std::wstring& id) {
+  std::lock_guard<std::mutex> lk(state.diagLock);
+  state.diagOpenedEndpointId = id;
+}
+
+// A mic engine was just published (initial start or route restart).
+void NoteMicEngineBuilt(const std::wstring& endpointId) {
+  SetDiagOpenedEndpointId(g_micState, endpointId);
+  g_micDiagEngineBuilds.fetch_add(1, std::memory_order_relaxed);
+  g_micDiagEngineBuiltAtMs.store(static_cast<int64_t>(GetTickCount64()), std::memory_order_relaxed);
+}
 
 template <typename T>
 void SafeRelease(T** ppT) {
@@ -723,6 +773,13 @@ void PushCapturedBuffer(AudioDeliveryChannel* channel, BYTE* data, UINT32 frames
   payload->channels = channels;
   payload->bitDepth = bitDepth;
   payload->isFloat = isFloat;
+  channel->diagPushed.fetch_add(1, std::memory_order_relaxed);
+  if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+    channel->diagSilentFlagged.fetch_add(1, std::memory_order_relaxed);
+  }
+  channel->diagLastPushMs.store(NowMs(), std::memory_order_relaxed);
+  channel->diagLastSampleRate.store(static_cast<int>(sampleRate), std::memory_order_relaxed);
+  channel->diagLastChannels.store(channels, std::memory_order_relaxed);
   channel->Push(payload);
 }
 
@@ -1187,6 +1244,7 @@ SessionClaim ClaimSessionLocked(PathState& state) {
   state.device = nullptr;
   state.format = nullptr;
   state.openedEndpointId.clear();
+  SetDiagOpenedEndpointId(state, std::wstring());
   state.claimActive.store(true, std::memory_order_release);
   return claim;
 }
@@ -1264,6 +1322,7 @@ bool PublishMicRestartSuccessLocked(MicOpenResult& result) {
   g_micState.openedEndpointId = result.endpointId;
   g_micState.captureThread = thread;
   g_micState.stopEvent = stopEvent;
+  NoteMicEngineBuilt(result.endpointId);
   return true;
 }
 
@@ -2803,6 +2862,10 @@ NAN_METHOD(StartMicrophoneCapture) {
     return;
   }
 
+  // SAYSO-459: tap counters describe this start onward (route restarts keep counting). The capture
+  // thread doesn't exist yet, so nothing is pushing concurrently.
+  g_micChannel.ResetDiagCounters();
+
   MicStartContext* ctx = new MicStartContext();
   ctx->readyEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   ctx->stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -2890,6 +2953,7 @@ NAN_METHOD(StartMicrophoneCapture) {
   g_micState.openedEndpointId = ctx->endpointId;
   g_micState.captureThread = thread;
   g_micState.stopEvent = ctx->stopEvent;
+  NoteMicEngineBuilt(ctx->endpointId);
   CloseHandle(ctx->readyEvent);
   delete ctx;
   g_micState.capturing.store(true, std::memory_order_release);
@@ -3062,9 +3126,371 @@ NAN_METHOD(SetLifecycleEventCallback) {
   info.GetReturnValue().Set(Nan::True());
 }
 
+// ── SAYSO-459: mic diagnostics snapshot (optional method #14) ───────────────
+// Windows side of getMicInputDiagnostics — same shape as the mac reference
+// (audio_device_manager.mm, SAYSO-431; typed as MicInputDiagnostics in
+// electron/audio/IAudioProvider.ts) so electron/audio/micDiagnostics.ts renders
+// both platforms identically. Answers "which mic, is it muted, what level is the
+// OS applying, and is WASAPI handing us audio or zeros".
+//
+// Threading: the JS thread only creates the promise. Every COM/MMDevice read
+// runs on a thread-pool timer thread that joins the MTA for the duration (file
+// header thread model #5); the result comes back via uv_async and the JS thread
+// resolves, closes and frees — the PendingLoopbackStart lifetime. A driver that
+// hangs a property read parks one pool thread; the in-flight guard makes later
+// calls resolve null instead of parking more, and JS time-boxes the call.
+// Never rejects, never touches engine state, never takes engineLock. A failed
+// read leaves that field null — never a default value.
+
+struct WinMicDeviceSnapshot {
+  bool present = false;
+  bool hasUid = false;
+  std::string uid;
+  bool hasName = false;
+  std::string name;
+  std::string transport = "unknown";
+  bool hasFormFactor = false;
+  std::string formFactor;
+  bool hasState = false;
+  DWORD state = 0;
+  int muted = -1;       // -1 unknown
+  float volume = -1.0f;  // -1 unknown
+  int sampleRate = -1;
+  int channels = -1;
+};
+
+// Unlike WideToUtf8, never returns a sentinel string: false means "no value".
+bool WideToUtf8Checked(LPCWSTR wide, std::string& out) {
+  if (!wide) {
+    return false;
+  }
+  int len = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
+  if (len <= 0) {
+    return false;
+  }
+  out.assign(static_cast<size_t>(len - 1), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, wide, -1, out.data(), len, nullptr, nullptr);
+  return true;
+}
+
+const char* FormFactorName(UINT formFactor) {
+  switch (formFactor) {
+    case RemoteNetworkDevice: return "remote_network";
+    case Speakers: return "speakers";
+    case LineLevel: return "line_level";
+    case Headphones: return "headphones";
+    case Microphone: return "microphone";
+    case Headset: return "headset";
+    case Handset: return "handset";
+    case UnknownDigitalPassthrough: return "digital_passthrough";
+    case SPDIF: return "spdif";
+    case DigitalAudioDisplayDevice: return "display";
+    default: return "unknown";
+  }
+}
+
+const char* DeviceStateName(DWORD state) {
+  switch (state) {
+    case DEVICE_STATE_ACTIVE: return "active";
+    case DEVICE_STATE_DISABLED: return "disabled";
+    case DEVICE_STATE_NOTPRESENT: return "not_present";
+    case DEVICE_STATE_UNPLUGGED: return "unplugged";
+    default: return "unknown";
+  }
+}
+
+// The bus enumerator is the closest Windows analog to CoreAudio's transport type.
+std::string TransportFromEnumerator(std::string enumerator) {
+  std::transform(enumerator.begin(), enumerator.end(), enumerator.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (enumerator.rfind("bth", 0) == 0) {
+    return "bluetooth";  // BTHENUM, BTHHFENUM, BTHLEDEVICE
+  }
+  return enumerator.empty() ? "unknown" : enumerator;  // usb, hdaudio, intelaudio, swd, …
+}
+
+// Caller's thread must be CoInitializeEx'd. Each read is independent: one
+// failing HRESULT leaves only its own field unset.
+WinMicDeviceSnapshot SnapshotEndpoint(IMMDevice* device) {
+  WinMicDeviceSnapshot s;
+  if (!device) {
+    return s;
+  }
+  s.present = true;
+
+  LPWSTR id = nullptr;
+  if (SUCCEEDED(device->GetId(&id)) && id) {
+    s.hasUid = WideToUtf8Checked(id, s.uid);
+    CoTaskMemFree(id);
+  }
+  DWORD state = 0;
+  if (SUCCEEDED(device->GetState(&state))) {
+    s.hasState = true;
+    s.state = state;
+  }
+
+  IPropertyStore* store = nullptr;
+  if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, &store)) && store) {
+    PROPVARIANT pv;
+    PropVariantInit(&pv);
+    if (SUCCEEDED(store->GetValue(PKEY_Device_FriendlyName, &pv)) && pv.vt == VT_LPWSTR) {
+      s.hasName = WideToUtf8Checked(pv.pwszVal, s.name);
+    }
+    PropVariantClear(&pv);
+    if (SUCCEEDED(store->GetValue(PKEY_AudioEndpoint_FormFactor, &pv)) && pv.vt == VT_UI4) {
+      s.hasFormFactor = true;
+      s.formFactor = FormFactorName(pv.ulVal);
+    }
+    PropVariantClear(&pv);
+    if (SUCCEEDED(store->GetValue(PKEY_Device_EnumeratorName, &pv)) && pv.vt == VT_LPWSTR) {
+      std::string enumerator;
+      if (WideToUtf8Checked(pv.pwszVal, enumerator)) {
+        s.transport = TransportFromEnumerator(enumerator);
+      }
+    }
+    PropVariantClear(&pv);
+    store->Release();
+  }
+
+  IAudioEndpointVolume* volume = nullptr;
+  if (SUCCEEDED(device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr,
+                                 reinterpret_cast<void**>(&volume))) &&
+      volume) {
+    BOOL muted = FALSE;
+    if (SUCCEEDED(volume->GetMute(&muted))) {
+      s.muted = muted ? 1 : 0;
+    }
+    float level = 0.0f;
+    if (SUCCEEDED(volume->GetMasterVolumeLevelScalar(&level))) {
+      s.volume = level;
+    }
+    volume->Release();
+  }
+
+  // Mix format via a fresh, never-Initialized client — it doesn't touch our
+  // open stream. Only for active endpoints; activation fails on the others.
+  if (s.hasState && s.state == DEVICE_STATE_ACTIVE) {
+    IAudioClient* client = nullptr;
+    if (SUCCEEDED(device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, reinterpret_cast<void**>(&client))) &&
+        client) {
+      WAVEFORMATEX* mix = nullptr;
+      if (SUCCEEDED(client->GetMixFormat(&mix)) && mix) {
+        s.sampleRate = static_cast<int>(mix->nSamplesPerSec);
+        s.channels = mix->nChannels;
+        CoTaskMemFree(mix);
+      }
+      client->Release();
+    }
+  }
+  return s;
+}
+
+struct PendingMicDiagnostics {
+  uv_async_t async;
+  Nan::Persistent<v8::Promise::Resolver> resolver;
+  int64_t takenAtMs = 0;
+  WinMicDeviceSnapshot defaultInput;
+  bool hasOpenedId = false;
+  std::string openedId;
+  WinMicDeviceSnapshot openedInput;  // only filled when it differs from the default
+  bool capturing = false;
+  bool routeRecovering = false;
+  uint64_t engineBuilds = 0;
+  int64_t engineBuiltAtMs = 0;
+  int64_t lastDefaultChangeMs = 0;
+  uint64_t tapPushed = 0;
+  uint64_t tapSilentFlagged = 0;
+  uint64_t tapDelivered = 0;
+  uint64_t tapNoCallback = 0;
+  uint64_t tapOverflow = 0;
+  int64_t tapLastPushMs = 0;
+  int64_t tapLastDeliveredMs = 0;
+  int tapSampleRate = 0;
+  int tapChannels = 0;
+};
+
+std::atomic<bool> g_micDiagnosticsInFlight{false};
+
+// Thread-pool thread. Writes only into `p`, then sends exactly once.
+void CollectMicDiagnosticsOffThread(PendingMicDiagnostics* p) {
+  // Atomics first, so they describe the moment of the call rather than after a slow device read.
+  p->takenAtMs = NowMs();
+  p->capturing = g_micState.capturing.load(std::memory_order_acquire);
+  p->routeRecovering = g_micState.routeRecovering.load(std::memory_order_acquire);
+  p->engineBuilds = g_micDiagEngineBuilds.load(std::memory_order_relaxed);
+  p->engineBuiltAtMs = g_micDiagEngineBuiltAtMs.load(std::memory_order_relaxed);
+  p->lastDefaultChangeMs = g_micDiagLastDefaultCaptureChangeMs.load(std::memory_order_relaxed);
+  p->tapPushed = g_micChannel.diagPushed.load(std::memory_order_relaxed);
+  p->tapSilentFlagged = g_micChannel.diagSilentFlagged.load(std::memory_order_relaxed);
+  p->tapDelivered = g_micChannel.diagDelivered.load(std::memory_order_relaxed);
+  p->tapNoCallback = g_micChannel.diagNoCallback.load(std::memory_order_relaxed);
+  p->tapOverflow = g_micChannel.diagOverflow.load(std::memory_order_relaxed);
+  p->tapLastPushMs = g_micChannel.diagLastPushMs.load(std::memory_order_relaxed);
+  p->tapLastDeliveredMs = g_micChannel.diagLastDeliveredMs.load(std::memory_order_relaxed);
+  p->tapSampleRate = g_micChannel.diagLastSampleRate.load(std::memory_order_relaxed);
+  p->tapChannels = g_micChannel.diagLastChannels.load(std::memory_order_relaxed);
+
+  std::wstring openedW;
+  {
+    std::lock_guard<std::mutex> lk(g_micState.diagLock);
+    openedW = g_micState.diagOpenedEndpointId;
+  }
+  if (!openedW.empty()) {
+    p->hasOpenedId = WideToUtf8Checked(openedW.c_str(), p->openedId);
+  }
+
+  // g_enumerator is written once, before g_initialized is released.
+  if (g_initialized.load(std::memory_order_acquire) && g_enumerator) {
+    HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (SUCCEEDED(hrInit)) {
+      IMMDevice* device = nullptr;
+      if (SUCCEEDED(g_enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &device)) && device) {
+        p->defaultInput = SnapshotEndpoint(device);
+        device->Release();
+      }
+      const bool sameAsDefault = p->defaultInput.hasUid && p->hasOpenedId && p->defaultInput.uid == p->openedId;
+      if (!openedW.empty() && !sameAsDefault) {
+        IMMDevice* opened = nullptr;
+        if (SUCCEEDED(g_enumerator->GetDevice(openedW.c_str(), &opened)) && opened) {
+          p->openedInput = SnapshotEndpoint(opened);
+          opened->Release();
+        }
+      }
+      CoUninitialize();
+    }
+  }
+  uv_async_send(&p->async);
+}
+
+Local<Value> MsSinceOrNull(int64_t nowMs, int64_t thenMs) {
+  if (thenMs <= 0) {
+    return Nan::Null();
+  }
+  return Nan::New<Number>(static_cast<double>(std::max<int64_t>(0, nowMs - thenMs)));
+}
+
+Local<Value> WinMicDeviceSnapshotToJs(const WinMicDeviceSnapshot& d) {
+  if (!d.present) {
+    return Nan::Null();
+  }
+  auto str = [](bool has, const std::string& v) -> Local<Value> {
+    return has ? Local<Value>(Nan::New<String>(v.c_str()).ToLocalChecked()) : Local<Value>(Nan::Null());
+  };
+  Local<Object> o = Nan::New<Object>();
+  Nan::Set(o, Nan::New("id").ToLocalChecked(), Nan::Null());  // Windows has no numeric device id; see uid
+  Nan::Set(o, Nan::New("name").ToLocalChecked(), str(d.hasName, d.name));
+  Nan::Set(o, Nan::New("uid").ToLocalChecked(), str(d.hasUid, d.uid));
+  Nan::Set(o, Nan::New("transport").ToLocalChecked(), Nan::New<String>(d.transport.c_str()).ToLocalChecked());
+  Nan::Set(o, Nan::New("nominalSampleRate").ToLocalChecked(),
+           d.sampleRate > 0 ? Local<Value>(Nan::New<Number>(d.sampleRate)) : Local<Value>(Nan::Null()));
+  Nan::Set(o, Nan::New("inputChannels").ToLocalChecked(),
+           d.channels > 0 ? Local<Value>(Nan::New<Number>(d.channels)) : Local<Value>(Nan::Null()));
+  Nan::Set(o, Nan::New("isAlive").ToLocalChecked(),
+           d.hasState ? Local<Value>(Nan::New<v8::Boolean>(d.state == DEVICE_STATE_ACTIVE)) : Local<Value>(Nan::Null()));
+  Nan::Set(o, Nan::New("isRunningSomewhere").ToLocalChecked(), Nan::Null());
+  Nan::Set(o, Nan::New("hogModePid").ToLocalChecked(), Nan::Null());
+  Nan::Set(o, Nan::New("inputMuted").ToLocalChecked(),
+           d.muted < 0 ? Local<Value>(Nan::Null()) : Local<Value>(Nan::New<v8::Boolean>(d.muted == 1)));
+  Nan::Set(o, Nan::New("inputVolume").ToLocalChecked(),
+           d.volume >= 0.0f ? Local<Value>(Nan::New<Number>(d.volume)) : Local<Value>(Nan::Null()));
+  Nan::Set(o, Nan::New("formFactor").ToLocalChecked(), str(d.hasFormFactor, d.formFactor));
+  Nan::Set(o, Nan::New("state").ToLocalChecked(),
+           d.hasState ? Local<Value>(Nan::New<String>(DeviceStateName(d.state)).ToLocalChecked())
+                      : Local<Value>(Nan::Null()));
+  return o;
+}
+
+void MicDiagnosticsSettledCb(uv_async_t* handle) {
+  PendingMicDiagnostics* p = static_cast<PendingMicDiagnostics*>(handle->data);
+  if (!p) {
+    return;
+  }
+  Nan::HandleScope scope;
+  Isolate* isolate = Isolate::GetCurrent();
+  Local<Context> context = isolate->GetCurrentContext();
+  Local<Promise::Resolver> resolver = Nan::New(p->resolver);
+  p->resolver.Reset();
+
+  const int64_t now = p->takenAtMs;
+  Local<Object> result = Nan::New<Object>();
+  Nan::Set(result, Nan::New("defaultInput").ToLocalChecked(), WinMicDeviceSnapshotToJs(p->defaultInput));
+  Nan::Set(result, Nan::New("openedInputId").ToLocalChecked(),
+           p->hasOpenedId ? Local<Value>(Nan::New<String>(p->openedId.c_str()).ToLocalChecked())
+                          : Local<Value>(Nan::Null()));
+  Nan::Set(result, Nan::New("openedInput").ToLocalChecked(), WinMicDeviceSnapshotToJs(p->openedInput));
+  Nan::Set(result, Nan::New("capturing").ToLocalChecked(), Nan::New<v8::Boolean>(p->capturing));
+  Nan::Set(result, Nan::New("routeRecovering").ToLocalChecked(), Nan::New<v8::Boolean>(p->routeRecovering));
+  // No engine/capture split on Windows: an open capture client is the running engine.
+  Nan::Set(result, Nan::New("engineRunning").ToLocalChecked(), Nan::New<v8::Boolean>(p->capturing));
+  Nan::Set(result, Nan::New("engineBuilds").ToLocalChecked(), Nan::New<Number>(static_cast<double>(p->engineBuilds)));
+  Nan::Set(result, Nan::New("msSinceEngineBuilt").ToLocalChecked(), MsSinceOrNull(now, p->engineBuiltAtMs));
+  Nan::Set(result, Nan::New("msSinceDefaultInputChange").ToLocalChecked(), MsSinceOrNull(now, p->lastDefaultChangeMs));
+  // WASAPI has no AVAudioEngine configuration-change notification.
+  Nan::Set(result, Nan::New("msSinceEngineConfigChange").ToLocalChecked(), Nan::Null());
+  Nan::Set(result, Nan::New("engineConfigChanges").ToLocalChecked(), Nan::New<Number>(0));
+
+  Local<Object> tap = Nan::New<Object>();
+  Nan::Set(tap, Nan::New("callbacks").ToLocalChecked(), Nan::New<Number>(static_cast<double>(p->tapPushed)));
+  Nan::Set(tap, Nan::New("delivered").ToLocalChecked(), Nan::New<Number>(static_cast<double>(p->tapDelivered)));
+  // The mac drop reasons below don't exist in the WASAPI path; queue overflow is its own field.
+  Nan::Set(tap, Nan::New("droppedNoHandle").ToLocalChecked(), Nan::New<Number>(0));
+  Nan::Set(tap, Nan::New("droppedNoCallback").ToLocalChecked(), Nan::New<Number>(static_cast<double>(p->tapNoCallback)));
+  Nan::Set(tap, Nan::New("droppedEmpty").ToLocalChecked(), Nan::New<Number>(0));
+  Nan::Set(tap, Nan::New("droppedLayout").ToLocalChecked(), Nan::New<Number>(0));
+  Nan::Set(tap, Nan::New("droppedUnsupported").ToLocalChecked(), Nan::New<Number>(0));
+  Nan::Set(tap, Nan::New("droppedOverflow").ToLocalChecked(), Nan::New<Number>(static_cast<double>(p->tapOverflow)));
+  Nan::Set(tap, Nan::New("silentFlagged").ToLocalChecked(), Nan::New<Number>(static_cast<double>(p->tapSilentFlagged)));
+  Nan::Set(tap, Nan::New("msSinceLastCallback").ToLocalChecked(), MsSinceOrNull(now, p->tapLastPushMs));
+  Nan::Set(tap, Nan::New("msSinceLastDelivered").ToLocalChecked(), MsSinceOrNull(now, p->tapLastDeliveredMs));
+  Nan::Set(tap, Nan::New("lastSampleRate").ToLocalChecked(),
+           p->tapSampleRate > 0 ? Local<Value>(Nan::New<Number>(p->tapSampleRate)) : Local<Value>(Nan::Null()));
+  Nan::Set(tap, Nan::New("lastChannels").ToLocalChecked(),
+           p->tapChannels > 0 ? Local<Value>(Nan::New<Number>(p->tapChannels)) : Local<Value>(Nan::Null()));
+  Nan::Set(tap, Nan::New("lastCommonFormat").ToLocalChecked(), Nan::Null());
+  Nan::Set(result, Nan::New("tap").ToLocalChecked(), tap);
+
+  resolver->Resolve(context, result).Check();
+  g_micDiagnosticsInFlight.store(false);
+
+  uv_close(reinterpret_cast<uv_handle_t*>(handle),
+           [](uv_handle_t* h) { delete static_cast<PendingMicDiagnostics*>(h->data); });
+}
+
+// Resolves the snapshot object, or null when a previous snapshot is still in
+// flight or the work couldn't be scheduled. Never rejects.
+NAN_METHOD(GetMicInputDiagnostics) {
+  Isolate* isolate = info.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext();
+  MaybeLocal<Promise::Resolver> maybeResolver = Promise::Resolver::New(context);
+  if (maybeResolver.IsEmpty()) {
+    return;
+  }
+  Local<Promise::Resolver> resolver = maybeResolver.ToLocalChecked();
+  info.GetReturnValue().Set(resolver->GetPromise());
+
+  if (g_micDiagnosticsInFlight.exchange(true)) {
+    resolver->Resolve(context, Nan::Null()).Check();
+    return;
+  }
+
+  PendingMicDiagnostics* p = new PendingMicDiagnostics();
+  p->resolver.Reset(resolver);
+  p->async.data = p;
+  uv_async_init(uv_default_loop(), &p->async, MicDiagnosticsSettledCb);
+
+  if (!ScheduleOnce(0, [p]() { CollectMicDiagnosticsOffThread(p); })) {
+    p->resolver.Reset();
+    resolver->Resolve(context, Nan::Null()).Check();
+    g_micDiagnosticsInFlight.store(false);
+    uv_close(reinterpret_cast<uv_handle_t*>(&p->async),
+             [](uv_handle_t* h) { delete static_cast<PendingMicDiagnostics*>(h->data); });
+  }
+}
+
 }  // namespace
 
-// ── Module init — exports exactly the 13-method frozen surface ─────────────
+// ── Module init — the 13 required methods, plus optional #14
+//    getMicInputDiagnostics (SAYSO-459; index.js feature-checks it) ─────────
 NAN_MODULE_INIT(Init) {
   Nan::Set(target, Nan::New("initialize").ToLocalChecked(),
            Nan::GetFunction(Nan::New<v8::FunctionTemplate>(Initialize)).ToLocalChecked());
@@ -3092,6 +3518,8 @@ NAN_MODULE_INIT(Init) {
            Nan::GetFunction(Nan::New<v8::FunctionTemplate>(SetMicrophoneStreamingCallback)).ToLocalChecked());
   Nan::Set(target, Nan::New("setLifecycleEventCallback").ToLocalChecked(),
            Nan::GetFunction(Nan::New<v8::FunctionTemplate>(SetLifecycleEventCallback)).ToLocalChecked());
+  Nan::Set(target, Nan::New("getMicInputDiagnostics").ToLocalChecked(),
+           Nan::GetFunction(Nan::New<v8::FunctionTemplate>(GetMicInputDiagnostics)).ToLocalChecked());
 }
 
 NODE_MODULE(native_audio, Init)

@@ -35,9 +35,12 @@ export interface AudioFormat {
 export type StreamingCallback = (buffer: Buffer, format: AudioFormat) => void;
 
 /** SAYSO-431: one HAL device as native sees it. `null` fields mean the device doesn't implement that
- *  property or the read failed — never a default value. */
+ *  property or the read failed — never a default value.
+ *  SAYSO-459: Windows fills the same shape from MMDevice/WASAPI. It has no numeric device id (`id` is
+ *  null, `uid` is the endpoint id string) and no cheap equivalent of `isRunningSomewhere` or
+ *  `hogModePid` (both null). `formFactor` and `state` are Windows-only. */
 export interface MicDeviceSnapshot {
-  id: number;
+  id: number | null;
   name: string | null;
   uid: string | null;
   /** built_in / bluetooth / bluetooth_le / usb / virtual / aggregate / continuity_wired / … / other / unknown */
@@ -51,13 +54,18 @@ export interface MicDeviceSnapshot {
   hogModePid: number | null;
   inputMuted: boolean | null;
   inputVolume: number | null;
+  /** Windows only: PKEY_AudioEndpoint_FormFactor (microphone / headset / headphones / …). */
+  formFactor?: string | null;
+  /** Windows only: IMMDevice::GetState (active / disabled / not_present / unplugged). */
+  state?: string | null;
 }
 
 /** SAYSO-431: snapshot returned by getMicInputDiagnostics. Tap counters cover the current (or last
  *  failed) engine build; `msSinceLast*` on the tap are process-wide. */
 export interface MicInputDiagnostics {
   defaultInput: MicDeviceSnapshot | null;
-  openedInputId: number | null;
+  /** macOS: AudioDeviceID. Windows: endpoint id string. */
+  openedInputId: number | string | null;
   /** Only set when the device our engine opened is no longer the OS default. */
   openedInput: MicDeviceSnapshot | null;
   capturing: boolean;
@@ -82,6 +90,10 @@ export interface MicInputDiagnostics {
     lastSampleRate: number | null;
     lastChannels: number | null;
     lastCommonFormat: number | null;
+    /** Windows only: packets WASAPI flagged AUDCLNT_BUFFERFLAGS_SILENT (driver says it is zeroing). */
+    silentFlagged?: number;
+    /** Windows only: chunks dropped by the bounded native delivery queue. */
+    droppedOverflow?: number;
   };
 }
 

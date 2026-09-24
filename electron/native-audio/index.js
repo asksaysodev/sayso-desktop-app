@@ -224,9 +224,10 @@ class AudioDeviceManager {
   /**
    * SAYSO-431: point-in-time mic diagnostics — the OS default input (name, transport, whether another
    * process is using or hogging it), our engine/route state, and tap counters for the current engine
-   * build. Resolves null when the native build predates the method (Windows, stale macOS builds) or
-   * when a previous snapshot is still in flight. Never rejects. Deliberately skips initialize(): it
-   * only reads HAL properties and atomics, and must not add engine work to a failure path.
+   * build. SAYSO-459: Windows implements it too (endpoint name/id, mute, volume, form factor, WASAPI
+   * silent-flag count). Resolves null when the native build predates the method or when a previous
+   * snapshot is still in flight. Never rejects. Deliberately skips initialize(): it only reads device
+   * properties and atomics, and must not add engine work to a failure path.
    * @returns {Promise<Object|null>}
    */
   async getMicInputDiagnostics() {
