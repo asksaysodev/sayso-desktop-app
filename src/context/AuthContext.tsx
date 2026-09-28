@@ -2,6 +2,7 @@ import { createContext, useContext, useCallback, useEffect, useState, useRef } f
 import { useSessionExpiry } from '@/hooks/useSessionExpiry'
 import * as Sentry from "@sentry/electron/renderer"
 import { useAccounts } from '../hooks/useAccounts'
+import { isTransientApiError } from '@/utils/errorReporting'
 import { Account, AuthResult, SignInData, User } from '@/types/user'
 import { AALLevel, MFAServiceError } from '@/types/supabaseMFA'
 import type { Factor } from '@supabase/supabase-js'
@@ -241,7 +242,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setUserLoading(false)
         } catch (error) {
           console.error('Error fetching account:', error)
-          Sentry.captureException(error)
+          if (!isTransientApiError(error)) Sentry.captureException(error)
           setUserLoading(false)
         }
       }, 300)
