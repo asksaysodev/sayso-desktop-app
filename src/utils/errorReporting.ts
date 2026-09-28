@@ -83,6 +83,16 @@ export function isAuthTeardownError(error: unknown): boolean {
 }
 
 /**
+ * A 402 from `POST /cue/session/new`: the org is out of minutes, its subscription
+ * is inactive, or the user's group hit its hour cap (server middleware/hasMinutes.js,
+ * hasGroupHours.js). An account's billing state, not a bug — the fix is an admin
+ * topping up, so reporting it only adds Sentry noise.
+ */
+export function isBillingRefusalError(error: unknown): boolean {
+    return (error as AxiosError | undefined)?.response?.status === 402;
+}
+
+/**
  * True when the start failed only because the OS permissions aren't granted.
  * Main already returns early and routes the user to the permissions UI, so this
  * is expected state — not an exception worth reporting.
@@ -92,15 +102,17 @@ export const isCuePermissionsDeniedError = (error: unknown): boolean => (
 );
 
 /**
- * Single entry point for coach-window error reporting. Swallows the three classes
+ * Single entry point for coach-window error reporting. Swallows the four classes
  * of failure that are expected state rather than bugs — OS permissions denied,
- * transient network loss, and post-logout auth teardown — and reports the rest.
+ * transient network loss, post-logout auth teardown, and billing refusals — and
+ * reports the rest.
  */
 export const reportCoachError = (error: unknown): void => {
     if (
         isCuePermissionsDeniedError(error) ||
         isTransientApiError(error) ||
-        isAuthTeardownError(error)
+        isAuthTeardownError(error) ||
+        isBillingRefusalError(error)
     ) {
         console.warn('[Coach] expected failure, not reported:', error);
         return;

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { v4 } from 'uuid';
 import { cue_startStreaming, cue_stopStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
-import { CUE_STOP_MESSAGE, cueStartErrorMessage } from '../coachWindow/helpers/cueErrorMessage';
+import { CUE_STOP_MESSAGE, cueBillingRefusalMessage, cueStartErrorMessage } from '../coachWindow/helpers/cueErrorMessage';
 import apiClient from '../config/axios';
 import { CoachFeature, CoachWindowStore, EnabledFeature, LpmamData } from '@/types/store/coachWindowStore';
 import { Prospect } from '@/types/coach';
@@ -176,7 +176,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
             const response = await apiClient.post('/cue/session/new', payload);
             return response.data;
         } catch (error: any) {
-            const msg = error.response?.data?.error ?? error.message ?? 'Failed to start session. Please try again.';
+            const msg = cueBillingRefusalMessage(error) ?? error.response?.data?.error ?? error.message ?? 'Failed to start session. Please try again.';
 			set({ error: msg });
 			throw error;
         }

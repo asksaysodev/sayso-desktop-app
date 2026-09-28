@@ -1,4 +1,5 @@
-import { CueStartError, isCuePermissionsDeniedError } from '@/utils/errorReporting';
+import type { AxiosError } from 'axios';
+import { CueStartError, isBillingRefusalError, isCuePermissionsDeniedError } from '@/utils/errorReporting';
 
 /**
  * User-facing copy for a failed cue start/stop.
@@ -55,4 +56,28 @@ export const cueStartErrorMessage = (error: unknown): string | null => {
 
     const match = MESSAGE_PATTERNS.find(([pattern]) => pattern.test(code));
     return match ? match[1] : CUE_GENERIC_START_MESSAGE;
+};
+
+/**
+ * Keyed by the `code` the server puts on a 402 from `POST /cue/session/new`
+ * (server middleware/hasMinutes.js, hasGroupHours.js). The server's `error`
+ * string is written for logs, not for a sales rep mid-call.
+ */
+const BILLING_REFUSAL_MESSAGES: Readonly<Record<string, string>> = {
+    NO_MINUTES_REMAINING: 'Your team is out of coaching minutes. Ask your admin to add more.',
+    SUBSCRIPTION_INACTIVE: "Your team's Sayso subscription isn't active. Ask your admin to renew it.",
+    GROUP_CAP_REACHED: "Your group has reached its coaching hour limit. Ask your admin to raise it.",
+};
+
+const BILLING_REFUSAL_FALLBACK =
+    "Your team's plan can't start a session right now. Ask your admin to check it.";
+
+/**
+ * Banner copy for a 402 from session creation, or null for any other failure.
+ * The fallback covers a code this build predates.
+ */
+export const cueBillingRefusalMessage = (error: unknown): string | null => {
+    if (!isBillingRefusalError(error)) return null;
+    const code = (error as AxiosError<{ code?: string }>).response?.data?.code;
+    return (code && BILLING_REFUSAL_MESSAGES[code]) || BILLING_REFUSAL_FALLBACK;
 };
