@@ -9,6 +9,9 @@
 #include <AVFoundation/AVFoundation.h>
 #include <CoreMedia/CoreMedia.h>
 #include <AudioToolbox/AudioToolbox.h>
+// SAYSO Task 1: Core Audio process tap (macOS 14.4+). Declares CATapDescription and the
+// AudioHardwareCreateProcessTap/AudioHardwareDestroyProcessTap C functions used below.
+#include <CoreAudio/CATapDescription.h>
 #include <dispatch/dispatch.h>
 #include <algorithm>
 #include <atomic>
@@ -1409,6 +1412,73 @@ NAN_METHOD(RequestScreenRecordingPermission) {
     bool granted = CGRequestScreenCaptureAccess();
     NSLog(@"🎤 [NATIVE] RequestScreenRecordingPermission → granted=%d", granted);
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(granted));
+}
+
+// SAYSO Task 1: Core Audio process-tap capability probe.
+//
+// Apple provides no public "preflight" API for system-audio-capture permission the way
+// CGPreflightScreenCaptureAccess covers Screen Recording — this is a known, documented risk
+// for this task (see the estimate doc's risk section: "the permission check relies on an
+// undocumented method that could change in a future macOS update"). This probe is therefore
+// both the capability check AND the thing that triggers the TCC prompt on first call — there
+// is no side-effect-free way to ask "would this work?" without attempting it. It is
+// deliberately minimal and self-contained: create a tap, then immediately destroy it, and
+// touch NO other native state (g_stream, g_isCapturing, etc.), so it's safe to call from a
+// capability-check path regardless of whether SCK capture is active. It intentionally does
+// NOT yet build the generation-guarded async start/stop machinery StartSystemAudioCapture
+// uses below — that's the next slice, once this probe confirms the approach compiles and the
+// permission model actually works on a real 14.4+ machine.
+//
+// UNVERIFIED — needs your Mac, not reviewable further from this session:
+//   - CATapDescription's initializer name/signature below (initStereoGlobalTapButExcludeProcesses:)
+//     is written from the public CoreAudio framework surface, not compiled or checked against
+//     the actual SDK headers here. If it doesn't match, Xcode's autocomplete/error on this line
+//     will show the real one — that's the fastest way to fix it.
+//   - Whether AudioHardwareCreateProcessTap needs an entitlement beyond the existing
+//     com.apple.security.device.audio-input in entitlements.mac.plist. This probe's return
+//     value (and any OSStatus in `error`) is what answers that question.
+//   - Link-time: CATapDescription/AudioHardwareCreateProcessTap live in CoreAudio per Apple's
+//     docs, so the existing "-framework CoreAudio" in binding.gyp should already cover this
+//     without adding AudioToolbox explicitly — confirm at first build.
+//
+// binding.gyp's MACOSX_DEPLOYMENT_TARGET (11.0) stays below this method's @available(macOS
+// 14.4, *) check, so the else branch below is real code, not eliminated at compile time — see
+// the deployment-target comment in binding.gyp for why that ordering matters (SAYSO-A3).
+NAN_METHOD(CheckAudioCaptureCapability) {
+    Local<Object> result = Nan::New<Object>();
+
+    if (@available(macOS 14.4, *)) {
+        Nan::Set(result, Nan::New("macOS14_4Plus").ToLocalChecked(), Nan::New<v8::Boolean>(true));
+
+        CATapDescription* description =
+            [[CATapDescription alloc] initStereoGlobalTapButExcludeProcesses:@[]];
+        description.name = @"Sayso System Audio Tap Probe";
+
+        AudioObjectID tapID = kAudioObjectUnknown;
+        OSStatus status = AudioHardwareCreateProcessTap(description, &tapID);
+
+        if (status == noErr && tapID != kAudioObjectUnknown) {
+            AudioHardwareDestroyProcessTap(tapID);
+            NSLog(@"✅ [NATIVE] Process-tap capability probe succeeded");
+            Nan::Set(result, Nan::New("available").ToLocalChecked(), Nan::New<v8::Boolean>(true));
+            Nan::Set(result, Nan::New("error").ToLocalChecked(), Nan::Null());
+        } else {
+            NSLog(@"❌ [NATIVE] Process-tap capability probe failed: OSStatus=%d", (int)status);
+            Nan::Set(result, Nan::New("available").ToLocalChecked(), Nan::New<v8::Boolean>(false));
+            char errBuf[48];
+            snprintf(errBuf, sizeof(errBuf), "OSStatus %d", (int)status);
+            Nan::Set(result, Nan::New("error").ToLocalChecked(),
+                     Nan::New<v8::String>(errBuf).ToLocalChecked());
+        }
+    } else {
+        NSLog(@"ℹ️ [NATIVE] Process-tap capability probe skipped — macOS < 14.4, SCK fallback applies");
+        Nan::Set(result, Nan::New("macOS14_4Plus").ToLocalChecked(), Nan::New<v8::Boolean>(false));
+        Nan::Set(result, Nan::New("available").ToLocalChecked(), Nan::New<v8::Boolean>(false));
+        Nan::Set(result, Nan::New("error").ToLocalChecked(),
+                 Nan::New<v8::String>("macOS version below 14.4").ToLocalChecked());
+    }
+
+    info.GetReturnValue().Set(result);
 }
 
 // Start system audio capture
@@ -3082,7 +3152,14 @@ NAN_MODULE_INIT(Init) {
 
     Nan::Set(target, Nan::New("requestScreenRecordingPermission").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(RequestScreenRecordingPermission)).ToLocalChecked());
-    
+
+    // SAYSO Task 1: process-tap capability probe. Optional from the JS wrapper's perspective —
+    // feature-detected via `typeof nativeAudio.checkAudioCaptureCapability === 'function'` so a
+    // native build that predates this stays contract-compatible (same idiom as
+    // isMicRouteRecovering/getMicInputDiagnostics below).
+    Nan::Set(target, Nan::New("checkAudioCaptureCapability").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(CheckAudioCaptureCapability)).ToLocalChecked());
+
     Nan::Set(target, Nan::New("startSystemAudioCapture").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(StartSystemAudioCapture)).ToLocalChecked());
     

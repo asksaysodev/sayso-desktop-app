@@ -47,6 +47,21 @@ class AudioDeviceManager {
   }
 
   /**
+   * SAYSO Task 1: probes whether the Core Audio process-tap backend (macOS 14.4+) is usable —
+   * this call itself triggers the TCC prompt on first use, since Apple has no side-effect-free
+   * preflight for this permission (unlike checkScreenRecordingGranted above). Mac-only; absent
+   * on Windows builds and on native builds that predate this method — callers must tolerate
+   * `null`, not just `false`, since that's the "don't know, ask via SCK path" case rather than
+   * a confirmed "unavailable".
+   * @returns {Promise<{ available: boolean, macOS14_4Plus: boolean, error: string|null }|null>}
+   */
+  async checkAudioCaptureCapability() {
+    if (typeof nativeAudio.checkAudioCaptureCapability !== 'function') return null;
+    await this.initialize();
+    return nativeAudio.checkAudioCaptureCapability();
+  }
+
+  /**
    * Set streaming callback for real-time audio chunks
    * @param {Function} callback - Callback function(buffer, format)
    *   - buffer: Buffer containing raw audio data

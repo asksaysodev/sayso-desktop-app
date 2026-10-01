@@ -97,12 +97,26 @@ export interface MicInputDiagnostics {
   };
 }
 
+/** SAYSO Task 1: result of probing the Core Audio process-tap backend (macOS 14.4+). The probe
+ *  itself is what triggers the TCC prompt on first call — there's no side-effect-free preflight
+ *  for this permission the way there is for Screen Recording. */
+export interface AudioCaptureCapability {
+  available: boolean;
+  macOS14_4Plus: boolean;
+  error: string | null;
+}
+
 export interface IAudioProvider {
   initialize(): Promise<void>;
 
   // Permissions — macOS requires explicit grants; other platforms return safe defaults
   checkScreenRecordingGranted(): boolean;
   requestScreenRecordingPermission(): Promise<void>;
+
+  // SAYSO Task 1: Mac-only, optional so a stale native build (or Windows, which never has it)
+  // stays contract-compatible. Resolves null when unsupported/unavailable to probe — callers
+  // must treat null as "unknown, fall back to SCK" rather than a confirmed "no".
+  checkAudioCaptureCapability?(): Promise<AudioCaptureCapability | null>;
 
   // System audio capture (ScreenCaptureKit on Mac, WASAPI loopback on Windows).
   // The public entry point is startProspectStreaming (below); the provider owns

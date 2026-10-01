@@ -1,0 +1,102 @@
+SAYSO — HOW TO RUN THE APP LOCALLY (Windows)
+==============================================
+
+One-time setup is already done on this machine:
+  - Node.js 24.19.0 + npm
+  - Visual Studio Build Tools (C++ workload) for compiling native modules
+  - Dependencies installed in both sayso-backend and sayso-desktop-app
+  - Native audio module compiled (electron/native-audio/build/Release/native_audio.node)
+  - .env.hestabit files placed in both repos:
+      D:\Repo\Hestabit\Sayso\sayso-backend\.env.hestabit
+      D:\Repo\Hestabit\Sayso\sayso-desktop-app\.env.hestabit
+  - Redis (portable build) installed at:
+      C:\Users\Hritwik\AppData\Local\Microsoft\WinGet\Packages\taizod1024.redis-windows-fork_Microsoft.Winget.Source_8wekyb3d8bbwe\Redis-8.10.1-Windows-x64-msys2\redis-server.exe
+
+Every time you want to run the app, you need 3 things running at once,
+each in its OWN terminal window. Start them in this order.
+
+
+STEP 1 — Start Redis
+---------------------
+Open a terminal (Command Prompt or PowerShell) and run:
+
+  cd "C:\Users\Hritwik\AppData\Local\Microsoft\WinGet\Packages\taizod1024.redis-windows-fork_Microsoft.Winget.Source_8wekyb3d8bbwe\Redis-8.10.1-Windows-x64-msys2"
+  redis-server.exe --port 6379
+
+Wait for this line before moving on:
+  "Ready to accept connections tcp"
+
+Leave this window open. This IS the Redis server — closing the window stops it.
+
+
+STEP 2 — Start the backend server
+-----------------------------------
+Open a SECOND terminal window and run:
+
+  cd D:\Repo\Hestabit\Sayso\sayso-backend
+  npm run dev:hestabit
+
+Wait for these two lines before moving on:
+  "[hestabit] HTTP server running on port 4000"
+  "Redis ready"
+
+If you see "Redis unavailable" or "EADDRINUSE" errors, see Troubleshooting below.
+Leave this window open too.
+
+
+STEP 3 — Start the desktop app
+---------------------------------
+Open a THIRD terminal window and run:
+
+  cd D:\Repo\Hestabit\Sayso\sayso-desktop-app
+  npm run dev:hestabit
+
+This starts Vite, compiles the Electron main process, and launches the
+Sayso app window. Watch for:
+  "VITE ... ready"
+  "AUDIO MANAGER] Native module loaded successfully"
+
+The Sayso splash/login window should now appear on screen. Sign in with
+your test account.
+
+
+TO STOP EVERYTHING
+--------------------
+Close all three terminal windows (or Ctrl+C in each, then close), in any order.
+
+
+TROUBLESHOOTING
+------------------
+
+"npm is not recognized"
+  Node.js was installed after this terminal was opened. Close the terminal
+  and open a fresh one (new terminals pick up the updated PATH).
+
+"& was unexpected at this time" when running a command with & at the start
+  You're in Command Prompt, not PowerShell. Drop the leading "& " and just
+  run the quoted path directly, e.g.:
+    "C:\path\to\redis-server.exe" --port 6379
+
+Backend shows: "Service temporarily unavailable. Please try again in a moment."
+  Redis isn't running or isn't reachable. Go back to Step 1 and make sure
+  the Redis window is still open and shows "Ready to accept connections".
+
+Backend shows: "EADDRINUSE: address already in use :::4000"
+  A previous backend process is still running and holding port 4000.
+  Find and stop it:
+    In PowerShell:
+      Get-NetTCPConnection -LocalPort 4000 -State Listen
+      Stop-Process -Id <OwningProcess from above> -Force
+  Then re-run "npm run dev:hestabit" in the backend folder.
+
+Desktop app doesn't show "Native module loaded successfully"
+  The native audio addon may need rebuilding:
+    cd D:\Repo\Hestabit\Sayso\sayso-desktop-app\electron\native-audio
+    npx node-gyp rebuild --target=36.9.1 --arch=x64 --dist-url=https://electronjs.org/headers
+  This requires VS Build Tools (already installed) and Python's "setuptools"
+  package (already installed, works around a Python 3.12 / distutils issue).
+
+Login fails / "Service temporarily unavailable" persists after Redis is up
+  Double check both .env.hestabit files actually have real values filled in
+  (not blank) for SUPABASE_URL, SUPABASE_ANON_KEY, ASSEMBLYAI_API_KEY, and
+  OPENAI_API_KEY — these are required for sign-in and for a Cue call to work.
