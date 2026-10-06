@@ -427,8 +427,9 @@ jobs:
           if ($env:CHANNEL -eq 'staging') { npm run build:staging } else { npm run build }
 
       # electron-builder calls scripts/sign-windows.js for each artifact it
-      # signs — the app exe, resources/elevate.exe, the NSIS uninstaller and the
-      # installer. DefaultAzureCredential inside the dlib reads these three for
+      # signs — the app exe, resources/elevate.exe, native_audio.node (via
+      # build.win.signExts), the NSIS uninstaller and the installer.
+      # DefaultAzureCredential inside the dlib reads these three for
       # itself; nothing in our code touches their values. AZURE_SIGN_DLIB comes
       # from the fetch step above via GITHUB_ENV.
       #
@@ -464,10 +465,14 @@ jobs:
           $unpacked = Join-Path $env:OUT_DIR 'win-unpacked'
 
           # Required. The installer is what users download; the app exe is what
-          # the AC means by "Sayso.exe inside the installer".
+          # the AC means by "Sayso.exe inside the installer". native_audio.node
+          # is our own native code, loaded into main and capturing audio, so an
+          # unsigned one is what AV heuristics distrust most (SAYSO-475). Missing
+          # here means asarUnpack or build.win.signExts regressed.
           $targets = @(
             (Join-Path $env:OUT_DIR $env:EXE_NAME)
             (Get-ChildItem -Path $unpacked -Filter '*.exe' | Select-Object -First 1).FullName
+            (Join-Path $unpacked 'resources\app.asar.unpacked\electron\native-audio\build\Release\native_audio.node')
           )
 
           # Optional. electron-builder copies and signs elevate.exe unless
