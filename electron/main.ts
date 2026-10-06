@@ -38,6 +38,8 @@ import { formatLogArgs } from './shared/redact';
 import { enforceLogRetention } from './utils/logRetention';
 
 Sentry.init(sentryConfig);
+// Persisted into native minidump events too, so emulated installs are filterable (SAYSO-479).
+Sentry.setTag('arm64_translation', String(app.runningUnderARM64Translation));
 
 // Read lazily, never captured at module scope: loadEnvironmentVariables() runs
 // ~1100 lines below this point, so anything evaluated here sees an unset
@@ -1511,11 +1513,24 @@ app.commandLine.appendSwitch('enable-media-stream');
 app.commandLine.appendSwitch('enable-usermedia-screen-capturing');
 app.commandLine.appendSwitch('allow-running-insecure-content');
 app.commandLine.appendSwitch('disable-web-security');
-app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor');
 
-// <<< Disable hardware acceleration >>>
-// This can fix GPU process crashes on some systems
-// app.disableHardwareAcceleration();
+// x64 build emulated on Windows ARM (Snapdragon/Adreno): the translated GPU
+// process can crash through every Chromium fallback mode, which then
+// LOG(FATAL)s the whole app (SAYSO-479). Software rendering is plenty for our
+// UI. Gated on IS_WINDOWS: an x64 Mac build under Rosetta also reports true.
+if (IS_WINDOWS && app.runningUnderARM64Translation) app.disableHardwareAcceleration();
+
+// Sentry's ChildProcess integration only breadcrumbs a GPU 'crashed'/'oom' exit;
+// report it so the fallback cycle before a fatal GPU teardown is visible.
+app.on('child-process-gone', (_event, details) => {
+  if (details.type !== 'GPU' || details.reason === 'clean-exit') return;
+  Sentry.captureMessage(`GPU process gone: ${details.reason}`, {
+    level: 'warning',
+    tags: { 'gpu.exit_reason': details.reason },
+    extra: { exitCode: details.exitCode, gpuFeatureStatus: app.getGPUFeatureStatus() },
+  });
+});
+
 app.setAsDefaultProtocolClient('sayso');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
