@@ -9,6 +9,7 @@
 #include <AVFoundation/AVFoundation.h>
 #include <CoreMedia/CoreMedia.h>
 #include <AudioToolbox/AudioToolbox.h>
+#include <CoreAudio/CATapDescription.h>
 #include <dispatch/dispatch.h>
 #include <algorithm>
 #include <atomic>
@@ -22,16 +23,12 @@
 #include <time.h>
 
 using namespace v8;
-
-// Global variables for ScreenCaptureKit
 static SCStream* g_stream = nullptr;
 static SCStreamConfiguration* g_config = nullptr;
 static SCContentFilter* g_filter = nullptr;
 static dispatch_queue_t g_audioQueue = nullptr;
 static bool g_isCapturing = false;
 static std::string g_audioFilePath = "";
-
-// Global variables for audio file writing
 static AudioFileID g_audioFile = nullptr;
 static AudioStreamBasicDescription g_audioFormat = {0};
 static bool g_audioFileInitialized = false;
@@ -39,94 +36,36 @@ static std::string g_outputDirectory = "";
 static bool g_formatDetected = false;
 static AudioStreamBasicDescription g_sourceFormat = {0};
 static AudioStreamBasicDescription g_fileFormat = {0};
-// Track the precise moment when the first audio buffer is received (ms since epoch)
 static double g_actualStartMs = 0.0;
-
-// Global flag to skip file creation when streaming-only
 static bool g_streamingOnly = false;
-
-// Global streaming callback for real-time audio chunks
 static Nan::Persistent<v8::Function> g_streamingCallback;
 static uv_async_t* g_streamingAsyncHandle = nullptr;
-
-// Separate callback for microphone audio
 static Nan::Persistent<v8::Function> g_micStreamingCallback;
 static uv_async_t* g_micStreamingAsyncHandle = nullptr;
-
-// Native→JS lifecycle diagnostics channel (SAYSO-355; also the transport for SAYSO-353's mic
-// route events). Deliberately NOT the handle->data pattern: producers append strings to a
-// mutex-guarded queue from any thread and the JS-thread drain swaps it out, so there is no
-// ownership race. The uv_async_t is allocated once and never freed (uv handles are cheap;
-// freeing on callback-clear is the exact UAF class SAYSO-349 documents).
 static std::mutex g_lifecycleMutex;
-static std::vector<std::string> g_lifecycleQueue;    // guarded by g_lifecycleMutex
-static uv_async_t* g_lifecycleAsyncHandle = nullptr; // allocated once, never freed
+static std::vector<std::string> g_lifecycleQueue;
+static uv_async_t* g_lifecycleAsyncHandle = nullptr;
 static Nan::Persistent<v8::Function> g_lifecycleCallback;
-
-// Global variables for microphone capture
 static AVAudioEngine* g_micEngine = nullptr;
 static AVAudioInputNode* g_micInputNode = nullptr;
-// SAYSO-353: NSObjectProtocol observer token from addObserverForName, scoped to whichever engine is
-// currently g_micEngine. Only ever set/cleared on SaysoMicRouteRestartQueue (created in
-// TryStartMicrophoneCaptureOnce, torn down in MicEngineTeardownOnly), so no separate lock needed —
-// same reasoning as g_micEngine itself.
 static id<NSObject> g_micEngineConfigChangeObserver = nil;
-// SAYSO-353 review finding: wall-clock ms (SaysoNowMs) of the moment we last attached this observer
-// to a freshly built engine. Used to ignore a config-change notification that fires implausibly
-// soon after our own rebuild — a defensive guard against AVAudioEngine's own startup/format
-// renegotiation posting this notification as a side effect of a rebuild WE just did, which would
-// otherwise re-trigger another rebuild (and another observer registration) in a tight loop.
-// Written on SaysoMicRouteRestartQueue but read from whatever thread AVFoundation posts the
-// notification on (addObserverForName's `queue:nil` delivers synchronously on the posting thread,
-// not necessarily ours) — atomic for the same cross-thread-read reason g_isMicCapturing is (SAYSO-361).
 static std::atomic<int64_t> g_micEngineObserverAttachedAtMs{0};
 static const int64_t kMicEngineConfigChangeCooldownMs = 300;
-// SAYSO-361: atomic because it's read from dispatch_get_main_queue() (the default-input listener,
-// :1069) and from the V8 thread (IsMicrophoneCaptureActive) without going through
-// SaysoMicRouteRestartQueue, while every writer runs on that queue. A plain bool made those reads
-// a real (if narrow) race; atomic<bool> costs nothing here and removes it outright.
 static std::atomic<bool> g_isMicCapturing{false};
-
-// Core Audio: default input changes — log + debounced mic engine restart while capture is active.
 static bool g_defaultInputListenerRegistered = false;
 static AudioDeviceID g_lastKnownDefaultInputDevice = kAudioObjectUnknown;
-
-// Last HAL default input device id the running AVAudioEngine was started against (follow-OS-default mode).
-// SAYSO-431: atomic so GetMicInputDiagnostics can read it off the restart queue; every writer is still on it.
 static std::atomic<AudioDeviceID> g_micOpenedInputDeviceId{kAudioObjectUnknown};
-// SAYSO-361: no mutex here — StartMicrophoneCapture, StopMicrophoneCapture, and
-// SaysoPerformMicRestartIfCapturing all execute exclusively on SaysoMicRouteRestartQueue (a
-// single serial queue), which alone already guarantees mutual exclusion for g_micEngine and the
-// other globals in this section. Do not touch g_micEngine/g_micInputNode from any call path that
-// isn't dispatched onto that queue.
-// Bumped on each new default-input notification or Stop — invalidates in-flight debounce/stability delays.
 static std::atomic<uint64_t> g_micRouteRestartGeneration{0};
-
-// Set from the realtime mic tap when the first buffer is enqueued (Bluetooth / cold-start can delay taps).
 static std::atomic<bool> g_micFirstTapSeen{false};
-
-// SAYSO-353: true while a backoff recovery sequence is in flight after the immediate restart
-// attempts in SaysoPerformMicRestartIfCapturing both failed. Distinct from g_isMicCapturing, which
-// stays true throughout — capture is still conceptually active/intended, just not currently
-// producing tap data. Only touched on SaysoMicRouteRestartQueue.
 static std::atomic<bool> g_micRouteRecovering{false};
-// Wall-clock ms (via SaysoNowMs) when the current recovery sequence began — used to enforce the
-// ~30s ceiling regardless of how many backoff steps that spans. Only touched on the queue.
 static int64_t g_micRouteRecoveryStartMs = 0;
 
-// SAYSO-431: diagnostics read by GetMicInputDiagnostics from a background queue, written from the
-// HAL listener thread, AVFoundation's notification thread, SaysoMicRouteRestartQueue and the
-// realtime tap — all atomics, none of them ever read g_micEngine itself (it can be released under
-// a reader that isn't on the restart queue). Timestamps are SaysoRealtimeNowMs (0 = never).
 static std::atomic<int64_t> g_micLastDefaultInputChangeMs{0};
 static std::atomic<int64_t> g_micLastEngineConfigChangeMs{0};
 static std::atomic<uint64_t> g_micEngineConfigChanges{0};
 static std::atomic<uint64_t> g_micEngineBuilds{0};
 static std::atomic<int64_t> g_micEngineBuiltAtMs{0};
-static std::atomic<bool> g_micEngineRunning{false}; // started by us, not yet torn down or stopped by a config change
-// Tap counters, reset on every engine build: callbacks = buffers AVAudioEngine handed us, delivered =
-// buffers forwarded to JS. callbacks=0 after a no_tap_buffers failure means the engine never pulled
-// audio; callbacks>0 with delivered=0 means we dropped every buffer ourselves.
+static std::atomic<bool> g_micEngineRunning{false};
 static std::atomic<uint64_t> g_micTapCallbacks{0};
 static std::atomic<uint64_t> g_micTapDelivered{0};
 static std::atomic<uint64_t> g_micTapDroppedNoHandle{0};
@@ -134,11 +73,8 @@ static std::atomic<uint64_t> g_micTapDroppedNoCallback{0};
 static std::atomic<uint64_t> g_micTapDroppedEmpty{0};
 static std::atomic<uint64_t> g_micTapDroppedLayout{0};
 static std::atomic<uint64_t> g_micTapDroppedUnsupported{0};
-// Process-wide (not reset per build), so a stall shows how long ago audio last arrived at all.
 static std::atomic<int64_t> g_micTapLastCallbackMs{0};
 static std::atomic<int64_t> g_micTapLastDeliveredMs{0};
-// Format of the last buffer the tap saw, delivered or not. Separate from SAYSO-428's non-atomic
-// g_micTapLastChannels/SampleRate, which only the tap thread may read.
 static std::atomic<int> g_micDiagTapSampleRate{0};
 static std::atomic<int> g_micDiagTapChannels{0};
 static std::atomic<unsigned long> g_micDiagTapCommonFormat{0};
@@ -146,72 +82,56 @@ static std::atomic<unsigned long> g_micDiagTapCommonFormat{0};
 static void SaysoScheduleMicRouteDebouncedRestart();
 static int64_t SaysoNowMs();
 
-// SAYSO-431: wall-clock ms without allocating — SaysoNowMs builds an NSDate, which the realtime tap
-// must not do. Same epoch as SaysoNowMs.
 static int64_t SaysoRealtimeNowMs() {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
 }
 
-// Structure to pass audio data to async callback
 struct StreamingData {
     std::vector<char> audioData;
     double sampleRate;
     int channels;
     int bitDepth;
     bool isFloat;
-    // SAYSO-428: dB of AGC gain already applied to this block (0 when untouched). The JS silence
-    // watchdog subtracts it so it judges the mic's real level, not the boosted one — otherwise the
-    // gain would hide the very failure that watchdog exists to catch.
     float gainDb = 0;
 };
 
-// Async callback handler (runs on main thread)
 static void StreamingAsyncCallback(uv_async_t* handle) {
     Nan::HandleScope scope;
     
-    // Get the data from the handle
     StreamingData* data = static_cast<StreamingData*>(handle->data);
     if (!data || g_streamingCallback.IsEmpty()) {
         return;
     }
     
-    // Create Buffer from audio data
     Local<Object> buffer = Nan::CopyBuffer(data->audioData.data(), data->audioData.size()).ToLocalChecked();
     
-    // Create format object
     Local<Object> format = Nan::New<Object>();
     Nan::Set(format, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(data->sampleRate));
     Nan::Set(format, Nan::New("channels").ToLocalChecked(), Nan::New<Integer>(data->channels));
     Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(data->bitDepth));
     Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(data->isFloat));
     
-    // Invoke callback
     Local<Function> callback = Nan::New(g_streamingCallback);
     Local<Value> argv[2] = {buffer, format};
     Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
     
-    // Clean up
     delete data;
     handle->data = nullptr;
 }
 
-// Separate callback for microphone audio
 static void MicStreamingAsyncCallback(uv_async_t* handle) {
     Nan::HandleScope scope;
     
-    // Get the data from the handle
     StreamingData* data = static_cast<StreamingData*>(handle->data);
     if (!data || g_micStreamingCallback.IsEmpty()) {
         if (data) delete data;
         return;
     }
     
-    // Create Buffer from audio data
     Local<Object> buffer = Nan::CopyBuffer(data->audioData.data(), data->audioData.size()).ToLocalChecked();
     
-    // Create format object
     Local<Object> format = Nan::New<Object>();
     Nan::Set(format, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(data->sampleRate));
     Nan::Set(format, Nan::New("channels").ToLocalChecked(), Nan::New<Integer>(data->channels));
@@ -220,18 +140,15 @@ static void MicStreamingAsyncCallback(uv_async_t* handle) {
     
     Nan::Set(format, Nan::New("gainDb").ToLocalChecked(), Nan::New<Number>(data->gainDb));
 
-    // Invoke callback
     Local<Function> callback = Nan::New(g_micStreamingCallback);
     Local<Value> argv[2] = {buffer, format};
     Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
 
-    // Clean up
     delete data;
     handle->data = nullptr;
 }
 
-// JS-thread drain for the lifecycle queue. Swap-then-invoke so producers never block on V8.
-static void LifecycleAsyncCallback(uv_async_t* /*handle*/) {
+static void LifecycleAsyncCallback(uv_async_t* ) {
     std::vector<std::string> events;
     {
         std::lock_guard<std::mutex> lk(g_lifecycleMutex);
@@ -248,33 +165,25 @@ static void LifecycleAsyncCallback(uv_async_t* /*handle*/) {
     }
 }
 
-// Emit a lifecycle diagnostic. Safe from any thread. Always NSLogs (dev terminal); additionally
-// forwards to JS when the channel is wired, so packaged builds get it in the file log / Sentry.
-// Message vocabulary: snake_case event token first, then `key=value` pairs; events ending in
-// `_failed` are escalated by the JS side.
 static void EmitLifecycleEvent(const std::string& message) {
     NSLog(@"🔎 [NATIVE] %s", message.c_str());
     std::lock_guard<std::mutex> lk(g_lifecycleMutex);
     if (!g_lifecycleAsyncHandle) {
-        return; // channel not wired (older JS) — NSLog above is the only sink
+        return;
     }
     g_lifecycleQueue.push_back(message);
     uv_async_send(g_lifecycleAsyncHandle);
 }
 
-// Audio conversion function for 32-bit integer to float
 static bool convertInt32ToFloat(const char* sourceData, size_t sourceSize, char* destData, size_t& destSize) {
     if (!sourceData || !destData) return false;
     
-    // Ensure we have enough space for conversion (same size for 32-bit to 32-bit)
     if (destSize < sourceSize) return false;
     
     const int32_t* intSamples = reinterpret_cast<const int32_t*>(sourceData);
     float* floatSamples = reinterpret_cast<float*>(destData);
     size_t sampleCount = sourceSize / sizeof(int32_t);
     
-    // Convert from 32-bit signed integer to 32-bit float
-    // Scale by 1.0f / INT32_MAX to normalize to [-1.0, 1.0]
     const float scale = 1.0f / (float)INT32_MAX;
 
     for (size_t i = 0; i < sampleCount; i++) {
@@ -285,7 +194,6 @@ static bool convertInt32ToFloat(const char* sourceData, size_t sourceSize, char*
     return true;
 }
 
-// Audio conversion function for 32-bit integer to 16-bit integer
 static bool interleaveAudio(const char* sourceData, size_t sourceSize, char* destData, size_t& destSize, int channels, int bytesPerSample) {
     if (!sourceData || !destData || channels <= 0) return false;
     
@@ -294,18 +202,16 @@ static bool interleaveAudio(const char* sourceData, size_t sourceSize, char* des
     
     if (destSize < sourceSize) return false;
     
-    if (bytesPerSample == 4) { // 32-bit
+    if (bytesPerSample == 4) {
         const int32_t* source = reinterpret_cast<const int32_t*>(sourceData);
         int32_t* dest = reinterpret_cast<int32_t*>(destData);
         
-        // Non-interleaved input: [L0 L1 L2... R0 R1 R2...]
-        // Interleaved output: [L0 R0 L1 R1 L2 R2...]
         for (size_t i = 0; i < samplesPerChannel; i++) {
             for (int ch = 0; ch < channels; ch++) {
                 dest[i * channels + ch] = source[ch * samplesPerChannel + i];
             }
         }
-    } else if (bytesPerSample == 2) { // 16-bit
+    } else if (bytesPerSample == 2) {
         const int16_t* source = reinterpret_cast<const int16_t*>(sourceData);
         int16_t* dest = reinterpret_cast<int16_t*>(destData);
         
@@ -327,27 +233,19 @@ static bool convertInt32ToInt16(const char* sourceData, size_t sourceSize, char*
     int16_t* int16Samples = reinterpret_cast<int16_t*>(destData);
     size_t sampleCount = sourceSize / sizeof(int32_t);
     
-    // Calculate required destination size
     size_t requiredDestSize = sampleCount * sizeof(int16_t);
     if (destSize < requiredDestSize) return false;
     
-    // Convert from 32-bit signed integer to 16-bit signed integer
-    // Use proper scaling to maintain audio quality and reduce noise
     for (size_t i = 0; i < sampleCount; i++) {
         int32_t sample = int32Samples[i];
         
-        // Convert to float for proper scaling, then back to int16
-        // This provides better quality than simple bit-shifting
         float normalizedSample = (float)sample / (float)INT32_MAX;
         
-        // Clamp to [-1.0, 1.0] range
         if (normalizedSample > 1.0f) normalizedSample = 1.0f;
         else if (normalizedSample < -1.0f) normalizedSample = -1.0f;
         
-        // Scale to 16-bit range with proper rounding
         int32_t scaledSample = (int32_t)(normalizedSample * (float)INT16_MAX);
         
-        // Final clamp to int16 range
         if (scaledSample > INT16_MAX) {
             int16Samples[i] = INT16_MAX;
         } else if (scaledSample < INT16_MIN) {
@@ -361,13 +259,11 @@ static bool convertInt32ToInt16(const char* sourceData, size_t sourceSize, char*
     return true;
 }
 
-// Helper function to initialize audio file - using CAF for playable files with original format!
 static bool initializeAudioFile() {
     if (g_audioFileInitialized) {
         return true;
     }
     
-    // Create output directory if it doesn't exist
     NSString* outputDir = [NSString stringWithUTF8String:g_outputDirectory.c_str()];
     NSFileManager* fileManager = [NSFileManager defaultManager];
     
@@ -380,14 +276,12 @@ static bool initializeAudioFile() {
         }
     }
     
-    // Create unique filename with timestamp - will try .caf first, fallback to .wav
     NSDateFormatter* formatter = [[NSDateFormatter alloc] init];
     [formatter setDateFormat:@"yyyy-MM-dd_HH-mm-ss"];
     NSString* timestamp = [formatter stringFromDate:[NSDate date]];
     NSString* filename = [NSString stringWithFormat:@"system_audio_%@.caf", timestamp];
     NSString* filePath = [outputDir stringByAppendingPathComponent:filename];
     
-    // Ensure we have valid format data before creating the file
     if (g_audioFormat.mSampleRate == 0) {
         NSLog(@"❌ [NATIVE] No valid audio format detected yet");
         return false;
@@ -396,36 +290,27 @@ static bool initializeAudioFile() {
     NSLog(@"🎵 [NATIVE] Creating CAF file with original format: %.0f Hz, %d channels, %d bits, flags: 0x%x", 
           g_audioFormat.mSampleRate, g_audioFormat.mChannelsPerFrame, g_audioFormat.mBitsPerChannel, g_audioFormat.mFormatFlags);
     
-    // Normalize the format for proper file creation
     AudioStreamBasicDescription cafFormat = g_audioFormat;
     
-    // CRITICAL: Use exact original format with minimal changes
     NSLog(@"🎵 [NATIVE] Source format: %.0f Hz, %d channels, %d bits, flags: 0x%x", 
           g_audioFormat.mSampleRate, g_audioFormat.mChannelsPerFrame, g_audioFormat.mBitsPerChannel, g_audioFormat.mFormatFlags);
     
-    // CRITICAL: Preserve the original sample rate exactly
     double originalSampleRate = g_audioFormat.mSampleRate;
     NSLog(@"🎵 [NATIVE] PRESERVING original sample rate: %.0f Hz", originalSampleRate);
     
-    // Set proper format ID and normalize flags for file compatibility
     cafFormat.mFormatID = kAudioFormatLinearPCM;
     
-    // For 32-bit audio, convert to 32-bit float format for file compatibility
-    // The original format flags 0x29 indicate 32-bit signed integer, which many file formats reject
     if (cafFormat.mBitsPerChannel == 32) {
-        // Convert to 32-bit float format for file compatibility
         cafFormat.mBitsPerChannel = 32;
         cafFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
         
-        // CRITICAL: Ensure proper byte calculations for 32-bit float
-        cafFormat.mBytesPerFrame = cafFormat.mChannelsPerFrame * (cafFormat.mBitsPerChannel / 8); // 2 * 4 = 8
+        cafFormat.mBytesPerFrame = cafFormat.mChannelsPerFrame * (cafFormat.mBitsPerChannel / 8);
         cafFormat.mFramesPerPacket = 1;
-        cafFormat.mBytesPerPacket = cafFormat.mBytesPerFrame * cafFormat.mFramesPerPacket; // 8 * 1 = 8
+        cafFormat.mBytesPerPacket = cafFormat.mBytesPerFrame * cafFormat.mFramesPerPacket;
         
         NSLog(@"🎵 [NATIVE] Fixed byte calculations: BytesPerFrame=%d, FramesPerPacket=%d, BytesPerPacket=%d", 
               cafFormat.mBytesPerFrame, cafFormat.mFramesPerPacket, cafFormat.mBytesPerPacket);
         
-        // Ensure no conflicting flags are set
         cafFormat.mFormatFlags &= ~(kAudioFormatFlagIsNonInterleaved);
         
         NSLog(@"🎵 [NATIVE] Converting 32-bit int to 32-bit float for compatibility (flags: 0x%x -> 0x%x)", 
@@ -433,25 +318,18 @@ static bool initializeAudioFile() {
         NSLog(@"🎵 [NATIVE] 32-bit float format details: BytesPerFrame=%d, FramesPerPacket=%d, BytesPerPacket=%d, FormatFlags=0x%x", 
               cafFormat.mBytesPerFrame, cafFormat.mFramesPerPacket, cafFormat.mBytesPerPacket, cafFormat.mFormatFlags);
     } else {
-        // For non-32-bit audio, normalize the flags first
         if (cafFormat.mFormatFlags & kAudioFormatFlagIsFloat) {
-            // Already float, just ensure packed
             cafFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
         } else if (cafFormat.mBitsPerChannel == 24) {
-            // 24-bit: use signed integer
             cafFormat.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
         } else if (cafFormat.mBitsPerChannel == 16) {
-            // 16-bit: use signed integer
             cafFormat.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
         } else {
-            // Fallback: use signed integer for other bit depths
             cafFormat.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
         }
         
-        // Remove any non-interleaved flag which can cause issues for non-32-bit formats
         cafFormat.mFormatFlags &= ~kAudioFormatFlagIsNonInterleaved;
         
-        // Ensure proper byte calculations for non-32-bit formats
         if (cafFormat.mBytesPerFrame == 0) {
             cafFormat.mBytesPerFrame = cafFormat.mChannelsPerFrame * (cafFormat.mBitsPerChannel / 8);
         }
@@ -466,13 +344,10 @@ static bool initializeAudioFile() {
     NSLog(@"🎵 [NATIVE] CAF format (minimal changes): %.0f Hz, %d channels, %d bits, flags: 0x%x, BytesPerFrame: %d", 
           cafFormat.mSampleRate, cafFormat.mChannelsPerFrame, cafFormat.mBitsPerChannel, cafFormat.mFormatFlags, cafFormat.mBytesPerFrame);
     
-    // DO NOT override sample rate - use the corrected one from g_audioFormat (which may have been updated based on actual data)
-    // cafFormat.mSampleRate is already set to g_audioFormat.mSampleRate from line 147
     
     NSLog(@"🎵 [NATIVE] Creating CAF with normalized format: %.0f Hz, %d channels, %d bits, flags: 0x%x", 
           cafFormat.mSampleRate, cafFormat.mChannelsPerFrame, cafFormat.mBitsPerChannel, cafFormat.mFormatFlags);
     
-    // Create CAF file with normalized format
     OSStatus status = AudioFileCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:filePath],
                                            kAudioFileCAFType,
                                            &cafFormat,
@@ -480,25 +355,19 @@ static bool initializeAudioFile() {
                                            &g_audioFile);
     
     if (status != noErr) {
-        // If CAF fails, try WAV as fallback
         NSLog(@"❌ [NATIVE] CAF failed (%d), trying WAV format", (int)status);
         
-        // WAV format - normalize format flags for proper file creation
         AudioStreamBasicDescription wavFormat = g_audioFormat;
         wavFormat.mFormatID = kAudioFormatLinearPCM;
         
-        // For 32-bit audio in WAV fallback, convert to 32-bit float for compatibility
         if (wavFormat.mBitsPerChannel == 32) {
-            // Convert to 32-bit float format for WAV compatibility
             wavFormat.mBitsPerChannel = 32;
             wavFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
             
-            // CRITICAL: Ensure proper byte calculations for 32-bit float in WAV
-            wavFormat.mBytesPerFrame = wavFormat.mChannelsPerFrame * (wavFormat.mBitsPerChannel / 8); // 2 * 4 = 8
+            wavFormat.mBytesPerFrame = wavFormat.mChannelsPerFrame * (wavFormat.mBitsPerChannel / 8);
             wavFormat.mFramesPerPacket = 1;
-            wavFormat.mBytesPerPacket = wavFormat.mBytesPerFrame * wavFormat.mFramesPerPacket; // 8 * 1 = 8
+            wavFormat.mBytesPerPacket = wavFormat.mBytesPerFrame * wavFormat.mFramesPerPacket;
             
-            // Ensure no conflicting flags are set
             wavFormat.mFormatFlags &= ~(kAudioFormatFlagIsNonInterleaved);
             
             NSLog(@"🎵 [NATIVE] Converting 32-bit int to 32-bit float for WAV compatibility (flags: 0x%x -> 0x%x)", 
@@ -506,25 +375,18 @@ static bool initializeAudioFile() {
             NSLog(@"🎵 [NATIVE] WAV 32-bit float format details: BytesPerFrame=%d, FramesPerPacket=%d, BytesPerPacket=%d, FormatFlags=0x%x", 
                   wavFormat.mBytesPerFrame, wavFormat.mFramesPerPacket, wavFormat.mBytesPerPacket, wavFormat.mFormatFlags);
         } else {
-            // For non-32-bit audio, normalize the flags first
             if (wavFormat.mFormatFlags & kAudioFormatFlagIsFloat) {
-                // Already float, just ensure packed
                 wavFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
             } else if (wavFormat.mBitsPerChannel == 24) {
-                // 24-bit: use signed integer
                 wavFormat.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
             } else if (wavFormat.mBitsPerChannel == 16) {
-                // 16-bit: use signed integer
                 wavFormat.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
             } else {
-                // Fallback: use signed integer for other bit depths
                 wavFormat.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
             }
             
-            // Remove any non-interleaved flag which can cause issues with WAV for non-32-bit formats
             wavFormat.mFormatFlags &= ~kAudioFormatFlagIsNonInterleaved;
             
-            // Ensure proper byte calculations for non-32-bit formats in WAV
             if (wavFormat.mBytesPerFrame == 0) {
                 wavFormat.mBytesPerFrame = wavFormat.mChannelsPerFrame * (wavFormat.mBitsPerChannel / 8);
             }
@@ -536,13 +398,10 @@ static bool initializeAudioFile() {
             }
         }
         
-        // DO NOT override sample rate - use the corrected one from g_audioFormat (which may have been updated based on actual data)
-        // wavFormat.mSampleRate is already set to g_audioFormat.mSampleRate from line 245
         
         NSLog(@"🎵 [NATIVE] WAV fallback normalized format: %.0f Hz, %d channels, %d bits, flags: 0x%x", 
               wavFormat.mSampleRate, wavFormat.mChannelsPerFrame, wavFormat.mBitsPerChannel, wavFormat.mFormatFlags);
         
-        // Update filename to .wav
         NSString* wavFilePath = [filePath stringByReplacingOccurrencesOfString:@".caf" withString:@".wav"];
         
         status = AudioFileCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:wavFilePath],
@@ -552,7 +411,6 @@ static bool initializeAudioFile() {
                                       &g_audioFile);
         
         if (status == noErr) {
-            // Update the file path to the new WAV file
             g_audioFilePath = [wavFilePath UTF8String];
             NSLog(@"✅ [NATIVE] Created WAV fallback file: %@", wavFilePath);
         } else {
@@ -560,7 +418,6 @@ static bool initializeAudioFile() {
             return false;
         }
     } else {
-        // CAF succeeded, update file path
         g_audioFilePath = [filePath UTF8String];
         NSLog(@"✅ [NATIVE] CAF audio file created: %@", filePath);
     }
@@ -570,7 +427,6 @@ static bool initializeAudioFile() {
     return true;
 }
 
-// Helper function to close audio file
 static void closeAudioFile() {
     if (g_audioFile) {
         AudioFileClose(g_audioFile);
@@ -578,9 +434,8 @@ static void closeAudioFile() {
     }
     
     g_audioFileInitialized = false;
-    g_formatDetected = false;  // Reset format detection for next recording
+    g_formatDetected = false;
     
-    // Reset format structures
     memset(&g_sourceFormat, 0, sizeof(AudioStreamBasicDescription));
     memset(&g_fileFormat, 0, sizeof(AudioStreamBasicDescription));
     memset(&g_audioFormat, 0, sizeof(AudioStreamBasicDescription));
@@ -588,60 +443,47 @@ static void closeAudioFile() {
     NSLog(@"✅ [NATIVE] Audio file closed: %s", g_audioFilePath.c_str());
 }
 
-// Audio callback function
 static void audioCallback(CMSampleBufferRef sampleBuffer) {
     static int callbackCount = 0;
     callbackCount++;
     
     
-    // Initialize audio file only once on first callback, but after format detection
-    // Skip file initialization if streaming-only mode
     if (!g_audioFileInitialized) {
         
-        // First, detect the format from this sample (needed for both file recording and streaming)
         CMFormatDescriptionRef formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer);
         if (formatDesc) {
             const AudioStreamBasicDescription* sourceFormat = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc);
             if (sourceFormat) {
-                // Store the source format and use it directly - no conversion!
                 g_sourceFormat = *sourceFormat;
-                g_fileFormat = *sourceFormat;  // Same as source - no conversion
-                g_audioFormat = *sourceFormat; // Use original format directly
+                g_fileFormat = *sourceFormat;
+                g_audioFormat = *sourceFormat;
                 
                 NSLog(@"🎵 [NATIVE] ✅ DETECTED FORMAT: %.0f Hz, %d channels, %d bits, flags: 0x%x", 
                       g_audioFormat.mSampleRate, g_audioFormat.mChannelsPerFrame, g_audioFormat.mBitsPerChannel, g_audioFormat.mFormatFlags);
                 NSLog(@"🎵 [NATIVE] Original byte calculations: BytesPerFrame=%d, FramesPerPacket=%d, BytesPerPacket=%d", 
                       g_audioFormat.mBytesPerFrame, g_audioFormat.mFramesPerPacket, g_audioFormat.mBytesPerPacket);
                 
-                // CRITICAL FIX: ScreenCaptureKit sometimes reports wrong byte calculations for 32-bit audio
-                // Override with correct calculations for 32-bit stereo
                 if (g_audioFormat.mBitsPerChannel == 32 && g_audioFormat.mChannelsPerFrame == 2) {
-                    g_audioFormat.mBytesPerFrame = 8;  // 2 channels * 4 bytes = 8 bytes per frame
+                    g_audioFormat.mBytesPerFrame = 8;
                     g_audioFormat.mFramesPerPacket = 1;
-                    g_audioFormat.mBytesPerPacket = 8; // 8 bytes per frame * 1 frame per packet = 8 bytes per packet
+                    g_audioFormat.mBytesPerPacket = 8;
                     NSLog(@"🎵 [NATIVE] FIXED byte calculations for 32-bit stereo: BytesPerFrame=%d, FramesPerPacket=%d, BytesPerPacket=%d", 
                           g_audioFormat.mBytesPerFrame, g_audioFormat.mFramesPerPacket, g_audioFormat.mBytesPerPacket);
                 }
                 
                 NSLog(@"🎵 [NATIVE] CRITICAL: Sample rate being preserved as %.0f Hz", g_audioFormat.mSampleRate);
                 
-                // Also log timing information
                 CMTime presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
                 CMTime duration = CMSampleBufferGetDuration(sampleBuffer);
                 NSLog(@"🎵 [NATIVE] First sample timing: Presentation=%.3f, Duration=%.6f", 
                       CMTimeGetSeconds(presentationTime), CMTimeGetSeconds(duration));
                 
-                // === TIMING ANALYSIS DIAGNOSTIC TEST ===
-                // This is the key diagnostic from the other Claude's analysis!
                 CMBlockBufferRef blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer);
                 if (blockBuffer) {
                     size_t dataLength = CMBlockBufferGetDataLength(blockBuffer);
                     double durationSeconds = CMTimeGetSeconds(duration);
                     
-                    // Calculate actual sample rate from the actual data
-                    // For stereo audio: 7680 bytes / 4 bytes per sample = 1920 samples
-                    // 1920 samples / 0.020 seconds = 96000 Hz
-                    size_t bytesPerSample = 4; // 32-bit
+                    size_t bytesPerSample = 4;
                     size_t numSamples = dataLength / bytesPerSample;
                     double calculatedRate = numSamples / durationSeconds;
                     
@@ -654,8 +496,6 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
                     NSLog(@"Ratio: %.4f", calculatedRate / g_audioFormat.mSampleRate);
                     NSLog(@"======================");
                     
-                    // DO NOT update the sample rate - the reported rate is correct!
-                    // The calculated rate is per-sample (not per-channel), so it's double the actual rate
                     NSLog(@"ℹ️ [NATIVE] Sample rate is correct: %.0f Hz (calculated %.2f Hz includes all channels)", 
                           g_audioFormat.mSampleRate, calculatedRate);
                 }
@@ -668,7 +508,6 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
             NSLog(@"❌ [NATIVE] Failed to get format description from sample buffer");
         }
         
-        // Only initialize audio file if NOT in streaming-only mode
         if (!g_streamingOnly) {
             if (!initializeAudioFile()) {
                 NSLog(@"❌ [NATIVE] Failed to initialize audio file");
@@ -679,11 +518,9 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
             NSLog(@"🎤 [NATIVE] Format detected, streaming-only mode - skipping file initialization");
         }
         
-        // Mark as initialized to skip this block next time (for both modes)
         g_audioFileInitialized = true;
     }
     
-    // Get audio buffer list from sample buffer
     CMBlockBufferRef blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer);
     if (!blockBuffer) {
         if (callbackCount <= 5) {
@@ -697,16 +534,14 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
         if (callbackCount <= 5) {
             NSLog(@"🔇 [NATIVE] Empty audio sample buffer");
         }
-        return; // No audio data
+        return;
     }
     
     
-    // Log audio format info for debugging (only first few callbacks)
     if (callbackCount <= 5) {
         NSLog(@"🎵 [NATIVE] Audio data length: %zu bytes", dataLength);
     }
     
-    // Get audio data
     char* sourceAudioData = nullptr;
     OSStatus status = CMBlockBufferGetDataPointer(blockBuffer, 0, nullptr, nullptr, &sourceAudioData);
     if (status != noErr || !sourceAudioData) {
@@ -716,20 +551,18 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
         return;
     }
     
-    // Check if source format is non-interleaved
     bool isNonInterleaved = (g_sourceFormat.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0;
     bool is32BitInt = (g_sourceFormat.mBitsPerChannel == 32) && 
                       (g_sourceFormat.mFormatFlags & kAudioFormatFlagIsSignedInteger);
     
     const char* audioDataToWrite = sourceAudioData;
     UInt32 bytesToWrite = (UInt32)dataLength;
-    static char conversionBuffer[1024 * 1024]; // 1MB buffer
+    static char conversionBuffer[1024 * 1024];
     
     if (callbackCount <= 5) {
         NSLog(@"🔍 [PROCESS] NonInterleaved=%d, 32BitInt=%d", isNonInterleaved, is32BitInt);
     }
     
-    // STEP 1: Interleave if needed
     if (isNonInterleaved) {
         size_t bufferSize = sizeof(conversionBuffer);
         if (interleaveAudio(sourceAudioData, dataLength, conversionBuffer, bufferSize, 
@@ -745,7 +578,6 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
         }
     }
     
-    // STEP 2: Convert 32-bit int to 32-bit float if needed
     if (is32BitInt) {
         static char floatBuffer[1024 * 1024];
         size_t floatBufferSize = sizeof(floatBuffer);
@@ -761,14 +593,12 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
         }
     }
     
-    // Write audio data to file (skip if streaming-only mode)
     if (!g_streamingOnly) {
         if (callbackCount <= 5) {
             NSLog(@"📝 [WRITE] Writing %u bytes to file", bytesToWrite);
         }
         
         if (g_audioFile) {
-            // Get current file position for proper sequential writing
             SInt64 filePosition = 0;
             UInt32 size = sizeof(filePosition);
             OSStatus status = AudioFileGetProperty(g_audioFile, kAudioFilePropertyAudioDataByteCount, &size, &filePosition);
@@ -777,11 +607,9 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
                 return;
             }
             
-            // Write the audio data (converted if necessary)
             status = AudioFileWriteBytes(g_audioFile, false, filePosition, &bytesToWrite, audioDataToWrite);
             
             if (status != noErr) {
-                // Get file format for debugging
                 AudioStreamBasicDescription fileFormat;
                 UInt32 formatSize = sizeof(fileFormat);
                 AudioFileGetProperty(g_audioFile, kAudioFilePropertyDataFormat, &formatSize, &fileFormat);
@@ -795,12 +623,9 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
         }
         
     } else {
-        // Streaming-only mode: skip file writing but continue to streaming callback
     }
     
-    // Invoke streaming callback if set (for real-time streaming)
     if (!g_streamingCallback.IsEmpty() && g_streamingAsyncHandle) {
-        // Create data structure with audio data
         StreamingData* data = new StreamingData();
         data->audioData.assign(audioDataToWrite, audioDataToWrite + bytesToWrite);
         data->sampleRate = g_audioFormat.mSampleRate;
@@ -808,13 +633,11 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
         data->bitDepth = g_audioFormat.mBitsPerChannel;
         data->isFloat = (g_audioFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0;
         
-        // Set data and trigger async callback (will run on main thread)
         g_streamingAsyncHandle->data = data;
         uv_async_send(g_streamingAsyncHandle);
     }
 }
 
-// ScreenCaptureKit delegate
 @interface AudioCaptureDelegate : NSObject <SCStreamDelegate, SCStreamOutput>
 @property (nonatomic, copy) void (^audioCallback)(CMSampleBufferRef);
 @end
@@ -826,11 +649,8 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
     ofType:(SCStreamOutputType)type {
     if (type == SCStreamOutputTypeAudio) {
         if (stream != g_stream) {
-            // Buffer from a stream that isn't the published pipeline (orphaned late start, or a
-            // stream mid-teardown) — drop rather than contaminate the active session (SAYSO-355).
             return;
         }
-        // Record actual start time at the first audio buffer
         if (g_actualStartMs == 0.0) {
             g_actualStartMs = (double)SaysoNowMs();
         }
@@ -838,7 +658,6 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
             self.audioCallback(sampleBuffer);
         }
     } else {
-        // Non-audio buffers are less common, so log them all
         NSLog(@"🎤 [NATIVE] Received non-audio sample buffer (type: %ld)", (long)type);
     }
 }
@@ -856,29 +675,13 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
 
 static AudioCaptureDelegate* g_delegate = nil;
 
-// SAYSO-359: what's currently OUTSTANDING in the SCK start sequence. A blanket 10s timeout only ever
-// told us THAT the start hung, never WHERE — this distinguishes "getShareableContent never called
-// back" (matches the documented external ScreenCaptureKit/replayd daemon hang) from a hang in
-// startCapture, or from a stall in our own synchronous pipeline setup between the two.
-//
-// Every value names the operation IN FLIGHT when a timeout/cancel catches it, set immediately before
-// that operation begins — never a "this step just finished" marker. That uniform convention matters:
-// a mid-sequence value that means "completed" rather than "outstanding" (an earlier revision had
-// several) is easy to misread under time pressure. It also means only points with real,
-// watchdog-observable duration get their own value — filter/config allocation between receiving
-// content and building the stream is synchronous, in-process, sub-microsecond, and genuinely cannot
-// be caught mid-flight, so it doesn't get one; `addStreamOutput` does, since unlike the allocations
-// around it, it plausibly performs real work.
 enum class SckStartStage {
     not_started,
-    getting_shareable_content,  // outstanding: async getShareableContentWithCompletionHandler
-    adding_stream_output,       // outstanding: filter/config/SCStream build through addStreamOutput
-    starting_capture,           // outstanding: async startCaptureWithCompletionHandler
+    getting_shareable_content,
+    adding_stream_output,
+    starting_capture,
 };
 
-// snake_case to match the lifecycle-event convention (docs/NATIVE_AUDIO_CONTRACT.md) and the existing
-// `stage=shareable_content` at the late-callback-ignored site below, which now reuses this directly
-// instead of a second, independently-spelled literal.
 static const char* SckStartStageName(SckStartStage stage) {
     switch (stage) {
         case SckStartStage::not_started: return "not_started";
@@ -889,27 +692,20 @@ static const char* SckStartStageName(SckStartStage stage) {
     return "unknown";
 }
 
-// ScreenCaptureKit async start: Promise settled on libuv thread when addStreamOutput / startCapture completes.
-// Settlement is generation-guarded and settle-once: the SCK completion blocks, the watchdog timeout and
-// stop-cancel all race to settle the same start, and every loser must become a harmless no-op — never a
-// double-settle and never a write into a freed PendingSckStart (SAYSO-355; UAF discipline per SAYSO-349).
-// Blocks capture the generation VALUE, never the pending pointer, so a late callback can outlive the
-// struct safely.
 struct PendingSckStart {
     uv_async_t async;
     Nan::Persistent<v8::Promise::Resolver> resolver;
     uint64_t generation;
-    bool settled;   // guarded by g_sckStartMutex
+    bool settled;
     bool reject;
     std::string message;
-    SckStartStage stage;   // guarded by g_sckStartMutex; SAYSO-359
+    SckStartStage stage;
 };
 
 static PendingSckStart* g_sckStartPending = nullptr;
-static std::mutex g_sckStartMutex;             // guards g_sckStartPending + settled transitions
-static uint64_t g_sckStartNextGeneration = 0;  // bumped per start (JS thread only)
+static std::mutex g_sckStartMutex;
+static uint64_t g_sckStartNextGeneration = 0;
 
-// Async system-audio stop: JS Promise resolves on libuv thread after SCK stopCapture completes.
 struct PendingSckStop {
     uv_async_t async;
     std::list<Nan::Persistent<v8::Promise::Resolver>> resolvers;
@@ -965,9 +761,6 @@ static void SckStartSettledCb(uv_async_t* handle) {
     });
 }
 
-// Settle the pending SCK start for `generation` exactly once. Returns false when that start is no
-// longer current (already settled by a competing path, superseded, or gone) — callers must treat
-// false as "you were abandoned": clean up anything created locally and touch no globals.
 static bool SettleSckStartForGeneration(uint64_t generation, bool reject, const std::string& message) {
     PendingSckStart* winner = nullptr;
     {
@@ -980,20 +773,15 @@ static bool SettleSckStartForGeneration(uint64_t generation, bool reject, const 
         winner->reject = reject;
         winner->message = message;
     }
-    // Safe outside the lock: only the single winner ever sends on this handle, and deletion happens
-    // strictly after SckStartSettledCb consumes this send on the JS thread.
     uv_async_send(&winner->async);
     return true;
 }
 
-// True when the start identified by `generation` has been abandoned (timed out, canceled, superseded).
 static bool SckStartAbandoned(uint64_t generation) {
     std::lock_guard<std::mutex> lk(g_sckStartMutex);
     return !g_sckStartPending || g_sckStartPending->generation != generation || g_sckStartPending->settled;
 }
 
-// SAYSO-359: advance the stage marker for `generation`. A no-op for an abandoned/superseded/already-
-// settled generation — never touches a newer start's stage, mirroring SckStartAbandoned's guard.
 static void SckStartAdvanceStage(uint64_t generation, SckStartStage stage) {
     std::lock_guard<std::mutex> lk(g_sckStartMutex);
     if (g_sckStartPending && g_sckStartPending->generation == generation && !g_sckStartPending->settled) {
@@ -1001,9 +789,6 @@ static void SckStartAdvanceStage(uint64_t generation, SckStartStage stage) {
     }
 }
 
-// Peek the current stage for `generation` (NotStarted if it's no longer the pending start). Used to
-// enrich a message that must be built *before* calling SettleSckStartForGeneration — the watchdog and
-// stop-cancel paths, which fire asynchronously and otherwise have no idea which stage was in flight.
 static SckStartStage SckStartPeekStage(uint64_t generation) {
     std::lock_guard<std::mutex> lk(g_sckStartMutex);
     if (g_sckStartPending && g_sckStartPending->generation == generation) {
@@ -1110,18 +895,10 @@ static AudioDeviceID SaysoGetCurrentDefaultInputDeviceID() {
     return dev;
 }
 
-// SAYSO-353: wall-clock milliseconds, used to enforce the mic-route-recovery backoff ceiling
-// (dispatch_time deltas alone can't express "give up 30s after the ORIGINAL failure" across a
-// chain of independently-scheduled dispatch_after calls).
 static int64_t SaysoNowMs() {
     return (int64_t)([[NSDate date] timeIntervalSince1970] * 1000.0);
 }
 
-// SAYSO-353: true if `deviceID` is a Bluetooth device (HFP mic/headset). The removal-path settle
-// delay only applies when leaving Bluetooth — the HFP teardown continues in the background for a
-// few hundred ms after the HAL default has already flipped to the fallback device, and a fresh
-// engine can transiently fail to get tap buffers during that window even though it's not bound to
-// the Bluetooth device at all. Wired/built-in transitions don't have this failure mode.
 static bool SaysoIsBluetoothInputDevice(AudioDeviceID deviceID) {
     if (deviceID == kAudioObjectUnknown) {
         return false;
@@ -1134,27 +911,13 @@ static bool SaysoIsBluetoothInputDevice(AudioDeviceID deviceID) {
         kAudioObjectPropertyElementMain
     };
     if (AudioObjectGetPropertyData(deviceID, &pa, 0, nullptr, &sz, &transportType) != noErr) {
-        // SAYSO-353 review finding: fail toward the safer assumption. A query failure here usually
-        // means the device has already vanished from the HAL's object registry — exactly what
-        // happens when a Bluetooth device is mid-disconnect, i.e. precisely the case this widened
-        // timing exists for. Treating "can't tell" as "not Bluetooth" would silently fall back to
-        // the un-widened path in the scenario most likely to need the wider one. Worst case for a
-        // wired device that happens to vanish (e.g. USB unplug) is a slightly longer, still-correct
-        // wait, not an incorrect one.
         return true;
     }
     return transportType == kAudioDeviceTransportTypeBluetooth ||
            transportType == kAudioDeviceTransportTypeBluetoothLE;
 }
 
-// ─── SAYSO-431: HAL property readers for mic diagnostics ─────────────────────
-// All of these are safe off the main thread and allocate no autoreleased objects (CF only), so they
-// can run on a plain GCD queue. Every read checks AudioObjectHasProperty first: a device that doesn't
-// implement a property (most have no input-scope volume on element 0, Bluetooth HFP has no mute)
-// reports "unknown", never a stale or zeroed value.
 
-// Transport as a short token. Raw FourCCs rather than the SDK constants so this compiles against
-// SDKs predating Continuity Capture (iPhone as a mic — a real route for a sales agent).
 static const char* SaysoTransportTypeName(UInt32 transport) {
     switch (transport) {
         case 'bltn': return "built_in";
@@ -1230,8 +993,6 @@ static int SaysoReadInputChannelCount(AudioObjectID device) {
     return channels;
 }
 
-// Input-scope scalar on the main element, falling back to channel 1 — most built-in and USB mics
-// only expose per-channel controls.
 static bool SaysoReadInputScalar(AudioObjectID device, AudioObjectPropertySelector selector, void* out, UInt32 size) {
     return SaysoReadHalPod(device, selector, kAudioObjectPropertyScopeInput, kAudioObjectPropertyElementMain, out, size) ||
            SaysoReadHalPod(device, selector, kAudioObjectPropertyScopeInput, 1, out, size);
@@ -1246,12 +1007,12 @@ struct SaysoMicDeviceSnapshot {
     UInt32 transport = 0;
     Float64 nominalSampleRate = -1;
     int inputChannels = -1;
-    int isAlive = -1;            // -1 unknown, else 0/1
+    int isAlive = -1;
     int isRunningSomewhere = -1;
     bool hasHogPid = false;
     pid_t hogPid = -1;
     int muted = -1;
-    Float32 volume = -1;          // -1 unknown
+    Float32 volume = -1;
 };
 
 static SaysoMicDeviceSnapshot SaysoSnapshotMicDevice(AudioDeviceID device) {
@@ -1285,7 +1046,6 @@ static SaysoMicDeviceSnapshot SaysoSnapshotMicDevice(AudioDeviceID device) {
     return snap;
 }
 
-// Lifecycle events are `key=value` lines; a device name with a quote or newline would break parsing.
 static std::string SaysoEventSafe(const char* value) {
     std::string out = value ? value : "";
     for (char& c : out) {
@@ -1296,10 +1056,10 @@ static std::string SaysoEventSafe(const char* value) {
     return out;
 }
 
-static OSStatus SaysoDefaultInputDeviceListenerProc(AudioObjectID /*inObjectID*/,
+static OSStatus SaysoDefaultInputDeviceListenerProc(AudioObjectID ,
                                                     UInt32 inNumberAddresses,
                                                     const AudioObjectPropertyAddress* inAddresses,
-                                                    void* /*inClientData*/) {
+                                                    void* ) {
     for (UInt32 i = 0; i < inNumberAddresses; i++) {
         if (inAddresses[i].mSelector != kAudioHardwarePropertyDefaultInputDevice) {
             continue;
@@ -1331,7 +1091,6 @@ static OSStatus SaysoDefaultInputDeviceListenerProc(AudioObjectID /*inObjectID*/
                   (unsigned)newDevice, newName,
                   newUid ? newUid : @"(nil)",
                   g_isMicCapturing ? "YES" : "NO");
-            // SAYSO-431: the NSLog above only reaches the unified log; this reaches the packaged log file.
             UInt32 prevTransport = 0;
             UInt32 newTransport = 0;
             SaysoReadHalPod(previous, kAudioDevicePropertyTransportType, kAudioObjectPropertyScopeGlobal,
@@ -1380,13 +1139,10 @@ static void SaysoRegisterDefaultInputDeviceListener() {
     NSLog(@"✅ [NATIVE] CoreAudio default-input device listener registered");
 }
 
-// Initialize the native module
 NAN_METHOD(Initialize) {
     
-    // Create audio processing queue
     g_audioQueue = dispatch_queue_create("com.sayso.audio", DISPATCH_QUEUE_SERIAL);
     
-    // Create delegate
     g_delegate = [[AudioCaptureDelegate alloc] init];
 
     SaysoRegisterDefaultInputDeviceListener();
@@ -1394,24 +1150,54 @@ NAN_METHOD(Initialize) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
-// Non-destructive check: returns true if screen recording is already granted.
-// Uses CGPreflightScreenCaptureAccess() (macOS 12.3+) — no dialog, no side effects.
 NAN_METHOD(CheckScreenRecordingGranted) {
     bool granted = CGPreflightScreenCaptureAccess();
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(granted));
 }
 
-// Request screen recording permission.
-// CGRequestScreenCaptureAccess() shows the native macOS dialog when the permission is
-// "not-determined" (its own "Open System Settings" button leads the user to the right pane).
-// Returns true if already granted; false if the dialog was shown or the permission was previously denied.
 NAN_METHOD(RequestScreenRecordingPermission) {
     bool granted = CGRequestScreenCaptureAccess();
     NSLog(@"🎤 [NATIVE] RequestScreenRecordingPermission → granted=%d", granted);
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(granted));
 }
 
-// Start system audio capture
+NAN_METHOD(CheckAudioCaptureCapability) {
+    Local<Object> result = Nan::New<Object>();
+
+    if (@available(macOS 14.4, *)) {
+        Nan::Set(result, Nan::New("macOS14_4Plus").ToLocalChecked(), Nan::New<v8::Boolean>(true));
+
+        CATapDescription* description =
+            [[CATapDescription alloc] initStereoGlobalTapButExcludeProcesses:@[]];
+        description.name = @"Sayso System Audio Tap Probe";
+
+        AudioObjectID tapID = kAudioObjectUnknown;
+        OSStatus status = AudioHardwareCreateProcessTap(description, &tapID);
+
+        if (status == noErr && tapID != kAudioObjectUnknown) {
+            AudioHardwareDestroyProcessTap(tapID);
+            NSLog(@"✅ [NATIVE] Process-tap capability probe succeeded");
+            Nan::Set(result, Nan::New("available").ToLocalChecked(), Nan::New<v8::Boolean>(true));
+            Nan::Set(result, Nan::New("error").ToLocalChecked(), Nan::Null());
+        } else {
+            NSLog(@"❌ [NATIVE] Process-tap capability probe failed: OSStatus=%d", (int)status);
+            Nan::Set(result, Nan::New("available").ToLocalChecked(), Nan::New<v8::Boolean>(false));
+            char errBuf[48];
+            snprintf(errBuf, sizeof(errBuf), "OSStatus %d", (int)status);
+            Nan::Set(result, Nan::New("error").ToLocalChecked(),
+                     Nan::New<v8::String>(errBuf).ToLocalChecked());
+        }
+    } else {
+        NSLog(@"ℹ️ [NATIVE] Process-tap capability probe skipped — macOS < 14.4, SCK fallback applies");
+        Nan::Set(result, Nan::New("macOS14_4Plus").ToLocalChecked(), Nan::New<v8::Boolean>(false));
+        Nan::Set(result, Nan::New("available").ToLocalChecked(), Nan::New<v8::Boolean>(false));
+        Nan::Set(result, Nan::New("error").ToLocalChecked(),
+                 Nan::New<v8::String>("macOS version below 14.4").ToLocalChecked());
+    }
+
+    info.GetReturnValue().Set(result);
+}
+
 NAN_METHOD(StartSystemAudioCapture) {
     NSLog(@"🎤 [NATIVE] Starting system audio capture");
     
@@ -1438,10 +1224,8 @@ NAN_METHOD(StartSystemAudioCapture) {
         return;
     }
     
-    // Reset streaming-only flag
     g_streamingOnly = false;
     
-    // Check if streamingOnly option is provided
     if (info.Length() > 0 && info[0]->IsObject()) {
         Local<Object> options = Nan::To<Object>(info[0]).ToLocalChecked();
         Local<Value> streamingOnlyValue = Nan::Get(options, Nan::New("streamingOnly").ToLocalChecked()).ToLocalChecked();
@@ -1453,10 +1237,8 @@ NAN_METHOD(StartSystemAudioCapture) {
         }
     }
     
-    // Reset actual start timestamp
     g_actualStartMs = 0.0;
 
-    // Set output directory
     std::string currentPath = std::string([[[NSBundle mainBundle] bundlePath] UTF8String]);
     size_t electronPos = currentPath.find("/node_modules/electron/dist/Electron.app");
     if (electronPos != std::string::npos) {
@@ -1502,13 +1284,8 @@ NAN_METHOD(StartSystemAudioCapture) {
     }
     NSLog(@"🎤 [NATIVE] SCK start pending (gen=%llu)", (unsigned long long)startGen);
 
-    // Watchdog: SCK completion handlers are not guaranteed to fire (SAYSO-355 saw a start wedge for
-    // the process lifetime). If nothing settles this generation in time, reject it so Cue can retry
-    // without an app relaunch. Captures the generation VALUE — safe after the struct is freed.
     const int64_t kSckStartWatchdogNs = 10 * NSEC_PER_SEC;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kSckStartWatchdogNs), dispatch_get_main_queue(), ^{
-        // SAYSO-359: peek the stage BEFORE settling — the watchdog fires from an independent timer
-        // with no idea which async step was in flight, so this is the only chance to capture it.
         SckStartStage stage = SckStartPeekStage(startGen);
         std::string msg = std::string("sck_start_timeout stage=") + SckStartStageName(stage) +
             ": ScreenCaptureKit start did not settle within 10s";
@@ -1518,9 +1295,6 @@ NAN_METHOD(StartSystemAudioCapture) {
         }
     });
 
-    // The blocks below deliberately build the pipeline in LOCALS and publish to globals only after
-    // winning settlement. An abandoned (timed-out/canceled) start must never clobber the globals of a
-    // newer start, and must stop any stream it managed to create.
     SckStartAdvanceStage(startGen, SckStartStage::getting_shareable_content);
     [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
         if (SckStartAbandoned(startGen)) {
@@ -1564,11 +1338,6 @@ NAN_METHOD(StartSystemAudioCapture) {
             config.excludesCurrentProcessAudio = YES;
         }
 
-        // SAYSO-337: we only consume SCStreamOutputTypeAudio, but SCK still runs an internal
-        // video pipeline under the hood even when nothing subscribes to it. Left at defaults
-        // (full display resolution, 60fps, queueDepth 10) that pipeline drove a system-wide
-        // WindowServer/GPU slowdown. Shrinking the frame to 2x2, capping to 1fps, and trimming
-        // the IOSurface queue eliminates that overhead without affecting audio delivery.
         config.width = 2;
         config.height = 2;
         config.minimumFrameInterval = CMTimeMake(1, 1);
@@ -1618,7 +1387,6 @@ NAN_METHOD(StartSystemAudioCapture) {
                 return;
             }
             if (SettleSckStartForGeneration(startGen, false, "")) {
-                // We won: publish the pipeline. g_stream non-null ⟺ capture owned + running.
                 g_stream = stream;
                 g_filter = filter;
                 g_config = config;
@@ -1629,9 +1397,6 @@ NAN_METHOD(StartSystemAudioCapture) {
                 NSLog(@"✅ [NATIVE] System audio capture started successfully (gen=%llu)",
                       (unsigned long long)startGen);
             } else {
-                // Abandoned start that nevertheless reached running: orphaned stream — stop it, touch
-                // no globals (they may belong to a newer start by now). If this stop fails we have a
-                // zombie SCK capture (purple indicator, no owner): _failed is escalated JS-side.
                 EmitLifecycleEvent("sck_orphan_stream_stopping gen=" + std::to_string(startGen));
                 [stream stopCaptureWithCompletionHandler:^(NSError *stopErr) {
                     if (stopErr) {
@@ -1647,16 +1412,12 @@ NAN_METHOD(StartSystemAudioCapture) {
     }];
 }
 
-// Stop system audio capture (returns Promise; resolves after SCK stop + pipeline teardown completes)
 NAN_METHOD(StopSystemAudioCapture) {
     NSLog(@"🎤 [NATIVE] Stopping system audio capture");
     
     Isolate* isolate = info.GetIsolate();
     Local<Context> context = isolate->GetCurrentContext();
     
-    // A start may be pending (SCK callbacks not yet settled). Cancel it so a wedged start cannot
-    // outlive a stop: reject its promise now; the late completion (if it ever fires) sees the
-    // abandoned generation and stops its own orphaned stream (SAYSO-355).
     {
         uint64_t pendingGen = 0;
         bool hasPending = false;
@@ -1668,8 +1429,6 @@ NAN_METHOD(StopSystemAudioCapture) {
             }
         }
         if (hasPending) {
-            // SAYSO-359: same reasoning as the watchdog — stop-cancel fires from a separate call path
-            // with no idea which stage the pending start had reached, so peek it before settling.
             SckStartStage stage = SckStartPeekStage(pendingGen);
             std::string msg = std::string("sck_start_canceled_by_stop stage=") + SckStartStageName(stage) +
                 ": stop requested while start still pending";
@@ -1680,7 +1439,6 @@ NAN_METHOD(StopSystemAudioCapture) {
         }
     }
 
-    // Idle: no stream object (covers "not capturing"; a pending start was just canceled above)
     if (!g_stream) {
         NSLog(@"⚠️ [NATIVE] System audio capture not active (no stream)");
         MaybeLocal<Promise::Resolver> maybeIdle = Promise::Resolver::New(context);
@@ -1698,7 +1456,6 @@ NAN_METHOD(StopSystemAudioCapture) {
         return;
     }
     
-    // Coalesce concurrent stop calls onto the same SCK completion
     if (g_sckStopPending != nullptr) {
         MaybeLocal<Promise::Resolver> maybeCo = Promise::Resolver::New(context);
         if (maybeCo.IsEmpty()) {
@@ -1788,21 +1545,10 @@ NAN_METHOD(StopSystemAudioCapture) {
     info.GetReturnValue().Set(firstResolver->GetPromise());
 }
 
-// SAYSO-353: observe AVFoundation's own "engine config changed, graph stopped, rebuild it" signal
-// on top of the existing Core Audio default-input-device listener. The two are not redundant: the
-// HAL default-device notification only fires when the OS *default input* changes, but AVAudioEngine
-// can also be stopped by AirPods ear-detection routing audio away while remaining the default
-// device, or by other mid-session route churn the HAL listener never sees. Feeds into the same
-// debounced restart path either way.
 static void SaysoObserveMicEngineConfigChange(AVAudioEngine* engine) {
     if (!engine) {
         return;
     }
-    // ARC is off in this file: addObserverForName:... returns an autoreleased token (it doesn't
-    // match the alloc/new/copy/mutableCopy ownership-transfer convention), so it must be retained
-    // explicitly to survive past the next autorelease pool drain — otherwise g_micEngineConfigChangeObserver
-    // dangles the moment the run loop next turns, and removeObserver: in MicEngineTeardownOnly later
-    // touches freed memory. Same discipline as g_micEngine's explicit release (SAYSO-361).
     g_micEngineObserverAttachedAtMs = SaysoNowMs();
     g_micEngineConfigChangeObserver = [[[NSNotificationCenter defaultCenter]
         addObserverForName:AVAudioEngineConfigurationChangeNotification
@@ -1810,24 +1556,13 @@ static void SaysoObserveMicEngineConfigChange(AVAudioEngine* engine) {
                      queue:nil
                 usingBlock:^(NSNotification* _Nonnull note) {
                     int64_t sinceAttachMs = SaysoNowMs() - g_micEngineObserverAttachedAtMs;
-                    // SAYSO-431: record every notification, echoes included — a stall right after a
-                    // real one is the signature of the audio graph being rebuilt under us.
                     const bool ignored = sinceAttachMs < kMicEngineConfigChangeCooldownMs;
                     g_micLastEngineConfigChangeMs.store(SaysoRealtimeNowMs());
                     g_micEngineConfigChanges.fetch_add(1);
-                    // AVAudioEngine stops and uninitializes itself before posting this — the ignored
-                    // echo included, so an ignored notification can leave the engine stopped with
-                    // nothing scheduled to restart it. Diagnostics must show that, not hide it.
                     g_micEngineRunning.store(false);
                     EmitLifecycleEvent(std::string("mic_engine_config_change ignored=") + (ignored ? "1" : "0") +
                                        " since_attach_ms=" + std::to_string(sinceAttachMs));
                     if (ignored) {
-                        // Fires implausibly soon after we just built this engine — likely an echo
-                        // of our own rebuild (e.g. AVAudioEngine's own format renegotiation) rather
-                        // than a genuine external route change. Ignoring it here avoids a
-                        // rebuild -> notification -> rebuild loop; a real, distinct route change
-                        // this close in time will still be caught by the HAL default-input listener
-                        // running in parallel, or by this same observer once past the cooldown.
                         NSLog(@"🔊 [NATIVE] AVAudioEngineConfigurationChangeNotification ignored — %lldms "
                               @"after engine attach (cooldown %lldms, likely our own rebuild)",
                               (long long)sinceAttachMs, (long long)kMicEngineConfigChangeCooldownMs);
@@ -1846,12 +1581,6 @@ static void SaysoRemoveMicEngineConfigChangeObserver() {
     }
 }
 
-// Tear down mic engine + tap without clearing Node callbacks (internal retry path).
-// SAYSO-361: ARC is off in this file (binding.gyp has no -fobjc-arc), so the explicit release
-// below is required — without it g_micEngine leaks on every call, and the leaked AVAudioEngine's
-// AVAudioIOUnit keeps its HAL property listener registered after we consider it dead. A later
-// hardware-format-changed callback (any device/route change, not necessarily on this engine) then
-// fires at the dead listener and frees an already-recycled PartitionAlloc slot — see SAYSO-APP-5T.
 static void MicEngineTeardownOnly() {
     g_micEngineRunning.store(false);
     SaysoRemoveMicEngineConfigChangeObserver();
@@ -1879,56 +1608,28 @@ static bool WaitForMicFirstTapMs(int timeoutMs) {
     return g_micFirstTapSeen.load(std::memory_order_acquire);
 }
 
-// ─── SAYSO-428: multi-channel mic downmix + raw-array gain ────────────────────
-// Joining a WebRTC call in Safari (WebKit's voice processing) flips the built-in MacBook mic from
-// its processed mono stream to the raw 3-mic array: 48 kHz / 3ch, NON-interleaved (one
-// AudioBuffer per channel), and ~30 dB quieter (measured −66 vs −36 dBFS RMS on the same speech).
-// The tap used to memcpy floatChannelData[0] for frameLength*channels samples — reading past the
-// end of channel 0's buffer — and audioConverter.js then averaged those bytes as if interleaved,
-// so the agent's side went untranscribed for the whole call. Multi-channel input is now averaged
-// to mono here, and an AGC restores speech level in float before JS quantizes to PCM16 (at −66
-// dBFS a PCM16 sample has ~16 codes of resolution; boosting after quantization can't recover that).
-// Mono input is passed through untouched, exactly as before.
 
-static const float kMicAgcTargetRms = 0.025f;       // ≈ −32 dBFS: speech-block level of a normal built-in mic
-static const float kMicAgcMaxGain = 63.1f;          // +36 dB cap — measured raw-array deficit is ~30 dB
-static const float kMicAgcGainRisePerBlock = 1.059f; // +0.5 dB per block (~+5 dB/s at 48k/4800) — slow up
+static const float kMicAgcTargetRms = 0.025f;
+static const float kMicAgcMaxGain = 63.1f;
+static const float kMicAgcGainRisePerBlock = 1.059f;
 static const float kMicLimiterKnee = 0.9f;
-// Speech is detected RELATIVE to the tracked noise floor, not against an absolute threshold: raw-array
-// speech sits at ~−67 dBFS while normal-mic speech sits at ~−33, so no fixed gate separates the two.
-// Gain starts at 1.0 and only moves once a block stands ≥12 dB above the noise floor — an absolute gate
-// would lock the estimate onto room noise during the opening seconds and boost it ~30 dB before the
-// first word pulled the gain back down (seen in the offline replay of a real session).
-static const float kMicAgcSpeechOverNoise = 4.0f;   // +12 dB above the noise floor = speech
-static const float kMicAgcNoiseFloorRise = 1.02f;   // floor tracks down instantly, up ~0.17 dB/block (~1.7 dB/s)
-static const float kMicAgcMinRms = 1e-5f;           // ≈ −100 dBFS: digital silence never counts as speech
-// A live mic never sits this quiet. Blocks below it are warm-up or zeroed buffers, and they must not
-// seed the noise floor: a floor parked at −100 dBFS makes ordinary room noise clear the +12 dB gate,
-// and the gain then locks onto the noise instead of speech (offline replay: room noise at −70 dBFS
-// boosted to −35). Until a real block arrives the floor stays unseeded and no gain is applied.
-static const float kMicAgcFloorMinRms = 3e-5f;      // ≈ −90 dBFS
-// The gain holds at unity for the first few blocks while the floor is seeded, and the first-speech
-// jump needs two consecutive speech blocks. Without both, a near-silent warm-up buffer (AVAudioEngine
-// routinely delivers one — this file already handles `no_tap_buffers`) seeds the floor at −100 dBFS,
-// the next block of ordinary room noise clears the +12 dB gate, and the jump locks the gain onto that
-// noise. The faster floor recovery above bounds the same failure mid-session: from a floor collapsed
-// by one quiet block it now takes ~3s, not ~140s, before room noise stops reading as speech.
-static const int kMicAgcWarmupBlocks = 5;           // ~0.5s of floor seeding before the gain may move
-static const int kMicAgcSpeechBlocksToLock = 2;     // consecutive speech blocks before the first jump
-static const int kMicAgcStatusFirstBlocks = 50;     // first status event ~5s after the format is seen
-static const int kMicAgcStatusEveryBlocks = 300;    // then ~every 30s while multi-channel
+static const float kMicAgcSpeechOverNoise = 4.0f;
+static const float kMicAgcNoiseFloorRise = 1.02f;
+static const float kMicAgcMinRms = 1e-5f;
+static const float kMicAgcFloorMinRms = 3e-5f;
+static const int kMicAgcWarmupBlocks = 5;
+static const int kMicAgcSpeechBlocksToLock = 2;
+static const int kMicAgcStatusFirstBlocks = 50;
+static const int kMicAgcStatusEveryBlocks = 300;
 
-// Set on SaysoMicRouteRestartQueue whenever a fresh engine is built; consumed by the tap block so
-// all state below is only ever touched on the tap's delivery thread (one tap exists at a time —
-// MicEngineTeardownOnly removes the old tap before a new engine installs its own).
 static std::atomic<bool> g_micTapStateResetRequested{true};
 static int g_micTapLastChannels = 0;
 static double g_micTapLastSampleRate = 0;
 static float g_micAgcGain = 1.0f;
-static float g_micAgcSpeechLevel = 0; // 0 = no speech block seen yet since the format was adopted
-static float g_micAgcNoiseFloor = 0;  // 0 = not yet seeded
+static float g_micAgcSpeechLevel = 0;
+static float g_micAgcNoiseFloor = 0;
 static int g_micAgcBlocks = 0;
-static int g_micAgcSpeechRun = 0;     // consecutive speech blocks, for the first-speech lock
+static int g_micAgcSpeechRun = 0;
 static bool g_micLayoutMismatchReported = false;
 
 static std::string SaysoFormatDb(float linear) {
@@ -1937,7 +1638,6 @@ static std::string SaysoFormatDb(float linear) {
     return std::string(buf);
 }
 
-// Frames that are safely readable across every channel buffer — never trusts frameLength alone.
 static int SaysoMicReadableFrames(AVAudioPCMBuffer* buffer, bool interleaved, int channels, size_t bytesPerSample) {
     const AudioBufferList* abl = buffer.audioBufferList;
     int frames = (int)buffer.frameLength;
@@ -1954,15 +1654,11 @@ static int SaysoMicReadableFrames(AVAudioPCMBuffer* buffer, bool interleaved, in
     return frames;
 }
 
-// Averages all channels into `out` (mono float32) and applies the AGC + soft limiter in place.
-// Called only from the mic tap block for channels > 1.
 static void SaysoMicDownmixWithGain(AVAudioPCMBuffer* buffer, bool isFloat32, bool interleaved, int channels,
                                     int frames, std::vector<float>& out) {
     out.resize(frames);
     const float invChannels = 1.0f / (float)channels;
     double sumSq = 0;
-    // Channel pointers hoisted out of the sample loop: `buffer.floatChannelData` is an ObjC property
-    // access, and reading it per sample cost ~144k message sends/s on the tap thread.
     float* const* floatChannels = isFloat32 ? buffer.floatChannelData : nullptr;
     int16_t* const* int16Channels = isFloat32 ? nullptr : buffer.int16ChannelData;
     if ((isFloat32 && !floatChannels) || (!isFloat32 && !int16Channels)) {
@@ -1989,7 +1685,7 @@ static void SaysoMicDownmixWithGain(AVAudioPCMBuffer* buffer, bool isFloat32, bo
 
     if (blockRms >= kMicAgcFloorMinRms) {
         if (g_micAgcNoiseFloor <= 0 || blockRms < g_micAgcNoiseFloor) {
-            g_micAgcNoiseFloor = blockRms;                       // a quieter real block IS the new floor
+            g_micAgcNoiseFloor = blockRms;
         } else {
             g_micAgcNoiseFloor = std::min(g_micAgcNoiseFloor * kMicAgcNoiseFloorRise, blockRms);
         }
@@ -1999,27 +1695,22 @@ static void SaysoMicDownmixWithGain(AVAudioPCMBuffer* buffer, bool isFloat32, bo
                           blockRms > g_micAgcNoiseFloor * kMicAgcSpeechOverNoise;
     g_micAgcSpeechRun = isSpeech ? g_micAgcSpeechRun + 1 : 0;
 
-    // During warm-up only the floor is seeded; the gain stays at unity (audio untouched).
     if (isSpeech && g_micAgcBlocks >= kMicAgcWarmupBlocks) {
         if (g_micAgcSpeechLevel <= 0) {
             if (g_micAgcSpeechRun >= kMicAgcSpeechBlocksToLock) {
-                // First speech: jump straight to the right gain rather than ramping, so the opening
-                // word isn't lost and a loud multi-channel interface isn't slammed into the limiter.
                 g_micAgcSpeechLevel = blockRms;
                 g_micAgcGain = std::min(kMicAgcMaxGain, std::max(1.0f, kMicAgcTargetRms / blockRms));
             }
         } else {
-            // Fast attack, slow release on the speech-level estimate.
             const float coeff = blockRms > g_micAgcSpeechLevel ? 0.5f : 0.05f;
             g_micAgcSpeechLevel += coeff * (blockRms - g_micAgcSpeechLevel);
             const float desired = std::min(kMicAgcMaxGain, std::max(1.0f, kMicAgcTargetRms / g_micAgcSpeechLevel));
             g_micAgcGain = desired < g_micAgcGain ? desired : std::min(desired, g_micAgcGain * kMicAgcGainRisePerBlock);
         }
     }
-    // Between words the gain holds — silence never pumps the noise floor up.
 
     for (int i = 0; i < frames; i++) {
-        const float g = prevGain + (g_micAgcGain - prevGain) * ((float)i / (float)frames); // no zipper steps
+        const float g = prevGain + (g_micAgcGain - prevGain) * ((float)i / (float)frames);
         float y = out[i] * g;
         const float a = fabs(y);
         if (a > kMicLimiterKnee) {
@@ -2030,17 +1721,9 @@ static void SaysoMicDownmixWithGain(AVAudioPCMBuffer* buffer, bool isFloat32, bo
     }
 }
 
-// Starts engine and blocks until the realtime tap enqueues at least one buffer (or timeout).
-// SAYSO-347: `failReason`, when non-null, is set to one of "no_input_node" / "tap_install_failed" /
-// "engine_start_failed" / "no_tap_buffers" on failure — the same collapsing bug this ticket fixed one
-// level up (all four used to report as a single StartMicrophoneCapture-level "no_tap_buffers"), most
-// importantly "engine_start_failed" carrying a real NSError that was previously NSLog'd and discarded.
-// Default nullptr keeps the SaysoPerformMicRestartIfCapturing call site (which only needs the bool)
-// unaffected.
 static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** failReason = nullptr) {
     g_micFirstTapSeen.store(false, std::memory_order_release);
-    g_micTapStateResetRequested.store(true); // SAYSO-428: new engine → re-announce format, reset AGC
-    // SAYSO-431: counters describe the current (or last failed) engine build only.
+    g_micTapStateResetRequested.store(true);
     g_micEngineBuilds.fetch_add(1);
     g_micEngineBuiltAtMs.store(SaysoRealtimeNowMs());
     g_micTapCallbacks.store(0);
@@ -2064,8 +1747,6 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
 
     SaysoObserveMicEngineConfigChange(g_micEngine);
 
-    // Use nil format so the tap matches the hardware connection. Passing inputFormatForBus:0 can
-    // raise NSException "Failed to create tap due to format mismatch" on some routes (e.g. after SCK).
     @try {
         [g_micInputNode installTapOnBus:0 bufferSize:4096 format:nil block:^(AVAudioPCMBuffer* buffer, AVAudioTime* when) {
         if (!buffer) {
@@ -2101,8 +1782,6 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
         const bool isInt16 = bufferFormat.commonFormat == AVAudioPCMFormatInt16;
         const bool interleaved = bufferFormat.isInterleaved;
 
-        // SAYSO-428: (re)announce the input format on the first buffer of every engine build and on
-        // any change, and reset the AGC so a new route never inherits the previous route's gain.
         if (g_micTapStateResetRequested.exchange(false) ||
             channels != g_micTapLastChannels || bufferFormat.sampleRate != g_micTapLastSampleRate) {
             g_micTapLastChannels = channels;
@@ -2125,13 +1804,8 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
         size_t dataSize = 0;
 
         if (channels > 1 && (isFloat32 || isInt16)) {
-            // SAYSO-428: average channels (either layout) into mono float32 + AGC. Emitting mono keeps
-            // the JS converter's interleaved-downmix path out of the mic pipeline entirely.
             const int frames = SaysoMicReadableFrames(buffer, interleaved, channels, isFloat32 ? sizeof(float) : sizeof(int16_t));
             if (frames <= 0) {
-                // Without this the tap would drop every buffer for the whole session with no
-                // diagnostic, and the only symptom would be the JS stall watchdog restarting the
-                // engine in a loop.
                 g_micTapDroppedLayout.fetch_add(1, std::memory_order_relaxed);
                 if (!g_micLayoutMismatchReported) {
                     g_micLayoutMismatchReported = true;
@@ -2200,9 +1874,6 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
     }
 
     NSError* error = nil;
-    // Set before starting: the config-change observer is already attached and can mark the engine
-    // stopped while startAndReturnError is still returning. Storing the result afterwards would
-    // overwrite that with `true`. A failed start clears it again via MicEngineTeardownOnly below.
     g_micEngineRunning.store(true);
     BOOL ok = [g_micEngine startAndReturnError:&error];
 
@@ -2234,10 +1905,6 @@ static dispatch_queue_t SaysoMicRouteRestartQueue() {
     return q;
 }
 
-// SAYSO-353: backoff schedule after SaysoPerformMicRestartIfCapturing's two immediate attempts both
-// fail. Retries continue at the last (4s) step once the list is exhausted, until the ~30s ceiling
-// (measured from g_micRouteRecoveryStartMs, not from each individual retry) is reached. Replaces
-// the old behavior of permanently latching g_isMicCapturing false after one failed attempt pair.
 static const int64_t kMicRouteRecoveryBackoffMs[] = {250, 500, 1000, 2000, 4000};
 static const size_t kMicRouteRecoveryBackoffSteps =
     sizeof(kMicRouteRecoveryBackoffMs) / sizeof(kMicRouteRecoveryBackoffMs[0]);
@@ -2246,25 +1913,10 @@ static const int64_t kMicRouteRecoveryCeilingMs = 30000;
 static void SaysoAttemptMicRouteRecovery(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave,
                                           bool leavingBluetooth);
 
-// SAYSO-353: shared "is this dispatched step still relevant" predicate for every guarded
-// dispatch_after in the mic route-restart chain (the debounce chain's two stages, and the backoff
-// retry chain) — factored out after review found the near-identical hand-written copies of this
-// check error-prone to keep in sync (one of them failing to clear g_micRouteRecovering on a stale
-// generation was a real bug). Pure predicate, no side effects — callers own their own cleanup on
-// `false` (StopMicrophoneCapture/StartMicrophoneCapture are the authoritative resetters for
-// g_micRouteRecovering now, not this check; see those methods).
 static bool SaysoMicRouteStepStillValid(uint64_t wave) {
     return g_isMicCapturing.load() && wave == g_micRouteRestartGeneration.load(std::memory_order_acquire);
 }
 
-// Schedules the next backoff attempt, or gives up and reports terminal failure once the ~30s
-// ceiling is reached. `wave` pins this chain to the generation it started under — a newer
-// device-change notification bumping the generation invalidates it, same mechanism
-// SaysoScheduleMicRouteDebouncedRestart already uses for its own debounce chain, so an in-flight
-// recovery for a stale target device doesn't fight a fresh one for the current target.
-// `leavingBluetooth` is carried through from the original SaysoPerformMicRestartIfCapturing call so
-// every retry in the chain keeps the widened first-tap-wait, not just the first two immediate
-// attempts (review finding: this used to fall back to the un-widened 1200ms mid-recovery).
 static void SaysoScheduleMicRouteRecoveryRetry(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave,
                                                 bool leavingBluetooth) {
     int64_t elapsedMs = SaysoNowMs() - g_micRouteRecoveryStartMs;
@@ -2286,7 +1938,6 @@ static void SaysoScheduleMicRouteRecoveryRetry(AudioDeviceID targetDevice, size_
     });
 }
 
-// One retry attempt in the backoff sequence. Runs on SaysoMicRouteRestartQueue.
 static void SaysoAttemptMicRouteRecovery(AudioDeviceID targetDevice, size_t stepIndex, uint64_t wave,
                                           bool leavingBluetooth) {
     NSLog(@"🔁 [NATIVE] Mic route recovery: attempt %zu for default input id=%u (elapsed=%lldms)%s",
@@ -2310,15 +1961,6 @@ static void SaysoAttemptMicRouteRecovery(AudioDeviceID targetDevice, size_t step
     SaysoScheduleMicRouteRecoveryRetry(targetDevice, stepIndex + 1, wave, leavingBluetooth);
 }
 
-// Runs on SaysoMicRouteRestartQueue. Restarts AVAudioEngine so capture follows the new OS default input.
-// When `forcedAfterDefaultInputNotification` is YES, always teardown+restart if capture is active: Core Audio
-// can fire default-input changes for route/format churn where the HAL default id still matches
-// `g_micOpenedInputDeviceId` while AVAudioEngine is stuck on a dead Bluetooth path (e.g. AirPods removed).
-// `leavingBluetoothHint` is computed once by the caller (SaysoScheduleMicRouteDebouncedRestart) against
-// g_micOpenedInputDeviceId before the debounce/stability delays elapse — safe to reuse here since this
-// function only ever runs at the end of that same dispatch chain on this single serial queue, so nothing
-// else can have mutated g_micOpenedInputDeviceId in between (a competing stop/restart would already have
-// invalidated the chain via the generation check before reaching this call).
 static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotification, bool leavingBluetoothHint) {
     if (!g_isMicCapturing) {
         return;
@@ -2347,10 +1989,6 @@ static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotifi
               (unsigned)currentDefault);
     }
 
-    // SAYSO-353: leaving Bluetooth needs a longer first tap-wait — the HFP path can still be
-    // collapsing in the background for a few hundred ms even though the HAL default has already
-    // flipped to the fallback device, and a fresh engine can transiently fail to get tap buffers
-    // during that window despite not being bound to the Bluetooth device at all.
     const bool leavingBluetooth = leavingBluetoothHint;
 
     NSLog(@"🔊 [NATIVE] Mic route: restarting engine for default input id=%u (previous opened id=%u)%s",
@@ -2369,29 +2007,12 @@ static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotifi
 
     if (ok) {
         g_micOpenedInputDeviceId = currentDefault;
-        // A fresh notification can succeed immediately while a PREVIOUS notification's recovery
-        // was still in flight (stale g_micRouteRecovering=true) — clear it so a later failure gets
-        // its own fresh ceiling instead of inheriting a stale in-progress state.
         g_micRouteRecovering = false;
         NSLog(@"✅ [NATIVE] Mic route restart succeeded; now following default input id=%u",
               (unsigned)currentDefault);
     } else {
-        // SAYSO-353: no longer latches g_isMicCapturing off. Capture stays logically active and
-        // hands off to the backoff recovery loop instead of giving up after ~2.9s.
         NSLog(@"⚠️ [NATIVE] Mic route: immediate attempts failed for default input id=%u — entering backoff "
               @"recovery", (unsigned)currentDefault);
-        // Deliberately NOT reset to kAudioObjectUnknown here (review finding): this is read by the
-        // NEXT SaysoScheduleMicRouteDebouncedRestart's `changed`/leavingBluetooth check if another
-        // notification arrives while this recovery episode is still in flight. Clearing it would
-        // make that check always see "unchanged" and silently fall back to the un-widened slow path
-        // for the rest of the recovery — exactly the scenario the widening exists for. It's still
-        // safe to leave stale here: the only other reader (the `!forced && unchanged && engine
-        // present` skip a few lines up) also requires g_micEngine != nullptr, which is false for the
-        // whole time this variable would be "wrong" (engine is torn down during recovery).
-        // Only start the ~30s ceiling clock on the FIRST failure of a recovery episode — a
-        // Bluetooth device flapping through repeated notifications must not get a fresh 30s budget
-        // on every single one of them, or the ceiling (and the Sentry/UI alert it gates) can be
-        // evaded indefinitely by exactly the scenario this ticket's widened timing exists for.
         if (!g_micRouteRecovering.exchange(true)) {
             g_micRouteRecoveryStartMs = SaysoNowMs();
             EmitLifecycleEvent("mic_route_recovery_started");
@@ -2402,14 +2023,6 @@ static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotifi
     }
 }
 
-// Coalesces rapid default-input notifications. Each notification bumps `g_micRouteRestartGeneration`
-// so earlier timers no-op.
-// Fast path: HAL default id != id we opened the engine against → short delays so we don't leave the
-// tap on a dead Bluetooth path for hundreds of ms while the user is already on built-in mic.
-// Leaving-Bluetooth path (SAYSO-353): id changed AND the device being left was Bluetooth → the HFP
-// teardown continues in the background past the fast-path window, so widen the delay to ~400-600ms
-// rather than treat it identically to a wired/built-in switch.
-// Slow path: same id (stuck engine / spurious notify) → longer debounce + stability to absorb flap.
 static void SaysoScheduleMicRouteDebouncedRestart() {
     dispatch_async(SaysoMicRouteRestartQueue(), ^{
         if (!g_isMicCapturing) {
@@ -2474,10 +2087,6 @@ static void SaysoScheduleMicRouteDebouncedRestart() {
     });
 }
 
-// SAYSO-347: StartMicrophoneCapture used to collapse three distinct failure modes (wiring bug,
-// teardown/lifecycle race, audio-route problem) into a bare `false`, indistinguishable in Sentry.
-// Success still returns plain `true` for JS-side backward compatibility with a stale native build;
-// failure now returns { ok: false, reason } so callers can propagate a specific, greppable cause.
 static Local<Value> MicStartResult(bool ok, const char* reason = nullptr) {
     if (ok) {
         return Nan::New<v8::Boolean>(true);
@@ -2490,17 +2099,6 @@ static Local<Value> MicStartResult(bool ok, const char* reason = nullptr) {
     return result;
 }
 
-// Start microphone capture for streaming
-// SAYSO-361: the actual engine work (TryStartMicrophoneCaptureOnce) now runs inside
-// dispatch_sync(SaysoMicRouteRestartQueue(), ...) — the same queue SaysoPerformMicRestartIfCapturing
-// already uses for route-change restarts. Previously this NAN method touched g_micEngine directly
-// from the V8 thread while the route-restart path touched it from a background queue; funneling both
-// through one serial queue means the engine is now only ever touched from one thread context — that
-// serialization is the sole synchronization mechanism, no mutex needed on top of it. dispatch_sync
-// keeps this call synchronous (the JS-facing
-// NAN contract is frozen — see docs/NATIVE_AUDIO_CONTRACT.md) and the dispatched block makes no V8
-// calls, per this file's existing audio-thread convention (info.GetReturnValue() is only touched
-// after dispatch_sync returns, back on the calling V8 thread).
 NAN_METHOD(StartMicrophoneCapture) {
     NSLog(@"🎤 [NATIVE] Starting microphone capture");
 
@@ -2520,11 +2118,6 @@ NAN_METHOD(StartMicrophoneCapture) {
     __block const char* failReason = nullptr;
 
     dispatch_sync(SaysoMicRouteRestartQueue(), ^{
-        // SAYSO-353 review finding: an explicit Start is an authoritative "any prior recovery state
-        // no longer applies" signal — without this, g_micRouteRecovering can get stuck true forever
-        // if a stale backoff retry's generation check invalidates it out from under a Stop-then-
-        // quick-Start sequence (neither Stop nor Start otherwise touch the flag, and nothing else
-        // reliably resolves it in that specific window).
         g_micRouteRecovering = false;
 
         if (g_isMicCapturing) {
@@ -2566,9 +2159,6 @@ NAN_METHOD(StartMicrophoneCapture) {
     info.GetReturnValue().Set(MicStartResult(true));
 }
 
-// Stop microphone capture
-// SAYSO-361: teardown now runs inside dispatch_sync(SaysoMicRouteRestartQueue(), ...) for the same
-// reason as StartMicrophoneCapture above — one canonical thread context for all engine lifecycle work.
 NAN_METHOD(StopMicrophoneCapture) {
     NSLog(@"🎤 [NATIVE] Stopping microphone capture");
 
@@ -2578,46 +2168,27 @@ NAN_METHOD(StopMicrophoneCapture) {
         MicEngineTeardownOnly();
         g_isMicCapturing = false;
         g_micOpenedInputDeviceId = kAudioObjectUnknown;
-        // SAYSO-353 review finding: same reasoning as StartMicrophoneCapture above — an explicit
-        // Stop is authoritative and must not leave a stale recovery flag behind for the next session.
         g_micRouteRecovering = false;
     });
 
-    // Note: On macOS, no audio session to deactivate
     NSLog(@"✅ [NATIVE] Microphone capture stopped");
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
-// Check if mic capture is active
 NAN_METHOD(IsMicrophoneCaptureActive) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(g_isMicCapturing.load()));
 }
 
-// SAYSO-353: lets JS-side recovery logic (the mid-session stall watchdog) check whether the
-// native backoff recovery loop is already in flight before starting its own stop/start cycle —
-// without this, the two mechanisms can fire close enough together to interrupt each other,
-// discarding the native side's Bluetooth-aware widened timing for a generic cold restart.
 NAN_METHOD(IsMicRouteRecovering) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(g_micRouteRecovering.load()));
 }
 
-// ─── SAYSO-431: mic diagnostics snapshot ──────────────────────────────────────
-// Point-in-time answer to "why did the mic stop": what the OS default input is and whether another
-// process holds it, whether our engine is still running, when the route/graph last changed, and
-// whether the tap received buffers at all. Attached to the stall and mic-start-failure Sentry events.
-//
-// Async on purpose. HAL property reads are synchronous IPC to coreaudiod, which is exactly the
-// daemon that is misbehaving when these events fire; a sync NAN call could block the main process
-// indefinitely. The reads run on a GCD utility queue and the promise settles via uv_async (same
-// ownership model as PendingSckStart: the block is the only writer and sends exactly once, the JS
-// thread closes the handle and frees). At most one snapshot is in flight — if coreaudiod hangs, later
-// calls resolve null immediately instead of parking one GCD thread per stall tick.
 struct PendingMicDiagnostics {
     uv_async_t async;
     Nan::Persistent<v8::Promise::Resolver> resolver;
     int64_t takenAtMs = 0;
     SaysoMicDeviceSnapshot defaultInput;
-    bool hasOpened = false;       // opened device differs from the default and is known
+    bool hasOpened = false;
     SaysoMicDeviceSnapshot openedInput;
     AudioDeviceID openedId = kAudioObjectUnknown;
     bool capturing = false;
@@ -2737,7 +2308,6 @@ static void MicDiagnosticsSettledCb(uv_async_t* handle) {
     });
 }
 
-// Resolves the snapshot object, or null when a previous snapshot is still in flight. Never rejects.
 NAN_METHOD(GetMicInputDiagnostics) {
     Isolate* isolate = info.GetIsolate();
     Local<Context> context = isolate->GetCurrentContext();
@@ -2759,7 +2329,6 @@ NAN_METHOD(GetMicInputDiagnostics) {
     uv_async_init(uv_default_loop(), &p->async, MicDiagnosticsSettledCb);
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        // Atomics first, so they describe the moment of the call rather than after a slow HAL read.
         p->takenAtMs = SaysoRealtimeNowMs();
         p->openedId = g_micOpenedInputDeviceId.load();
         p->capturing = g_isMicCapturing.load();
@@ -2795,13 +2364,10 @@ NAN_METHOD(GetMicInputDiagnostics) {
     info.GetReturnValue().Set(resolver->GetPromise());
 }
 
-// Set streaming callback for real-time audio chunks
 NAN_METHOD(SetStreamingCallback) {
     if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
-        // Clear callback
         g_streamingCallback.Reset();
         
-        // Clean up async handle
         if (g_streamingAsyncHandle) {
             uv_async_t* handleToDelete = g_streamingAsyncHandle;
             g_streamingAsyncHandle = nullptr;
@@ -2819,10 +2385,8 @@ NAN_METHOD(SetStreamingCallback) {
         return;
     }
     
-    // Store persistent reference to callback
     g_streamingCallback.Reset(Nan::To<Function>(info[0]).ToLocalChecked());
     
-    // Create async handle if it doesn't exist
     if (!g_streamingAsyncHandle) {
         g_streamingAsyncHandle = new uv_async_t();
         uv_async_init(uv_default_loop(), g_streamingAsyncHandle, StreamingAsyncCallback);
@@ -2832,13 +2396,10 @@ NAN_METHOD(SetStreamingCallback) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
-// Set microphone-specific streaming callback
 NAN_METHOD(SetMicrophoneStreamingCallback) {
     if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
-        // Clear callback
         g_micStreamingCallback.Reset();
         
-        // Clean up async handle
         if (g_micStreamingAsyncHandle) {
             uv_async_t* handleToDelete = g_micStreamingAsyncHandle;
             g_micStreamingAsyncHandle = nullptr;
@@ -2856,10 +2417,8 @@ NAN_METHOD(SetMicrophoneStreamingCallback) {
         return;
     }
     
-    // Store persistent reference to callback
     g_micStreamingCallback.Reset(Nan::To<Function>(info[0]).ToLocalChecked());
     
-    // Create async handle if it doesn't exist
     if (!g_micStreamingAsyncHandle) {
         g_micStreamingAsyncHandle = new uv_async_t();
         uv_async_init(uv_default_loop(), g_micStreamingAsyncHandle, MicStreamingAsyncCallback);
@@ -2868,11 +2427,7 @@ NAN_METHOD(SetMicrophoneStreamingCallback) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
-// Check if system audio capture is active
 NAN_METHOD(IsSystemAudioCaptureActive) {
-    // "Active" includes a start still settling: callers use this probe to decide whether teardown
-    // is needed before a fresh start, and a pending start absolutely needs teardown (SAYSO-355 —
-    // the wedge was invisible precisely because this returned false while a start was stuck).
     bool pendingStart = false;
     {
         std::lock_guard<std::mutex> lk(g_sckStartMutex);
@@ -2881,9 +2436,6 @@ NAN_METHOD(IsSystemAudioCaptureActive) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(g_isCapturing || pendingStart));
 }
 
-// Register the native→JS lifecycle diagnostics callback (pass null to clear).
-// The uv_async_t is created once on first registration and intentionally never closed — freeing
-// it on callback-clear is the UAF class documented in SAYSO-349.
 NAN_METHOD(SetLifecycleEventCallback) {
     if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
         g_lifecycleCallback.Reset();
@@ -2905,7 +2457,6 @@ NAN_METHOD(SetLifecycleEventCallback) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
-// List output devices (CoreAudio implementation)
 NAN_METHOD(ListOutputDevices) {
     NSLog(@"🎤 [NATIVE] Listing output devices");
     
@@ -2951,7 +2502,6 @@ NAN_METHOD(ListOutputDevices) {
     for (UInt32 i = 0; i < deviceCount; i++) {
         AudioDeviceID deviceID = devices[i];
         
-        // Check if it's an output device
         propertyAddress.mScope = kAudioDevicePropertyScopeOutput;
         propertyAddress.mSelector = kAudioDevicePropertyStreams;
         
@@ -2963,7 +2513,6 @@ NAN_METHOD(ListOutputDevices) {
                                               &dataSize);
         
         if (status == noErr && dataSize > 0) {
-            // Get device name
             propertyAddress.mSelector = kAudioDevicePropertyDeviceNameCFString;
             propertyAddress.mScope = kAudioObjectPropertyScopeGlobal;
             
@@ -2995,7 +2544,6 @@ NAN_METHOD(ListOutputDevices) {
     info.GetReturnValue().Set(result);
 }
 
-// Create multi-output device (CoreAudio implementation)
 NAN_METHOD(CreateMultiOutputDevice) {
     if (info.Length() < 2) {
         Nan::ThrowError("Expected 2 arguments: name and subDevices");
@@ -3007,16 +2555,13 @@ NAN_METHOD(CreateMultiOutputDevice) {
     
     NSLog(@"🎤 [NATIVE] Creating multi-output device: %s", *name);
     
-    // Create aggregate device description
     CFMutableDictionaryRef description = CFDictionaryCreateMutable(NULL, 0, 
                                                                 &kCFTypeDictionaryKeyCallBacks, 
                                                                 &kCFTypeDictionaryValueCallBacks);
     
-    // Set device name
     CFStringRef deviceName = CFStringCreateWithCString(NULL, *name, kCFStringEncodingUTF8);
     CFDictionarySetValue(description, CFSTR(kAudioAggregateDeviceNameKey), deviceName);
     
-    // Set sub-devices
     CFMutableArrayRef subDevicesArray = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
     
     for (uint32_t i = 0; i < subDevices->Length(); i++) {
@@ -3031,11 +2576,9 @@ NAN_METHOD(CreateMultiOutputDevice) {
     
     CFDictionarySetValue(description, CFSTR(kAudioAggregateDeviceSubDeviceListKey), subDevicesArray);
     
-    // Create the aggregate device
     AudioDeviceID aggregateDeviceID;
     OSStatus status = AudioHardwareCreateAggregateDevice(description, &aggregateDeviceID);
     
-    // Clean up
     CFRelease(subDevicesArray);
     CFRelease(deviceName);
     CFRelease(description);
@@ -3050,7 +2593,6 @@ NAN_METHOD(CreateMultiOutputDevice) {
     info.GetReturnValue().Set(Nan::New<Number>(aggregateDeviceID));
 }
 
-// Delete multi-output device
 NAN_METHOD(DeleteMultiOutputDevice) {
     if (info.Length() < 1) {
         Nan::ThrowError("Expected 1 argument: deviceID");
@@ -3072,7 +2614,6 @@ NAN_METHOD(DeleteMultiOutputDevice) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
 
-// Module initialization
 NAN_MODULE_INIT(Init) {
     Nan::Set(target, Nan::New("initialize").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(Initialize)).ToLocalChecked());
@@ -3082,7 +2623,10 @@ NAN_MODULE_INIT(Init) {
 
     Nan::Set(target, Nan::New("requestScreenRecordingPermission").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(RequestScreenRecordingPermission)).ToLocalChecked());
-    
+
+    Nan::Set(target, Nan::New("checkAudioCaptureCapability").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(CheckAudioCaptureCapability)).ToLocalChecked());
+
     Nan::Set(target, Nan::New("startSystemAudioCapture").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(StartSystemAudioCapture)).ToLocalChecked());
     

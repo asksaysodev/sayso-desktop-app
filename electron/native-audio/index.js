@@ -1,7 +1,6 @@
 const path = require('path');
 const fs = require('fs');
 
-// Try to load the native module with better error handling
 let nativeAudio;
 try {
   const modulePath = path.join(__dirname, 'build', 'Release', 'native_audio.node');
@@ -20,14 +19,13 @@ try {
 class AudioDeviceManager {
   constructor() {
     this.isInitialized = false;
-    this.streamingCallback = null; // Callback for streaming audio chunks
+    this.streamingCallback = null;
   }
 
   async initialize() {
     if (this.isInitialized) return;
     
     try {
-      // Initialize the native module
       await nativeAudio.initialize();
       this.isInitialized = true;
     } catch (error) {
@@ -41,41 +39,28 @@ class AudioDeviceManager {
     return nativeAudio.requestScreenRecordingPermission();
   }
 
-  // Non-destructive screen-recording permission check (CGPreflight). Does NOT prompt or require initialize().
   checkScreenRecordingGranted() {
     return nativeAudio.checkScreenRecordingGranted();
   }
 
-  /**
-   * Set streaming callback for real-time audio chunks
-   * @param {Function} callback - Callback function(buffer, format)
-   *   - buffer: Buffer containing raw audio data
-   *   - format: Object { sampleRate, channels, bitDepth, isFloat }
-   */
+  async checkAudioCaptureCapability() {
+    if (typeof nativeAudio.checkAudioCaptureCapability !== 'function') return null;
+    await this.initialize();
+    return nativeAudio.checkAudioCaptureCapability();
+  }
+
   setStreamingCallback(callback) {
     if (callback && typeof callback !== 'function') {
       throw new Error('[AUDIO MANAGER] Streaming callback must be a function');
     }
     this.streamingCallback = callback;
     
-    // Also set in native module if it supports it
-    // TODO: Implement native module method to set callback
-    // For now, this stores the callback for when native code is updated
     if (nativeAudio.setStreamingCallback) {
       nativeAudio.setStreamingCallback(callback);
     }
   }
 
-  /**
-   * INTERNAL — start system audio capture. Not part of IAudioProvider; the public
-   * entry point is startProspectStreaming(), which calls this with streamingOnly.
-   * @param {Object} options - Capture options
-   * @param {Function} options.streamingCallback - Optional callback for audio chunks
-   * @returns {Promise<{ success: boolean, error?: string }>} success when SCK audio output is attached and capture started
-   */
   async startSystemAudioCapture(options = {}) {
-    // Lifecycle logs are deliberately unconditional: in packaged builds main's console is wrapped
-    // into the file logger, and SCK start/settle timing is the evidence SAYSO-355 lacked.
     const startedAt = Date.now();
     console.log('🎤 [AUDIO MANAGER] SCK start requested');
     try {
@@ -100,11 +85,6 @@ class AudioDeviceManager {
     }
   }
 
-  /**
-   * Start prospect audio streaming (streaming only, no file saving)
-   * @param {Function} streamingCallback - Required callback for audio chunks
-   * @returns {Promise<Object>} - Result object with success
-   */
   async startProspectStreaming({ streamingCallback } = {}) {
     await this.initialize();
     
@@ -112,7 +92,6 @@ class AudioDeviceManager {
       throw new Error('[AUDIO MANAGER] streamingCallback is required for startProspectStreaming');
     }
     
-    // Set streaming callback
     this.setStreamingCallback(streamingCallback);
     
     const started = await this.startSystemAudioCapture({ streamingOnly: true });
@@ -122,10 +101,6 @@ class AudioDeviceManager {
     return { success: true };
   }
 
-  /**
-   * Stops SCK system audio; resolves after native teardown completes (safe before next start).
-   * @returns {Promise<{ success: boolean, filePath?: string|null, actualStartMs?: number|null, error?: string }>}
-   */
   async stopSystemAudioCapture() {
     const startedAt = Date.now();
     console.log('🎤 [AUDIO MANAGER] SCK stop requested');
@@ -143,38 +118,21 @@ class AudioDeviceManager {
     return nativeAudio.isSystemAudioCaptureActive();
   }
 
-  /**
-   * Register a callback for native lifecycle diagnostics (SAYSO-355). Events are short snake_case
-   * strings, e.g. "sck_start_watchdog_fired gen=3 stage=getting_shareable_content timeout_ms=10000";
-   * events ending in `_failed`
-   * should be escalated by the caller. Pass null to clear. No-op on native builds that predate
-   * the method.
-   * @param {((event: string) => void)|null} callback
-   */
   setLifecycleEventCallback(callback) {
     if (nativeAudio.setLifecycleEventCallback) {
       nativeAudio.setLifecycleEventCallback(callback);
     }
   }
 
-  /**
-   * Start microphone capture for streaming
-   * @param {Object} options - Capture options
-   * @param {Function} options.streamingCallback - Optional callback for audio chunks
-   * @returns {Promise<boolean|{ok: false, reason?: string}>} - `true` on success; on failure,
-   *   { ok: false, reason } (SAYSO-347) or a bare `false` from a native build predating that change.
-   */
   async startMicrophoneCapture(options = {}) {
     await this.initialize();
     
     const { streamingCallback, ...captureOptions } = options;
     
-    // Use microphone-specific callback method
     if (streamingCallback) {
       if (nativeAudio.setMicrophoneStreamingCallback) {
         nativeAudio.setMicrophoneStreamingCallback(streamingCallback);
       } else {
-        // Fallback to regular callback if method doesn't exist
         this.setStreamingCallback(streamingCallback);
       }
     }
@@ -182,54 +140,29 @@ class AudioDeviceManager {
     return nativeAudio.startMicrophoneCapture(captureOptions);
   }
 
-  /**
-   * Stop microphone capture
-   * @returns {Promise<boolean>} - Success status
-   */
   async stopMicrophoneCapture() {
     await this.initialize();
 
-    // Clear *microphone* callback only. setStreamingCallback(null) would also clear the
-    // native SCK/prospect path and break prospect streaming if user mic stops first.
     if (nativeAudio.setMicrophoneStreamingCallback) {
       nativeAudio.setMicrophoneStreamingCallback(null);
     } else {
-      // Legacy native without mic-specific API (used setStreamingCallback for mic)
       this.setStreamingCallback(null);
     }
 
     return nativeAudio.stopMicrophoneCapture();
   }
 
-  /**
-   * Check if microphone capture is active
-   * @returns {Promise<boolean>} - Active status
-   */
   async isMicrophoneCaptureActive() {
     await this.initialize();
     return nativeAudio.isMicrophoneCaptureActive();
   }
 
-  /**
-   * SAYSO-353: true while the native backoff recovery loop is actively retrying a mic route
-   * restart. Older native builds may not have this method — callers must tolerate its absence.
-   * @returns {Promise<boolean>}
-   */
   async isMicRouteRecovering() {
     await this.initialize();
     if (typeof nativeAudio.isMicRouteRecovering !== 'function') return false;
     return nativeAudio.isMicRouteRecovering();
   }
 
-  /**
-   * SAYSO-431: point-in-time mic diagnostics — the OS default input (name, transport, whether another
-   * process is using or hogging it), our engine/route state, and tap counters for the current engine
-   * build. SAYSO-459: Windows implements it too (endpoint name/id, mute, volume, form factor, WASAPI
-   * silent-flag count). Resolves null when the native build predates the method or when a previous
-   * snapshot is still in flight. Never rejects. Deliberately skips initialize(): it only reads device
-   * properties and atomics, and must not add engine work to a failure path.
-   * @returns {Promise<Object|null>}
-   */
   async getMicInputDiagnostics() {
     if (typeof nativeAudio.getMicInputDiagnostics !== 'function') return null;
     return nativeAudio.getMicInputDiagnostics();
