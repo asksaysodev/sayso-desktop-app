@@ -2643,7 +2643,8 @@ const createAppSettingsWindow = (tab?: string, source: 'coach' | 'independent' =
       : `file://${path.join(__dirname, '../dist/app-settings-window.html')}${tabParam}`;
 
     appSettingsWindow.loadURL(appSettingsUrl).catch((err: Error) => {
-        Sentry.captureException(err);
+        // Closed before the page finished loading (double-clicked toggle, or Coach closed) — expected, not a failure
+        if (!appSettingsWindow.isDestroyed()) Sentry.captureException(err);
     });
     broadcastAppSettingsWindowState(true);
 
