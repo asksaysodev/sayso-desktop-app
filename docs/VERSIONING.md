@@ -332,9 +332,15 @@ produced. The key is non-exportable inside Azure's HSM. That rules out
 electron-builder's built-in signtool path, so `build.win.sign` points at
 `scripts/sign-windows.js`, which shells out to `signtool` with the Trusted
 Signing dlib. electron-builder calls that hook once per artifact it signs — the
-app exe, `resources/elevate.exe`, the NSIS uninstaller and the installer — so the
-executable *inside* the installer is signed too, which signing the finished
-installer alone would not achieve.
+app exe, `resources/elevate.exe`, `native_audio.node`, the NSIS uninstaller and
+the installer — so the binaries *inside* the installer are signed too, which
+signing the finished installer alone would not achieve.
+
+`native_audio.node` is not signed by default (electron-builder only signs `.exe`
+on Windows); `build.win.signExts: [".node"]` adds it, and staging inherits it via
+`build.staging.js`'s `...base.win`. It is the one binary we compile ourselves,
+loads into the main process and captures audio — unsigned, it is what antivirus
+heuristics distrust most (SAYSO-475). The CI verify step asserts it is signed.
 
 Signing runs **only in CI**. There are no credentials on a laptop by design: a
 local `npm run package` prints a warning and produces an unsigned installer,

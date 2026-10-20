@@ -223,6 +223,9 @@
       "sign": "./scripts/sign-windows.js",
       "signingHashAlgorithms": [
         "sha256"
+      ],
+      "signExts": [
+        ".node"
       ]
     },
     "nsis": {

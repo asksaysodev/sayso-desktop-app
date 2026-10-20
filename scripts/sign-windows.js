@@ -2,11 +2,11 @@
 // (the service Microsoft used to call Trusted Signing).
 //
 // Wired in as `build.win.sign` in package.json. electron-builder calls this once
-// per file it decides to sign — with the default `signDlls`/`signExts` that is
-// four per build: Sayso.exe, resources/elevate.exe, the NSIS uninstaller, and
-// the finished installer. Signing only the installer afterwards would leave the
-// app executable inside it unsigned, which is why this is a hook and not a
-// post-build step.
+// per file it decides to sign — five per build: Sayso.exe, resources/elevate.exe,
+// native_audio.node (added via `build.win.signExts`, picked up by the
+// app.asar.unpacked walk), the NSIS uninstaller, and the finished installer.
+// Signing only the installer afterwards would leave the binaries inside it
+// unsigned, which is why this is a hook and not a post-build step.
 //
 // Since the June 2023 CA/Browser Forum baseline change the private key has to
 // live on FIPS 140-2 Level 2 hardware, so there is no .pfx to point
