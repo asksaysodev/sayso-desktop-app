@@ -3,13 +3,17 @@
  * not be treated as real failures:
  *  - 429             rate limited
  *  - 502 / 503 / 504 gateway / upstream hiccups
+ *  - 522 / 524       Cloudflare timed out reaching the origin (Supabase sits
+ *                    behind Cloudflare, SAYSO-524). 520/521/523 are left out:
+ *                    they can mean a broken or unreachable origin, not a blip.
  *  - 618             GitHub release-assets CDN "jwt:expired": the signed asset
  *                    URL's short-lived token lapses before the CDN serves it, so
  *                    a fresh check simply gets a new URL. Non-standard
  *                    Fastly/Varnish code; response body reads "618 jwt:expired".
  */
 export function isTransientUpstreamStatus(status: number | undefined): boolean {
-  return status === 429 || status === 502 || status === 503 || status === 504 || status === 618;
+  return status === 429 || status === 502 || status === 503 || status === 504 ||
+    status === 522 || status === 524 || status === 618;
 }
 
 // Some errors carry no status field at all, only the status as *text* in the
