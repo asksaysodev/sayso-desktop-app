@@ -62,7 +62,9 @@ export function isTransientApiError(error: unknown): boolean {
     const err = error as AxiosError | undefined;
     if (err?.code && TRANSIENT_AXIOS_CODES.has(err.code)) return true;
     const status = err?.response?.status;
-    return status === 502 || status === 503 || status === 504;
+    // 522/524: Cloudflare timed out reaching the origin — same set as main's
+    // isTransientUpstreamStatus, minus 429 and 618 (SAYSO-524)
+    return status === 502 || status === 503 || status === 504 || status === 522 || status === 524;
 }
 
 /**
