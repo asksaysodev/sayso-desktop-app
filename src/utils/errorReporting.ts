@@ -4,6 +4,8 @@ import type { AxiosError } from 'axios';
 const TRANSIENT_AXIOS_CODES = new Set(['ERR_NETWORK', 'ERR_EMPTY_RESPONSE', 'ECONNABORTED']);
 
 export const CUE_PERMISSIONS_DENIED = 'permissions_denied';
+/** SAYSO-383: the user stopped or reset while main was still retrying the mic. */
+export const CUE_START_CANCELLED = 'cue_start_cancelled';
 
 /**
  * Carries the `error` string returned by the main-process `start-cue` handler,
@@ -103,15 +105,21 @@ export const isCuePermissionsDeniedError = (error: unknown): boolean => (
     error instanceof CueStartError && error.code === CUE_PERMISSIONS_DENIED
 );
 
+/** The user cancelled a start that was still retrying the mic — their own action, not a failure. */
+export const isCueStartCancelledError = (error: unknown): boolean => (
+    error instanceof CueStartError && error.code === CUE_START_CANCELLED
+);
+
 /**
- * Single entry point for coach-window error reporting. Swallows the four classes
+ * Single entry point for coach-window error reporting. Swallows the five classes
  * of failure that are expected state rather than bugs — OS permissions denied,
- * transient network loss, post-logout auth teardown, and billing refusals — and
- * reports the rest.
+ * a start the user cancelled, transient network loss, post-logout auth teardown,
+ * and billing refusals — and reports the rest.
  */
 export const reportCoachError = (error: unknown): void => {
     if (
         isCuePermissionsDeniedError(error) ||
+        isCueStartCancelledError(error) ||
         isTransientApiError(error) ||
         isAuthTeardownError(error) ||
         isBillingRefusalError(error)

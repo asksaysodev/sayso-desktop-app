@@ -1,5 +1,5 @@
 import type { AxiosError } from 'axios';
-import { CueStartError, isBillingRefusalError, isCuePermissionsDeniedError } from '@/utils/errorReporting';
+import { CueStartError, isBillingRefusalError, isCuePermissionsDeniedError, isCueStartCancelledError } from '@/utils/errorReporting';
 
 /**
  * User-facing copy for a failed cue start/stop.
@@ -46,10 +46,11 @@ const MESSAGE_PATTERNS: ReadonlyArray<[RegExp, string]> = [
  *
  * Null means permissions_denied: main has already surfaced the splash window and
  * PostAuthRedirect routes to /permissions (audioManager.ts:320-323), so a banner
- * would be a second, competing explanation of the same thing.
+ * would be a second, competing explanation of the same thing. Also null for
+ * cue_start_cancelled (SAYSO-383): the user stopped it themselves.
  */
 export const cueStartErrorMessage = (error: unknown): string | null => {
-    if (isCuePermissionsDeniedError(error)) return null;
+    if (isCuePermissionsDeniedError(error) || isCueStartCancelledError(error)) return null;
 
     const code = error instanceof CueStartError ? error.code : undefined;
     if (!code) return CUE_GENERIC_START_MESSAGE;
