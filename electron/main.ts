@@ -808,10 +808,14 @@ function setupLogging() {
   // Then proceed with normal logging setup
   if (process.env.NODE_ENV === 'production') {
     const logDir = path.join(app.getPath('userData'), 'logs');
-    if (!fs.existsSync(logDir)) {
+    try {
       fs.mkdirSync(logDir, { recursive: true });
+    } catch (err) {
+      console.error('[MAIN] File logging disabled — cannot create log dir:', err);
+      Sentry.captureException(err, { tags: { log_setup: 'mkdir' }, extra: { logDir } });
+      return;
     }
-    
+
     const logFile = path.join(logDir, `sayso-${new Date().toISOString().split('T')[0]}.log`);
     
     // Redirect console.log to both console and file
