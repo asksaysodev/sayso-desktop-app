@@ -26,16 +26,20 @@ function setUserStreamingCallback(callback: StreamingCallback | null) {
  * @param {Function} options.streamingCallback - Callback function(buffer, format)
  * @param {MicStartOrigin} options.origin - Which path is starting the mic (SAYSO-431 failure diagnostics)
  * @param {string} options.sessionId - Cue session, for the failure report
+ * @param {boolean} options.report - Report a failure to Sentry here. SAYSO-383: the retry path passes
+ *   false and reports once, with the attempt count, after its last attempt.
  * @returns {Promise<Object>} { success: boolean }
  */
 async function startUserStreaming({
   streamingCallback,
   origin = 'user',
   sessionId,
+  report = true,
 }: {
   streamingCallback: StreamingCallback;
   origin?: MicStartOrigin;
   sessionId?: string | null;
+  report?: boolean;
 }) {
   if (!streamingCallback || typeof streamingCallback !== 'function') {
     throw new Error('[RECORDER] streamingCallback is required for startUserStreaming');
@@ -60,6 +64,8 @@ async function startUserStreaming({
       // Not `error.code` — that's conventionally a Node system error code (ENOENT, …); a collision
       // there could confuse an upstream `err.code === '…'` check that has nothing to do with mic start.
       if (micStartReason) error.micStartReason = micStartReason;
+      // SAYSO-383: marks a native refusal (retryable by reason) apart from a thrown bug (never retried).
+      error.micStartFailed = true;
       throw error;
     }
 
@@ -67,6 +73,10 @@ async function startUserStreaming({
 
   } catch (error: any) {
     console.error('🎤 [RECORDER] ❌ Error starting user streaming:', error);
+    if (!report) {
+      setUserStreamingCallback(null);
+      throw error;
+    }
     // Tag rather than rely on the message substring alone — Sentry doesn't serialize arbitrary
     // error properties by default (no extraErrorDataIntegration configured), so `error.micStartReason`
     // itself never reaches the event; a tag makes the reason queryable/facetable instead of only

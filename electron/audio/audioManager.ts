@@ -1,9 +1,10 @@
-import { app, ipcMain } from 'electron';
+import { app, ipcMain, powerMonitor } from 'electron';
 import * as Sentry from '@sentry/electron/main';
 
 import { isTransientNetworkError } from '../utils/transientErrors';
 import type { IAudioProvider, AudioFormat } from './IAudioProvider';
-import { collectMicDiagnostics, installMicDiagnosticsListeners } from './micDiagnostics';
+import { collectMicDiagnostics, installMicDiagnosticsListeners, type MicStartOrigin } from './micDiagnostics';
+import { createMicStarter, MIC_START_MAX_ATTEMPTS, type MicStartAttemptsResult } from './micStartRetry';
 
 // recorder + audioStreamer are CommonJS modules. Require them LAZILY (not at
 // module top): recorder.ts eagerly pulls in the native audio chain
@@ -117,9 +118,27 @@ let micRecoveryFailedReportedThisSession = false;
 
 /** SAYSO-353: mid-session mic-stall watchdog — see startCueMicStallWatchdog. */
 const CUE_MIC_STALL_CHECK_MS = 8000;
+/** SAYSO-383: native starts one stall episode may spend before the watchdog gives up and tells the
+ *  user. An episode ends only when user chunks advance again. */
+const CUE_MIC_STALL_MAX_RESTARTS = 3;
 let cueMicStallTimer: ReturnType<typeof setInterval> | null = null;
 let cueMicStallLastUserChunks = 0;
 let cueMicStallRecovering = false;
+let cueMicStallRestarts = 0;
+let cueMicStallEpisodeStartedAtMs = 0;
+let cueMicStallGaveUp = false;
+
+/** SAYSO-383: the watchdog must not restart the mic while the Mac sleeps. Timers still fire in dark
+ *  wakes with no `resume` (Bryson 09-02: 9 restart storms in one sleep; Sheldon 10-22: 4 engine
+ *  rebuilds 53s into a sleep). */
+let systemAsleep = false;
+let screenLocked = false;
+let cueMicStallGraceUntilMs = 0;
+/** A missed `resume` must not disable the watchdog forever: input within this window means awake. */
+const SYSTEM_ACTIVE_IDLE_S = 30;
+
+/** Shared by every JS mic start so retries never multiply and never land <1s apart (SAYSO-383). */
+const micStarter = createMicStarter();
 
 /** Onboarding-window notifier, injected via registerCueIpc. Used by stopCue(). */
 let notifyOnboarding: (channel: string) => void = () => {};
@@ -136,6 +155,7 @@ export interface CueIpcDeps {
 /** Load the platform audio provider. Call once, after logging is configured. */
 export function initAudioProvider(): void {
   installMicDiagnosticsListeners();
+  installCueMicStallPowerListeners();
   try {
     provider = require('./index').default;
     // Native lifecycle diagnostics (SAYSO-355): route to console so the prod file logger captures
@@ -490,7 +510,66 @@ function formatCueLevelStats(s: CueSessionSummary): string {
   );
 }
 
-// ─── Mid-session mic-stall watchdog (SAYSO-353) ───────────────────────────────
+// ─── Mic start with retry (SAYSO-383) ─────────────────────────────────────────
+
+/**
+ * Start the user mic for `sessionId` through the shared backoff. Per-attempt failures only log; the
+ * final failure is reported once here, tagged with the attempt count, and comes back marked
+ * `__cueStreamingReported` so start-cue's catch doesn't report it again.
+ */
+async function startCueUserMic(
+  sessionId: string,
+  streamingCallback: (buffer: Buffer, format: unknown) => void,
+  origin: MicStartOrigin,
+  maxAttempts: number,
+): Promise<MicStartAttemptsResult> {
+  const result = await micStarter.startWithBackoff({
+    start: () => getRecorder().startUserStreaming({ streamingCallback, origin, sessionId, report: false }),
+    isCurrent: () => !!cueAudioStreamer && cueAudioStreamer.sessionId === sessionId,
+    maxAttempts,
+    onAttemptFailed: (attempt, error: any, retryInMs) => {
+      console.warn(`[Cue] Mic start attempt ${attempt}/${maxAttempts} failed (${error?.micStartReason ?? error?.message})` +
+        (retryInMs !== null ? ` — retrying in ${retryInMs}ms` : ''), { sessionId, origin });
+    },
+  });
+
+  if (result.ok) {
+    if (result.attempts > 1) console.warn(`[Cue] Mic started on attempt ${result.attempts}`, { sessionId, origin });
+    return result;
+  }
+  if (result.abandoned) {
+    console.warn('[Cue] Mic start abandoned — session changed between attempts', { sessionId, origin, attempts: result.attempts });
+    return result;
+  }
+
+  const error: any = result.error ?? new Error('Failed to start microphone capture');
+  const diagnostics = await collectMicDiagnostics(provider, { origin, sessionId });
+  console.warn(`[Cue] Mic start failed after ${result.attempts} attempt(s): ${diagnostics.summary}`);
+  Sentry.captureException(error, {
+    tags: {
+      ...(error.micStartReason ? { mic_start_reason: error.micStartReason } : {}),
+      mic_start_attempts: String(result.attempts),
+      ...diagnostics.tags,
+    },
+    extra: diagnostics.extra,
+  });
+  error.__cueStreamingReported = true;
+  return { ...result, error };
+}
+
+/** The error start-cue throws when the mic never came up. */
+function cueMicStartError(result: MicStartAttemptsResult): Error {
+  if (result.abandoned) {
+    // The user stopped (or reset) mid-retry — not a failure worth a Sentry event. The message is
+    // the code the renderer sees (CUE_START_CANCELLED in src/utils/errorReporting.ts).
+    const error: any = new Error('cue_start_cancelled');
+    error.__cueStreamingReported = true;
+    return error;
+  }
+  return result.error as Error;
+}
+
+// ─── Mid-session mic-stall watchdog (SAYSO-353, SAYSO-383) ────────────────────
 
 function clearCueMicStallWatchdog() {
   if (cueMicStallTimer) {
@@ -499,15 +578,88 @@ function clearCueMicStallWatchdog() {
   }
   cueMicStallLastUserChunks = 0;
   cueMicStallRecovering = false;
+  cueMicStallRestarts = 0;
+  cueMicStallEpisodeStartedAtMs = 0;
+  cueMicStallGaveUp = false;
+  cueMicStallGraceUntilMs = 0;
+}
+
+function installCueMicStallPowerListeners(): void {
+  const pause = (why: string) => () => {
+    if (why === 'suspend') systemAsleep = true;
+    else screenLocked = true;
+    if (cueMicStallTimer) console.warn(`[Cue] Mic stall watchdog paused (${why})`);
+  };
+  const unpause = (why: string) => () => {
+    if (why === 'resume') systemAsleep = false;
+    else screenLocked = false;
+    rebaselineCueMicStall(why);
+  };
+  powerMonitor.on('suspend', pause('suspend'));
+  powerMonitor.on('lock-screen', pause('lock-screen'));
+  powerMonitor.on('resume', unpause('resume'));
+  powerMonitor.on('unlock-screen', unpause('unlock-screen'));
+}
+
+/** After a wake, chunks naturally stopped while asleep — judge a stall only from here, one full check later. */
+function rebaselineCueMicStall(why: string): void {
+  if (!cueMicStallTimer) return;
+  cueMicStallLastUserChunks = cueCaptureStats.userChunks;
+  cueMicStallGraceUntilMs = Date.now() + CUE_MIC_STALL_CHECK_MS;
+  console.warn(`[Cue] Mic stall watchdog resumed (${why}); next stall check after grace`);
+}
+
+function isCueMicStallPaused(): boolean {
+  if (!systemAsleep && !screenLocked) return false;
+  // Nobody types in a dark wake. Recent input means we're awake and missed the resume/unlock event.
+  if (powerMonitor.getSystemIdleTime() < SYSTEM_ACTIVE_IDLE_S) {
+    systemAsleep = false;
+    screenLocked = false;
+    rebaselineCueMicStall('user_active');
+    return true; // the grace period starts now
+  }
+  return true;
+}
+
+/** Restart budget spent and the mic is still silent: stop trying, report once, tell the user. */
+async function giveUpCueMicStall(sessionId: string): Promise<void> {
+  cueMicStallGaveUp = true;
+  const lastChunkAtMs = cueCaptureStats.userLastChunkAtMs;
+  const diagnostics = await collectMicDiagnostics(provider, {
+    origin: 'watchdog',
+    sessionId,
+    msSinceLastUserChunk: lastChunkAtMs > 0 ? Date.now() - lastChunkAtMs : null,
+  });
+  const timing = diagnostics.extra.mic_timing as { secondsSinceResume: number | null } | undefined;
+  console.error(`[Cue] Mic stall watchdog gave up after ${cueMicStallRestarts} restart(s): ${diagnostics.summary}`, { sessionId });
+  Sentry.captureMessage('[Cue] Mic stall watchdog gave up — user audio lost', {
+    level: 'error',
+    tags: {
+      mic_stall_restarts: String(cueMicStallRestarts),
+      mic_seconds_since_resume: String(timing?.secondsSinceResume ?? 'never'),
+      ...diagnostics.tags,
+    },
+    extra: {
+      ...diagnostics.extra,
+      mic_stall_episode_ms: cueMicStallEpisodeStartedAtMs > 0 ? Date.now() - cueMicStallEpisodeStartedAtMs : null,
+    },
+  });
+  try {
+    if (global.coachWindow && !global.coachWindow.isDestroyed()) {
+      global.coachWindow.webContents.send('cue-mic-recovery-failed');
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
  * Continuous check, distinct from the one-shot low-audio/warmup checks above: if userChunks
- * stops advancing for ~CUE_MIC_STALL_CHECK_MS while a session is active, attempt one
- * stop/start cycle. This is a JS-side safety net and cross-check on top of the native backoff
- * recovery (SaysoScheduleMicRouteRecoveryRetry in audio_device_manager.mm), not the primary
- * recovery path — the native side already retries for up to ~30s on its own before this would
- * even see a stall long enough to trigger.
+ * stops advancing for ~CUE_MIC_STALL_CHECK_MS while a session is active, restart the mic. A stall
+ * episode gets CUE_MIC_STALL_MAX_RESTARTS native starts in total, on the shared backoff; then the
+ * watchdog reports once, shows the Reset banner and goes quiet until audio returns. Paused while the
+ * Mac sleeps or the screen is locked. This is a JS-side safety net on top of the native backoff
+ * recovery (SaysoScheduleMicRouteRecoveryRetry in audio_device_manager.mm), not the primary path.
  */
 function startCueMicStallWatchdog(sessionId: string, streamingCallback: (buffer: Buffer, format: unknown) => void) {
   clearCueMicStallWatchdog();
@@ -523,8 +675,24 @@ function startCueMicStallWatchdog(sessionId: string, streamingCallback: (buffer:
     const current = cueCaptureStats.userChunks;
     if (current > cueMicStallLastUserChunks) {
       cueMicStallLastUserChunks = current;
+      if (cueMicStallRestarts > 0 || cueMicStallGaveUp) {
+        console.warn(`[Cue] User audio flowing again after ${cueMicStallRestarts} watchdog restart(s)`, { sessionId });
+        // Clears the banner only when it's still the mic-recovery one (see CoachWindowMain).
+        if (cueMicStallGaveUp && global.coachWindow && !global.coachWindow.isDestroyed()) {
+          global.coachWindow.webContents.send('cue-mic-recovery-succeeded');
+        }
+      }
+      cueMicStallRestarts = 0;
+      cueMicStallEpisodeStartedAtMs = 0;
+      cueMicStallGaveUp = false;
       return;
     }
+
+    if (isCueMicStallPaused() || Date.now() < cueMicStallGraceUntilMs) {
+      cueMicStallLastUserChunks = current;
+      return;
+    }
+    if (cueMicStallGaveUp) return;
 
     // SAYSO-353: native's own backoff recovery may already be mid-retry for this exact stall —
     // its cumulative backoff can reach several seconds by the time this 8s check fires. Stepping
@@ -544,27 +712,50 @@ function startCueMicStallWatchdog(sessionId: string, streamingCallback: (buffer:
 
     cueMicStallRecovering = true;
     try {
-      // SAYSO-431: snapshot BEFORE the stop/start below — afterwards it would describe our own restart.
-      const lastChunkAtMs = cueCaptureStats.userLastChunkAtMs;
-      const diagnostics = await collectMicDiagnostics(provider, {
-        origin: 'watchdog',
-        sessionId,
-        msSinceLastUserChunk: lastChunkAtMs > 0 ? Date.now() - lastChunkAtMs : null,
-      });
-      // The snapshot can take up to its timeout; a Stop (or a new session) in that window owns the mic now.
-      if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
-      console.warn('[Cue] User audio stalled — no new chunks in', CUE_MIC_STALL_CHECK_MS, 'ms, attempting one restart', {
-        sessionId,
-        diagnostics: diagnostics.summary,
-      });
-      Sentry.captureMessage('[Cue] User audio stall detected mid-session', {
-        level: 'warning',
-        tags: diagnostics.tags,
-        extra: diagnostics.extra,
-      });
+      // A restart that "succeeded" but still delivers nothing has spent its budget too (Nate 09-16).
+      if (cueMicStallRestarts >= CUE_MIC_STALL_MAX_RESTARTS) {
+        await giveUpCueMicStall(sessionId);
+        return;
+      }
+
+      if (cueMicStallRestarts === 0) {
+        // One AE event per episode, not one per tick. SAYSO-431: snapshot BEFORE the stop/start
+        // below — afterwards it would describe our own restart.
+        cueMicStallEpisodeStartedAtMs = Date.now();
+        const lastChunkAtMs = cueCaptureStats.userLastChunkAtMs;
+        const diagnostics = await collectMicDiagnostics(provider, {
+          origin: 'watchdog',
+          sessionId,
+          msSinceLastUserChunk: lastChunkAtMs > 0 ? Date.now() - lastChunkAtMs : null,
+        });
+        // The snapshot can take up to its timeout; a Stop (or a new session) in that window owns the mic now.
+        if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
+        console.warn('[Cue] User audio stalled — no new chunks in', CUE_MIC_STALL_CHECK_MS, 'ms, restarting mic', {
+          sessionId,
+          diagnostics: diagnostics.summary,
+        });
+        Sentry.captureMessage('[Cue] User audio stall detected mid-session', {
+          level: 'warning',
+          tags: diagnostics.tags,
+          extra: diagnostics.extra,
+        });
+      } else {
+        console.warn(`[Cue] User audio still stalled after ${cueMicStallRestarts} restart(s) — restarting again`, { sessionId });
+      }
+
       await getRecorder().stopUserStreaming();
       if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
-      await getRecorder().startUserStreaming({ streamingCallback, origin: 'watchdog', sessionId });
+      const result = await startCueUserMic(
+        sessionId,
+        streamingCallback,
+        'watchdog',
+        CUE_MIC_STALL_MAX_RESTARTS - cueMicStallRestarts,
+      );
+      if (result.abandoned) return;
+      cueMicStallRestarts += result.attempts;
+      if (!result.ok && cueMicStallRestarts >= CUE_MIC_STALL_MAX_RESTARTS) {
+        await giveUpCueMicStall(sessionId);
+      }
     } catch (error) {
       console.error('[Cue] Error restarting user streaming after stall:', error);
       Sentry.captureException(error);
@@ -604,7 +795,9 @@ async function ensureCueUserMicDeliversJsChunks(
   });
   await getRecorder().stopUserStreaming();
   if (!cueAudioStreamer || cueAudioStreamer.sessionId !== sessionId) return;
-  await getRecorder().startUserStreaming({ streamingCallback, origin: 'delivery_check', sessionId });
+  // One attempt, but through the shared starter so it keeps the 1s gap after the start just made.
+  const result = await startCueUserMic(sessionId, streamingCallback, 'delivery_check', 1);
+  if (!result.ok) throw cueMicStartError(result);
   await waitForCueUserChunks(sessionId, CUE_MIC_JS_RESTART_WAIT_MS);
 }
 
@@ -878,7 +1071,10 @@ export function registerCueIpc(deps: CueIpcDeps): void {
           cueAudioStreamer.addUserAudio(buffer, format);
         }
       };
-      await getRecorder().startUserStreaming({ streamingCallback: cueUserStreamingCallback, origin: 'user', sessionId });
+      // SAYSO-383: retry a cold-start failure instead of surfacing it on the first native refusal.
+      // Happy path (first attempt works) adds no delay.
+      const micStart = await startCueUserMic(sessionId, cueUserStreamingCallback, 'user', MIC_START_MAX_ATTEMPTS);
+      if (!micStart.ok) throw cueMicStartError(micStart);
       await ensureCueUserMicDeliversJsChunks(sessionId, cueUserStreamingCallback);
 
       if (!provider) {
