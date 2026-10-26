@@ -287,7 +287,7 @@ Each lists the rows it unblocks.
 
 ## 8. Findings in the current app (handled in the follow-up unless noted)
 
-- `NSAudioCaptureUsageDescription` (`package.json` `build.mac.extendInfo`) says "create multi-output devices for call recording" — wrong and alarming; it is the text of the system prompt. Proposed: "Sayso listens to your call's audio so it can transcribe the other side of the conversation and coach you in real time." Must land before the contractor validates the prompt in M0.
+- ✅ Fixed: `NSAudioCaptureUsageDescription` (`package.json` `build.mac.extendInfo`, mirrored in `electron/Info.plist`) used to say "create multi-output devices for call recording". It is the text of the system prompt, and now reads: "Sayso listens to your call's audio so it can transcribe the other side of the conversation and coach you in real time."
 - `MacPermissionsProvider.requirements` is a static `{ screen: true, relaunchOnComplete: true }`; on the tap backend it must come from the backend (and `screen` becomes "system audio").
 - `permissionsMigration.ts` resets only `ScreenCapture` and `Microphone`, and aborts on any non-zero exit (§4).
 - `start-cue`'s `permissions_denied` result carries `mic` / `screen` only; needs `audio` and the chosen backend.
