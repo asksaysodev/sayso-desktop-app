@@ -141,7 +141,7 @@ if [ -f "${RELEASE_DIR}/${APP_NAME}-${APP_VERSION}-x64-mac.dmg" ]; then
 fi
 
 echo "🔄 Updating staging-mac.yml with new hashes..."
-node scripts/update-latest-yaml.js --staging
+node scripts/update-latest-yaml.js --version "${APP_VERSION}" --staging
 
 RELEASE_TAG="v${APP_VERSION}-staging"
 
@@ -163,6 +163,9 @@ for f in "${RELEASE_FILES[@]}"; do
     exit 1
   fi
 done
+
+# Re-check the manifest against the exact files about to be uploaded.
+node scripts/verify-latest-yaml.js --version "${APP_VERSION}" --staging
 
 node scripts/release-upload.js \
   --tag "${RELEASE_TAG}" \
