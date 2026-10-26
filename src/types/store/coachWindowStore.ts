@@ -69,7 +69,8 @@ export interface CoachWindowStore {
     cue_handleStartCue: () => Promise<void>;
     cue_handleStopCue: () => Promise<void>;
     cue_handleLocalTeardown: () => Promise<void>;
-    cue_stopSession: (sessionId: string) => Promise<SessionData>;
+    /** Resolves null when the session was already gone server-side (404). */
+    cue_stopSession: (sessionId: string) => Promise<SessionData | null>;
     cue_resetStates: () => void;
     cue_onPressResetSession: () => Promise<void>;
     cue_removeInsight: (insightId: string) => void;
