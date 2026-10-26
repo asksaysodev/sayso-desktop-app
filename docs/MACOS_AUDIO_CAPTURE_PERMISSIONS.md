@@ -32,8 +32,11 @@ from it. Current behavior it builds on: `docs/PERMISSIONS_FLOW.md`,
 **Dev builds cannot test this.** Under `npm run dev` TCC attributes the request
 to Terminal / the IDE, not Sayso. Every row must be run on a signed, packaged
 build (`npm run package:staging` or a release artifact). Reset between runs with
-`tccutil reset AudioCapture com.asksayso.app` — always scoped to the bundle id,
-never a bare `tccutil reset AudioCapture`.
+`tccutil reset AudioCapture <bundle id>` — always scoped to the bundle id,
+never a bare `tccutil reset AudioCapture`. The bundle id depends on the build:
+`com.asksayso.app.staging` for `package:staging` (`build.staging.js`),
+`com.asksayso.app` for production. Resetting the wrong one is a silent no-op
+and invalidates the run.
 
 ### Backend selection
 
@@ -153,7 +156,7 @@ relaunch · **App** = policy IDs from §3 · **Capture** = what the session does
 
 | macOS | Native | Request | App | Capture | Observed | Notes |
 |---|---|---|---|---|---|---|
-| 14.4 | `not_determined`, backend `coreaudio_tap` | Prompt shows on request; grant applies live (expected) | P-ND; Cue before onboarding → S-5 | No session until granted | | No flag file. Screen Recording never requested |
+| 14.4 | `not_determined`, backend `coreaudio_tap` | Prompt shows on request; grant applies live (expected) | P-ND; Cue before onboarding → S-1 (mic also not granted on a fresh install; S-5 only if mic was granted first) | No session until granted | | No flag file. Screen Recording never requested |
 | 15 | `not_determined` | Same as 14.4 | P-ND; S-5 | No session until granted | | Note which pane / section the grant appears in |
 | 26 | `not_determined` | Same as 14.4 | P-ND; S-5 | No session until granted | | Verify nothing changed in 26 TCC |
 
@@ -169,7 +172,7 @@ relaunch · **App** = policy IDs from §3 · **Capture** = what the session does
 
 | macOS | Native | Request | App | Capture | Observed | Notes |
 |---|---|---|---|---|---|---|
-| 14.4 | Request resolves `denied`; next check `denied` (or `unknown` if indistinguishable — Q1) | No second prompt on a second request; app opens Settings | P-D (or P-U); S-5 (or S-4) | No session; never silent tap | | Key row for Q1 |
+| 14.4 | Request resolves `denied`; next check `denied` (or `unknown` if indistinguishable — Q1) | No second prompt on a second request; app opens Settings | P-D (or P-U); S-5 (or S-4) | `denied`: no session. `unknown`: tap session with the silent-tap watchdog (§6) — banner fires, never silent without a signal | | Key row for Q1 |
 | 15 | `denied` | Same | P-D; S-5 | No session | | |
 | 26 | `denied` | Same | P-D; S-5 | No session | | |
 
@@ -191,7 +194,7 @@ relaunch · **App** = policy IDs from §3 · **Capture** = what the session does
 | 15 | Same | Same | Same | Same | | |
 | 26 | Same | Same | Same | Same | | |
 
-### Case 6 — `tccutil reset AudioCapture com.asksayso.app`
+### Case 6 — `tccutil reset AudioCapture <bundle id>`
 
 Run with Sayso quit and again with Sayso running.
 
@@ -295,6 +298,6 @@ Each lists the rows it unblocks.
 ## 9. Acceptance procedure (our signed build)
 
 1. Build signed + notarized (`npm run package:staging`), install to `/Applications`.
-2. For each case × version: reset with the scoped `tccutil` (and delete `~/Library/Application Support/sayso-app-staging/permissions-complete` (`sayso-app` for production) where the case starts from fresh), set up the precondition, run, record Observed.
+2. For each case × version: reset with the scoped `tccutil` against the staging bundle id `com.asksayso.app.staging` (`com.asksayso.app` for a production artifact) (and delete `~/Library/Application Support/sayso-app-staging/permissions-complete` (`sayso-app` for production) where the case starts from fresh), set up the precondition, run, record Observed.
 3. For every row that starts a session: play known audio (a Zoom / Meet test call) and confirm prospect transcripts arrive; for every blocked row confirm no session was created server-side.
 4. Any Observed ≠ Expected → ticket, linked here.
