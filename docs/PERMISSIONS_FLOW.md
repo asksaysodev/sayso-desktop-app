@@ -24,6 +24,8 @@ Most of this document describes macOS, which has the more involved model. The Wi
 - **Status check (read)**: `CGPreflightScreenCaptureAccess()` — **non-prompting**, accurate for the running process
 - **Granting**: Cannot be granted inline. macOS binds screen-recording permission **at process launch** — a mid-session grant is **never** reflected to the running process until it restarts. So after the user enables it, the app must be quit and reopened.
 
+> macOS 14.4+ is moving to Core Audio taps, which use a separate System Audio Recording permission instead of Screen Recording. Expected behavior per case and version: `docs/MACOS_AUDIO_CAPTURE_PERMISSIONS.md`.
+
 > Historical note: SCK detection used to always read `false`. The root cause was the native-audio JS wrapper (`electron/native-audio/index.js`) never exposing the check — not an unreliable API. CGPreflight is reliable once exposed.
 
 ---
