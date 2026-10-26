@@ -65,8 +65,12 @@ electron/native-audio/build/*.sln
 electron/native-audio/build/*.vcxproj
 electron/native-audio/build/*.vcxproj.filters
 electron/native-audio/build/Release/
+electron/mic-activity/build/
+electron/mic-activity/node_modules/
 electron/store/*.js
 electron/store/*.js.map
+electron/callDetection/*.js
+electron/callDetection/*.js.map
 
 tsconfig.electron.tsbuildinfo
 *.tsbuildinfo

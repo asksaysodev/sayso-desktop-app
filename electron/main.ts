@@ -33,6 +33,7 @@ import type { AuthState } from './auth/AuthManager';
 import * as audioManager from './audio/audioManager';
 import * as permissions from './permissions/permissionsManager';
 import * as cacheStore from './store/cacheManager';
+import { callDetection, startMicActivityMonitor, stopMicActivityMonitor, type MicSession } from './callDetection/micActivityMonitor';
 import { removeLegacyCacheFiles } from './store/persistentStore';
 import { formatLogArgs } from './shared/redact';
 import { enforceLogRetention } from './utils/logRetention';
@@ -431,6 +432,7 @@ async function loadBootSession(accessToken: string, email: string | undefined): 
 authManager.on('signed-in', (state: AuthState) => {
   console.log('[AuthManager] signed-in:', state.user?.email);
   global.authAccessToken = state.accessToken;
+  startMicActivityMonitor();
   broadcastToAllWindows('auth:state', { user: state.user, isAuthenticated: state.isAuthenticated, accessToken: state.accessToken });
   if (state.accessToken) {
     // Load the account profile into global.authUser now, so the tray shows the
@@ -459,6 +461,7 @@ authManager.on('signed-in', (state: AuthState) => {
 
 authManager.on('signed-out', () => {
   console.log('[AuthManager] signed-out');
+  stopMicActivityMonitor();
   global.authAccessToken = null;
   global.authRefreshToken = null;
   setAuthUser(null);
@@ -526,6 +529,7 @@ authManager.on('token-refreshed', async (state: AuthState) => {
 
 authManager.on('session-expired', () => {
   console.log('[AuthManager] session-expired');
+  stopMicActivityMonitor();
   global.authAccessToken = null;
   global.authRefreshToken = null;
   setAuthUser(null);
@@ -539,6 +543,20 @@ authManager.on('session-expired', () => {
   // windows so the user isn't left clicking around with broken auth
   tearDownSignedInWindows();
   createSplashWindow({ reason: 'session-expired' });
+});
+
+// Call detection (SAYSO-528). Monitor runs while signed in; the subscription is
+// checked per call because the profile can land after 'signed-in'.
+// SAYSO-529 replaces the logging with the "Launch Sayso?" prompt.
+const hasActiveSubscription = () => !!global.authUser && global.authUser.subscription_plan_id !== null;
+
+callDetection.on('call-candidate', (session: MicSession) => {
+  if (!hasActiveSubscription()) return;
+  console.log(`[CallDetection] call detected: ${session.appKey} (session ${session.id})`);
+});
+
+callDetection.on('call-ended', (session: MicSession) => {
+  console.log(`[CallDetection] call ended: ${session.appKey} (session ${session.id})`);
 });
 
 let autoUpdater: import('electron-updater').AppUpdater | null = null;
@@ -2010,6 +2028,7 @@ app.on('before-quit', async (event: Event) => {
 
   // Force cleanup of all audio capture before quitting
   await audioManager.cleanupAllAudioCapture();
+  stopMicActivityMonitor();
   unregisterGlobalShortcuts();
 });
 

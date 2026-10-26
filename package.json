@@ -14,13 +14,16 @@
     "dev:hestabit": "cross-env NODE_ENV=development ENV_FILE=.env.hestabit concurrently \"vite --mode hestabit\" \"npm run build:electron && electron electron/main.js\"",
     "build": "vite build --mode production",
     "build:staging": "vite build --mode staging",
-    "clean": "rm -rf dist/ release/ release-staging/ node_modules/.cache electron/native-audio/build .vite",
-    "clean:staging": "rm -rf dist/ release-staging/ node_modules/.cache electron/native-audio/build .vite",
+    "clean": "rm -rf dist/ release/ release-staging/ node_modules/.cache electron/native-audio/build electron/mic-activity/build .vite",
+    "clean:staging": "rm -rf dist/ release-staging/ node_modules/.cache electron/native-audio/build electron/mic-activity/build .vite",
     "clean-all": "npm run clean && rm -rf node_modules/ package-lock.json",
     "rebuild-native": "cd electron/native-audio && npx node-gyp rebuild --target=36.9.1 --arch=arm64 --dist-url=https://electronjs.org/headers && cd ../..",
     "rebuild-native-x64": "cd electron/native-audio && npx node-gyp rebuild --target=36.9.1 --arch=x64 --dist-url=https://electronjs.org/headers && cd ../..",
     "rebuild-native-win": "cd electron/native-audio && npx node-gyp rebuild --target=36.9.1 --arch=x64 --dist-url=https://electronjs.org/headers && cd ../..",
     "rebuild-native-both": "node scripts/rebuild-native-both-archs.js",
+    "rebuild-mic-activity": "node scripts/rebuild-mic-activity.js arm64",
+    "rebuild-mic-activity-x64": "node scripts/rebuild-mic-activity.js x64",
+    "rebuild-mic-activity-win": "node scripts/rebuild-mic-activity.js x64",
     "package": "npm run rebuild-native-both && npm run build:electron && npm run build && electron-builder --publish never",
     "package:staging": "npm run rebuild-native-both && npm run build:electron && npm run build:staging && electron-builder --config build.staging.js --publish never",
     "export": "chmod +x scripts/rebuild-and-package.sh && ./scripts/rebuild-and-package.sh",
@@ -108,12 +111,13 @@
       "owner": "asksaysodev",
       "repo": "sayso-desktop-app"
     },
-    "beforePack": "scripts/rebuild-native-for-arch.js",
+    "beforePack": "scripts/before-pack.js",
     "afterPack": "scripts/verify-and-fix-native-module.js",
     "afterAllArtifactBuild": "scripts/apply-dmg-background.js",
     "asar": true,
     "asarUnpack": [
-      "electron/native-audio/**"
+      "electron/native-audio/**",
+      "electron/mic-activity/**"
     ],
     "files": [
       "**/*",
@@ -122,7 +126,8 @@
       "!electron/full_recordings/**/*",
       "!electron/chunks/**/*",
       "!release/**/*",
-      "!release-staging/**/*"
+      "!release-staging/**/*",
+      "!electron/mic-activity/{node_modules,src}{,/**/*}"
     ],
     "extraResources": [
       {

@@ -48,7 +48,7 @@ After changing anything in `electron/*.ts`, run `npm run build:electron` — Ele
 
 - `package.json` `main` is `electron/main.js` — a **build artifact**. All `electron/**/*.js` and `.js.map` next to a `.ts` file are gitignored compiler output. Never edit them.
 - **Why they sit next to the source:** `tsconfig.electron.json` sets `outDir` *and* `rootDir` to `electron`, so `tsc` emits each file beside its `.ts` rather than into a separate `dist/`; `sourceMap: true` adds the `.js.map`. Node can't require a `.ts`, so the emitted `.js` is what actually runs. Expect a `.js` + `.js.map` pair for every `.ts` in `electron/` — that's normal, not stray build junk.
-- Exceptions — these are **hand-written JS with no `.ts` source**, and are tracked in git: `electron/streaming/*.js`, `electron/native-audio/index.js`, `electron/audioQueue.js`.
+- Exceptions — these are **hand-written JS with no `.ts` source**, and are tracked in git: `electron/streaming/*.js`, `electron/native-audio/index.js`, `electron/mic-activity/index.js`, `electron/audioQueue.js`.
 - The `.gitignore` rules are **per-directory**, one pair of lines per TS folder (`electron/utils/*.js` + `*.js.map`, and the same for `audio/`, `auth/`, `permissions/`, `shared/`, plus `electron/*.js` at the top level). Consequence: **`electron/streaming/` has no ignore rule at all**, deliberately, because its `.js` files are the hand-written ones. So adding a `.ts` to `electron/streaming/` emits an *untracked* `.js` that is indistinguishable from the tracked hand-written ones — easy to commit by accident, after which the stale committed `.js` is what Electron loads. New files in `electron/streaming/` therefore stay hand-written CommonJS `.js`, matching the rest of the folder. If you do add a `.ts` there, add **exact-path** ignore lines for its `.js` and `.js.map` — never an `electron/streaming/*.js` glob, which would silently swallow the next hand-written file someone adds.
 - The renderer is a **multi-entry Vite build**. Each window has its own HTML file at the repo root, listed in `vite.config.ts` `rollupOptions.input`, mapped to a folder under `src/`:
 
@@ -97,6 +97,14 @@ native addon (ScreenCaptureKit / AVAudioEngine)
 - The native addon must never call into V8 from the audio thread; it hops to the JS thread via `uv_async_send`.
 - Orchestration lives in `electron/audio/audioManager.ts` (`start-cue` / `stop-cue` handlers, low-audio watchdog, teardown dedup). It requires the provider lazily so a missing `.node` build doesn't crash app start.
 - The native module is **per-architecture**. Switching arch or Electron version requires `npm run rebuild-native*`; `electron-builder` hooks (`scripts/rebuild-native-for-arch.js`, `verify-and-fix-native-module.js`, `sign-native-module.js`) handle this during packaging, and the module is `asarUnpack`ed.
+
+## Call detection
+
+Detects that *another app* (v1: browsers) has the mic open, so the app can offer to start the coach. `docs/CALL_DETECTION.md` has the details and findings.
+
+- `electron/mic-activity/` is a **separate native addon** from `native-audio/` (owned by another team; don't fold this into it). macOS 14.2+ reads Core Audio's per-process list (`kAudioProcessPropertyIsRunningInput`); below 14.2 detection is off (`mode()` = `unsupported`: the only signal is device-wide, and Hey Siri pins it on); Windows watches WASAPI capture sessions. No OS permission involved.
+- `electron/callDetection/micActivityMonitor.ts` resolves events to the owning app, drops Sayso's own pids (main + `app.getAppMetrics()`), filters with `browserAllowlist.ts`, debounces 3s, and emits `call-candidate` / `call-ended`. Runs while signed in; the subscription check is per call in `main.ts`.
+- Packaging builds it **after** native audio and treats any failure as non-fatal (`scripts/before-pack.js`, `rebuild-mic-activity.js`, the afterPack check, the Windows CI step): a broken build ships the app without detection, never blocks a release. Dev: `npm run rebuild-mic-activity`; `scripts/mic-activity-watch.js` needs a plain-Node build (`cd electron/mic-activity && npx node-gyp rebuild`).
 
 ## Cross-platform conventions
 
