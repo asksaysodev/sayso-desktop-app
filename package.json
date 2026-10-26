@@ -177,7 +177,7 @@
       "entitlementsInherit": "assets/entitlements.mac.plist",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "We need access to your microphone for audio calls",
-        "NSAudioCaptureUsageDescription": "We need access to system audio to create multi-output devices for call recording",
+        "NSAudioCaptureUsageDescription": "Sayso listens to your call's audio so it can transcribe the other side of the conversation and coach you in real time.",
         "LSMinimumSystemVersion": "13.0.0"
       },
       "notarize": {

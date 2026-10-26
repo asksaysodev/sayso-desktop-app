@@ -5,6 +5,6 @@
     <key>NSMicrophoneUsageDescription</key>
     <string>We need access to your microphone for audio calls</string>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>We need access to system audio to create multi-output devices for call recording</string>
+    <string>Sayso listens to your call's audio so it can transcribe the other side of the conversation and coach you in real time.</string>
 </dict>
 </plist>    
