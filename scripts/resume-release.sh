@@ -38,6 +38,9 @@ for f in "${RELEASE_FILES[@]}"; do
 done
 echo "✅ All ${#RELEASE_FILES[@]} release files present."
 
+# Never resume with a manifest that does not match the files beside it.
+node scripts/verify-latest-yaml.js --version "${APP_VERSION}"
+
 # Make sure the tag is on the remote (gh release needs it there)
 if ! git ls-remote --exit-code --tags origin "${TAG}" >/dev/null 2>&1; then
   echo "⤴️  Tag ${TAG} not on remote — pushing it..."

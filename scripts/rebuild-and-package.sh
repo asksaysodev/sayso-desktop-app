@@ -230,7 +230,7 @@ echo "📦 Created DMGs:"
 ls -la "${RELEASE_DIR}"/*.dmg 2>/dev/null || echo "No DMGs found"
 
 echo "🔄 Updating latest-mac.yml with new hashes..."
-node scripts/update-latest-yaml.js
+node scripts/update-latest-yaml.js --version "${APP_VERSION}"
 
 # Attach the 5 final notarized files to the GitHub Release for this version,
 # creating it if the Windows job has not already. Either platform may go first.
@@ -251,6 +251,9 @@ for f in "${RELEASE_FILES[@]}"; do
     exit 1
   fi
 done
+
+# Re-check the manifest against the exact files about to be uploaded.
+node scripts/verify-latest-yaml.js --version "${APP_VERSION}"
 
 node scripts/release-upload.js \
   --tag "v${APP_VERSION}" \
