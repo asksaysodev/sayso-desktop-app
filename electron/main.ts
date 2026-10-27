@@ -1256,6 +1256,13 @@ function handleLauncherActivation() {
     console.log('[MAIN] launcher activation — tray menu just closed by this click, leaving it closed');
     return;
   }
+  // A boot glyph that never loaded leaves no tray to anchor the menu to. The
+  // click is the user asking for it, so try once more (SAYSO-550).
+  if (!registerTray()) {
+    console.log('[MAIN] launcher activation — no tray, focusing existing window');
+    focusExistingWindow();
+    return;
+  }
   console.log('[MAIN] launcher activation — opening tray menu');
   showTrayMenu('tray');
 }
@@ -1269,26 +1276,52 @@ function handleLauncherActivation() {
  * default dark) taskbar, so Windows gets its own pre-coloured pair and picks
  * between them from the taskbar theme.
  */
-function createTrayIcon(useWhiteGlyph: boolean): Electron.NativeImage | null {
+function getTrayIconPath(useWhiteGlyph: boolean): string {
   const stagingPrefix = IS_STAGING ? 'staging-' : '';
   const trayIconFile = IS_WINDOWS && useWhiteGlyph
     ? `${stagingPrefix}tray-icon44-white.png`
     : `${stagingPrefix}tray-icon44Template.png`;
-  const iconPath = getAssetPath(trayIconFile);
+  return getAssetPath(trayIconFile);
+}
 
+function createTrayIcon(iconPath: string): Electron.NativeImage | null {
   let icon = nativeImage.createFromPath(iconPath);
-
-  if (icon.isEmpty()) {
-    console.error('Tray icon failed to load! Icon is empty.');
-    Sentry.captureMessage('Tray icon failed to load - icon is empty', 'error');
-    return null;
-  }
+  if (icon.isEmpty()) return null;
 
   const size = IS_WINDOWS ? 16 : 19;
   icon = icon.resize({ width: size, height: size });
   if (IS_MAC) icon.setTemplateImage(true);
 
   return icon;
+}
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/**
+ * What was on disk when a tray glyph decoded empty — tells a missing file
+ * (bad package, mid-update swap) apart from a present-but-unreadable one
+ * (AV lock, truncated write) (SAYSO-550).
+ */
+function describeTrayIconFile(iconPath: string) {
+  let sizeBytes: number;
+  try {
+    sizeBytes = fs.statSync(iconPath).size;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return { iconPath, exists: code !== 'ENOENT' && code !== 'ENOTDIR', statError: code };
+  }
+  try {
+    const header = Buffer.alloc(PNG_SIGNATURE.length);
+    const fd = fs.openSync(iconPath, 'r');
+    try {
+      fs.readSync(fd, header, 0, header.length, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+    return { iconPath, exists: true, sizeBytes, pngSignature: header.equals(PNG_SIGNATURE) };
+  } catch (err) {
+    return { iconPath, exists: true, sizeBytes, readError: (err as NodeJS.ErrnoException).code };
+  }
 }
 
 /**
@@ -1300,18 +1333,65 @@ async function refreshWindowsTrayIcon() {
   const taskbarIsLight = await isWindowsTaskbarLight();
   if (!tray || tray.isDestroyed()) return;
 
-  const icon = createTrayIcon(!taskbarIsLight);
-  if (icon) tray.setImage(icon);
+  const iconPath = getTrayIconPath(!taskbarIsLight);
+  const icon = createTrayIcon(iconPath);
+  if (icon) {
+    tray.setImage(icon);
+    return;
+  }
+  // The current glyph stays up, but it was picked for the other taskbar theme
+  // and can be near-invisible on this one, so it still warrants an event.
+  console.warn('[MAIN] Tray icon repaint skipped, icon is empty:', iconPath);
+  Sentry.captureMessage('Tray icon failed to load - icon is empty', {
+    level: 'warning',
+    tags: { 'tray.caller': 'theme-refresh' },
+    extra: describeTrayIconFile(iconPath),
+  });
+}
+
+// A boot-time glyph that decodes empty is usually transient (an update still
+// swapping resources, AV holding the file), and without it there is no tray at
+// all, so retry before giving up. A launcher click retries again after that.
+const TRAY_ICON_BOOT_RETRY_DELAYS_MS = [2000, 5000];
+
+/**
+ * Builds the tray at boot, retrying on the schedule above and reporting once
+ * every attempt has come up empty.
+ */
+function registerTrayIconMenu(attempt = 0) {
+  if (isAppQuitting || registerTray()) return;
+
+  const retryDelay = TRAY_ICON_BOOT_RETRY_DELAYS_MS[attempt];
+  if (retryDelay !== undefined) {
+    console.warn(`[MAIN] Tray icon is empty, retrying in ${retryDelay}ms`);
+    setTimeout(() => registerTrayIconMenu(attempt + 1), retryDelay);
+    return;
+  }
+  console.error('[MAIN] Tray icon failed to load, no tray until a launcher click');
+  Sentry.captureMessage('Tray icon failed to load - icon is empty', {
+    level: 'error',
+    tags: { 'tray.caller': 'boot' },
+    extra: {
+      attempts: attempt + 1,
+      icon: describeTrayIconFile(getTrayIconPath(true)),
+      ...(IS_WINDOWS && { fallbackIcon: describeTrayIconFile(getTrayIconPath(false)) }),
+    },
+  });
 }
 
 /**
- * Registers the tray icon and sets up click handlers
+ * Creates the tray icon and sets up click handlers. Returns false, with no
+ * tray, when neither glyph loads.
  */
-function registerTrayIconMenu() {
+function registerTray(): boolean {
+  if (tray && !tray.isDestroyed()) return true;
+
   // Assume a dark taskbar (the Windows 11 default) so the first paint is right
-  // in the common case; the async theme read below corrects a light one.
-  const icon = createTrayIcon(true);
-  if (!icon) return;
+  // in the common case; the async theme read below corrects a light one. That
+  // repaint also corrects the fallback glyph, used when the white one is gone.
+  const icon = createTrayIcon(getTrayIconPath(true))
+    ?? (IS_WINDOWS ? createTrayIcon(getTrayIconPath(false)) : null);
+  if (!icon) return false;
 
   tray = new Tray(icon);
   if (tray) {
@@ -1339,6 +1419,7 @@ function registerTrayIconMenu() {
       }
     });
   }
+  return true;
 }
 
 /**
