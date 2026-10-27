@@ -6,7 +6,7 @@
   "description": "Per-process mic-usage events for Sayso call detection",
   "dependencies": {
     "nan": "^2.23.0",
-    "node-gyp": "^9.4.1"
+    "node-gyp": "^11.5.0"
   },
   "scripts": {
     "build": "node-gyp rebuild",

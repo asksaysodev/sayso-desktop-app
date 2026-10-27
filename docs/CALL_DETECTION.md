@@ -38,7 +38,7 @@ Verified on macOS 26.5.2 (arm64), 2026-10-26:
 - **Hey Siri holds the mic permanently.** `com.apple.CoreSpeech` (no app path) shows `IsRunningInput = 1` whenever voice activation is on. It isn't a browser, so per-process mode ignores it. But it pins the device-wide `IsRunningSomewhere` flag on, so the macOS 13–14.1 fallback can never see a call start for those users. **Decision (10-26): no detection below 14.2.**
 - **Meet opens the mic on the pre-join screen**, before "Join" is clicked. Detection, and the 529 prompt, fire there, which suits "about to take a call".
 - **Self-exclusion:** Cue captures in the main process (`process.pid`). The Settings mic test (`getUserMedia`) runs in a Sayso helper process, and both are covered by `app.getAppMetrics()` PIDs. The execPath check also covers dev Electron.
-- **Windows:** the code is written but not run, because no Windows machine is available. It is unverified.
+- **Windows:** verified on Windows 11 (10-27, dev build): a browser call is detected and the widget shows and works.
 
 ### Browser matrix: to do
 
