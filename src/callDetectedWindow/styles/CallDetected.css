@@ -1,3 +1,30 @@
+:root {
+  --card-bg: #1d2d40;
+  /* Countdown sweep inside Dismiss: a lighter fill over --button-secondary */
+  --timer-fill: rgba(255, 255, 255, 0.16);
+  --button-secondary: #515c6c;
+  --button-secondary-hover: #5f6b7c;
+  --button-primary: #2367ee;
+  --button-primary-hover: #054dd2;
+  --text: #ffffff;
+
+  --radius-card: 24px;
+  --card-padding: 12px;
+  /* Concentric corners: anything inset by the card padding */
+  --radius-inner: calc(var(--radius-card) - var(--card-padding));
+
+  /* Must match SHADOW_PADDING in electron/utils/windowConfig.ts */
+  --shadow-padding: 16px;
+  /* Must match INSET_RIGHT in electron/utils/windowConfig.ts */
+  --inset-right: 31px;
+  /* Must match CALL_PROMPT_AUTO_HIDE_MS / _ENTER_MS / _EXIT_MS in electron/callDetection/callPrompt.ts */
+  --auto-hide-duration: 10s;
+  --enter-duration: 250ms;
+  --exit-duration: 200ms;
+  /* Card width + right inset: fully past the screen edge */
+  --offscreen: translateX(calc(100% + var(--inset-right)));
+}
+
 html,
 body,
 #call-detected-root {
@@ -6,10 +33,9 @@ body,
 
 body {
   margin: 0;
-  padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  padding: var(--shadow-padding);
+  box-sizing: border-box;
+  font-family: 'DM Sans Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
@@ -20,68 +46,135 @@ body {
 .call-detected {
   position: relative;
   box-sizing: border-box;
+  /* Fixed, not stretched: main widens the window for the exit and the card
+     must not move when it does */
+  width: 344px;
   height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  padding: 14px 16px 16px;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 12px;
+  gap: 12px;
+  padding: var(--card-padding);
+  background: var(--card-bg);
+  border-radius: var(--radius-card);
+  box-shadow: 0 4px 24px rgba(99, 120, 200, 0.1), 0 1px 4px rgba(0, 0, 0, 0.05);
   overflow: hidden;
+  /* Slide in from the right: the mirror of the exit, decelerating */
+  animation: call-detected-enter var(--enter-duration) cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+@keyframes call-detected-enter {
+  from { transform: var(--offscreen); }
+  to { transform: translateX(0); }
+}
+
+.call-detected--exiting {
+  /* A keyframe animation, not a transition: swapping out the enter animation
+     and changing transform in the same style change makes Chrome jump to the
+     end value instead of transitioning. Ease-in, like a macOS notification
+     leaving. */
+  animation: call-detected-exit var(--exit-duration) cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes call-detected-exit {
+  from { transform: translateX(0); opacity: 1; }
+  60% { opacity: 1; }
+  to { transform: var(--offscreen); opacity: 0; }
+}
+
+.call-detected-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.call-detected-logo {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  border-radius: var(--radius-inner);
+}
+
+.call-detected-logo img {
+  height: 32px;
+  width: auto;
 }
 
 .call-detected-message {
+  flex: 1;
   margin: 0;
   font-size: 14px;
-  line-height: 1.35;
-  color: #31455D;
+  line-height: normal;
+  color: var(--text);
 }
 
 .call-detected-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 8px;
 }
 
 .call-detected-button {
-  padding: 6px 12px;
-  border: 1px solid #c7c7c7;
-  border-radius: 8px;
-  background: #ffffff;
-  font-size: 13px;
-  color: #515C6C;
+  position: relative;
+  overflow: hidden;
+  flex: 1;
+  height: 36px;
+  padding: 0 24px;
+  border: none;
+  border-radius: var(--radius-inner);
+  background: var(--button-secondary);
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text);
   cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 
 .call-detected-button:hover {
-  background: #f8faff;
+  background: var(--button-secondary-hover);
 }
 
 .call-detected-button--primary {
-  border-color: #2367EE;
-  background: #2367EE;
-  color: #ffffff;
+  background: var(--button-primary);
 }
 
 .call-detected-button--primary:hover {
-  background: #487AB3;
-  border-color: #487AB3;
+  background: var(--button-primary-hover);
 }
 
-/* Visual countdown only; main owns the 15s timeout (CALL_PROMPT_AUTO_HIDE_MS) */
-.call-detected-progress {
+.call-detected-button-label {
+  position: relative;
+}
+
+/* Countdown: fills Dismiss left to right over the auto-hide duration. Clipped
+   by the button's radius, so scaleX never shows squashed corners. */
+.call-detected-countdown {
   position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 3px;
-  width: 100%;
-  background: #2367EE;
+  inset: 0;
+  background: var(--timer-fill);
+  transform: scaleX(0);
   transform-origin: left;
-  animation: call-detected-countdown 15s linear forwards;
+  animation: call-detected-countdown var(--auto-hide-duration) linear forwards;
+}
+
+.call-detected--paused .call-detected-countdown {
+  animation-play-state: paused;
 }
 
 @keyframes call-detected-countdown {
-  from { transform: scaleX(1); }
-  to { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .call-detected-countdown {
+    display: none;
+  }
+
+  .call-detected,
+  .call-detected--exiting {
+    animation: none;
+  }
 }

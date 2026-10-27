@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import CallDetectedApp from './CallDetectedApp';
+import '@fontsource-variable/dm-sans';
 import './styles/CallDetected.css';
 import * as Sentry from "@sentry/electron/renderer";
 import { sentryConfig } from '@/config/sentry';

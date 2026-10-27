@@ -4,7 +4,12 @@ import type { MicSession } from './micActivityMonitor';
 // Pure state and rules; the window itself is created in main.ts, which passes
 // its callbacks in through initCallPrompt().
 
-export const CALL_PROMPT_AUTO_HIDE_MS = 15000;
+// Mirrored by the timer band's animation in src/callDetectedWindow/styles/CallDetected.css.
+export const CALL_PROMPT_AUTO_HIDE_MS = 10000;
+// Slide in / out. Mirrored by --enter-duration / --exit-duration in
+// src/callDetectedWindow/styles/CallDetected.css.
+export const CALL_PROMPT_ENTER_MS = 250;
+export const CALL_PROMPT_EXIT_MS = 200;
 
 export type CallPromptHideReason =
   | 'launch'
@@ -19,13 +24,17 @@ export interface CallPromptDeps {
   isCoachOpen: () => boolean;
   isCueActive: () => boolean;
   openWindow: () => void;
-  closeWindow: () => void;
+  // animate: slide the card out before the window closes (timeout, dismiss)
+  closeWindow: (animate: boolean) => void;
   launchCoach: () => void;
 }
 
 let deps: CallPromptDeps | null = null;
 let activeSessionId: string | null = null;
 let autoHideTimer: NodeJS.Timeout | null = null;
+// Auto-hide pauses while the pointer is over the card, like a notification.
+let autoHideRemainingMs = 0;
+let autoHideStartedAt = 0;
 // Sessions the user dismissed (or let time out): "not for this call". Cleared
 // when the call ends, so the next call prompts again.
 const dismissedSessionIds = new Set<string>();
@@ -47,8 +56,26 @@ export function showCallDetectedPrompt(session: MicSession): void {
 
   activeSessionId = session.id;
   deps.openWindow();
-  autoHideTimer = setTimeout(() => hideCallDetectedPrompt('timeout'), CALL_PROMPT_AUTO_HIDE_MS);
+  autoHideRemainingMs = CALL_PROMPT_AUTO_HIDE_MS;
+  startAutoHide();
   console.log(`[CallDetection] prompt shown (session ${session.id})`);
+}
+
+function startAutoHide(): void {
+  autoHideStartedAt = Date.now();
+  autoHideTimer = setTimeout(() => hideCallDetectedPrompt('timeout'), autoHideRemainingMs);
+}
+
+/** Pointer over the card pauses the auto-hide; leaving resumes the remainder. */
+export function setCallPromptHovered(hovered: boolean): void {
+  if (activeSessionId === null) return;
+  if (hovered && autoHideTimer) {
+    clearTimeout(autoHideTimer);
+    autoHideTimer = null;
+    autoHideRemainingMs = Math.max(0, autoHideRemainingMs - (Date.now() - autoHideStartedAt));
+  } else if (!hovered && !autoHideTimer) {
+    startAutoHide();
+  }
 }
 
 export function hideCallDetectedPrompt(reason: CallPromptHideReason): void {
@@ -63,7 +90,9 @@ export function hideCallDetectedPrompt(reason: CallPromptHideReason): void {
   if (reason === 'dismiss' || reason === 'timeout') dismissedSessionIds.add(activeSessionId);
   console.log(`[CallDetection] prompt hidden: ${reason} (session ${activeSessionId})`);
   activeSessionId = null;
-  deps?.closeWindow();
+  // Both mean "not for this call" and leave the same way; the rest are
+  // instant because something else takes over (coach) or the call is gone.
+  deps?.closeWindow(reason === 'timeout' || reason === 'dismiss');
 }
 
 export function onCallCandidate(session: MicSession): void {
