@@ -130,7 +130,7 @@ static std::atomic<bool> g_micEngineRunning{false}; // started by us, not yet to
 static std::atomic<uint64_t> g_micTapCallbacks{0};
 static std::atomic<uint64_t> g_micTapDelivered{0};
 static std::atomic<uint64_t> g_micTapDroppedNoHandle{0};
-static std::atomic<uint64_t> g_micTapDroppedNoCallback{0};
+static std::atomic<uint64_t> g_micTapDroppedNoCallback{0};   // retired (SAYSO-430): folded into NoHandle, always 0
 static std::atomic<uint64_t> g_micTapDroppedEmpty{0};
 static std::atomic<uint64_t> g_micTapDroppedLayout{0};
 static std::atomic<uint64_t> g_micTapDroppedUnsupported{0};
@@ -178,10 +178,13 @@ struct StreamingData {
 struct SaysoAudioPipe {
     std::mutex mutex;                     // never held across a JS call
     uv_async_t* handle = nullptr;         // non-null ⟺ a JS callback is set
-    std::vector<StreamingData*> pending;
+    std::deque<StreamingData*> pending;
+    bool overflowLogged = false;          // one log per stall, re-armed by the next drain
 };
-static SaysoAudioPipe g_sckAudioPipe;
-static SaysoAudioPipe g_micAudioPipe;
+// Heap-allocated and never freed: the tap / SCK threads can still be posting while exit() runs
+// static destructors, and a destroyed mutex there is a crash on quit.
+static SaysoAudioPipe& g_sckAudioPipe = *new SaysoAudioPipe();
+static SaysoAudioPipe& g_micAudioPipe = *new SaysoAudioPipe();
 // ~5s of mic or SCK audio; only reached if the JS thread stalls. Oldest chunks go first.
 static const size_t kSaysoAudioPipeMaxPending = 256;
 
@@ -193,8 +196,13 @@ static bool SaysoAudioPipePost(SaysoAudioPipe& pipe, StreamingData* data) {
         return false;
     }
     if (pipe.pending.size() >= kSaysoAudioPipeMaxPending) {
+        if (!pipe.overflowLogged) {
+            pipe.overflowLogged = true;
+            NSLog(@"⚠️ [NATIVE] audio pipe full (%zu chunks) — JS thread stalled, dropping oldest audio",
+                  kSaysoAudioPipeMaxPending);
+        }
         delete pipe.pending.front();
-        pipe.pending.erase(pipe.pending.begin());
+        pipe.pending.pop_front();
     }
     pipe.pending.push_back(data);
     uv_async_send(pipe.handle);
@@ -211,6 +219,11 @@ static bool SaysoAudioPipeIsOpen(SaysoAudioPipe& pipe) {
 static void SaysoAudioPipeOpen(SaysoAudioPipe& pipe, uv_async_cb cb) {
     std::lock_guard<std::mutex> lk(pipe.mutex);
     if (pipe.handle) {
+        // A new callback replaces the old one: chunks queued for the old one are not its audio.
+        for (StreamingData* d : pipe.pending) {
+            delete d;
+        }
+        pipe.pending.clear();
         return;
     }
     uv_async_t* h = new uv_async_t();
@@ -222,7 +235,7 @@ static void SaysoAudioPipeOpen(SaysoAudioPipe& pipe, uv_async_cb cb) {
 // can be closed outside the lock. Undelivered chunks are dropped.
 static void SaysoAudioPipeClose(SaysoAudioPipe& pipe) {
     uv_async_t* h;
-    std::vector<StreamingData*> dropped;
+    std::deque<StreamingData*> dropped;
     {
         std::lock_guard<std::mutex> lk(pipe.mutex);
         h = pipe.handle;
@@ -239,13 +252,14 @@ static void SaysoAudioPipeClose(SaysoAudioPipe& pipe) {
     }
 }
 
-// JS thread. Swap-then-invoke, like the lifecycle queue. The callback may clear itself mid-drain,
-// so it is re-checked per chunk.
+// JS thread. Swap-then-invoke, like the lifecycle queue: usually one chunk, more after a stall. The
+// callback may clear or replace itself mid-drain, so it is re-checked per chunk.
 static void SaysoAudioPipeDrain(SaysoAudioPipe& pipe, Nan::Persistent<v8::Function>& callback, bool withGainDb) {
-    std::vector<StreamingData*> chunks;
+    std::deque<StreamingData*> chunks;
     {
         std::lock_guard<std::mutex> lk(pipe.mutex);
         chunks.swap(pipe.pending);
+        pipe.overflowLogged = false;
     }
     Nan::HandleScope scope;
     for (StreamingData* data : chunks) {
@@ -261,7 +275,13 @@ static void SaysoAudioPipeDrain(SaysoAudioPipe& pipe, Nan::Persistent<v8::Functi
             }
             Local<Function> fn = Nan::New(callback);
             Local<Value> argv[2] = {buffer, format};
+            // A throw must not stay pending across the next chunk's call: report it like any
+            // uncaught exception and carry on with the batch.
+            Nan::TryCatch tc;
             Nan::Call(fn, Nan::GetCurrentContext()->Global(), 2, argv);
+            if (tc.HasCaught()) {
+                Nan::FatalException(tc);
+            }
         }
         delete data;
     }
@@ -960,9 +980,13 @@ struct PendingSckStop {
     bool hasActualStartMs;
     bool stopFailed;
     std::string stopErrorDescription;
+    uint64_t callbackEpoch;   // g_sckCallbackEpoch when the stop began
 };
 
 static PendingSckStop* g_sckStopPending = nullptr;
+// Bumped by every SetStreamingCallback (JS thread only), so a stop's settle can tell whether JS has
+// installed a callback for a new session since the stop began.
+static uint64_t g_sckCallbackEpoch = 0;
 
 static Local<Promise> MakeRejectedPromise(Isolate* isolate, const char* msg) {
     Local<Context> context = isolate->GetCurrentContext();
@@ -1060,8 +1084,11 @@ static void SckStopSettledCb(uv_async_t* handle) {
     }
     g_sckStopPending = nullptr;
     // Before the promise resolves, so JS sees the same order as when this ran in the SCK completion.
-    g_streamingCallback.Reset();
-    SaysoAudioPipeClose(g_sckAudioPipe);
+    // Skipped if JS set a callback after the stop began: that one belongs to the next session.
+    if (g_sckCallbackEpoch == p->callbackEpoch) {
+        g_streamingCallback.Reset();
+        SaysoAudioPipeClose(g_sckAudioPipe);
+    }
 
     Nan::HandleScope scope;
     Isolate* isolate = Isolate::GetCurrent();
@@ -1763,6 +1790,7 @@ NAN_METHOD(StopSystemAudioCapture) {
     pending->actualStartMsCopy = g_actualStartMs;
     pending->hasActualStartMs = g_actualStartMs > 0.0;
     pending->stopFailed = false;
+    pending->callbackEpoch = g_sckCallbackEpoch;
     
     MaybeLocal<Promise::Resolver> maybeFirst = Promise::Resolver::New(context);
     if (maybeFirst.IsEmpty()) {
@@ -1900,20 +1928,23 @@ static dispatch_queue_t SaysoMicRouteRestartQueue();
 // least kMicEngineQuarantineMs old AND no audio device change has been seen for kMicEngineQuietMs —
 // i.e. when its listener's backlog is empty and nothing is refilling it.
 // Evicting early brings the race back, so the only cap is kMicEngineMaxParkMs: devices that never
-// settle for 3s (a flapping Bluetooth link) would otherwise keep every engine alive forever. Normal
+// settle for 3s (a flapping Bluetooth link) would otherwise keep every engine alive forever. Even
+// then the release waits for a kMicEngineMaxParkQuietMs lull, never mid-burst. Normal
 // worst case (SAYSO-383's cold-start retry under device churn) is single-digit engines alive at
 // once; kMicEngineQuarantineWarnCount flags anything beyond that. Only touched on
 // SaysoMicRouteRestartQueue, so the deque needs no lock.
 static const int64_t kMicEngineQuarantineMs = 5000;
 static const int64_t kMicEngineQuietMs = 3000;
 static const int64_t kMicEngineMaxParkMs = 60000;
+static const int64_t kMicEngineMaxParkQuietMs = 500;   // the backstop still waits for a short lull
 static const int64_t kMicEngineReapCheckMs = 1000;
 static const size_t kMicEngineQuarantineWarnCount = 10;
 struct SaysoParkedMicEngine {
     AVAudioEngine* engine;
     uint64_t parkedNs;
 };
-static std::deque<SaysoParkedMicEngine> g_quarantinedMicEngines;
+// Never freed: the reaper can fire on the restart queue while exit() runs static destructors.
+static std::deque<SaysoParkedMicEngine>& g_quarantinedMicEngines = *new std::deque<SaysoParkedMicEngine>();
 static bool g_micEngineReapScheduled = false;
 static std::atomic<uint64_t> g_lastAudioDeviceChangeNs{0};
 
@@ -1921,8 +1952,21 @@ static uint64_t SaysoNowNs() {
     return clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
 }
 
+// Monotonic max: a writer preempted between reading the clock and storing must not move the stamp
+// back over a newer change.
 static void SaysoNoteAudioDeviceChange() {
-    g_lastAudioDeviceChangeNs.store(SaysoNowNs(), std::memory_order_relaxed);
+    const uint64_t t = SaysoNowNs();
+    uint64_t prev = g_lastAudioDeviceChangeNs.load(std::memory_order_relaxed);
+    while (prev < t && !g_lastAudioDeviceChangeNs.compare_exchange_weak(prev, t, std::memory_order_relaxed)) {
+    }
+}
+
+// Has no device change been seen for `ms`? Read the stamp before the clock: a change stamped in
+// between is then at most "now", never newer, so the unsigned difference cannot wrap.
+static bool SaysoAudioDevicesQuietFor(int64_t ms) {
+    const uint64_t lastChange = g_lastAudioDeviceChangeNs.load(std::memory_order_relaxed);
+    const uint64_t now = SaysoNowNs();
+    return now >= lastChange && now - lastChange >= (uint64_t)ms * NSEC_PER_MSEC;
 }
 
 // Process-lifetime watchers feeding g_lastAudioDeviceChangeNs. Installed on the first quarantine and
@@ -1964,19 +2008,18 @@ static void SaysoScheduleMicEngineReap() {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kMicEngineReapCheckMs * NSEC_PER_MSEC),
                    SaysoMicRouteRestartQueue(), ^{
         g_micEngineReapScheduled = false;
-        // Load before reading the clock: a change stamped in between would otherwise be "newer than
-        // now", and the unsigned difference would wrap to a huge "quiet" period.
-        const uint64_t lastChange = g_lastAudioDeviceChangeNs.load(std::memory_order_relaxed);
-        const uint64_t now = SaysoNowNs();
-        const bool quiet = now >= lastChange && now - lastChange >= (uint64_t)kMicEngineQuietMs * NSEC_PER_MSEC;
-        // Parked in order, so the front is always the oldest.
+        // Parked in order, so the front is always the oldest. Quiet is re-checked right before each
+        // release, so a change that lands mid-loop stops it.
         const uint64_t minAgeNs = (uint64_t)(kMicEngineQuarantineMs * NSEC_PER_MSEC);
         const uint64_t maxAgeNs = (uint64_t)kMicEngineMaxParkMs * NSEC_PER_MSEC;
         while (!g_quarantinedMicEngines.empty()) {
-            const uint64_t age = now - g_quarantinedMicEngines.front().parkedNs;
-            if (!(quiet && age >= minAgeNs) && age < maxAgeNs) break;
-            if (!quiet) {
-                NSLog(@"⚠️ [NATIVE] releasing a mic engine parked %llus without a quiet period — devices keep changing",
+            const uint64_t age = SaysoNowNs() - g_quarantinedMicEngines.front().parkedNs;
+            const bool normal = age >= minAgeNs && SaysoAudioDevicesQuietFor(kMicEngineQuietMs);
+            // Backstop for devices that never settle for 3s: still never in the middle of a burst.
+            const bool backstop = age >= maxAgeNs && SaysoAudioDevicesQuietFor(kMicEngineMaxParkQuietMs);
+            if (!normal && !backstop) break;
+            if (!normal) {
+                NSLog(@"⚠️ [NATIVE] releasing a mic engine parked %llus without a 3s quiet period — devices keep changing",
                       (unsigned long long)(age / NSEC_PER_SEC));
             }
             [g_quarantinedMicEngines.front().engine release];
@@ -2332,13 +2375,14 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
         streamData->sampleRate = bufferFormat.sampleRate;
         streamData->channels = channels;
         
-        g_micFirstTapSeen.store(true, std::memory_order_release);
-        g_micTapDelivered.fetch_add(1, std::memory_order_relaxed);
-        g_micTapLastDeliveredMs.store(SaysoRealtimeNowMs(), std::memory_order_relaxed);
         // Re-checked under the lock: JS may have cleared the callback since the check above.
         if (!SaysoAudioPipePost(g_micAudioPipe, streamData)) {
             g_micTapDroppedNoHandle.fetch_add(1, std::memory_order_relaxed);
+            return;
         }
+        g_micFirstTapSeen.store(true, std::memory_order_release);
+        g_micTapDelivered.fetch_add(1, std::memory_order_relaxed);
+        g_micTapLastDeliveredMs.store(SaysoRealtimeNowMs(), std::memory_order_relaxed);
     }];
     } @catch (NSException *ex) {
         NSLog(@"❌ [NATIVE] installTapOnBus failed: %@ — %@", ex.name, ex.reason);
@@ -2942,6 +2986,7 @@ NAN_METHOD(GetMicInputDiagnostics) {
 
 // Set streaming callback for real-time audio chunks
 NAN_METHOD(SetStreamingCallback) {
+    g_sckCallbackEpoch++;
     if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
         // Clear callback
         g_streamingCallback.Reset();

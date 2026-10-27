@@ -697,7 +697,7 @@ NAN_METHOD(HalChurnCleanup) {
     # 10c. Engines currently parked by SaysoQuarantineMicEngine (SAYSO-430 fix). Optional, so the
     #      same hooks still apply to pre-fix source for the before/after comparison; -1 = no quarantine.
     src = src.replace(old, new)
-    quarantine_decl = 'static std::deque<SaysoParkedMicEngine> g_quarantinedMicEngines;'
+    quarantine_decl = 'static std::deque<SaysoParkedMicEngine>& g_quarantinedMicEngines = *new std::deque<SaysoParkedMicEngine>();'
     # 10d. SAYSO_TEST_MIC_QUARANTINE_MS overrides the quarantine delay (fixed source only), so the
     #      same run can compare 5s against ~0 or effectively-never (the pre-SAYSO-361 leak).
     quarantine_ms = 'kMicEngineQuarantineMs * NSEC_PER_MSEC'
