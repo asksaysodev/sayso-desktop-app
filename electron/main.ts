@@ -1455,6 +1455,12 @@ async function stopAndPersistCueSession(reason: string): Promise<void> {
     });
     console.log(`[MAIN] ${reason}: cue session ${sessionId} stopped and persisted`);
   } catch (err: any) {
+    // 404 = the session already ended server-side (e.g. expired while the Mac
+    // slept) — nothing left to persist, and not a failure (SAYSO-532).
+    if (err?.response?.status === 404) {
+      console.log(`[MAIN] ${reason}: cue session ${sessionId} already ended server-side`);
+      return;
+    }
     console.warn(`[MAIN] ${reason}: cue stop failed —`, err?.message);
     if (!isTransientNetworkError(err)) Sentry.captureException(err);
   }
