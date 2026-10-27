@@ -395,6 +395,8 @@ async function loadBootSession(accessToken: string, email: string | undefined): 
     .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
   void cacheStore.refreshKey('openLastUsed', accessToken)
     .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
+  void cacheStore.refreshKey('callDetectionPromptEnabled', accessToken)
+    .catch((err) => cacheStore.reportCacheFailure('callDetectionPromptEnabled', err));
 
   const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
     axios.get(`${backendBaseUrl()}/accounts/${email}`, { headers, timeout: 5000 }),
@@ -457,6 +459,8 @@ authManager.on('signed-in', (state: AuthState) => {
       .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
     void cacheStore.refreshKey('openLastUsed', state.accessToken)
       .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
+    void cacheStore.refreshKey('callDetectionPromptEnabled', state.accessToken)
+      .catch((err) => cacheStore.reportCacheFailure('callDetectionPromptEnabled', err));
   }
 });
 
@@ -498,6 +502,8 @@ authManager.on('token-refreshed', async (state: AuthState) => {
       .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
     void cacheStore.refreshKey('openLastUsed', state.accessToken!)
       .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
+    void cacheStore.refreshKey('callDetectionPromptEnabled', state.accessToken!)
+      .catch((err) => cacheStore.reportCacheFailure('callDetectionPromptEnabled', err));
     const headers = { Authorization: `Bearer ${state.accessToken}` };
     const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
       axios.get(`${backendBaseUrl()}/accounts/${state.user?.email}`, { headers, timeout: 5000 }),
@@ -549,10 +555,15 @@ authManager.on('session-expired', () => {
 // Call detection (SAYSO-528). Monitor runs while signed in; the subscription is
 // checked per call because the profile can land after 'signed-in'. A candidate
 // shows the "Launch Sayso?" prompt (SAYSO-529, electron/callDetection/callPrompt.ts).
+// The "Meeting detection" setting (SAYSO-531) gates only the prompt, read from
+// the cache so a call never waits on the network; the monitor keeps running.
 const hasActiveSubscription = () => !!global.authUser && global.authUser.subscription_plan_id !== null;
 
 initCallPrompt({
-  canPrompt: () => hasActiveSubscription() && global.networkState !== 'reconnecting',
+  canPrompt: () =>
+    hasActiveSubscription()
+    && global.networkState !== 'reconnecting'
+    && cacheStore.getValue('callDetectionPromptEnabled'),
   isCoachOpen: () => !!isCoachWindowOpen(),
   isCueActive: () => audioManager.isCueActive(),
   openWindow: () => createCallPromptWindow(),
@@ -2976,6 +2987,13 @@ ipcMain.on('set-open-last-used-cache', (_event, openLastUsed: boolean) => {
   // 'user' would add is a generation bump. Split the senders if it ever gets
   // one.
   cacheStore.setValue('openLastUsed', openLastUsed, 'server');
+});
+
+// Confirmed "Meeting detection" write from Settings (SAYSO-531). Turning it off
+// also closes a prompt that's already up.
+ipcMain.on('set-call-detection-prompt-enabled-cache', (_event, enabled: boolean) => {
+  cacheStore.setValue('callDetectionPromptEnabled', enabled, 'server');
+  if (enabled === false) hideCallDetectedPrompt('disabled');
 });
 
 ipcMain.handle('get-open-last-used-cache', () => {

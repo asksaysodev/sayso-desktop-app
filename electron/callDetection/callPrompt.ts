@@ -12,7 +12,8 @@ export type CallPromptHideReason =
   | 'timeout'
   | 'call-ended'
   | 'coach-opened'
-  | 'signed-out';
+  | 'signed-out'
+  | 'disabled';
 
 export interface CallPromptDeps {
   canPrompt: () => boolean;

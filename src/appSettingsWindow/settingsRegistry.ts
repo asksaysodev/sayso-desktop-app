@@ -8,6 +8,8 @@ export const LAUNCH_AT_LOGIN_DESCRIPTION = IS_WINDOWS
     ? 'Automatically start Sayso in the taskbar when your computer starts'
     : 'Automatically start Sayso in the tray when your Mac starts';
 
+export const MEETING_DETECTION_DESCRIPTION = 'Ask to launch Sayso when a call starts in your browser';
+
 export interface SettingsRegistryEntry {
     id: string;
     label: string;
@@ -30,6 +32,13 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
         label: 'Launch at Login',
         description: LAUNCH_AT_LOGIN_DESCRIPTION,
         keywords: ['launch', 'login', 'startup', 'autostart', 'auto start', 'start', 'mac', 'windows', 'computer', 'tray', 'taskbar', 'general'],
+        section: 'general',
+    },
+    {
+        id: 'meeting-detection',
+        label: 'Meeting detection',
+        description: MEETING_DETECTION_DESCRIPTION,
+        keywords: ['meeting', 'call', 'detection', 'detect', 'prompt', 'popup', 'widget', 'launch', 'browser', 'general'],
         section: 'general',
     },
     {

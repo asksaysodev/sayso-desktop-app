@@ -8,6 +8,7 @@ import postAutoStopTimeDelay from "../services/cue/postAutoStopTimeDelay";
 import updateFontSize from "../services/accessibility/updateFontSize";
 import postOpenLastUsed from "../services/cue/postOpenLastUsed";
 import postPulseEnabled from "../services/cue/postPulseEnabled";
+import postCallDetectionPromptEnabled from "../services/cue/postCallDetectionPromptEnabled";
 import { setDefaultPlaybook, updatePlaybookOrder } from "@/playbookWindow/services/playbookServices";
 import { GetCoachSettingsResponse } from "../types";
 import { Playbook } from "@/playbookWindow/types";
@@ -127,6 +128,36 @@ export default function useCoachSettings() {
         },
     });
 
+    const { mutate: mutateCallDetectionPromptEnabled } = useMutation({
+        mutationKey: ['post-call-detection-prompt-enabled'],
+        mutationFn: postCallDetectionPromptEnabled,
+        onMutate: async (callDetectionPromptEnabled: boolean) => {
+            await queryClient.cancelQueries({ queryKey: ['sales-coach-settings'] });
+            const prev = queryClient.getQueryData<GetCoachSettingsResponse>(['sales-coach-settings']);
+            if (prev) {
+                queryClient.setQueryData<GetCoachSettingsResponse>(['sales-coach-settings'], {
+                    ...prev,
+                    call_detection_prompt_enabled: callDetectionPromptEnabled,
+                });
+            }
+            return { prev };
+        },
+        onError: (error, _val, context) => {
+            if (context?.prev !== undefined) {
+                queryClient.setQueryData(['sales-coach-settings'], context.prev);
+            }
+            Sentry.captureException(error);
+        },
+        onSuccess: (data) => {
+            // Main gates the call-detected prompt on its cached copy; push the
+            // confirmed value so the change applies to the next call.
+            window.electron?.ipcRenderer?.send('set-call-detection-prompt-enabled-cache', data.callDetectionPromptEnabled);
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey: ['sales-coach-settings'] });
+        },
+    });
+
     const { mutate: mutateDefaultPlaybook } = useMutation({
         mutationKey: ['set-default-playbook'],
         mutationFn: setDefaultPlaybook,
@@ -214,6 +245,7 @@ export default function useCoachSettings() {
         mutateUpdateFontSize,
         mutateOpenLastUsed,
         mutatePulseEnabled,
+        mutateCallDetectionPromptEnabled,
         mutateDefaultPlaybook,
         mutatePlaybookOrder,
     }

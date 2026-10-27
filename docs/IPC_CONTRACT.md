@@ -140,6 +140,7 @@ not a target.
 | `call-prompt:launch` | send | Widget's "Launch Sayso": hides the prompt, opens or focuses the coach window (no session). |
 | `call-prompt:dismiss` | send | Hides the prompt; no re-show for the same mic session. |
 | `dev:show-call-prompt` | send | Dev-only tray trigger; no-op when `app.isPackaged`. |
+| `set-call-detection-prompt-enabled-cache` | send | Settings pushes the confirmed "Meeting detection" value into main's cache (SAYSO-531); `false` also closes an open prompt. |
 
 > The **channels** are universal. The window's above-full-screen behavior uses
 > `setVisibleOnAllWorkspaces` on macOS only, inside `createCallPromptWindow()`.
