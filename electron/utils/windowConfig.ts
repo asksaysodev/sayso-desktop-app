@@ -39,6 +39,12 @@ const WINDOW_CONFIG = {
     MINIMIZABLE: false,
     FULLSCREENABLE: false,
     HAS_SHADOW: false
+  },
+  // Placeholder size until the SAYSO-530 design lands
+  CALL_PROMPT: {
+    WIDTH: 340,
+    HEIGHT: 112,
+    MARGIN: 16
   }
 };
 

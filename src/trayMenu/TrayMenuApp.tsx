@@ -248,6 +248,18 @@ const TrayMenuApp = () => {
           </>
         )}
 
+        {import.meta.env.DEV && isAuthenticated && (
+          <>
+            <button
+              className="tray-menu-item"
+              onClick={() => window.electron?.ipcRenderer?.send('dev:show-call-prompt')}
+            >
+              <span className="tray-menu-item-label">Test call prompt</span>
+            </button>
+            <div className="tray-menu-separator" />
+          </>
+        )}
+
         <button className="tray-menu-item" onClick={handleOpenHelpCenter}>
           <span className="tray-menu-item-label">Help Center</span>
           <ExternalLink size={16} />

@@ -1,6 +1,6 @@
 # Call detection (SAYSO-528)
 
-When another app, in v1 a browser, holds the mic for 3s, the main process emits `call-candidate`. SAYSO-529 turns that into the "Launch Sayso?" widget.
+When another app, in v1 a browser, holds the mic for 3s, the main process emits `call-candidate`, which shows the "Launch Sayso?" widget (SAYSO-529).
 
 ## Pieces
 
@@ -10,7 +10,9 @@ When another app, in v1 a browser, holds the mic for 3s, the main process emits 
 | Glue | `electron/mic-activity/src/mic_activity.cc`, `index.js` | NAN `start(cb)` / `stop()` / `mode()` |
 | Service | `electron/callDetection/micActivityMonitor.ts` | Resolve the app, exclude Sayso, filter to browsers, debounce, emit `call-candidate` / `call-ended` |
 | Allowlist | `electron/callDetection/browserAllowlist.ts` | Browser bundle ids (macOS) and exe names (Windows) |
-| Wiring | `electron/main.ts` | Start on `signed-in`. Stop on sign-out, session expiry and quit. Per-call subscription check |
+| Prompt | `electron/callDetection/callPrompt.ts` | Show/hide rules, 15s auto-hide, dismissed sessions |
+| Widget | `call-detected-window.html`, `src/callDetectedWindow/` | Placeholder UI until the SAYSO-530 design |
+| Wiring | `electron/main.ts` | Start on `signed-in`. Stop on sign-out, session expiry and quit. Per-call subscription check. Creates the widget window |
 
 The addon is separate from `electron/native-audio/` on purpose, because another team owns that one. Packaging builds the native-audio addon first, unchanged, and builds this one afterwards. Any failure here is a warning, and the app ships without detection.
 
@@ -54,6 +56,25 @@ Run `node scripts/mic-activity-watch.js` (plain-Node build, see `CLAUDE.md`). St
 Check these for false positives: Dictation, Siri, Loom, Google voice search.
 
 Packaged check: run `npm run package:staging`, sign in and start a Chrome call. Confirm the log shows `[CallDetection] call detected`, no prompt appears, and `codesign -dv` on `app.asar.unpacked/electron/mic-activity/build/Release/mic_activity.node` passes.
+
+## Prompt (SAYSO-529)
+
+`showCallDetectedPrompt(session)` in `callPrompt.ts` is the single entry point; `call-candidate` reaches it through `onCallCandidate`, which first checks `canPrompt()` (signed in, subscribed, not reconnecting). It shows nothing if the coach window is open, Cue is active, a prompt is already up, or the user already dismissed this session.
+
+- Window: top-right of the display under the cursor, inside the work area (16px margin). `focusable: false` + `showInactive()` so it never takes focus from the call; `setAlwaysOnTop(true, 'screen-saver')`, plus `visibleOnFullScreen` on macOS, so it sits over a full-screen browser. Created on show, destroyed on hide.
+- **Launch Sayso** → `launchFromCallPrompt()`: hides the widget, then opens or focuses the coach window (same path as the tray, mic-permission check included). No session starts; this is the one function to change if the CTA should start one.
+- Hide reasons:
+
+| Reason | Trigger | Marks session dismissed |
+|---|---|---|
+| `launch` | Launch Sayso | no |
+| `dismiss` | Dismiss button, or the window closed from outside | yes |
+| `timeout` | 15s untouched (`CALL_PROMPT_AUTO_HIDE_MS`) | yes |
+| `call-ended` | the prompted call ended | no |
+| `coach-opened` | `createCoachWindow()` from any path | no |
+| `signed-out` | sign-out / session expiry | no; clears all dismissed sessions |
+
+`call-ended` clears the session from the dismissed set, so the next call prompts again. Dev: the tray shows a "Test call prompt" row in `npm run dev` builds.
 
 ## Go / no-go
 

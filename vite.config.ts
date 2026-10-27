@@ -67,6 +67,7 @@ export default defineConfig({
         'splash-window': resolve(__dirname, 'splash-window.html'),
         'playbook-window': resolve(__dirname, 'playbook-window.html'),
         'onboarding-window': resolve(__dirname, 'onboarding-window.html'),
+        'call-detected-window': resolve(__dirname, 'call-detected-window.html'),
       },
       output: {
         manualChunks: undefined, // Disable manual chunks for better Electron compatibility

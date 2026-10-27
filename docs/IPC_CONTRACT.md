@@ -133,6 +133,17 @@ not a target.
 > **feed** differs per OS (Squirrel.Mac vs. Squirrel.Windows / NSIS) and the
 > ShipIt-watchdog install step is darwin-only — see "Non-IPC platform code".
 
+### Call-detected prompt — **universal** (`electron/callDetection/callPrompt.ts`)
+
+| Channel | Kind | Notes |
+|---|---|---|
+| `call-prompt:launch` | send | Widget's "Launch Sayso": hides the prompt, opens or focuses the coach window (no session). |
+| `call-prompt:dismiss` | send | Hides the prompt; no re-show for the same mic session. |
+| `dev:show-call-prompt` | send | Dev-only tray trigger; no-op when `app.isPackaged`. |
+
+> The **channels** are universal. The window's above-full-screen behavior uses
+> `setVisibleOnAllWorkspaces` on macOS only, inside `createCallPromptWindow()`.
+
 ### Launch at login — **universal**
 
 | Channel | Kind | Notes |

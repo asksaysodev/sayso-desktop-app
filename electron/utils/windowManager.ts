@@ -307,6 +307,45 @@ class WindowManager {
     };
   }
 
+  /**
+   * Top-right of the display the user is working on (the one under the
+   * cursor). workArea already excludes the menu bar and the taskbar.
+   */
+  static calculateCallPromptWindowPosition() {
+    const { workArea } = WindowManager.getActiveDisplay();
+    const { WIDTH, MARGIN } = WINDOW_CONFIG.CALL_PROMPT;
+    const x = workArea.x + workArea.width - WIDTH - MARGIN;
+    const y = workArea.y + MARGIN;
+    return { x: Math.round(x), y: Math.round(y) };
+  }
+
+  static getCallPromptWindowConfig() {
+    const { x, y } = this.calculateCallPromptWindowPosition();
+
+    return {
+      width: WINDOW_CONFIG.CALL_PROMPT.WIDTH,
+      height: WINDOW_CONFIG.CALL_PROMPT.HEIGHT,
+      x,
+      y,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      resizable: false,
+      maximizable: false,
+      minimizable: false,
+      fullscreenable: false,
+      hasShadow: false,
+      skipTaskbar: true,
+      show: false,
+      // Shown over a live call: never take keyboard focus from it
+      focusable: false,
+      // macOS: the first click on the unfocused window hits the button
+      acceptFirstMouse: true,
+      // See getCoachWindowConfig: fully transparent backing, no vibrancy
+      backgroundColor: '#00000000'
+    };
+  }
+
   static getAppSettingsWindowConfig() {
       const desiredWidth = 850;
       const desiredHeight = 610;
