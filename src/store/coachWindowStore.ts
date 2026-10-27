@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { v4 } from 'uuid';
+import { isAxiosError } from 'axios';
 import { cue_startStreaming, cue_stopStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
 import { CUE_STOP_MESSAGE, cueBillingRefusalMessage, cueStartErrorMessage } from '../coachWindow/helpers/cueErrorMessage';
@@ -250,7 +251,13 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
 
 			await cue_stopStreaming();
 			const sessionData = await get().cue_stopSession(sessionId);
-			if(!sessionData || !sessionData.session) {
+			if(sessionData === null) {
+				// Already gone server-side — nothing left to stop, so this is a clean stop.
+				get().cue_resetStates();
+				get().clearError();
+				return;
+			}
+			if(!sessionData.session) {
 				throw new Error('Failed to stop cue session');
 			}
             set({ sessionData, isCoachActive: false });
@@ -296,6 +303,13 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
             const response = await apiClient.post(`/cue/session/stop/${sessionId}`);
             return response.data;
         } catch (error) {
+            // 404 = the Redis session is gone (expired while the Mac slept, or
+            // already stopped). The session has ended, which is all a stop wants
+            // (SAYSO-532).
+            if (isAxiosError(error) && error.response?.status === 404) {
+                console.warn(`Cue session ${sessionId} already ended server-side`);
+                return null;
+            }
             console.error('Error stopping cue session:', error);
             throw error;
         }

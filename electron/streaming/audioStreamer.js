@@ -158,6 +158,9 @@ class AudioStreamer {
         this._scheduleFailureReport(null, 'reconnect-exhausted', REPORT_GRACE_MS);
       });
 
+      this.userWebSocket.on('session-gone', () => this._handleSessionGone('user'));
+      this.prospectWebSocket.on('session-gone', () => this._handleSessionGone('prospect'));
+
       // Listen for messages from prospect websocket (insights come through here)
       this.prospectWebSocket.on('message', (message) => {
         // Check if it's a message we care about forwarding
@@ -214,6 +217,25 @@ class AudioStreamer {
         clearTimeout(socket.reconnectTimer);
         socket.reconnectTimer = null;
       }
+    }
+  }
+
+  /**
+   * A reconnect was refused with 403: the server dropped the session while the
+   * socket was down, so the session_expired it would have sent never arrived
+   * (SAYSO-532). End the session exactly as that message would. Both sockets
+   * usually get here; the first one wins.
+   * @private
+   */
+  _handleSessionGone(speaker) {
+    if (this.autoStopping) {
+      return;
+    }
+    console.warn(`⚠️ [AudioStreamer] ${speaker} reconnect refused (403) — session ended server-side`);
+    this.autoStopping = true;
+    this._cancelPendingReconnects();
+    if (this.onMessage) {
+      this.onMessage({ type: 'session_expired' });
     }
   }
 

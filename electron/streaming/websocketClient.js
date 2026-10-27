@@ -4,7 +4,7 @@
 const WebSocket = require('ws');
 const EventEmitter = require('events');
 const { getWebSocketUrl, CONNECTION_CONFIG, STREAMING_ENDPOINTS } = require('./streamingConfig');
-const { reportStreamingError } = require('./streamingSentry');
+const { reportStreamingError, streamingErrorCode } = require('./streamingSentry');
 
 /**
  * WebSocketClient - Manages WebSocket connection for audio streaming
@@ -43,6 +43,9 @@ class WebSocketClient extends EventEmitter {
     this.reconnectTimer = null;
     this.shouldReconnect = false;
     this.lastError = null;
+    // Whether this connect() has opened at least once — tells a reconnect's 403
+    // (session ended while we were away) from an initial connect's (a real bug).
+    this.hasConnected = false;
     // Settles the in-flight _connect() promise when disconnect() abandons it
     this._abortPendingConnect = null;
     
@@ -96,6 +99,7 @@ class WebSocketClient extends EventEmitter {
     this.shouldReconnect = true;
     this.reconnectAttempts = 0;
     this.lastError = null;
+    this.hasConnected = false;
     return this._connect();
   }
 
@@ -145,6 +149,7 @@ class WebSocketClient extends EventEmitter {
           this.state = 'connected';
           this.reconnectAttempts = 0;
           this.lastError = null;
+          this.hasConnected = true;
           this.emit('connected');
           resolve();
         });
@@ -169,6 +174,19 @@ class WebSocketClient extends EventEmitter {
           console.error(`❌ [WebSocketClient:${this.speaker}] WebSocket error:`, error.message);
           this.lastError = error;
           this.state = 'error';
+          // The server answers 403 only for session_not_found / _stopped /
+          // _forbidden — terminal for this sessionId, so a retry can never land.
+          // Token problems are 401 and server faults 503 (SAYSO-532).
+          if (streamingErrorCode(error) === 'HTTP_403') {
+            this.shouldReconnect = false;
+            if (this.hasConnected) {
+              // The session ended while the socket was down (typically the Mac
+              // slept past the Redis TTL). Expected, so not an 'error'.
+              this.emit('session-gone', error);
+              reject(error);
+              return;
+            }
+          }
           this.emit('error', error);
           reject(error);
         });
