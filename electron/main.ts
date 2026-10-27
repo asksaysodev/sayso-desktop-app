@@ -34,7 +34,7 @@ import * as audioManager from './audio/audioManager';
 import * as permissions from './permissions/permissionsManager';
 import * as cacheStore from './store/cacheManager';
 import { callDetection, startMicActivityMonitor, stopMicActivityMonitor, type MicSession } from './callDetection/micActivityMonitor';
-import { initCallPrompt, onCallCandidate, onCallEnded, showCallDetectedPrompt, hideCallDetectedPrompt, launchFromCallPrompt } from './callDetection/callPrompt';
+import { initCallPrompt, onCallCandidate, onCallEnded, showCallDetectedPrompt, hideCallDetectedPrompt, launchFromCallPrompt, setCallPromptHovered, CALL_PROMPT_ENTER_MS, CALL_PROMPT_EXIT_MS } from './callDetection/callPrompt';
 import { removeLegacyCacheFiles } from './store/persistentStore';
 import { formatLogArgs } from './shared/redact';
 import { enforceLogRetention } from './utils/logRetention';
@@ -571,7 +571,7 @@ initCallPrompt({
   isCoachOpen: () => !!isCoachWindowOpen(),
   isCueActive: () => audioManager.isCueActive(),
   openWindow: () => createCallPromptWindow(),
-  closeWindow: () => closeCallPromptWindow(),
+  closeWindow: (animate) => closeCallPromptWindow(animate),
   launchCoach: () => { void openCoachWindowFromUser(); },
 });
 
@@ -2056,7 +2056,8 @@ app.on('before-quit', async (event: Event) => {
   // Force cleanup of all audio capture before quitting
   await audioManager.cleanupAllAudioCapture();
   stopMicActivityMonitor();
-  closeCallPromptWindow();
+  closeCallPromptWindow(false);
+  if (closingCallPromptWindow && !closingCallPromptWindow.isDestroyed()) closingCallPromptWindow.close();
   unregisterGlobalShortcuts();
 });
 
@@ -2411,6 +2412,9 @@ ipcMain.on('call-prompt:launch', () => {
 });
 ipcMain.on('call-prompt:dismiss', () => {
   hideCallDetectedPrompt('dismiss');
+});
+ipcMain.on('call-prompt:hover', (_event, hovered: boolean) => {
+  setCallPromptHovered(hovered === true);
 });
 // Dev-only trigger from the tray; no-op in packaged builds.
 ipcMain.on('dev:show-call-prompt', () => {
@@ -2811,6 +2815,9 @@ const createCoachWindow = () => {
 // Created on show and destroyed on hide: it's rare, so no preloaded hidden
 // window. callPrompt.ts owns when; this only owns the window.
 let callPromptWindow: BrowserWindowType | null = null;
+// A window playing its slide-out. Kept apart from callPromptWindow so a new
+// prompt can open meanwhile and its 'closed' isn't read as an outside dismiss.
+let closingCallPromptWindow: BrowserWindowType | null = null;
 
 function createCallPromptWindow(): void {
   if (callPromptWindow && !callPromptWindow.isDestroyed()) return;
@@ -2838,8 +2845,18 @@ function createCallPromptWindow(): void {
     : `file://${path.join(__dirname, '../dist/call-detected-window.html')}`;
   win.loadURL(url);
 
+  // Slide in from past the screen edge: widened while hidden (transparent, so
+  // invisible), then back to its resting size once the card has landed, which
+  // keeps the edge strip clickable. The card is fixed-width, so it doesn't move.
+  const restingBounds = win.getBounds();
+  win.setBounds(WindowManager.getCallPromptSlideBounds(restingBounds));
   win.once('ready-to-show', () => {
-    if (!win.isDestroyed()) win.showInactive();
+    if (win.isDestroyed()) return;
+    win.showInactive();
+    setTimeout(() => {
+      // Not if it's already sliding out: the exit owns the bounds then
+      if (callPromptWindow === win && !win.isDestroyed()) win.setBounds(restingBounds);
+    }, CALL_PROMPT_ENTER_MS + 50);
   });
   win.on('closed', () => {
     // Still referenced = closed from outside callPrompt.ts; treat as a dismiss
@@ -2851,9 +2868,26 @@ function createCallPromptWindow(): void {
   });
 }
 
-function closeCallPromptWindow(): void {
-  if (callPromptWindow && !callPromptWindow.isDestroyed()) callPromptWindow.close();
+function closeCallPromptWindow(animate: boolean): void {
+  const win = callPromptWindow;
   callPromptWindow = null;
+  if (!win || win.isDestroyed()) return;
+  if (!animate) {
+    win.close();
+    return;
+  }
+
+  // Widen to the screen edge only for the exit, so the card slides off the
+  // edge instead of being clipped short — and the strip stays clickable
+  // (browser scrollbars) while the prompt is up. Transparent, so invisible.
+  win.setBounds(WindowManager.getCallPromptSlideBounds(win.getBounds()));
+  win.webContents.send('call-prompt:exit');
+  closingCallPromptWindow = win;
+  // Closes whether or not the renderer animated (reduced motion, not loaded yet)
+  setTimeout(() => {
+    if (!win.isDestroyed()) win.close();
+    if (closingCallPromptWindow === win) closingCallPromptWindow = null;
+  }, CALL_PROMPT_EXIT_MS + 50);
 }
 
 // Update the resize handler to use WindowManager

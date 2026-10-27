@@ -10,8 +10,8 @@ When another app, in v1 a browser, holds the mic for 3s, the main process emits 
 | Glue | `electron/mic-activity/src/mic_activity.cc`, `index.js` | NAN `start(cb)` / `stop()` / `mode()` |
 | Service | `electron/callDetection/micActivityMonitor.ts` | Resolve the app, exclude Sayso, filter to browsers, debounce, emit `call-candidate` / `call-ended` |
 | Allowlist | `electron/callDetection/browserAllowlist.ts` | Browser bundle ids (macOS) and exe names (Windows) |
-| Prompt | `electron/callDetection/callPrompt.ts` | Show/hide rules, 15s auto-hide, dismissed sessions |
-| Widget | `call-detected-window.html`, `src/callDetectedWindow/` | Placeholder UI until the SAYSO-530 design |
+| Prompt | `electron/callDetection/callPrompt.ts` | Show/hide rules, 10s auto-hide, dismissed sessions |
+| Widget | `call-detected-window.html`, `src/callDetectedWindow/` | The SAYSO-530 design: dark card, Dismiss / Launch Coach, timer band |
 | Wiring | `electron/main.ts` | Start on `signed-in`. Stop on sign-out, session expiry and quit. Per-call subscription check. Creates the widget window |
 
 The addon is separate from `electron/native-audio/` on purpose, because another team owns that one. Packaging builds the native-audio addon first, unchanged, and builds this one afterwards. Any failure here is a warning, and the app ships without detection.
@@ -71,15 +71,20 @@ Packaged check: run `npm run package:staging`, sign in and start a Chrome call. 
 
 `showCallDetectedPrompt(session)` in `callPrompt.ts` is the single entry point; `call-candidate` reaches it through `onCallCandidate`, which first checks `canPrompt()` (signed in, subscribed, not reconnecting, and the "Meeting detection" setting on). It shows nothing if the coach window is open, Cue is active, a prompt is already up, or the user already dismissed this session.
 
-- Window: top-right of the display under the cursor, inside the work area (16px margin). `focusable: false` + `showInactive()` so it never takes focus from the call; `setAlwaysOnTop(true, 'screen-saver')`, plus `visibleOnFullScreen` on macOS, so it sits over a full-screen browser. Created on show, destroyed on hide.
-- **Launch Sayso** → `launchFromCallPrompt()`: hides the widget, then opens or focuses the coach window (same path as the tray, mic-permission check included). No session starts; this is the one function to change if the CTA should start one.
+- Window: top-right of the display under the cursor, inside the work area: the card sits 31px from the right and 52px below the top (Figma), the window adding 16px of transparent room for its shadow (`WINDOW_CONFIG.CALL_PROMPT`). `focusable: false` + `showInactive()` so it never takes focus from the call; `setAlwaysOnTop(true, 'screen-saver')`, plus `visibleOnFullScreen` on macOS, so it sits over a full-screen browser. Created on show, destroyed on hide.
+- Look (SAYSO-530): the countdown is a lighter fill sweeping the Dismiss button left to right over the 10s; its CSS duration mirrors `CALL_PROMPT_AUTO_HIDE_MS`.
+- Hover: the pointer over the card pauses the auto-hide (`call-prompt:hover` → `setCallPromptHovered`); leaving resumes it with the time that was left. The countdown fill pauses with it.
+- Enter: the card slides in from past the right screen edge (250ms ease-out, `CALL_PROMPT_ENTER_MS`).
+- Exit: `timeout` and `dismiss` slide the card back off the right edge (200ms ease-in, `CALL_PROMPT_EXIT_MS`); the other reasons close instantly. Main sends `call-prompt:exit` and closes the window after the animation whether or not it played.
+- For both slides main widens the window to the work area's right edge (transparent, so invisible), otherwise the card would be clipped 15px short of the screen edge. It's back at its resting size once the card has landed, so that edge strip (browser scrollbars) stays clickable while the prompt is up. The card has a fixed width so resizing never moves it. Corners are concentric: the logo tile and buttons use card radius − padding (24 − 12 = 12px), encoded as `--radius-inner`. Font: DM Sans (`@fontsource-variable/dm-sans`, this window only).
+- **Launch Coach** → `launchFromCallPrompt()`: hides the widget, then opens or focuses the coach window (same path as the tray, mic-permission check included). No session starts; this is the one function to change if the CTA should start one.
 - Hide reasons:
 
 | Reason | Trigger | Marks session dismissed |
 |---|---|---|
-| `launch` | Launch Sayso | no |
+| `launch` | Launch Coach | no |
 | `dismiss` | Dismiss button, or the window closed from outside | yes |
-| `timeout` | 15s untouched (`CALL_PROMPT_AUTO_HIDE_MS`) | yes |
+| `timeout` | 10s untouched (`CALL_PROMPT_AUTO_HIDE_MS`) | yes |
 | `call-ended` | the prompted call ended | no |
 | `coach-opened` | `createCoachWindow()` from any path | no |
 | `signed-out` | sign-out / session expiry | no; clears all dismissed sessions |

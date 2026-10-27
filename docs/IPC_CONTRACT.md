@@ -137,8 +137,9 @@ not a target.
 
 | Channel | Kind | Notes |
 |---|---|---|
-| `call-prompt:launch` | send | Widget's "Launch Sayso": hides the prompt, opens or focuses the coach window (no session). |
+| `call-prompt:launch` | send | Widget's "Launch Coach": hides the prompt, opens or focuses the coach window (no session). |
 | `call-prompt:dismiss` | send | Hides the prompt; no re-show for the same mic session. |
+| `call-prompt:hover` | send | `boolean`: pointer entered / left the card. Pauses / resumes the auto-hide with the remaining time. |
 | `dev:show-call-prompt` | send | Dev-only tray trigger; no-op when `app.isPackaged`. |
 | `set-call-detection-prompt-enabled-cache` | send | Settings pushes the confirmed "Meeting detection" value into main's cache (SAYSO-531); `false` also closes an open prompt. |
 
@@ -186,6 +187,12 @@ call site.
 | `auth-tokens-refreshed` | Refreshed tokens payload (backward-compat for unmigrated windows). |
 | `auth:session-expired` | Session expired. |
 | `auth-session-expired` | Session expired (backward-compat alias). |
+
+**Call-detected prompt (to the widget window only)**
+
+| Channel | Purpose |
+|---|---|
+| `call-prompt:exit` | Play the slide-out; main has already widened the window to the screen edge and closes it `CALL_PROMPT_EXIT_MS` later (timeout, dismiss). |
 
 **Cue**
 
