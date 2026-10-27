@@ -47,15 +47,11 @@ static double g_actualStartMs = 0.0;
 static bool g_streamingOnly = false;
 
 // Global streaming callback for real-time audio chunks
+// (chunks reach it through g_sckAudioPipe, below)
 static Nan::Persistent<v8::Function> g_streamingCallback;
-static uv_async_t* g_streamingAsyncHandle = nullptr;
-// SAYSO-430: the SCK sample queue sends through g_streamingAsyncHandle while the JS thread detaches
-// and closes it on stop/clear. Guards the pointer and its ->data slot; never held across a JS call.
-static std::mutex g_streamingHandleMutex;
 
-// Separate callback for microphone audio
+// Separate callback for microphone audio (chunks reach it through g_micAudioPipe)
 static Nan::Persistent<v8::Function> g_micStreamingCallback;
-static uv_async_t* g_micStreamingAsyncHandle = nullptr;
 
 // Native→JS lifecycle diagnostics channel (SAYSO-355; also the transport for SAYSO-353's mic
 // route events). Deliberately NOT the handle->data pattern: producers append strings to a
@@ -171,93 +167,112 @@ struct StreamingData {
     float gainDb = 0;
 };
 
-// Async callback handler (runs on main thread)
-static void StreamingAsyncCallback(uv_async_t* handle) {
-    Nan::HandleScope scope;
-    
-    // Take ownership of the pending chunk; the SCK queue may be writing the slot concurrently.
-    StreamingData* data;
-    {
-        std::lock_guard<std::mutex> lk(g_streamingHandleMutex);
-        data = static_cast<StreamingData*>(handle->data);
-        handle->data = nullptr;
-    }
-    if (!data) {
-        return;
-    }
-    if (g_streamingCallback.IsEmpty()) {
-        delete data;
-        return;
-    }
-    
-    // Create Buffer from audio data
-    Local<Object> buffer = Nan::CopyBuffer(data->audioData.data(), data->audioData.size()).ToLocalChecked();
-    
-    // Create format object
-    Local<Object> format = Nan::New<Object>();
-    Nan::Set(format, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(data->sampleRate));
-    Nan::Set(format, Nan::New("channels").ToLocalChecked(), Nan::New<Integer>(data->channels));
-    Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(data->bitDepth));
-    Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(data->isFloat));
-    
-    // Invoke callback
-    Local<Function> callback = Nan::New(g_streamingCallback);
-    Local<Value> argv[2] = {buffer, format};
-    Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
+// Native→JS audio chunk channel, one per stream (SCK prospect audio, mic tap). Audio threads post
+// chunks; the JS thread drains them and owns the handle's lifetime. Before SAYSO-430 each stream had
+// a bare uv_async_t* plus a single ->data slot, unguarded: JS cleared the callback (nulling and
+// uv_close'ing the handle) while an audio thread sat between its null check and its write, and the
+// write went through a null or freed handle (SAYSO-APP-82's SCStream shape, reproduced 10-27 with a
+// few Cue resets; the mic copy was SAYSO-362). A second unconsumed chunk also overwrote the first.
+// Now: the handle is only touched under the pipe's mutex, chunks queue instead of overwriting, and
+// audio threads never read V8 state — a non-null handle is the "callback is set" signal.
+struct SaysoAudioPipe {
+    std::mutex mutex;                     // never held across a JS call
+    uv_async_t* handle = nullptr;         // non-null ⟺ a JS callback is set
+    std::vector<StreamingData*> pending;
+};
+static SaysoAudioPipe g_sckAudioPipe;
+static SaysoAudioPipe g_micAudioPipe;
+// ~5s of mic or SCK audio; only reached if the JS thread stalls. Oldest chunks go first.
+static const size_t kSaysoAudioPipeMaxPending = 256;
 
-    delete data;
+// Any thread. Takes ownership of `data`. Returns false (data freed) when no callback is set.
+static bool SaysoAudioPipePost(SaysoAudioPipe& pipe, StreamingData* data) {
+    std::lock_guard<std::mutex> lk(pipe.mutex);
+    if (!pipe.handle) {
+        delete data;
+        return false;
+    }
+    if (pipe.pending.size() >= kSaysoAudioPipeMaxPending) {
+        delete pipe.pending.front();
+        pipe.pending.erase(pipe.pending.begin());
+    }
+    pipe.pending.push_back(data);
+    uv_async_send(pipe.handle);
+    return true;
 }
 
-// JS thread only. Detaches the handle under the lock — after this the SCK queue can no longer reach
-// it — then closes it. Clearing it from the SCK stop completion instead (off the JS thread, with no
-// lock) let an in-flight buffer pass the null check and then write through the nulled pointer
-// (SAYSO-APP-82's SCStream shape; reproduced 10-27 with a few Cue resets).
-static void SaysoCloseStreamingAsyncHandle() {
-    uv_async_t* handleToClose;
-    {
-        std::lock_guard<std::mutex> lk(g_streamingHandleMutex);
-        handleToClose = g_streamingAsyncHandle;
-        g_streamingAsyncHandle = nullptr;
+// Any thread.
+static bool SaysoAudioPipeIsOpen(SaysoAudioPipe& pipe) {
+    std::lock_guard<std::mutex> lk(pipe.mutex);
+    return pipe.handle != nullptr;
+}
+
+// JS thread only. The handle is published only once initialized.
+static void SaysoAudioPipeOpen(SaysoAudioPipe& pipe, uv_async_cb cb) {
+    std::lock_guard<std::mutex> lk(pipe.mutex);
+    if (pipe.handle) {
+        return;
     }
-    if (handleToClose) {
-        uv_close((uv_handle_t*)handleToClose, [](uv_handle_t* handle) {
-            delete static_cast<StreamingData*>(handle->data);
+    uv_async_t* h = new uv_async_t();
+    uv_async_init(uv_default_loop(), h, cb);
+    pipe.handle = h;
+}
+
+// JS thread only. Once the handle is detached under the lock no audio thread can reach it, so it
+// can be closed outside the lock. Undelivered chunks are dropped.
+static void SaysoAudioPipeClose(SaysoAudioPipe& pipe) {
+    uv_async_t* h;
+    std::vector<StreamingData*> dropped;
+    {
+        std::lock_guard<std::mutex> lk(pipe.mutex);
+        h = pipe.handle;
+        pipe.handle = nullptr;
+        dropped.swap(pipe.pending);
+    }
+    for (StreamingData* d : dropped) {
+        delete d;
+    }
+    if (h) {
+        uv_close((uv_handle_t*)h, [](uv_handle_t* handle) {
             delete reinterpret_cast<uv_async_t*>(handle);
         });
     }
 }
 
-// Separate callback for microphone audio
-static void MicStreamingAsyncCallback(uv_async_t* handle) {
-    Nan::HandleScope scope;
-    
-    // Get the data from the handle
-    StreamingData* data = static_cast<StreamingData*>(handle->data);
-    if (!data || g_micStreamingCallback.IsEmpty()) {
-        if (data) delete data;
-        return;
+// JS thread. Swap-then-invoke, like the lifecycle queue. The callback may clear itself mid-drain,
+// so it is re-checked per chunk.
+static void SaysoAudioPipeDrain(SaysoAudioPipe& pipe, Nan::Persistent<v8::Function>& callback, bool withGainDb) {
+    std::vector<StreamingData*> chunks;
+    {
+        std::lock_guard<std::mutex> lk(pipe.mutex);
+        chunks.swap(pipe.pending);
     }
-    
-    // Create Buffer from audio data
-    Local<Object> buffer = Nan::CopyBuffer(data->audioData.data(), data->audioData.size()).ToLocalChecked();
-    
-    // Create format object
-    Local<Object> format = Nan::New<Object>();
-    Nan::Set(format, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(data->sampleRate));
-    Nan::Set(format, Nan::New("channels").ToLocalChecked(), Nan::New<Integer>(data->channels));
-    Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(data->bitDepth));
-    Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(data->isFloat));
-    
-    Nan::Set(format, Nan::New("gainDb").ToLocalChecked(), Nan::New<Number>(data->gainDb));
+    Nan::HandleScope scope;
+    for (StreamingData* data : chunks) {
+        if (!callback.IsEmpty()) {
+            Local<Object> buffer = Nan::CopyBuffer(data->audioData.data(), data->audioData.size()).ToLocalChecked();
+            Local<Object> format = Nan::New<Object>();
+            Nan::Set(format, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(data->sampleRate));
+            Nan::Set(format, Nan::New("channels").ToLocalChecked(), Nan::New<Integer>(data->channels));
+            Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(data->bitDepth));
+            Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(data->isFloat));
+            if (withGainDb) {
+                Nan::Set(format, Nan::New("gainDb").ToLocalChecked(), Nan::New<Number>(data->gainDb));
+            }
+            Local<Function> fn = Nan::New(callback);
+            Local<Value> argv[2] = {buffer, format};
+            Nan::Call(fn, Nan::GetCurrentContext()->Global(), 2, argv);
+        }
+        delete data;
+    }
+}
 
-    // Invoke callback
-    Local<Function> callback = Nan::New(g_micStreamingCallback);
-    Local<Value> argv[2] = {buffer, format};
-    Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
+static void StreamingAsyncCallback(uv_async_t* /*handle*/) {
+    SaysoAudioPipeDrain(g_sckAudioPipe, g_streamingCallback, false);
+}
 
-    // Clean up
-    delete data;
-    handle->data = nullptr;
+static void MicStreamingAsyncCallback(uv_async_t* /*handle*/) {
+    SaysoAudioPipeDrain(g_micAudioPipe, g_micStreamingCallback, true);
 }
 
 // JS-thread drain for the lifecycle queue. Swap-then-invoke so producers never block on V8.
@@ -828,23 +843,15 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
         // Streaming-only mode: skip file writing but continue to streaming callback
     }
     
-    // Invoke streaming callback if set (for real-time streaming). The handle only exists while a
-    // callback is set, so it is the sole signal checked here — no V8 access off the JS thread.
-    std::lock_guard<std::mutex> lk(g_streamingHandleMutex);
-    if (g_streamingAsyncHandle) {
-        // Create data structure with audio data
+    // Hand the chunk to the JS thread (dropped inside the post if no callback is set).
+    if (SaysoAudioPipeIsOpen(g_sckAudioPipe)) {
         StreamingData* data = new StreamingData();
         data->audioData.assign(audioDataToWrite, audioDataToWrite + bytesToWrite);
         data->sampleRate = g_audioFormat.mSampleRate;
         data->channels = g_audioFormat.mChannelsPerFrame;
         data->bitDepth = g_audioFormat.mBitsPerChannel;
         data->isFloat = (g_audioFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0;
-
-        // Single slot: a chunk the JS thread hasn't picked up yet is replaced (it was overwritten,
-        // and leaked, before).
-        delete static_cast<StreamingData*>(g_streamingAsyncHandle->data);
-        g_streamingAsyncHandle->data = data;
-        uv_async_send(g_streamingAsyncHandle);
+        SaysoAudioPipePost(g_sckAudioPipe, data);
     }
 }
 
@@ -1054,7 +1061,7 @@ static void SckStopSettledCb(uv_async_t* handle) {
     g_sckStopPending = nullptr;
     // Before the promise resolves, so JS sees the same order as when this ran in the SCK completion.
     g_streamingCallback.Reset();
-    SaysoCloseStreamingAsyncHandle();
+    SaysoAudioPipeClose(g_sckAudioPipe);
 
     Nan::HandleScope scope;
     Isolate* isolate = Isolate::GetCurrent();
@@ -1892,11 +1899,14 @@ static dispatch_queue_t SaysoMicRouteRestartQueue();
 // queues fresh blocks against every engine still alive. So an engine is released only once it is at
 // least kMicEngineQuarantineMs old AND no audio device change has been seen for kMicEngineQuietMs —
 // i.e. when its listener's backlog is empty and nothing is refilling it.
-// No hard cap: evicting early brings the race back. Worst case (SAYSO-383's cold-start retry under
-// device churn) is single-digit engines alive at once; kMicEngineQuarantineWarnCount flags anything
-// beyond that. Only touched on SaysoMicRouteRestartQueue, so the deque needs no lock.
+// Evicting early brings the race back, so the only cap is kMicEngineMaxParkMs: devices that never
+// settle for 3s (a flapping Bluetooth link) would otherwise keep every engine alive forever. Normal
+// worst case (SAYSO-383's cold-start retry under device churn) is single-digit engines alive at
+// once; kMicEngineQuarantineWarnCount flags anything beyond that. Only touched on
+// SaysoMicRouteRestartQueue, so the deque needs no lock.
 static const int64_t kMicEngineQuarantineMs = 5000;
 static const int64_t kMicEngineQuietMs = 3000;
+static const int64_t kMicEngineMaxParkMs = 60000;
 static const int64_t kMicEngineReapCheckMs = 1000;
 static const size_t kMicEngineQuarantineWarnCount = 10;
 struct SaysoParkedMicEngine {
@@ -1954,15 +1964,23 @@ static void SaysoScheduleMicEngineReap() {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kMicEngineReapCheckMs * NSEC_PER_MSEC),
                    SaysoMicRouteRestartQueue(), ^{
         g_micEngineReapScheduled = false;
-        const uint64_t now = SaysoNowNs();
+        // Load before reading the clock: a change stamped in between would otherwise be "newer than
+        // now", and the unsigned difference would wrap to a huge "quiet" period.
         const uint64_t lastChange = g_lastAudioDeviceChangeNs.load(std::memory_order_relaxed);
-        if (now - lastChange >= (uint64_t)kMicEngineQuietMs * NSEC_PER_MSEC) {
-            // Parked in order, so the front is always the oldest.
-            const uint64_t minAgeNs = (uint64_t)(kMicEngineQuarantineMs * NSEC_PER_MSEC);
-            while (!g_quarantinedMicEngines.empty() && now - g_quarantinedMicEngines.front().parkedNs >= minAgeNs) {
-                [g_quarantinedMicEngines.front().engine release];
-                g_quarantinedMicEngines.pop_front();
+        const uint64_t now = SaysoNowNs();
+        const bool quiet = now >= lastChange && now - lastChange >= (uint64_t)kMicEngineQuietMs * NSEC_PER_MSEC;
+        // Parked in order, so the front is always the oldest.
+        const uint64_t minAgeNs = (uint64_t)(kMicEngineQuarantineMs * NSEC_PER_MSEC);
+        const uint64_t maxAgeNs = (uint64_t)kMicEngineMaxParkMs * NSEC_PER_MSEC;
+        while (!g_quarantinedMicEngines.empty()) {
+            const uint64_t age = now - g_quarantinedMicEngines.front().parkedNs;
+            if (!(quiet && age >= minAgeNs) && age < maxAgeNs) break;
+            if (!quiet) {
+                NSLog(@"⚠️ [NATIVE] releasing a mic engine parked %llus without a quiet period — devices keep changing",
+                      (unsigned long long)(age / NSEC_PER_SEC));
             }
+            [g_quarantinedMicEngines.front().engine release];
+            g_quarantinedMicEngines.pop_front();
         }
         if (!g_quarantinedMicEngines.empty()) SaysoScheduleMicEngineReap();
     });
@@ -1974,7 +1992,7 @@ static void SaysoQuarantineMicEngine(AVAudioEngine* engine) {
     // We tear down because something just changed, even if the watch hasn't seen it yet.
     SaysoNoteAudioDeviceChange();
     g_quarantinedMicEngines.push_back({engine, SaysoNowNs()});
-    if (g_quarantinedMicEngines.size() > kMicEngineQuarantineWarnCount) {
+    if (g_quarantinedMicEngines.size() == kMicEngineQuarantineWarnCount + 1) {   // once per spike
         NSLog(@"⚠️ [NATIVE] %zu mic engines in quarantine (expected ≤ %zu) — engine churn is unusually high",
               g_quarantinedMicEngines.size(), kMicEngineQuarantineWarnCount);
     }
@@ -2207,15 +2225,10 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
         g_micTapCallbacks.fetch_add(1, std::memory_order_relaxed);
         g_micTapLastCallbackMs.store(SaysoRealtimeNowMs(), std::memory_order_relaxed);
         
-        if (!g_micStreamingAsyncHandle) {
+        // No V8 access here: an open pipe is the "callback is set" signal (SAYSO-362).
+        if (!SaysoAudioPipeIsOpen(g_micAudioPipe)) {
             g_micTapDroppedNoHandle.fetch_add(1, std::memory_order_relaxed);
-            NSLog(@"⚠️ [NATIVE] Mic callback skipped - microphone streaming async handle is null");
-            return;
-        }
-        
-        if (g_micStreamingCallback.IsEmpty()) {
-            g_micTapDroppedNoCallback.fetch_add(1, std::memory_order_relaxed);
-            NSLog(@"⚠️ [NATIVE] Mic callback skipped - microphone streaming callback is empty");
+            NSLog(@"⚠️ [NATIVE] Mic callback skipped - no microphone streaming callback set");
             return;
         }
         
@@ -2322,8 +2335,10 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
         g_micFirstTapSeen.store(true, std::memory_order_release);
         g_micTapDelivered.fetch_add(1, std::memory_order_relaxed);
         g_micTapLastDeliveredMs.store(SaysoRealtimeNowMs(), std::memory_order_relaxed);
-        g_micStreamingAsyncHandle->data = streamData;
-        uv_async_send(g_micStreamingAsyncHandle);
+        // Re-checked under the lock: JS may have cleared the callback since the check above.
+        if (!SaysoAudioPipePost(g_micAudioPipe, streamData)) {
+            g_micTapDroppedNoHandle.fetch_add(1, std::memory_order_relaxed);
+        }
     }];
     } @catch (NSException *ex) {
         NSLog(@"❌ [NATIVE] installTapOnBus failed: %@ — %@", ex.name, ex.reason);
@@ -2456,7 +2471,7 @@ static void SaysoPerformMicRestartIfCapturing(BOOL forcedAfterDefaultInputNotifi
     if (!g_isMicCapturing) {
         return;
     }
-    if (g_micStreamingCallback.IsEmpty() || !g_micStreamingAsyncHandle) {
+    if (!SaysoAudioPipeIsOpen(g_micAudioPipe)) {   // no V8 access off the JS thread
         return;
     }
 
@@ -2643,10 +2658,7 @@ NAN_METHOD(StartMicrophoneCapture) {
         return;
     }
 
-    if (!g_micStreamingAsyncHandle) {
-        g_micStreamingAsyncHandle = new uv_async_t;
-        uv_async_init(uv_default_loop(), g_micStreamingAsyncHandle, MicStreamingAsyncCallback);
-    }
+    SaysoAudioPipeOpen(g_micAudioPipe, MicStreamingAsyncCallback);
 
     __block bool alreadyActive = false;
     __block bool started = false;
@@ -2933,7 +2945,7 @@ NAN_METHOD(SetStreamingCallback) {
     if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
         // Clear callback
         g_streamingCallback.Reset();
-        SaysoCloseStreamingAsyncHandle();
+        SaysoAudioPipeClose(g_sckAudioPipe);
 
         info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
         return;
@@ -2947,14 +2959,7 @@ NAN_METHOD(SetStreamingCallback) {
     // Store persistent reference to callback
     g_streamingCallback.Reset(Nan::To<Function>(info[0]).ToLocalChecked());
     
-    // Create async handle if it doesn't exist; published under the lock only once initialized.
-    std::lock_guard<std::mutex> lk(g_streamingHandleMutex);
-    if (!g_streamingAsyncHandle) {
-        uv_async_t* h = new uv_async_t();
-        uv_async_init(uv_default_loop(), h, StreamingAsyncCallback);
-        h->data = nullptr;
-        g_streamingAsyncHandle = h;
-    }
+    SaysoAudioPipeOpen(g_sckAudioPipe, StreamingAsyncCallback);
     
     NSLog(@"🎤 [NATIVE] Streaming callback set");
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
@@ -2965,15 +2970,7 @@ NAN_METHOD(SetMicrophoneStreamingCallback) {
     if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
         // Clear callback
         g_micStreamingCallback.Reset();
-        
-        // Clean up async handle
-        if (g_micStreamingAsyncHandle) {
-            uv_async_t* handleToDelete = g_micStreamingAsyncHandle;
-            g_micStreamingAsyncHandle = nullptr;
-            uv_close((uv_handle_t*)handleToDelete, [](uv_handle_t* handle) {
-                delete reinterpret_cast<uv_async_t*>(handle);
-            });
-        }
+        SaysoAudioPipeClose(g_micAudioPipe);
         
         info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
         return;
@@ -2987,11 +2984,7 @@ NAN_METHOD(SetMicrophoneStreamingCallback) {
     // Store persistent reference to callback
     g_micStreamingCallback.Reset(Nan::To<Function>(info[0]).ToLocalChecked());
     
-    // Create async handle if it doesn't exist
-    if (!g_micStreamingAsyncHandle) {
-        g_micStreamingAsyncHandle = new uv_async_t();
-        uv_async_init(uv_default_loop(), g_micStreamingAsyncHandle, MicStreamingAsyncCallback);
-    }
+    SaysoAudioPipeOpen(g_micAudioPipe, MicStreamingAsyncCallback);
     
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
 }
