@@ -390,6 +390,9 @@ async function loadAuthUserProfile(accessToken: string, email: string | undefine
 async function loadBootSession(accessToken: string, email: string | undefined): Promise<void> {
   const headers = { Authorization: `Bearer ${accessToken}` };
 
+  // A restored session never emits 'signed-in', so the monitor starts here too.
+  startMicActivityMonitor();
+
   void cacheStore.refreshKey('playbooks', accessToken)
     .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
   void cacheStore.refreshKey('openLastUsed', accessToken)
@@ -492,6 +495,7 @@ authManager.on('token-refreshed', async (state: AuthState) => {
   // transiently at boot. Run the deferred profile/features/font-size fetch now.
   if (startupOfflinePending && state.isAuthenticated) {
     startupOfflinePending = false;
+    startMicActivityMonitor();
     console.log('[MAIN] Startup-offline recovery — fetching profile and features');
     void cacheStore.refreshKey('playbooks', state.accessToken!)
       .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
