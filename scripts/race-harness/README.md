@@ -48,6 +48,7 @@ ASan dylib — the harness scripts and hooks don't need to change.
 ./scripts/race-harness/run.sh race         # scenarios A/B/C (~90s @ 300 cycles)
 ./scripts/race-harness/run.sh orphan       # scenario D (~3 min @ 60 cycles, needs screen-recording permission)
 ./scripts/race-harness/run.sh mic          # scenario E (~3 min @ 200 cycles, needs mic permission)
+./scripts/race-harness/run.sh halchurn     # scenario F (~8 min @ 200 cycles, needs mic permission; toggles system audio defaults)
 HARNESS_CYCLES=1000 ./scripts/race-harness/run.sh race
 ```
 
@@ -72,6 +73,7 @@ proves nothing — `run.sh` will refuse to proceed past canary failure.
 | **C** (30% of `race`) | Clean start/stop, no injected delay | Common-path regression watch — this is the 99.9% path every real session takes |
 | **D** (`orphan`) | Watchdog wins *after* `SCStream` is genuinely running (real capture), must self-stop without touching globals that may belong to a newer start | The one branch `race` mode structurally cannot reach — needs a live SCK session |
 | **E** (`mic`) | Mic `startMicrophoneCapture`/`stopMicrophoneCapture` cycling, interleaved with a synthetic device-change trigger (`triggerMicRouteRestart`, a test-only export that calls the real `SaysoScheduleMicRouteDebouncedRestart` entry point) landing before, during, and right up against start/stop calls; one branch forces the `no_input_node` failure path deterministically | SAYSO-361's target: the 3 `AVAudioEngine` leak-then-release sites and the single-canonical-queue refactor (`StartMicrophoneCapture`/`StopMicrophoneCapture` now `dispatch_sync` onto the same queue `SaysoPerformMicRestartIfCapturing` uses) |
+| **F** (`halchurn`) | Mic start/stop/reset while the *system* fires real HAL and AudioUnit property changes at our engines (default input/output toggles, aggregate sub-device changes) | SAYSO-430's target: an `AVAudioIOUnit::IOUnitPropertyListener` block still queued when `MicEngineTeardownOnly` releases the engine (SAYSO-APP-82). Scenario E's `triggerMicRouteRestart` only simulates *our* restart and can't reach this |
 | **E-RT / E-RS** (`mic`, sub-scenarios) | Force both immediate restart attempts to fail so the real restart falls into SAYSO-353's backoff recovery loop. RT shrinks the ceiling and drives it to terminal failure, then clears the force-fail and fires a fresh notification — must still recover (the "never permanently latches" AC). RS clears the force-fail mid-backoff so a scheduled retry step succeeds for real. | SAYSO-353's target: the backoff/recovery state machine (`SaysoScheduleMicRouteRecoveryRetry`/`SaysoAttemptMicRouteRecovery`) and the new `AVAudioEngineConfigurationChangeNotification` observer add/remove pairing, which every cycle in every scenario now exercises incidentally |
 
 Each scenario's pass condition is "the process didn't crash under the
@@ -147,3 +149,71 @@ Still open for a future ticket: the `uv_async_t` lifetime / `handle->data`
 races (SAYSO-362/363) aren't covered by any scenario here yet — scenario E
 deliberately sets the mic streaming callback once and never clears it, so it
 does not exercise the delete-on-clear path those tickets fix.
+
+## SAYSO-430 (HAL churn scenario)
+
+Scenario F (`run.sh halchurn`, `harness-halchurn.js`, `apply-test-hooks.py` step 10)
+makes the system deliver real device-change callbacks to our engines. It creates
+two aggregate devices, `Sayso HAL churn` around the built-in mic and one around
+the current default output, and "churns" them while the driver starts, stops and
+resets mic capture. Each churn step is an apply/revert pair on one lever:
+
+| `HARNESS_CHURN_LEVER` | What a step changes | Reaches a running engine's `IOUnitPropertyListener`? |
+|---|---|---|
+| `mixed` (default) | default-output, default-input and subdevices in turn | yes |
+| `default-output` | system default output: original ↔ its aggregate (a display with speakers being plugged) | yes |
+| `default-input` | system default input: aggregate ↔ built-in mic (an AirPods connect, same physical mic) | yes |
+| `subdevices` | aggregate sub-devices: [built-in] ↔ [built-in + a virtual input] | yes |
+| `rate` | aggregate nominal rate 44.1k ↔ 48k | no: sets stop landing once an engine is doing IO |
+
+**Side effects while it runs:** the two aggregates show up system-wide, and every
+app follows the default-device toggles (brief audio glitches). `run.sh` snapshots
+the default devices before the run. Afterwards, from a fresh process, it calls
+`halChurnCleanup`, which destroys leftover aggregates and restores the defaults
+and the built-in mic's rate. Cleanup runs even when the run crashes, which is the
+expected outcome on pre-fix code.
+
+**Three traps that made earlier attempts blind (10-23 to 10-26):**
+
+1. **Private aggregates can't become the system default.** The set returns
+   `noErr` and is silently ignored, so engines kept opening the built-in mic and
+   the churn never touched them. The aggregates here are non-private.
+2. **Binding an engine's input unit to a device after reading `inputNode` fails.**
+   `AVAudioEngine` has already cached the old device's format, so the nil-format
+   tap gets `-10868` (FormatNotSupported) on ~90% of starts. Make the device the
+   default instead.
+3. **Node's SIGSEGV handler hides where the fault happened.** By default the
+   crash report shows `EXC_CRASH` with codes 0 on whichever thread received the
+   re-delivered signal. Run with `HARNESS_NODE_FLAGS=--disable-wasm-trap-handler`
+   to get `EXC_BAD_ACCESS` on the thread that actually touched freed memory.
+
+The driver also calls a test-only `pumpRunLoop()` every 4ms, as Electron's main
+loop does; plain node never pumps the main CFRunLoop.
+
+Pass conditions: no detector fault, nonzero `cfgPosts` (`AVAudioEngineConfigurationChangeNotification`
+posts, which come from inside the listener under suspicion), and on fixed source
+`quarantined == 0` after the drain wait (every parked engine released).
+`HARNESS_SOURCE_MM=<file>` instruments a different `.mm`, e.g. the pre-fix source
+from `git show`, for before/after runs from the same tree.
+
+Every `HARNESS_QUIET_EVERY` cycles (default 12) the driver idles 3.5–6s with no
+churn, so the quiet-gated release fires mid-run and churn resumes right after it.
+The drain waits up to 15s after churn stops for the last parked engines.
+
+### Results (2026-10-26/27, macOS 26.x, gmalloc + `MALLOC_ALLOW_READS=1`)
+
+Realistic shape: `HARNESS_BURST_STEPS=2 HARNESS_BURST_GAP_MS=250` (one plug, one unplug).
+
+| Source | Result |
+|---|---|
+| Pre-fix (immediate release) | faulted at cycle 4 and 13, SAYSO-APP-82 stack (listener `objc_msgSend` vs `[AVAudioEngine dealloc]`) |
+| Fixed 5s quarantine | faulted around cycle 90–95: listener blocks queued by a *new* device change still hit a 5s-old engine at release |
+| Never release (`SAYSO_TEST_MIC_QUARANTINE_MS` huge) | 200/200, 14,275 callbacks on 343 stopped engines: stopped engines are safe, the release moment is not |
+| Quiet-gated release (shipped) | 100/100 and 200/200 PASS, 0 faults, 3,452 config-change posts, 402 engines all released |
+
+The `mixed` lever with default bursts (2–7 steps, 0–7ms apart) is harsher than any
+real plug: the 5s quarantine also passed it twice, so use the realistic shape to judge
+a fix. Separate, pre-existing: an Apple assertion (`CAAssertRtn` in
+`AVAudioEngineGraph::InputAvailable`, SIGTRAP on the HAL IO thread) when a new engine
+starts mid-churn ended two runs (one 5s-quarantine run, one quiet-gated run). That
+crash is not caused by our code and not tracked yet.
