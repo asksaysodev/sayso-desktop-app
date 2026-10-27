@@ -38,7 +38,7 @@ Verified on macOS 26.5.2 (arm64), 2026-10-26:
 - **Hey Siri holds the mic permanently.** `com.apple.CoreSpeech` (no app path) shows `IsRunningInput = 1` whenever voice activation is on. It isn't a browser, so per-process mode ignores it. But it pins the device-wide `IsRunningSomewhere` flag on, so the macOS 13–14.1 fallback can never see a call start for those users. **Decision (10-26): no detection below 14.2.**
 - **Meet opens the mic on the pre-join screen**, before "Join" is clicked. Detection, and the 529 prompt, fire there, which suits "about to take a call".
 - **Self-exclusion:** Cue captures in the main process (`process.pid`). The Settings mic test (`getUserMedia`) runs in a Sayso helper process, and both are covered by `app.getAppMetrics()` PIDs. The execPath check also covers dev Electron.
-- **Windows:** verified on Windows 11 (10-27, dev build): a browser call is detected and the widget shows and works.
+- **Windows:** verified on Windows 11 with Chrome, Edge and Brave (see the Windows browser matrix below). The widget also shows and works there (10-27, dev build).
 
 ### Browser matrix: to do
 
@@ -54,6 +54,16 @@ Run `node scripts/mic-activity-watch.js` (plain-Node build, see `CLAUDE.md`). St
 | Zoom (desktop, not watched) | `us.zoom.xos` (main process, no helper) | `us.zoom.xos` ✅ (user-level install, `~/Applications/zoom.us.app`) | immediate | — | Correctly ignored (not a browser). Ran alongside an open Safari call: two independent sessions |
 
 Check these for false positives: Dictation, Siri, Loom, Google voice search.
+
+### Windows browser matrix
+
+Same procedure on Windows 11 (`mode` = `per-process`).
+
+| Browser | Mic process (exe) | Resolved owner | Start latency | Stop latency | Notes |
+|---|---|---|---|---|---|
+| Chrome | `chrome.exe` | ✅ | | | Works. Latencies not recorded |
+| Brave | `brave.exe` (child pid, responsible = Brave main) | `%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe` ✅ | immediate | n/a | Per-user install. Held ~3.8s, then a stop → start → stop → start burst while joining (gaps ~190ms, 1ms, ~280ms, all inside the grace period, so one session), then held |
+| Edge | `msedge.exe` (child pid, responsible = Edge main) | `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe` ✅ | immediate | immediate | Installs under `Program Files (x86)` even on x64. A 0ms start/stop blip, then the mic reopened ~800ms later (inside the grace period, so merged) and held ~10s until leaving |
 
 Packaged check: run `npm run package:staging`, sign in and start a Chrome call. Confirm the log shows `[CallDetection] call detected`, no prompt appears, and `codesign -dv` on `app.asar.unpacked/electron/mic-activity/build/Release/mic_activity.node` passes.
 
