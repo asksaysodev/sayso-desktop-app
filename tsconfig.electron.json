@@ -16,5 +16,5 @@
     "types": ["node"]
   },
   "include": ["electron/**/*.ts"],
-  "exclude": ["electron/native-audio/**", "electron/node_modules/**"]
+  "exclude": ["electron/native-audio/**", "electron/mic-activity/**", "electron/node_modules/**"]
 }

@@ -100,4 +100,43 @@ exports.default = async function(context) {
     console.error('[AFTER_PACK] Failed to sign native audio module:', error.message);
     throw error;
   }
+
+  verifyMicActivityModule(appPath, expectedArch, packager, signingIdentity);
 };
+
+// Call-detection addon (SAYSO-528). Runs only after native audio is verified and
+// signed, and never throws: a problem here ships the app without call detection
+// instead of failing the release.
+function verifyMicActivityModule(appPath, expectedArch, packager, signingIdentity) {
+  const { tryBuildMicActivity, modulePath: builtModulePath } = require('./rebuild-mic-activity');
+  const packedModulePath = path.join(
+    appPath, 'Contents', 'Resources', 'app.asar.unpacked',
+    'electron', 'mic-activity', 'build', 'Release', 'mic_activity.node'
+  );
+  try {
+    if (!fs.existsSync(packedModulePath)) {
+      console.warn('[AFTER_PACK] ⚠️ mic-activity module missing — shipping without call detection');
+      return;
+    }
+    const nodeGypArch = expectedArch === 'x86_64' ? 'x64' : 'arm64';
+    const fileOutput = execSync(`file "${packedModulePath}"`, { encoding: 'utf-8' });
+    if (!fileOutput.includes(expectedArch)) {
+      console.log(`[AFTER_PACK] mic-activity architecture mismatch (${fileOutput.trim()}) — rebuilding for ${nodeGypArch}`);
+      const electronVersion = packager && packager.config && packager.config.electronVersion;
+      if (!tryBuildMicActivity(nodeGypArch, electronVersion)) {
+        fs.rmSync(packedModulePath, { force: true });
+        console.warn('[AFTER_PACK] ⚠️ removed wrong-arch mic-activity module — shipping without call detection');
+        return;
+      }
+      fs.copyFileSync(builtModulePath, packedModulePath);
+    }
+    execSync(
+      `codesign --force --sign "${signingIdentity}" --options runtime --entitlements "${path.join(__dirname, '..', 'assets', 'entitlements.mac.plist')}" "${packedModulePath}"`,
+      { stdio: 'inherit' }
+    );
+    console.log('[AFTER_PACK] mic-activity module verified and signed');
+  } catch (error) {
+    fs.rmSync(packedModulePath, { force: true });
+    console.warn(`[AFTER_PACK] ⚠️ mic-activity verify/sign failed (${error.message}) — removed it, shipping without call detection`);
+  }
+}

@@ -1,0 +1,71 @@
+# Call detection (SAYSO-528)
+
+When another app, in v1 a browser, holds the mic for 3s, the main process emits `call-candidate`. SAYSO-529 turns that into the "Launch Sayso?" widget.
+
+## Pieces
+
+| Layer | File | Job |
+|---|---|---|
+| Native | `electron/mic-activity/src/mic_activity_mac.mm`, `mic_activity_win.cpp` | Per-process mic start/stop events, delivered to JS through `uv_async_send` |
+| Glue | `electron/mic-activity/src/mic_activity.cc`, `index.js` | NAN `start(cb)` / `stop()` / `mode()` |
+| Service | `electron/callDetection/micActivityMonitor.ts` | Resolve the app, exclude Sayso, filter to browsers, debounce, emit `call-candidate` / `call-ended` |
+| Allowlist | `electron/callDetection/browserAllowlist.ts` | Browser bundle ids (macOS) and exe names (Windows) |
+| Wiring | `electron/main.ts` | Start on `signed-in`. Stop on sign-out, session expiry and quit. Per-call subscription check |
+
+The addon is separate from `electron/native-audio/` on purpose, because another team owns that one. Packaging builds the native-audio addon first, unchanged, and builds this one afterwards. Any failure here is a warning, and the app ships without detection.
+
+## Detection by OS
+
+- **macOS 14.2+ (`per-process`):** a listener on `kAudioHardwarePropertyProcessObjectList`, plus a per-process listener on `kAudioProcessPropertyIsRunningInput`. The PID and bundle id come from `kAudioProcessPropertyPID` / `kAudioProcessPropertyBundleID`. The owning app is found in three steps:
+  1. `responsibility_get_pid_responsible_for_pid`, loaded through `dlsym` and optional.
+  2. `NSRunningApplication` for the bundle id and URL.
+  3. If that fails, the first `.app/` in the executable path.
+- **macOS 13–14.1 (`unsupported`):** no detection. The only signal is `kAudioDevicePropertyDeviceIsRunningSomewhere`, which has no attribution and which Hey Siri keeps on permanently (see Findings).
+- **Windows:** WASAPI `IAudioSessionManager2` on every active capture endpoint. Events come from session notifications and per-session `OnStateChanged`, aggregated per PID. The owning app is the topmost ancestor process running the same exe.
+
+## Findings
+
+Verified on macOS 26.5.2 (arm64), 2026-10-26:
+
+- **`kAudioProcessPropertyIsRunningInput` sends no notification of its own.** When capture starts, only `kAudioProcessPropertyDevices` (`pdv#`) fires on the process object. The watcher therefore listens to every property on each process (wildcard) and re-reads the flag. The first version listened to the flag alone and never saw a start.
+- **Terminal recording:** an `ffmpeg` capture started from a terminal resolves to the terminal app (`com.mitchellh.ghostty`) through the responsible PID. Start and stop each arrived within about 100ms.
+- **No permission needed.** Reading the process list and its properties from an unsigned CLI showed no TCC prompt, without any mic grant.
+- **Chrome:** the mic users are `com.google.Chrome.helper` processes. The responsible PID is the Chrome main process. Chrome can run from a code-sign clone path (`…/code_sign_clone/…/Google Chrome.app.bundle/…`), so the path-based lookup breaks. `NSRunningApplication` on the responsible PID returns `com.google.Chrome` and `/Applications/Google Chrome.app`, which is why it is the primary lookup.
+- **Safari:** audio runs in the shared `com.apple.WebKit.GPU` process. During a Meet call the responsible process is Safari, which resolves to `com.apple.Safari` ✅.
+- **Browsers briefly close and reopen the mic.** Safari did stop → start about 50ms apart while joining. The monitor keeps a session alive for `MIC_STOP_GRACE_MS` (1.5s) after the last stop, so a flicker doesn't end the call and start a new one. If the debounce elapses inside the grace period, the call is detected when the mic comes back.
+- **Hey Siri holds the mic permanently.** `com.apple.CoreSpeech` (no app path) shows `IsRunningInput = 1` whenever voice activation is on. It isn't a browser, so per-process mode ignores it. But it pins the device-wide `IsRunningSomewhere` flag on, so the macOS 13–14.1 fallback can never see a call start for those users. **Decision (10-26): no detection below 14.2.**
+- **Meet opens the mic on the pre-join screen**, before "Join" is clicked. Detection, and the 529 prompt, fire there, which suits "about to take a call".
+- **Stops are matched by pid.** A stop for a pid that already exited (a crash, a force quit, a killed helper) can't be resolved back to its app on macOS, so it arrives labelled with the helper's own bundle id. The monitor records which session each pid joined at start and ends sessions through that, never through the stop's app key.
+- **Self-exclusion:** Cue captures in the main process (`process.pid`). The Settings mic test (`getUserMedia`) runs in a Sayso helper process, and both are covered by `app.getAppMetrics()` PIDs. The execPath check also covers dev Electron.
+- **Windows:** verified on Windows 11 with Chrome, Edge and Brave (see the Windows browser matrix below).
+
+### Browser matrix: to do
+
+Run `node scripts/mic-activity-watch.js` (plain-Node build, see `CLAUDE.md`). Start a Google Meet test call, end it, and record:
+
+| Browser | Mic process (bundleId) | Resolved appBundleId | Start latency | Stop latency | Notes |
+|---|---|---|---|---|---|
+| Chrome | `com.google.Chrome.helper` (responsible = Chrome main) | `com.google.Chrome` ✅ | immediate (Meet pre-join screen opens the mic) | immediate on leaving | Mic stayed open from pre-join through the call: one start, one stop |
+| Arc | | | | | |
+| Edge | | | | | |
+| Safari | `com.apple.WebKit.GPU` (responsible = Safari) | `com.apple.Safari` ✅ | immediate | n/a | Lives in a cryptex (`/System/Volumes/Preboot/Cryptexes/App/System/Applications/Safari.app`). Mic stopped and started again about 140ms apart while joining |
+| Firefox | `org.mozilla.firefox` (main process, no helper) | `org.mozilla.firefox` ✅ | immediate | immediate | Two 25–40ms blips during Meet setup (below the debounce), then a steady hold. The second blip and the call were about 140ms apart, so the grace period merges them |
+| Zoom (desktop, not watched) | `us.zoom.xos` (main process, no helper) | `us.zoom.xos` ✅ (user-level install, `~/Applications/zoom.us.app`) | immediate | — | Correctly ignored (not a browser). Ran alongside an open Safari call: two independent sessions |
+
+Check these for false positives: Dictation, Siri, Loom, Google voice search.
+
+### Windows browser matrix
+
+Same procedure on Windows 11 (`mode` = `per-process`).
+
+| Browser | Mic process (exe) | Resolved owner | Start latency | Stop latency | Notes |
+|---|---|---|---|---|---|
+| Chrome | `chrome.exe` | ✅ | | | Works. Latencies not recorded |
+| Brave | `brave.exe` (child pid, responsible = Brave main) | `%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe` ✅ | immediate | n/a | Per-user install. Held ~3.8s, then a stop → start → stop → start burst while joining (gaps ~190ms, 1ms, ~280ms, all inside the grace period, so one session), then held |
+| Edge | `msedge.exe` (child pid, responsible = Edge main) | `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe` ✅ | immediate | immediate | Installs under `Program Files (x86)` even on x64. A 0ms start/stop blip, then the mic reopened ~800ms later (inside the grace period, so merged) and held ~10s until leaving |
+
+Packaged check: run `npm run package:staging`, sign in and start a Chrome call. Confirm the log shows `[CallDetection] call detected`, no prompt appears, and `codesign -dv` on `app.asar.unpacked/electron/mic-activity/build/Release/mic_activity.node` passes.
+
+## Go / no-go
+
+Pending the matrix. The provisional debounce is 3s (`CALL_DETECTION_DEBOUNCE_MS`).

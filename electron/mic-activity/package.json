@@ -1,0 +1,18 @@
+{
+  "name": "mic-activity",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "description": "Per-process mic-usage events for Sayso call detection",
+  "dependencies": {
+    "nan": "^2.23.0",
+    "node-gyp": "^9.4.1"
+  },
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "clean": "node-gyp clean"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

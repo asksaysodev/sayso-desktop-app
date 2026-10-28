@@ -416,6 +416,16 @@ jobs:
       - name: Build the native audio addon
         run: npm run rebuild-native-win
 
+      # Call-detection addon (SAYSO-528): own package.json + lockfile, built after
+      # native audio. Non-fatal by design, like the beforePack hook: a failure
+      # ships the app without call detection rather than blocking the release.
+      - name: Build the mic-activity addon
+        continue-on-error: true
+        working-directory: electron/mic-activity
+        run: |
+          npm ci --ignore-scripts
+          node ../../scripts/rebuild-mic-activity.js x64
+
       - name: Compile the main process
         run: npm run build:electron
 
