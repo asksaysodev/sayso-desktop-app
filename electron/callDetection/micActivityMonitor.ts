@@ -61,6 +61,12 @@ let addon: MicActivityAddon | null = null;
 let addonLoadFailed = false;
 let running = false;
 const sessions = new Map<string, TrackedSession>();
+/**
+ * Stops are matched by pid, not by appKey: on macOS a stop for a pid that already
+ * exited can't be resolved back to its app (it comes back as the helper's own
+ * bundle id), and looking it up by appKey would leak the session for good.
+ */
+const sessionByPid = new Map<number, TrackedSession>();
 
 function loadAddon(): MicActivityAddon | null {
   if (addon || addonLoadFailed) return addon;
@@ -101,17 +107,21 @@ function endSession(session: TrackedSession): void {
   if (session.debounceTimer) clearTimeout(session.debounceTimer);
   if (session.graceTimer) clearTimeout(session.graceTimer);
   sessions.delete(session.appKey);
+  for (const pid of session.pids) sessionByPid.delete(pid);
   console.log(`[CallDetection] mic stop: ${session.appKey} after ${Date.now() - session.startedAt}ms`);
   if (session.candidate) callDetection.emit('call-ended', publicSession(session));
 }
 
 function handleStart(event: MicActivityEvent): void {
   if (isSayso(event)) return;
+  // A start with no matching stop: detach the pid from its old session first.
+  if (sessionByPid.has(event.pid)) handleStop(event);
 
   const appKey = appKeyOf(event);
   const existing = sessions.get(appKey);
   if (existing) {
     existing.pids.add(event.pid);
+    sessionByPid.set(event.pid, existing);
     if (existing.graceTimer) {
       // Back within the grace period: same call.
       clearTimeout(existing.graceTimer);
@@ -143,12 +153,13 @@ function handleStart(event: MicActivityEvent): void {
     }, CALL_DETECTION_DEBOUNCE_MS);
   }
   sessions.set(appKey, session);
+  sessionByPid.set(event.pid, session);
 }
 
 function handleStop(event: MicActivityEvent): void {
-  const appKey = appKeyOf(event);
-  const session = sessions.get(appKey);
+  const session = sessionByPid.get(event.pid);
   if (!session) return;
+  sessionByPid.delete(event.pid);
   session.pids.delete(event.pid);
   if (session.pids.size > 0 || session.graceTimer) return;
 
@@ -184,5 +195,6 @@ export function stopMicActivityMonitor(): void {
     if (session.graceTimer) clearTimeout(session.graceTimer);
   }
   sessions.clear();
+  sessionByPid.clear();
   console.log('[CallDetection] monitor stopped');
 }
