@@ -48,9 +48,9 @@ export interface CacheEntryDef<T> {
 
   clearOn: ClearEvent[];
 
-  // Whether a failed fetch arms the retry ladder. Only the two values that
-  // already had one keep it; turning it on for the others is a one-word
-  // change, deliberately not made in the same commit as the migration.
+  // Whether a failed fetch arms the retry ladder: fontSize, enabledFeatures,
+  // and callDetectionPromptEnabled (a stale value would fail open on a setting
+  // the user turned off). Turning it on for the others is a one-word change.
   retry: boolean;
 
   notify: { channel: string; target: NotifyTarget; payload: (value: T) => unknown } | null;
@@ -167,7 +167,7 @@ export const CACHE_REGISTRY: { [K in CacheKey]: CacheEntryDef<CacheValues[K]> } 
     validate: (raw) => (typeof raw === 'boolean' ? raw : null),
     persist: true,
     clearOn: ['account-change'],
-    retry: false,
+    retry: true,
     notify: null,
     refresh: async (baseUrl, token) => {
       try {

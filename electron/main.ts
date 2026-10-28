@@ -398,8 +398,10 @@ async function loadBootSession(accessToken: string, email: string | undefined): 
     .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
   void cacheStore.refreshKey('openLastUsed', accessToken)
     .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
-  void cacheStore.refreshKey('callDetectionPromptEnabled', accessToken)
-    .catch((err) => cacheStore.reportCacheFailure('callDetectionPromptEnabled', err));
+  cacheStore.refreshKey('callDetectionPromptEnabled', accessToken).catch((err) => {
+    cacheStore.reportCacheFailure('callDetectionPromptEnabled', err);
+    cacheStore.scheduleRetry('callDetectionPromptEnabled');
+  });
 
   const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
     axios.get(`${backendBaseUrl()}/accounts/${email}`, { headers, timeout: 5000 }),
@@ -462,8 +464,10 @@ authManager.on('signed-in', (state: AuthState) => {
       .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
     void cacheStore.refreshKey('openLastUsed', state.accessToken)
       .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
-    void cacheStore.refreshKey('callDetectionPromptEnabled', state.accessToken)
-      .catch((err) => cacheStore.reportCacheFailure('callDetectionPromptEnabled', err));
+    cacheStore.refreshKey('callDetectionPromptEnabled', state.accessToken).catch((err) => {
+      cacheStore.reportCacheFailure('callDetectionPromptEnabled', err);
+      cacheStore.scheduleRetry('callDetectionPromptEnabled');
+    });
   }
 });
 
@@ -506,8 +510,10 @@ authManager.on('token-refreshed', async (state: AuthState) => {
       .catch((err) => cacheStore.reportCacheFailure('playbooks', err));
     void cacheStore.refreshKey('openLastUsed', state.accessToken!)
       .catch((err) => cacheStore.reportCacheFailure('openLastUsed', err));
-    void cacheStore.refreshKey('callDetectionPromptEnabled', state.accessToken!)
-      .catch((err) => cacheStore.reportCacheFailure('callDetectionPromptEnabled', err));
+    cacheStore.refreshKey('callDetectionPromptEnabled', state.accessToken!).catch((err) => {
+      cacheStore.reportCacheFailure('callDetectionPromptEnabled', err);
+      cacheStore.scheduleRetry('callDetectionPromptEnabled');
+    });
     const headers = { Authorization: `Bearer ${state.accessToken}` };
     const [profileResult, fontSizeResult, featuresResult] = await Promise.allSettled([
       axios.get(`${backendBaseUrl()}/accounts/${state.user?.email}`, { headers, timeout: 5000 }),
@@ -3035,10 +3041,12 @@ ipcMain.on('set-open-last-used-cache', (_event, openLastUsed: boolean) => {
   cacheStore.setValue('openLastUsed', openLastUsed, 'server');
 });
 
-// Confirmed "Meeting detection" write from Settings (SAYSO-531). Turning it off
-// also closes a prompt that's already up.
+// "Meeting detection" from Settings (SAYSO-531), sent only after the POST
+// succeeded, so a value the server has accepted. Recording it as a user write
+// stands the retry ladder down and drops any fetch still in flight for this
+// key. Turning it off also closes a prompt that's already up.
 ipcMain.on('set-call-detection-prompt-enabled-cache', (_event, enabled: boolean) => {
-  cacheStore.setValue('callDetectionPromptEnabled', enabled, 'server');
+  cacheStore.setValue('callDetectionPromptEnabled', enabled, 'user');
   if (enabled === false) hideCallDetectedPrompt('disabled');
 });
 
