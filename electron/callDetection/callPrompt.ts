@@ -21,6 +21,7 @@ export type CallPromptHideReason =
   | 'call-ended'
   | 'coach-opened'
   | 'signed-out'
+  | 'disabled'
   | 'load-failed';
 
 export interface CallPromptDeps {

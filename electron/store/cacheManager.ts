@@ -39,6 +39,7 @@ const values: { [K in CacheKey]: CacheValues[K] } = {
   enabledFeatures: CACHE_REGISTRY.enabledFeatures.fallback,
   playbooks: CACHE_REGISTRY.playbooks.fallback,
   openLastUsed: CACHE_REGISTRY.openLastUsed.fallback,
+  callDetectionPromptEnabled: CACHE_REGISTRY.callDetectionPromptEnabled.fallback,
 };
 
 // Two different questions, and conflating them is what the old code got wrong.
@@ -46,11 +47,11 @@ const values: { [K in CacheKey]: CacheValues[K] } = {
 // persisted and served. `loaded` — the server (or the user) has confirmed it
 // during THIS session; only this stands the retry ladder down. A hydrated disk
 // value is known but not loaded, so a warm start still gets reconciled.
-const known: Record<CacheKey, boolean> = { fontSize: false, enabledFeatures: false, playbooks: false, openLastUsed: false };
-const loaded: Record<CacheKey, boolean> = { fontSize: false, enabledFeatures: false, playbooks: false, openLastUsed: false };
+const known: Record<CacheKey, boolean> = { fontSize: false, enabledFeatures: false, playbooks: false, openLastUsed: false, callDetectionPromptEnabled: false };
+const loaded: Record<CacheKey, boolean> = { fontSize: false, enabledFeatures: false, playbooks: false, openLastUsed: false, callDetectionPromptEnabled: false };
 
-const retryTimers: Record<CacheKey, NodeJS.Timeout | null> = { fontSize: null, enabledFeatures: null, playbooks: null, openLastUsed: null };
-const retryInFlight: Record<CacheKey, boolean> = { fontSize: false, enabledFeatures: false, playbooks: false, openLastUsed: false };
+const retryTimers: Record<CacheKey, NodeJS.Timeout | null> = { fontSize: null, enabledFeatures: null, playbooks: null, openLastUsed: null, callDetectionPromptEnabled: null };
+const retryInFlight: Record<CacheKey, boolean> = { fontSize: false, enabledFeatures: false, playbooks: false, openLastUsed: false, callDetectionPromptEnabled: false };
 
 // Bumped whenever the world a fetch was issued into stops being the world its
 // result would land in: the account changed, or the user set the value

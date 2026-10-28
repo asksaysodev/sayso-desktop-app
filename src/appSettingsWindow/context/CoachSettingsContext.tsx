@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import useCoachSettings from '../hooks/useCoachSettings';
-import { AccessibilityFontSizeType, CueMode, GetCoachSettingsResponse, PostAutoStopTimeDelayResponse, PostBufferTimeResponse, PostOpenLastUsedResponse, PostPulseEnabledResponse } from '../types';
+import { AccessibilityFontSizeType, CueMode, GetCoachSettingsResponse, PostAutoStopTimeDelayResponse, PostBufferTimeResponse, PostCallDetectionPromptEnabledResponse, PostOpenLastUsedResponse, PostPulseEnabledResponse } from '../types';
 import { UseMutateFunction } from '@tanstack/react-query';
 
 interface CoachSettingsContextValue {
@@ -12,6 +12,7 @@ interface CoachSettingsContextValue {
     mutateUpdateFontSize: UseMutateFunction<unknown, Error, AccessibilityFontSizeType, unknown>;
     mutateOpenLastUsed: UseMutateFunction<PostOpenLastUsedResponse, Error, boolean, unknown>;
     mutatePulseEnabled: UseMutateFunction<PostPulseEnabledResponse, Error, boolean, unknown>;
+    mutateCallDetectionPromptEnabled: UseMutateFunction<PostCallDetectionPromptEnabledResponse, Error, boolean, unknown>;
     mutateDefaultPlaybook: UseMutateFunction<{ success: true; default_playbook_id: string }, Error, string, unknown>;
     mutatePlaybookOrder: UseMutateFunction<{ success: true; playbook_order: string[] }, Error, string[], unknown>;
 };
@@ -28,6 +29,7 @@ export const CoachSettingsProvider = ({ children }: { children: React.ReactNode 
         mutateUpdateFontSize,
         mutateOpenLastUsed,
         mutatePulseEnabled,
+        mutateCallDetectionPromptEnabled,
         mutateDefaultPlaybook,
         mutatePlaybookOrder,
     } = useCoachSettings();
@@ -41,6 +43,7 @@ export const CoachSettingsProvider = ({ children }: { children: React.ReactNode 
         mutateUpdateFontSize,
         mutateOpenLastUsed,
         mutatePulseEnabled,
+        mutateCallDetectionPromptEnabled,
         mutateDefaultPlaybook,
         mutatePlaybookOrder,
     };

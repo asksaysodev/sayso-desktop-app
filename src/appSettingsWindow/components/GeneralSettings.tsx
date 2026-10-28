@@ -3,12 +3,12 @@ import SettingsContentLayout from "./SettingsContentLayout";
 import useCoachSettingsContext from "../context/CoachSettingsContext";
 import useDebounce from "@/hooks/useDebounce";
 import SettingsToggle from "./SettingsToggle";
-import { LAUNCH_AT_LOGIN_DESCRIPTION } from "../settingsRegistry";
+import { LAUNCH_AT_LOGIN_DESCRIPTION, MEETING_DETECTION_DESCRIPTION } from "../settingsRegistry";
 
 export default function GeneralSettings() {
     const [timeDelay, setTimeDelay] = useState<number | undefined>(undefined);
     const [launchAtLogin, setLaunchAtLogin] = useState<boolean | null>(null);
-    const { coachSettings, mutateAutoStopTimeDelay } = useCoachSettingsContext();
+    const { coachSettings, mutateAutoStopTimeDelay, mutateCallDetectionPromptEnabled } = useCoachSettingsContext();
     const debouncedTimeDelay = useDebounce(timeDelay, 1500);
     const serverValue = useRef<number | undefined>(undefined);
 
@@ -38,6 +38,8 @@ export default function GeneralSettings() {
         window.electron?.ipcRenderer?.invoke('set-launch-at-login', enabled);
     };
 
+    const meetingDetectionEnabled = coachSettings?.call_detection_prompt_enabled ?? true;
+
     if (launchAtLogin === null) return null;
 
     return (
@@ -55,6 +57,22 @@ export default function GeneralSettings() {
                         ]}
                         value={launchAtLogin ? 'enabled' : 'disabled'}
                         onChange={handleLaunchAtLoginToggle}
+                    />
+                </div>
+            </div>
+            <div id="meeting-detection" className="cue-setting-item">
+                <div className="cue-setting-left">
+                    <span className="cue-setting-label">Meeting detection</span>
+                    <p className="cue-setting-description">{MEETING_DETECTION_DESCRIPTION}</p>
+                </div>
+                <div className="cue-setting-right">
+                    <SettingsToggle
+                        options={[
+                            { value: 'disabled', label: 'Disabled' },
+                            { value: 'enabled', label: 'Enabled' },
+                        ]}
+                        value={meetingDetectionEnabled ? 'enabled' : 'disabled'}
+                        onChange={(value) => mutateCallDetectionPromptEnabled(value === 'enabled')}
                     />
                 </div>
             </div>

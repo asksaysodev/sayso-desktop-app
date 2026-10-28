@@ -28,6 +28,8 @@ export interface GetCoachSettingsResponse {
     default_playbook_id: string | null;
     open_last_used: boolean;
     pulse_enabled: boolean;
+    // Absent until migration 050 runs (SAYSO-531); absent means true.
+    call_detection_prompt_enabled?: boolean;
     playbook_order: string[];
 }
 
@@ -39,6 +41,11 @@ export interface PostOpenLastUsedResponse {
 export interface PostPulseEnabledResponse {
     success: true;
     pulseEnabled: boolean;
+}
+
+export interface PostCallDetectionPromptEnabledResponse {
+    success: true;
+    callDetectionPromptEnabled: boolean;
 }
 
 export type CueMode = 'condensed' | 'full';

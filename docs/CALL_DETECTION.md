@@ -70,7 +70,7 @@ Packaged check: run `npm run package:staging`, sign in and start a Chrome call. 
 
 ## Prompt (SAYSO-529)
 
-`showCallDetectedPrompt(session)` in `callPrompt.ts` is the single entry point; `call-candidate` reaches it through `onCallCandidate`, which first checks `canPrompt()` (signed in, subscribed, not reconnecting). It shows nothing if the coach window is open, Cue is active, a prompt is already up, or the user already dismissed this session.
+`showCallDetectedPrompt(session)` in `callPrompt.ts` is the single entry point; `call-candidate` reaches it through `onCallCandidate`, which first checks `canPrompt()` (signed in, subscribed, not reconnecting, and the "Meeting detection" setting on). It shows nothing if the coach window is open, Cue is active, a prompt is already up, or the user already dismissed this session.
 
 - Window: top-right of the display under the cursor, inside the work area: the card sits 31px from the right and 52px below the top (Figma), the window adding 16px of transparent room for its shadow (`WINDOW_CONFIG.CALL_PROMPT`). `focusable: false` + `showInactive()` so it never takes focus from the call; `setAlwaysOnTop(true, 'screen-saver')`, plus `visibleOnFullScreen` on macOS, so it sits over a full-screen browser. Created on show, destroyed on hide.
 - Look (SAYSO-530): the countdown is a lighter fill sweeping the Dismiss button left to right over the 10s; its CSS duration mirrors `CALL_PROMPT_AUTO_HIDE_MS`.
@@ -90,6 +90,9 @@ Packaged check: run `npm run package:staging`, sign in and start a Chrome call. 
 | `call-ended` | the prompted call ended | no |
 | `coach-opened` | `createCoachWindow()` from any path | no |
 | `signed-out` | sign-out / session expiry | no; clears all dismissed sessions |
+| `disabled` | "Meeting detection" turned off in Settings | no |
+
+**Setting (SAYSO-531):** Settings > General > "Meeting detection" is `coach_settings.call_detection_prompt_enabled` (account-wide, default on). Main reads its cached copy (`callDetectionPromptEnabled` in `electron/store/cacheRegistry.ts`) synchronously, so a call never waits on the network. Unknown, a missing column, or no `coach_settings` row (404, SAYSO-446) all mean on. It gates only the prompt; the monitor keeps running.
 
 `call-ended` clears the session from the dismissed set, so the next call prompts again. Dev: the tray shows a "Test call prompt" row in `npm run dev` builds.
 

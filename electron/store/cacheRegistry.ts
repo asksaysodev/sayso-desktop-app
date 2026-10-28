@@ -24,6 +24,7 @@ export interface CacheValues {
   enabledFeatures: string[];
   playbooks: PlaybooksCachePayload;
   openLastUsed: boolean | null;
+  callDetectionPromptEnabled: boolean;
 }
 
 export type CacheKey = keyof CacheValues;
@@ -47,9 +48,9 @@ export interface CacheEntryDef<T> {
 
   clearOn: ClearEvent[];
 
-  // Whether a failed fetch arms the retry ladder. Only the two values that
-  // already had one keep it; turning it on for the others is a one-word
-  // change, deliberately not made in the same commit as the migration.
+  // Whether a failed fetch arms the retry ladder: fontSize, enabledFeatures,
+  // and callDetectionPromptEnabled (a stale value would fail open on a setting
+  // the user turned off). Turning it on for the others is a one-word change.
   retry: boolean;
 
   notify: { channel: string; target: NotifyTarget; payload: (value: T) => unknown } | null;
@@ -156,6 +157,31 @@ export const CACHE_REGISTRY: { [K in CacheKey]: CacheEntryDef<CacheValues[K]> } 
         timeout: SLOW_TIMEOUT_MS,
       });
       return res.data?.coachSettings?.open_last_used;
+    },
+  },
+
+  // "Meeting detection" (SAYSO-531): gates the call-detected prompt. Read
+  // synchronously by main, so no window is notified.
+  callDetectionPromptEnabled: {
+    fallback: true,
+    validate: (raw) => (typeof raw === 'boolean' ? raw : null),
+    persist: true,
+    clearOn: ['account-change'],
+    retry: true,
+    notify: null,
+    refresh: async (baseUrl, token) => {
+      try {
+        const res = await axios.get(`${baseUrl}/sales-coach/settings`, {
+          headers: authHeaders(token),
+          timeout: SLOW_TIMEOUT_MS,
+        });
+        // Missing before migration 050 runs: the column's default.
+        return res.data?.coachSettings?.call_detection_prompt_enabled ?? true;
+      } catch (err) {
+        // No coach_settings row yet (SAYSO-446) means the default, not a failure.
+        if (axios.isAxiosError(err) && err.response?.status === 404) return true;
+        throw err;
+      }
     },
   },
 };
