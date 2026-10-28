@@ -133,6 +133,20 @@ not a target.
 > **feed** differs per OS (Squirrel.Mac vs. Squirrel.Windows / NSIS) and the
 > ShipIt-watchdog install step is darwin-only — see "Non-IPC platform code".
 
+### Call-detected prompt — **universal** (`electron/callDetection/callPrompt.ts`)
+
+`call-prompt:*` sends are ignored unless they come from the current prompt window (not one still sliding out).
+
+| Channel | Kind | Notes |
+|---|---|---|
+| `call-prompt:launch` | send | Widget's "Launch Coach": hides the prompt, opens or focuses the coach window (no session). |
+| `call-prompt:dismiss` | send | Hides the prompt; no re-show for the same mic session. |
+| `call-prompt:hover` | send | `boolean`: pointer entered / left the card. Pauses / resumes the auto-hide with the remaining time. |
+| `dev:show-call-prompt` | send | Dev-only tray trigger; no-op when `app.isPackaged`. |
+
+> The **channels** are universal. The window's above-full-screen behavior uses
+> `setVisibleOnAllWorkspaces` on macOS only, inside `createCallPromptWindow()`.
+
 ### Launch at login — **universal**
 
 | Channel | Kind | Notes |
@@ -174,6 +188,12 @@ call site.
 | `auth-tokens-refreshed` | Refreshed tokens payload (backward-compat for unmigrated windows). |
 | `auth:session-expired` | Session expired. |
 | `auth-session-expired` | Session expired (backward-compat alias). |
+
+**Call-detected prompt (to the widget window only)**
+
+| Channel | Purpose |
+|---|---|
+| `call-prompt:exit` | Play the slide-out; main has already widened the window to the screen edge and closes it `CALL_PROMPT_EXIT_MS` later (timeout, dismiss). |
 
 **Cue**
 

@@ -60,11 +60,12 @@ After changing anything in `electron/*.ts`, run `npm run build:electron` — Ele
   | `playbook-window.html` | `src/playbookWindow/` | Playbook panel, docks right of the coach. ⌘F find within the open playbook: `docs/PLAYBOOK_FIND.md` |
   | `app-settings-window.html` | `src/appSettingsWindow/` | Settings incl. Software Update tab |
   | `onboarding-window.html` | `src/onboardingWindow/` | First-run onboarding |
+  | `call-detected-window.html` | `src/callDetectedWindow/` | "Launch Sayso?" prompt when a browser call starts (call detection) |
 
   Adding a window means: new root HTML + new `src/<name>Window/` + a `rollupOptions.input` entry + a `create…Window()` in `electron/main.ts`.
 - There is **no `src/views/`**. Dashboard, account, admin and checkout UI live in the `sayso-web-app` repo, not here. The tray's "My Account" opens `app.asksayso.com` with a single-use handoff token in the URL fragment, minted by `POST /auth/desktop-handoff` and redeemed there with `verifyOtp`. Never put this app's `access_token` in that fragment — see `docs/AUTH_ARCHITECTURE.md`.
 - Path alias `@/*` → `./src/*` (renderer only; `electron/` uses relative requires).
-- `electron/shared/` is the one place both TypeScript programs read from (`src → electron` works; `electron → src` is a hard TS6059 because `rootDir` is pinned). Its files must be **import-free and side-effect-free** — that, not "types only", is the invariant: nothing node- or electron-shaped may reach the six renderer bundles. `redact.ts` is runtime code and complies. Two consequences: write **ES2020-safe syntax only** (`Object.hasOwn`, `.at()`, `.replaceAll()` compile under `tsconfig.electron.json`'s ES2022 and *fail* the renderer's ES2020), and if the renderer imports one of these modules for its **values**, add a `resolve.alias` entry in `vite.config.ts` pinning the `.ts` — tsc emits a `.js` next to it and Vite resolves `.js` first, silently picking up CommonJS that rollup can't tree-shake.
+- `electron/shared/` is the one place both TypeScript programs read from (`src → electron` works; `electron → src` is a hard TS6059 because `rootDir` is pinned). Its files must be **import-free and side-effect-free** — that, not "types only", is the invariant: nothing node- or electron-shaped may reach the seven renderer bundles. `redact.ts` is runtime code and complies. Two consequences: write **ES2020-safe syntax only** (`Object.hasOwn`, `.at()`, `.replaceAll()` compile under `tsconfig.electron.json`'s ES2022 and *fail* the renderer's ES2020), and if the renderer imports one of these modules for its **values**, add a `resolve.alias` entry in `vite.config.ts` pinning the `.ts` — tsc emits a `.js` next to it and Vite resolves `.js` first, silently picking up CommonJS that rollup can't tree-shake.
 - Each window entry point (`src/*/index.tsx`) mounts its own React root, its own `QueryClient`, calls `Sentry.init`, and **must** `import '@/services/networkReporter'` — see Network state below — and `import '@/utils/platform'`, whose side effect writes `document.documentElement.dataset.platform` so CSS can gate on the platform. Gate on the negation (`:root:not([data-platform="darwin"])`) rather than `[data-platform="win32"]` for any rule that paints something macOS must not get: the attribute hangs off a side-effect import with no named binding, so if that import is ever dropped a positive gate paints nothing — which on the transparent tray window means an invisible, still click-blocking rectangle. See `docs/IPC_CONTRACT.md`.
 
 ## Auth — main process owns the session
@@ -104,6 +105,7 @@ Detects that *another app* (v1: browsers) has the mic open, so the app can offer
 
 - `electron/mic-activity/` is a **separate native addon** from `native-audio/` (owned by another team; don't fold this into it). macOS 14.2+ reads Core Audio's per-process list (`kAudioProcessPropertyIsRunningInput`); below 14.2 detection is off (`mode()` = `unsupported`: the only signal is device-wide, and Hey Siri pins it on); Windows watches WASAPI capture sessions. No OS permission involved.
 - `electron/callDetection/micActivityMonitor.ts` resolves events to the owning app, drops Sayso's own pids (main + `app.getAppMetrics()`), filters with `browserAllowlist.ts`, debounces 3s, and emits `call-candidate` / `call-ended`. Runs while signed in; the subscription check is per call in `main.ts`.
+- `electron/callDetection/callPrompt.ts` owns the prompt rules (`showCallDetectedPrompt` is the single entry point, 10s auto-hide, dismiss = not for this call, never over an open coach or active Cue); `main.ts` owns the unfocusable, always-on-top widget window. Tray has a dev-only "Test call prompt" row.
 - Packaging builds it **after** native audio and treats any failure as non-fatal (`scripts/before-pack.js`, `rebuild-mic-activity.js`, the afterPack check, the Windows CI step): a broken build ships the app without detection, never blocks a release. Dev: `npm run rebuild-mic-activity`; `scripts/mic-activity-watch.js` needs a plain-Node build (`cd electron/mic-activity && npx node-gyp rebuild`).
 
 ## Cross-platform conventions
@@ -144,7 +146,7 @@ leftovers, and ~30 orphaned CSS files. The `upload-file` / `upload-both-files` /
 `demo-insight` IPC bridges and the legacy `autoUpdater.on*` subscriptions went
 with them.
 
-**Everything under `src/` is now reachable from one of the six window entry
+**Everything under `src/` is now reachable from one of the seven window entry
 points**, with two deliberate exceptions:
 
 - `src/components/ui/` — shadcn primitives, kept as an installed library. Only
@@ -157,7 +159,7 @@ read: **the app has no role gates.** It's kept deliberately — unreferenced *ty
 declarations* are cheap and are not deletion targets; unreferenced
 *implementation* is.
 
-To re-check reachability after a refactor, walk the import graph from the six
+To re-check reachability after a refactor, walk the import graph from the seven
 root HTML entries; anything under `src/` that it doesn't reach is a deletion
 candidate. Grep for consumers before acting on it.
 

@@ -34,6 +34,7 @@ import * as audioManager from './audio/audioManager';
 import * as permissions from './permissions/permissionsManager';
 import * as cacheStore from './store/cacheManager';
 import { callDetection, startMicActivityMonitor, stopMicActivityMonitor, type MicSession } from './callDetection/micActivityMonitor';
+import { initCallPrompt, onCallCandidate, onCallEnded, showCallDetectedPrompt, hideCallDetectedPrompt, launchFromCallPrompt, setCallPromptHovered, onCallPromptShown, CALL_PROMPT_ENTER_MS, CALL_PROMPT_EXIT_MS } from './callDetection/callPrompt';
 import { removeLegacyCacheFiles } from './store/persistentStore';
 import { formatLogArgs } from './shared/redact';
 import { enforceLogRetention } from './utils/logRetention';
@@ -550,17 +551,27 @@ authManager.on('session-expired', () => {
 });
 
 // Call detection (SAYSO-528). Monitor runs while signed in; the subscription is
-// checked per call because the profile can land after 'signed-in'.
-// SAYSO-529 replaces the logging with the "Launch Sayso?" prompt.
+// checked per call because the profile can land after 'signed-in'. A candidate
+// shows the "Launch Sayso?" prompt (SAYSO-529, electron/callDetection/callPrompt.ts).
 const hasActiveSubscription = () => !!global.authUser && global.authUser.subscription_plan_id !== null;
 
+initCallPrompt({
+  canPrompt: () => hasActiveSubscription() && global.networkState !== 'reconnecting',
+  isCoachOpen: () => !!isCoachWindowOpen(),
+  isCueActive: () => audioManager.isCueActive(),
+  openWindow: () => createCallPromptWindow(),
+  closeWindow: (animate) => closeCallPromptWindow(animate),
+  launchCoach: () => { void openCoachWindowFromUser(); },
+});
+
 callDetection.on('call-candidate', (session: MicSession) => {
-  if (!hasActiveSubscription()) return;
   console.log(`[CallDetection] call detected: ${session.appKey} (session ${session.id})`);
+  onCallCandidate(session);
 });
 
 callDetection.on('call-ended', (session: MicSession) => {
   console.log(`[CallDetection] call ended: ${session.appKey} (session ${session.id})`);
+  onCallEnded(session);
 });
 
 let autoUpdater: import('electron-updater').AppUpdater | null = null;
@@ -980,6 +991,7 @@ function tearDownSignedInWindows(): void {
   // Stop the Cue reconnect loop (no valid token to reconnect with). The streamer
   // lives in audioManager now; this is the same shouldReconnect=false + stop(false).
   audioManager.stopCueForSessionExpired();
+  hideCallDetectedPrompt('signed-out');
   if (isCoachWindowOpen()) global.coachWindow!.close();
   if (isPlaybookWindowOpen()) global.playbookWindow!.close();
   closeOnboardingWindowForSignOut();
@@ -2120,6 +2132,8 @@ app.on('before-quit', async (event: Event) => {
   // Force cleanup of all audio capture before quitting
   await audioManager.cleanupAllAudioCapture();
   stopMicActivityMonitor();
+  closeCallPromptWindow(false);
+  if (closingCallPromptWindow && !closingCallPromptWindow.isDestroyed()) closingCallPromptWindow.close();
   unregisterGlobalShortcuts();
 });
 
@@ -2436,10 +2450,15 @@ ipcMain.handle('get-app-settings-window-open-state', () => {
     return isAppSettingsWindowOpen();
 })
 
-// Handler for opening coach window — checks mic permission first; if missing, opens splash for permissions flow.
-// Classification: universal (the mic pre-flight gate is platform-dispatched via the permissions provider).
-ipcMain.on('open-coach-window', async () => {
+// Opens the coach window on a user action — checks mic permission first; if missing, opens splash for permissions flow.
+// Focuses the coach instead if it's already open. Shared by the tray and the call prompt.
+async function openCoachWindowFromUser(): Promise<void> {
   if (global.networkState === 'reconnecting') return;
+  if (isCoachWindowOpen()) {
+    global.coachWindow!.focus();
+    sendToOnboardingWindow('onboarding:coach-opened');
+    return;
+  }
   // Mic-only gate, routed through the permissions provider (isMicGranted avoids
   // the screen-recording preflight this handler doesn't need). Fail closed: any
   // provider error routes to the splash/permissions flow rather than silently
@@ -2457,6 +2476,32 @@ ipcMain.on('open-coach-window', async () => {
   }
   createCoachWindow();
   sendToOnboardingWindow('onboarding:coach-opened');
+}
+
+// Classification: universal (the mic pre-flight gate is platform-dispatched via the permissions provider).
+ipcMain.on('open-coach-window', () => {
+  void openCoachWindowFromUser();
+});
+
+// Call-detected prompt (SAYSO-529). Classification: universal.
+// Only the current prompt counts, not one still sliding out.
+const isCallPromptSender = (event: Electron.IpcMainEvent) => event.sender === callPromptWindow?.webContents;
+ipcMain.on('call-prompt:launch', (event) => {
+  if (!isCallPromptSender(event)) return;
+  launchFromCallPrompt();
+});
+ipcMain.on('call-prompt:dismiss', (event) => {
+  if (!isCallPromptSender(event)) return;
+  hideCallDetectedPrompt('dismiss');
+});
+ipcMain.on('call-prompt:hover', (event, hovered: boolean) => {
+  if (!isCallPromptSender(event)) return;
+  setCallPromptHovered(hovered === true);
+});
+// Dev-only trigger from the tray; no-op in packaged builds.
+ipcMain.on('dev:show-call-prompt', () => {
+  if (app.isPackaged) return;
+  showCallDetectedPrompt({ id: `dev-${Date.now()}`, appKey: 'dev', startedAt: Date.now() });
 });
 ipcMain.on('close-coach-window', () => {
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
@@ -2781,6 +2826,8 @@ const createCoachWindow = () => {
   if (global.coachWindow && global.coachWindow.isDestroyed()) {
     global.coachWindow = null;
   }
+
+  hideCallDetectedPrompt('coach-opened');
   
   const preloadScriptPath = path.join(__dirname, 'preload.js');
   
@@ -2845,6 +2892,87 @@ const createCoachWindow = () => {
 
   updateTrayMenu();
 };
+
+// --- Call-detected prompt (SAYSO-529) ---
+// Created on show and destroyed on hide: it's rare, so no preloaded hidden
+// window. callPrompt.ts owns when; this only owns the window.
+let callPromptWindow: BrowserWindowType | null = null;
+// A window playing its slide-out. Kept apart from callPromptWindow so a new
+// prompt can open meanwhile and its 'closed' isn't read as an outside dismiss.
+let closingCallPromptWindow: BrowserWindowType | null = null;
+
+function createCallPromptWindow(): void {
+  if (callPromptWindow && !callPromptWindow.isDestroyed()) return;
+
+  const win = new BrowserWindow({
+    ...WindowManager.getCallPromptWindowConfig(),
+    icon: getAssetPath('icon.icns'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+    },
+  });
+  callPromptWindow = win;
+
+  // Above full-screen apps (a full-screen browser call) without taking focus
+  win.setAlwaysOnTop(true, 'screen-saver');
+  if (IS_MAC) {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+
+  const url = isDev
+    ? 'http://localhost:5173/call-detected-window.html'
+    : `file://${path.join(__dirname, '../dist/call-detected-window.html')}`;
+  win.loadURL(url);
+
+  // Slide in from past the screen edge: widened while hidden (transparent, so
+  // invisible), then back to its resting size once the card has landed, which
+  // keeps the edge strip clickable. The card is fixed-width, so it doesn't move.
+  const restingBounds = win.getBounds();
+  win.setBounds(WindowManager.getCallPromptSlideBounds(restingBounds));
+  win.once('ready-to-show', () => {
+    // Not if it was hidden while loading: it's closing
+    if (callPromptWindow !== win || win.isDestroyed()) return;
+    win.showInactive();
+    onCallPromptShown();
+    setTimeout(() => {
+      // Not if it's already sliding out: the exit owns the bounds then
+      if (callPromptWindow === win && !win.isDestroyed()) win.setBounds(restingBounds);
+    }, CALL_PROMPT_ENTER_MS + 50);
+  });
+  win.on('closed', () => {
+    // Still referenced = closed from outside callPrompt.ts; treat as a dismiss
+    // so the controller doesn't think a prompt is still up.
+    if (callPromptWindow === win) {
+      callPromptWindow = null;
+      hideCallDetectedPrompt('dismiss');
+    }
+  });
+}
+
+function closeCallPromptWindow(animate: boolean): void {
+  const win = callPromptWindow;
+  callPromptWindow = null;
+  if (!win || win.isDestroyed()) return;
+  if (!animate) {
+    win.close();
+    return;
+  }
+
+  // Widen to the screen edge only for the exit, so the card slides off the
+  // edge instead of being clipped short — and the strip stays clickable
+  // (browser scrollbars) while the prompt is up. Transparent, so invisible.
+  win.setBounds(WindowManager.getCallPromptSlideBounds(win.getBounds()));
+  win.webContents.send('call-prompt:exit');
+  closingCallPromptWindow = win;
+  // Closes whether or not the renderer animated (reduced motion, not loaded yet)
+  setTimeout(() => {
+    if (!win.isDestroyed()) win.close();
+    if (closingCallPromptWindow === win) closingCallPromptWindow = null;
+  }, CALL_PROMPT_EXIT_MS + 50);
+}
 
 // Update the resize handler to use WindowManager
 ipcMain.on('resize-coach-window', (event: Electron.IpcMainInvokeEvent, width: number, height: number) => {

@@ -1,6 +1,6 @@
 # Call detection (SAYSO-528)
 
-When another app, in v1 a browser, holds the mic for 3s, the main process emits `call-candidate`. SAYSO-529 turns that into the "Launch Sayso?" widget.
+When another app, in v1 a browser, holds the mic for 3s, the main process emits `call-candidate`, which shows the "Launch Sayso?" widget (SAYSO-529).
 
 ## Pieces
 
@@ -10,7 +10,9 @@ When another app, in v1 a browser, holds the mic for 3s, the main process emits 
 | Glue | `electron/mic-activity/src/mic_activity.cc`, `index.js` | NAN `start(cb)` / `stop()` / `mode()` |
 | Service | `electron/callDetection/micActivityMonitor.ts` | Resolve the app, exclude Sayso, filter to browsers, debounce, emit `call-candidate` / `call-ended` |
 | Allowlist | `electron/callDetection/browserAllowlist.ts` | Browser bundle ids (macOS) and exe names (Windows) |
-| Wiring | `electron/main.ts` | Start on `signed-in`. Stop on sign-out, session expiry and quit. Per-call subscription check |
+| Prompt | `electron/callDetection/callPrompt.ts` | Show/hide rules, 10s auto-hide, dismissed sessions |
+| Widget | `call-detected-window.html`, `src/callDetectedWindow/` | The SAYSO-530 design: dark card, Dismiss / Launch Coach, timer band |
+| Wiring | `electron/main.ts` | Start on `signed-in`. Stop on sign-out, session expiry and quit. Per-call subscription check. Creates the widget window |
 
 The addon is separate from `electron/native-audio/` on purpose, because another team owns that one. Packaging builds the native-audio addon first, unchanged, and builds this one afterwards. Any failure here is a warning, and the app ships without detection.
 
@@ -37,7 +39,7 @@ Verified on macOS 26.5.2 (arm64), 2026-10-26:
 - **Meet opens the mic on the pre-join screen**, before "Join" is clicked. Detection, and the 529 prompt, fire there, which suits "about to take a call".
 - **Stops are matched by pid.** A stop for a pid that already exited (a crash, a force quit, a killed helper) can't be resolved back to its app on macOS, so it arrives labelled with the helper's own bundle id. The monitor records which session each pid joined at start and ends sessions through that, never through the stop's app key.
 - **Self-exclusion:** Cue captures in the main process (`process.pid`). The Settings mic test (`getUserMedia`) runs in a Sayso helper process, and both are covered by `app.getAppMetrics()` PIDs. The execPath check also covers dev Electron.
-- **Windows:** verified on Windows 11 with Chrome, Edge and Brave (see the Windows browser matrix below).
+- **Windows:** verified on Windows 11 with Chrome, Edge and Brave (see the Windows browser matrix below). The widget also shows and works there (10-27, dev build).
 
 ### Browser matrix: to do
 
@@ -65,6 +67,31 @@ Same procedure on Windows 11 (`mode` = `per-process`).
 | Edge | `msedge.exe` (child pid, responsible = Edge main) | `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe` ✅ | immediate | immediate | Installs under `Program Files (x86)` even on x64. A 0ms start/stop blip, then the mic reopened ~800ms later (inside the grace period, so merged) and held ~10s until leaving |
 
 Packaged check: run `npm run package:staging`, sign in and start a Chrome call. Confirm the log shows `[CallDetection] call detected`, no prompt appears, and `codesign -dv` on `app.asar.unpacked/electron/mic-activity/build/Release/mic_activity.node` passes.
+
+## Prompt (SAYSO-529)
+
+`showCallDetectedPrompt(session)` in `callPrompt.ts` is the single entry point; `call-candidate` reaches it through `onCallCandidate`, which first checks `canPrompt()` (signed in, subscribed, not reconnecting). It shows nothing if the coach window is open, Cue is active, a prompt is already up, or the user already dismissed this session.
+
+- Window: top-right of the display under the cursor, inside the work area: the card sits 31px from the right and 52px below the top (Figma), the window adding 16px of transparent room for its shadow (`WINDOW_CONFIG.CALL_PROMPT`). `focusable: false` + `showInactive()` so it never takes focus from the call; `setAlwaysOnTop(true, 'screen-saver')`, plus `visibleOnFullScreen` on macOS, so it sits over a full-screen browser. Created on show, destroyed on hide.
+- Look (SAYSO-530): the countdown is a lighter fill sweeping the Dismiss button left to right over the 10s; its CSS duration mirrors `CALL_PROMPT_AUTO_HIDE_MS`.
+- Auto-hide: the 10s starts when the window is shown (`ready-to-show` → `onCallPromptShown`), not when it's created, so it matches the countdown fill. If the window isn't shown within 5s (`CALL_PROMPT_LOAD_TIMEOUT_MS`, page failed to load), it closes with `load-failed`, which doesn't count as a dismiss.
+- Hover: the pointer over the card pauses the auto-hide (`call-prompt:hover` → `setCallPromptHovered`); leaving resumes it with the time that was left. The countdown fill pauses with it.
+- Enter: the card slides in from past the right screen edge (250ms ease-out, `CALL_PROMPT_ENTER_MS`).
+- Exit: `timeout` and `dismiss` slide the card back off the right edge (200ms ease-in, `CALL_PROMPT_EXIT_MS`); the other reasons close instantly. Main sends `call-prompt:exit` and closes the window after the animation whether or not it played.
+- For both slides main widens the window to the work area's right edge (transparent, so invisible), otherwise the card would be clipped 15px short of the screen edge. It's back at its resting size once the card has landed, so that edge strip (browser scrollbars) stays clickable while the prompt is up. The card has a fixed width so resizing never moves it. Corners are concentric: the logo tile and buttons use card radius − padding (24 − 12 = 12px), encoded as `--radius-inner`. Font: DM Sans (`@fontsource-variable/dm-sans`, this window only).
+- **Launch Coach** → `launchFromCallPrompt()`: hides the widget, then opens or focuses the coach window (same path as the tray, mic-permission check included). No session starts; this is the one function to change if the CTA should start one.
+- Hide reasons:
+
+| Reason | Trigger | Marks session dismissed |
+|---|---|---|
+| `launch` | Launch Coach | no |
+| `dismiss` | Dismiss button, or the window closed from outside | yes |
+| `timeout` | 10s untouched (`CALL_PROMPT_AUTO_HIDE_MS`) | yes |
+| `call-ended` | the prompted call ended | no |
+| `coach-opened` | `createCoachWindow()` from any path | no |
+| `signed-out` | sign-out / session expiry | no; clears all dismissed sessions |
+
+`call-ended` clears the session from the dismissed set, so the next call prompts again. Dev: the tray shows a "Test call prompt" row in `npm run dev` builds.
 
 ## Go / no-go
 

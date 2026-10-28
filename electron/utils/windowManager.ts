@@ -307,6 +307,60 @@ class WindowManager {
     };
   }
 
+  static getCallPromptWindowSize() {
+    const { CARD_WIDTH, CARD_HEIGHT, SHADOW_PADDING } = WINDOW_CONFIG.CALL_PROMPT;
+    return { width: CARD_WIDTH + 2 * SHADOW_PADDING, height: CARD_HEIGHT + 2 * SHADOW_PADDING };
+  }
+
+  /**
+   * Top-right of the display the user is working on (the one under the
+   * cursor). workArea already excludes the menu bar and the taskbar. The card
+   * sits at the insets; the window extends SHADOW_PADDING beyond it.
+   */
+  static calculateCallPromptWindowPosition() {
+    const { workArea } = WindowManager.getActiveDisplay();
+    const { CARD_WIDTH, SHADOW_PADDING, INSET_RIGHT, INSET_TOP } = WINDOW_CONFIG.CALL_PROMPT;
+    const x = workArea.x + workArea.width - INSET_RIGHT - CARD_WIDTH - SHADOW_PADDING;
+    const y = workArea.y + INSET_TOP - SHADOW_PADDING;
+    return { x: Math.round(x), y: Math.round(y) };
+  }
+
+  /**
+   * Bounds for the slide in / out: the same window with its right edge moved
+   * to the workArea's right edge, so the card can travel past the screen edge.
+   */
+  static getCallPromptSlideBounds(bounds: { x: number; y: number; width: number; height: number }) {
+    const { workArea } = screen.getDisplayMatching(bounds);
+    const right = workArea.x + workArea.width;
+    return { ...bounds, width: Math.max(bounds.width, right - bounds.x) };
+  }
+
+  static getCallPromptWindowConfig() {
+    const { x, y } = this.calculateCallPromptWindowPosition();
+
+    return {
+      ...this.getCallPromptWindowSize(),
+      x,
+      y,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      resizable: false,
+      maximizable: false,
+      minimizable: false,
+      fullscreenable: false,
+      hasShadow: false,
+      skipTaskbar: true,
+      show: false,
+      // Shown over a live call: never take keyboard focus from it
+      focusable: false,
+      // macOS: the first click on the unfocused window hits the button
+      acceptFirstMouse: true,
+      // See getCoachWindowConfig: fully transparent backing, no vibrancy
+      backgroundColor: '#00000000'
+    };
+  }
+
   static getAppSettingsWindowConfig() {
       const desiredWidth = 850;
       const desiredHeight = 610;

@@ -39,6 +39,15 @@ const WINDOW_CONFIG = {
     MINIMIZABLE: false,
     FULLSCREENABLE: false,
     HAS_SHADOW: false
+  },
+  // SAYSO-530 design. The window is the card plus transparent room for its
+  // shadow; the insets place the card (not the window) as in the Figma mock.
+  CALL_PROMPT: {
+    CARD_WIDTH: 344,
+    CARD_HEIGHT: 120,
+    SHADOW_PADDING: 16,
+    INSET_RIGHT: 31,
+    INSET_TOP: 52
   }
 };
 
