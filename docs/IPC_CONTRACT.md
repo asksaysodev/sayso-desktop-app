@@ -135,6 +135,8 @@ not a target.
 
 ### Call-detected prompt — **universal** (`electron/callDetection/callPrompt.ts`)
 
+`call-prompt:*` sends are ignored unless they come from the current prompt window (not one still sliding out).
+
 | Channel | Kind | Notes |
 |---|---|---|
 | `call-prompt:launch` | send | Widget's "Launch Coach": hides the prompt, opens or focuses the coach window (no session). |
