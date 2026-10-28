@@ -74,6 +74,7 @@ Packaged check: run `npm run package:staging`, sign in and start a Chrome call. 
 
 - Window: top-right of the display under the cursor, inside the work area: the card sits 31px from the right and 52px below the top (Figma), the window adding 16px of transparent room for its shadow (`WINDOW_CONFIG.CALL_PROMPT`). `focusable: false` + `showInactive()` so it never takes focus from the call; `setAlwaysOnTop(true, 'screen-saver')`, plus `visibleOnFullScreen` on macOS, so it sits over a full-screen browser. Created on show, destroyed on hide.
 - Look (SAYSO-530): the countdown is a lighter fill sweeping the Dismiss button left to right over the 10s; its CSS duration mirrors `CALL_PROMPT_AUTO_HIDE_MS`.
+- Auto-hide: the 10s starts when the window is shown (`ready-to-show` → `onCallPromptShown`), not when it's created, so it matches the countdown fill. If the window isn't shown within 5s (`CALL_PROMPT_LOAD_TIMEOUT_MS`, page failed to load), it closes with `load-failed`, which doesn't count as a dismiss.
 - Hover: the pointer over the card pauses the auto-hide (`call-prompt:hover` → `setCallPromptHovered`); leaving resumes it with the time that was left. The countdown fill pauses with it.
 - Enter: the card slides in from past the right screen edge (250ms ease-out, `CALL_PROMPT_ENTER_MS`).
 - Exit: `timeout` and `dismiss` slide the card back off the right edge (200ms ease-in, `CALL_PROMPT_EXIT_MS`); the other reasons close instantly. Main sends `call-prompt:exit` and closes the window after the animation whether or not it played.

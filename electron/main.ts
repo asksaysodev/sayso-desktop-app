@@ -34,7 +34,7 @@ import * as audioManager from './audio/audioManager';
 import * as permissions from './permissions/permissionsManager';
 import * as cacheStore from './store/cacheManager';
 import { callDetection, startMicActivityMonitor, stopMicActivityMonitor, type MicSession } from './callDetection/micActivityMonitor';
-import { initCallPrompt, onCallCandidate, onCallEnded, showCallDetectedPrompt, hideCallDetectedPrompt, launchFromCallPrompt, setCallPromptHovered, CALL_PROMPT_ENTER_MS, CALL_PROMPT_EXIT_MS } from './callDetection/callPrompt';
+import { initCallPrompt, onCallCandidate, onCallEnded, showCallDetectedPrompt, hideCallDetectedPrompt, launchFromCallPrompt, setCallPromptHovered, onCallPromptShown, CALL_PROMPT_ENTER_MS, CALL_PROMPT_EXIT_MS } from './callDetection/callPrompt';
 import { removeLegacyCacheFiles } from './store/persistentStore';
 import { formatLogArgs } from './shared/redact';
 import { enforceLogRetention } from './utils/logRetention';
@@ -2380,6 +2380,7 @@ async function openCoachWindowFromUser(): Promise<void> {
   if (global.networkState === 'reconnecting') return;
   if (isCoachWindowOpen()) {
     global.coachWindow!.focus();
+    sendToOnboardingWindow('onboarding:coach-opened');
     return;
   }
   // Mic-only gate, routed through the permissions provider (isMicGranted avoids
@@ -2407,13 +2408,18 @@ ipcMain.on('open-coach-window', () => {
 });
 
 // Call-detected prompt (SAYSO-529). Classification: universal.
-ipcMain.on('call-prompt:launch', () => {
+// Only the current prompt counts, not one still sliding out.
+const isCallPromptSender = (event: Electron.IpcMainEvent) => event.sender === callPromptWindow?.webContents;
+ipcMain.on('call-prompt:launch', (event) => {
+  if (!isCallPromptSender(event)) return;
   launchFromCallPrompt();
 });
-ipcMain.on('call-prompt:dismiss', () => {
+ipcMain.on('call-prompt:dismiss', (event) => {
+  if (!isCallPromptSender(event)) return;
   hideCallDetectedPrompt('dismiss');
 });
-ipcMain.on('call-prompt:hover', (_event, hovered: boolean) => {
+ipcMain.on('call-prompt:hover', (event, hovered: boolean) => {
+  if (!isCallPromptSender(event)) return;
   setCallPromptHovered(hovered === true);
 });
 // Dev-only trigger from the tray; no-op in packaged builds.
@@ -2851,8 +2857,10 @@ function createCallPromptWindow(): void {
   const restingBounds = win.getBounds();
   win.setBounds(WindowManager.getCallPromptSlideBounds(restingBounds));
   win.once('ready-to-show', () => {
-    if (win.isDestroyed()) return;
+    // Not if it was hidden while loading: it's closing
+    if (callPromptWindow !== win || win.isDestroyed()) return;
     win.showInactive();
+    onCallPromptShown();
     setTimeout(() => {
       // Not if it's already sliding out: the exit owns the bounds then
       if (callPromptWindow === win && !win.isDestroyed()) win.setBounds(restingBounds);
