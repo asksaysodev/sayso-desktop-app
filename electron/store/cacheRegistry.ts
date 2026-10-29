@@ -170,18 +170,12 @@ export const CACHE_REGISTRY: { [K in CacheKey]: CacheEntryDef<CacheValues[K]> } 
     retry: true,
     notify: null,
     refresh: async (baseUrl, token) => {
-      try {
-        const res = await axios.get(`${baseUrl}/sales-coach/settings`, {
-          headers: authHeaders(token),
-          timeout: SLOW_TIMEOUT_MS,
-        });
-        // Missing before migration 050 runs: the column's default.
-        return res.data?.coachSettings?.call_detection_prompt_enabled ?? true;
-      } catch (err) {
-        // No coach_settings row yet (SAYSO-446) means the default, not a failure.
-        if (axios.isAxiosError(err) && err.response?.status === 404) return true;
-        throw err;
-      }
+      const res = await axios.get(`${baseUrl}/sales-coach/settings`, {
+        headers: authHeaders(token),
+        timeout: SLOW_TIMEOUT_MS,
+      });
+      // Missing before migration 050 runs: the column's default.
+      return res.data?.coachSettings?.call_detection_prompt_enabled ?? true;
     },
   },
 };
