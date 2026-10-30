@@ -513,7 +513,7 @@ export default function CoachWindowMain() {
                         <div className='coach-window-drag-indicator'>
                             <MdDragIndicator/>
                         </div>
-                        <div className="coach-window-divider"></div>
+                        {/* <div className="coach-window-divider"></div> */}
                     </div>
                     
                     <div className='inner-content-centered'>
