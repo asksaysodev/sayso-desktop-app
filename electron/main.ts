@@ -2538,9 +2538,11 @@ ipcMain.on('call-prompt:dismiss', (event) => {
 ipcMain.on('call-prompt:hover', (event, hovered: boolean) => {
   if (!isCallPromptSender(event)) return;
   setCallPromptHovered(hovered === true);
-  // Clicks pass through the transparent part of the window (the shadow room
-  // around the pill) until the pointer is over the pill itself
-  callPromptWindow?.setIgnoreMouseEvents(hovered !== true, { forward: true });
+  // macOS: clicks pass through the transparent part of the window (the shadow
+  // room around the pill) until the pointer is over the pill itself. Not on
+  // Windows: turning click-through off there fires a synthetic mouseleave,
+  // which turns it back on, so a click always lands on the app behind.
+  if (IS_MAC) callPromptWindow?.setIgnoreMouseEvents(hovered !== true, { forward: true });
 });
 // Dev-only trigger from the tray; no-op in packaged builds.
 ipcMain.on('dev:show-call-prompt', () => {
@@ -2972,9 +2974,10 @@ function createCallPromptWindow(): void {
     webPreferences: getCoachWebPreferences(),
   });
   callPromptWindow = win;
-  // Click-through until the pointer reaches the pill; forward keeps the
-  // mouse moves coming so the renderer still sees it arrive (call-prompt:hover)
-  win.setIgnoreMouseEvents(true, { forward: true });
+  // macOS: click-through until the pointer reaches the pill; forward keeps the
+  // mouse moves coming so the renderer still sees it arrive (call-prompt:hover).
+  // Windows stays clickable throughout, see the call-prompt:hover handler.
+  if (IS_MAC) win.setIgnoreMouseEvents(true, { forward: true });
 
   // Above full-screen apps (a full-screen browser call) without taking focus
   win.setAlwaysOnTop(true, 'screen-saver');
