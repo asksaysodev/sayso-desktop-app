@@ -578,7 +578,7 @@ initCallPrompt({
   isCueActive: () => audioManager.isCueActive(),
   openWindow: () => createCallPromptWindow(),
   closeWindow: (animate) => closeCallPromptWindow(animate),
-  promoteWindow: () => promoteCallPromptWindow(),
+  promoteWindow: (reason) => promoteCallPromptWindow(reason === 'coach-opened'),
 });
 
 callDetection.on('call-candidate', (session: MicSession) => {
@@ -2505,21 +2505,32 @@ ipcMain.on('open-coach-window', () => {
 
 // Call-detected prompt (SAYSO-529). Classification: universal.
 // Only the current prompt counts, not one still sliding out.
-const isCallPromptSender = (event: Electron.IpcMainEvent) => event.sender === callPromptWindow?.webContents;
-// A lead pill was picked. Same mic gate as opening the coach from the tray; on
-// success the window is already the coach when this resolves, and its renderer
-// starts the session. False: the prompt closed instead (no mic, or it timed out).
+const isCallPromptSender = (event: { sender: Electron.WebContents }) => event.sender === callPromptWindow?.webContents;
+// A lead pill was picked. Same gates as opening the coach from the tray
+// (online, mic); on success the window is already the coach when this
+// resolves, and its renderer starts the session. False: not launched (offline,
+// no mic, or the prompt timed out or was promoted meanwhile); the renderer asks
+// coach:get-mode which view to show.
 ipcMain.handle('call-prompt:launch', async (event) => {
-  if (event.sender !== callPromptWindow?.webContents) return false;
+  if (!isCallPromptSender(event)) return false;
+  if (global.networkState === 'reconnecting') return false;
   if (!(await isMicGrantedForCoach())) {
-    hideCallDetectedPrompt('no-mic');
-    createSplashWindow();
+    // Only if this prompt is still the one up: it may have timed out meanwhile
+    if (isCallPromptSender(event)) {
+      hideCallDetectedPrompt('no-mic');
+      createSplashWindow();
+    }
     return false;
   }
-  if (!launchFromCallPrompt()) return false;
+  // Re-checked after the await: a newer prompt may have replaced this one
+  if (!isCallPromptSender(event) || !launchFromCallPrompt()) return false;
   sendToOnboardingWindow('onboarding:coach-opened');
   return true;
 });
+// Which view the coach window's renderer should show: 'prompt' while it's the
+// prompt, 'coach' once promoted. Asked on mount and after a launch that didn't
+// go through, so a missed call-prompt:promoted can't leave it on the prompt.
+ipcMain.handle('coach:get-mode', (event) => (isCallPromptSender(event) ? 'prompt' : 'coach'));
 ipcMain.on('call-prompt:dismiss', (event) => {
   if (!isCallPromptSender(event)) return;
   hideCallDetectedPrompt('dismiss');
@@ -3008,9 +3019,10 @@ function closeCallPromptWindow(animate: boolean): void {
 }
 
 // The prompt becomes the coach in place: same window, so no second one opens
-// and the renderer swaps its prompt view for the coach's. Still not focused, so
-// a launch doesn't pull the keyboard away from the call.
-function promoteCallPromptWindow(): void {
+// and the renderer swaps its prompt view for the coach's. focus: the coach was
+// opened (tray, onboarding), so it gets the keyboard like any opened coach; a
+// launch leaves it on the call.
+function promoteCallPromptWindow(focus: boolean): void {
   const win = callPromptWindow;
   callPromptWindow = null;
   if (!win || win.isDestroyed()) return;
@@ -3021,6 +3033,18 @@ function promoteCallPromptWindow(): void {
   win.setSkipTaskbar(IS_WINDOWS);
   adoptCoachWindow(win);
   win.webContents.send('call-prompt:promoted');
+
+  // Promoted before its page loaded: the prompt's own ready-to-show no longer
+  // shows it (it's not the prompt any more), so show it here once it's ready
+  if (!win.isVisible()) {
+    win.once('ready-to-show', () => {
+      if (win.isDestroyed()) return;
+      if (focus) win.show();
+      else win.showInactive();
+    });
+  } else if (focus) {
+    win.focus();
+  }
 }
 
 // Update the resize handler to use WindowManager

@@ -38,9 +38,12 @@ const WINDOW_HEIGHT_SIZES = {
 interface Props {
     /** Just turned from the prompt (SAYSO-566): the pill grows from the prompt's width. */
     fromPrompt?: boolean;
+    /** Mounted behind the prompt while a start from it runs: listening, but not
+        shown and not sizing the window (the prompt keeps its width). */
+    hidden?: boolean;
 }
 
-export default function CoachWindowMain({ fromPrompt = false }: Props) {
+export default function CoachWindowMain({ fromPrompt = false, hidden = false }: Props) {
     //REFS
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mainContainerRef = useRef<HTMLDivElement | null>(null);
@@ -245,6 +248,7 @@ export default function CoachWindowMain({ fromPrompt = false }: Props) {
 
         // force: skip the throttle, for the last size after a width transition
         const updateWindowSize = (force = false) => {
+            if (hidden) return;
             if (containerRef.current && window.electronAPI && (force || !isResizing)) {
                 isResizing = true;
                 const windowWidth = getWidthByCurrentState();
@@ -307,7 +311,7 @@ export default function CoachWindowMain({ fromPrompt = false }: Props) {
             resizeObserver.disconnect();
             mainContainer?.removeEventListener('transitionend', handleWidthTransitionEnd);
         };
-    }, [currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, allResults, pulseError, isPulsePending, updateInsightsMaxListHeight]);
+    }, [hidden, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, allResults, pulseError, isPulsePending, updateInsightsMaxListHeight]);
 
     /**
      * Handling auto opening of insights layout and unseen insights count for the notification dot
@@ -521,7 +525,8 @@ export default function CoachWindowMain({ fromPrompt = false }: Props) {
     }, [isResettingCueSession]);
 
     useEffect(() => {
-        if (!isGrowingFromPrompt) return;
+        // Waits until shown: the grow is what the user sees when it takes over
+        if (!isGrowingFromPrompt || hidden) return;
         // Two frames: the prompt width has to be painted before it can transition
         let second = 0;
         const first = requestAnimationFrame(() => {
@@ -531,7 +536,7 @@ export default function CoachWindowMain({ fromPrompt = false }: Props) {
             cancelAnimationFrame(first);
             cancelAnimationFrame(second);
         };
-    }, [isGrowingFromPrompt]);
+    }, [isGrowingFromPrompt, hidden]);
     
     useEffect(() => {
         if (!sessionData) {
@@ -541,7 +546,7 @@ export default function CoachWindowMain({ fromPrompt = false }: Props) {
     }, [sessionData])
     
     return (
-        <div className="coach-window" ref={containerRef}>
+        <div className="coach-window" ref={containerRef} style={hidden ? { display: 'none' } : undefined}>
             <div
                 className={`main-container${isCoachActive ? ' active' : ''} coach-width-probe`}
                 ref={widthProbeRef}

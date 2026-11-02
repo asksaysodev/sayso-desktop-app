@@ -139,7 +139,8 @@ The prompt is the coach window in its prompt state (SAYSO-566). `call-prompt:*` 
 
 | Channel | Kind | Notes |
 |---|---|---|
-| `call-prompt:launch` | invoke | Start for Buyer / Seller. Mic check, then promotes the window to the coach. Resolves `true` once it's the coach (the renderer then starts Cue), `false` if the prompt closed instead (no mic, or it timed out). |
+| `call-prompt:launch` | invoke | Start for Seller / Buyer. Same gates as opening the coach (online, mic), then promotes the window to the coach. Resolves `true` once it's the coach (the renderer then starts Cue); `false` if not launched: offline, no mic, or the prompt timed out or was replaced/promoted during the mic check (the sender is re-checked after it). |
+| `coach:get-mode` | invoke | `'prompt'` while the sender is the current prompt, `'coach'` otherwise. The coach window's renderer asks on mount and after a launch that didn't go through, because `call-prompt:promoted` is one-shot and can land before its listener. |
 | `call-prompt:dismiss` | send | Hides the prompt; no re-show for the same mic session. |
 | `call-prompt:hover` | send | `boolean`: pointer entered / left the pill. Pauses / resumes the auto-hide with the remaining time, and turns the window's click-through off / on. |
 | `dev:show-call-prompt` | send | Dev-only tray trigger; no-op when `app.isPackaged`. |

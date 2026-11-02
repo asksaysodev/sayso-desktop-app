@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { LeadTypeEnum } from '@/types/coach';
+import { useNetworkState } from '@/hooks/useNetworkState';
+import { reportCoachError } from '@/utils/errorReporting';
 import '../styles/CoachPrompt.css';
 
 // SAYSO-566: the coach window's prompt state, shown when call detection spots a
@@ -37,37 +39,59 @@ export default function CoachPrompt({ onLaunched, onPromoted }: Props) {
     const [starting, setStarting] = useState<LeadTypeEnum | null>(null);
     // A launch's own promotion is handled by the app, once the session is up
     const startingRef = useRef(false);
+    // Starting needs the network, like the coach's own Start buttons
+    const { isReconnecting } = useNetworkState();
 
     useEffect(() => {
         return window.electron?.ipcRenderer?.on('call-prompt:exit', () => setExiting(true));
     }, []);
 
+    // Main's call-prompt:promoted is one-shot and can land before this listener
+    // (promoted while the page loaded), so also ask once subscribed
     useEffect(() => {
-        return window.electron?.ipcRenderer?.on('call-prompt:promoted', () => {
+        const unsubscribe = window.electron?.ipcRenderer?.on('call-prompt:promoted', () => {
             if (!startingRef.current) onPromoted();
         });
+        void syncModeWithMain();
+        return unsubscribe;
     }, [onPromoted]);
+
+    const syncModeWithMain = async () => {
+        try {
+            const mode = await window.electron?.ipcRenderer?.invoke('coach:get-mode');
+            if (mode === 'coach' && !startingRef.current) onPromoted();
+        } catch (error) {
+            reportCoachError(error);
+        }
+    };
 
     const handleHover = (value: boolean) => {
         setHovered(value);
         window.electron?.ipcRenderer?.send('call-prompt:hover', value);
     };
 
-    // Main runs the mic check and, if it passes, turns this window into the
-    // coach before answering; false means it closed the prompt instead. The
-    // session starts as soon as main says yes, and this view stays (showing
-    // "Starting conversation") until the app swaps to the coach.
+    // Main runs the gates (online, mic) and, if they pass, turns this window
+    // into the coach before answering. The session starts as soon as main says
+    // yes, and this view stays (showing "Starting conversation") until the app
+    // swaps to the coach. Otherwise this view comes back, unless the window was
+    // promoted meanwhile (coach opened from elsewhere): then it's the coach.
     const handleLaunch = async (leadType: LeadTypeEnum) => {
-        if (startingRef.current) return;
+        if (startingRef.current || isReconnecting) return;
         startingRef.current = true;
         setStarting(leadType);
-        const launched = await window.electron?.ipcRenderer?.invoke('call-prompt:launch');
-        if (launched === true) {
+        let launched = false;
+        try {
+            launched = (await window.electron?.ipcRenderer?.invoke('call-prompt:launch')) === true;
+        } catch (error) {
+            reportCoachError(error);
+        }
+        if (launched) {
             onLaunched(leadType);
             return;
         }
         startingRef.current = false;
         setStarting(null);
+        await syncModeWithMain();
     };
 
     const classes = [
@@ -76,6 +100,7 @@ export default function CoachPrompt({ onLaunched, onPromoted }: Props) {
         hovered && 'coach-prompt--paused',
         (split || starting) && 'coach-prompt--split',
         starting && 'coach-prompt--starting',
+        isReconnecting && !starting && 'coach-prompt--offline',
     ].filter(Boolean).join(' ');
 
     return (
@@ -117,7 +142,7 @@ export default function CoachPrompt({ onLaunched, onPromoted }: Props) {
                     <button
                         className="coach-prompt-lead coach-prompt-lead--seller"
                         tabIndex={split ? 0 : -1}
-                        disabled={starting !== null}
+                        disabled={starting !== null || isReconnecting}
                         onClick={() => handleLaunch(LeadTypeEnum.SELLER)}
                     >
                         Start for Seller
@@ -125,7 +150,7 @@ export default function CoachPrompt({ onLaunched, onPromoted }: Props) {
                     <button
                         className="coach-prompt-lead coach-prompt-lead--buyer"
                         tabIndex={split ? 0 : -1}
-                        disabled={starting !== null}
+                        disabled={starting !== null || isReconnecting}
                         onClick={() => handleLaunch(LeadTypeEnum.BUYER)}
                     >
                         Start for Buyer

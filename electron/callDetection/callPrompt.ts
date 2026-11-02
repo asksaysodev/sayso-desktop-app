@@ -32,8 +32,9 @@ export interface CallPromptDeps {
   openWindow: () => void;
   // animate: play the exit before the window closes (timeout, dismiss)
   closeWindow: (animate: boolean) => void;
-  // Keep the window and turn it into the regular coach (launch, coach-opened)
-  promoteWindow: () => void;
+  // Keep the window and turn it into the regular coach. 'coach-opened' focuses
+  // it like any opened coach; 'launch' leaves the keyboard on the call.
+  promoteWindow: (reason: 'launch' | 'coach-opened') => void;
 }
 
 let deps: CallPromptDeps | null = null;
@@ -117,7 +118,7 @@ export function hideCallDetectedPrompt(reason: CallPromptHideReason): void {
   // The window becomes the coach: a lead was picked, or the coach was opened
   // from elsewhere while the prompt was up.
   if (reason === 'launch' || reason === 'coach-opened') {
-    deps?.promoteWindow();
+    deps?.promoteWindow(reason);
     return;
   }
   // Both mean "not for this call" and leave the same way; the rest are

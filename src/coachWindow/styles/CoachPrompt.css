@@ -310,6 +310,16 @@
   outline-offset: 2px;
 }
 
+/* Offline: starting needs the network, so the pills show but can't be picked */
+.coach-prompt--offline .coach-prompt-goo,
+.coach-prompt--offline.coach-prompt--split .coach-prompt-lead {
+  opacity: 0.35;
+}
+
+.coach-prompt-lead:disabled {
+  cursor: not-allowed;
+}
+
 /* ── Starting: a lead was picked ─────────────────────────────────────────
    Both pills fade out and "Starting conversation" fades in on its own, plain
    white copy on the pill (a status, not a button), until the session is up and
