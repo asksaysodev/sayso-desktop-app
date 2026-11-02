@@ -21,6 +21,8 @@ export default function CoachActiveButtons({ coachFeature, handleCoach, onReques
 
     return (
         <>
+            {/* Reset + Stop are one group in the active toolbar's spacing (SAYSO-566) */}
+            <div className="coach-session-controls">
             {coachFeature === 'cue' &&
                 <button
                 className={`coach-button reset ${isResettingCueSession ? 'loading' : ''}`}
@@ -43,6 +45,7 @@ export default function CoachActiveButtons({ coachFeature, handleCoach, onReques
                 )}
                 <FaStop size={ICON_SIZE} className={`${isCoachLoading ? 'hidden' : ''}`} />
             </button>
+            </div>
 
             <CallTimer shouldStopTimer={disableButtons}/>
         </>

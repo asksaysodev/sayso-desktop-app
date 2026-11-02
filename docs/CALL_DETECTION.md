@@ -1,6 +1,6 @@
 # Call detection (SAYSO-528)
 
-When another app, in v1 a browser, holds the mic for 3s, the main process emits `call-candidate`, which shows the "Launch Sayso?" widget (SAYSO-529).
+When another app, in v1 a browser, holds the mic for 3s, the main process emits `call-candidate`, which opens the coach window in its prompt state, "Sayso identified a call" (SAYSO-529, SAYSO-566).
 
 ## Pieces
 
@@ -11,7 +11,7 @@ When another app, in v1 a browser, holds the mic for 3s, the main process emits 
 | Service | `electron/callDetection/micActivityMonitor.ts` | Resolve the app, exclude Sayso, filter to browsers, debounce, emit `call-candidate` / `call-ended` |
 | Allowlist | `electron/callDetection/browserAllowlist.ts` | Browser bundle ids (macOS) and exe names (Windows) |
 | Prompt | `electron/callDetection/callPrompt.ts` | Show/hide rules, 10s auto-hide, dismissed sessions |
-| Widget | `call-detected-window.html`, `src/callDetectedWindow/` | The SAYSO-530 design: dark card, Dismiss / Launch Coach, timer band |
+| Widget | `src/coachWindow/components/CoachPrompt.tsx`, `styles/CoachPrompt.css` | The coach window's prompt state (SAYSO-566): coach pill, Start splitting into Start for Seller / Buyer, close × with countdown ring |
 | Wiring | `electron/main.ts` | Start on `signed-in`. Stop on sign-out, session expiry and quit. Per-call subscription check. Creates the widget window |
 
 The addon is separate from `electron/native-audio/` on purpose, because another team owns that one. Packaging builds the native-audio addon first, unchanged, and builds this one afterwards. Any failure here is a warning, and the app ships without detection.
@@ -72,29 +72,34 @@ Packaged check: run `npm run package:staging`, sign in and start a Chrome call. 
 
 `showCallDetectedPrompt(session)` in `callPrompt.ts` is the single entry point; `call-candidate` reaches it through `onCallCandidate`, which first checks `canPrompt()` (signed in, subscribed, not reconnecting, and the "Meeting detection" setting on). It shows nothing if the coach window is open, Cue is active, a prompt is already up, or the user already dismissed this session.
 
-- Window: top-right of the display under the cursor, inside the work area: the card sits 31px from the right and 52px below the top (Figma), the window adding 16px of transparent room for its shadow (`WINDOW_CONFIG.CALL_PROMPT`). `focusable: false` + `showInactive()` so it never takes focus from the call; `setAlwaysOnTop(true, 'screen-saver')`, plus `visibleOnFullScreen` on macOS, so it sits over a full-screen browser. Created on show, destroyed on hide.
-- Look (SAYSO-530): the countdown is a lighter fill sweeping the Dismiss button left to right over the 10s; its CSS duration mirrors `CALL_PROMPT_AUTO_HIDE_MS`.
-- Auto-hide: the 10s starts when the window is shown (`ready-to-show` → `onCallPromptShown`), not when it's created, so it matches the countdown fill. If the window isn't shown within 5s (`CALL_PROMPT_LOAD_TIMEOUT_MS`, page failed to load), it closes with `load-failed`, which doesn't count as a dismiss.
-- Hover: the pointer over the card pauses the auto-hide (`call-prompt:hover` → `setCallPromptHovered`); leaving resumes it with the time that was left. The countdown fill pauses with it.
-- Enter: the card slides in from past the right screen edge (250ms ease-out, `CALL_PROMPT_ENTER_MS`).
-- Exit: `timeout` and `dismiss` slide the card back off the right edge (200ms ease-in, `CALL_PROMPT_EXIT_MS`); the other reasons close instantly. Main sends `call-prompt:exit` and closes the window after the animation whether or not it played.
-- For both slides main widens the window to the work area's right edge (transparent, so invisible), otherwise the card would be clipped 15px short of the screen edge. It's back at its resting size once the card has landed, so that edge strip (browser scrollbars) stays clickable while the prompt is up. The card has a fixed width so resizing never moves it. Corners are concentric: the logo tile and buttons use card radius − padding (24 − 12 = 12px), encoded as `--radius-inner`. Font: DM Sans (`@fontsource-variable/dm-sans`, this window only).
-- **Launch Coach** → `launchFromCallPrompt()`: hides the widget, then opens or focuses the coach window (same path as the tray, mic-permission check included). No session starts; this is the one function to change if the CTA should start one.
+- Window: **the coach window itself, in its prompt state** (SAYSO-566). `createCallPromptWindow()` loads `coach-window.html?mode=prompt` at the coach's own spot with the coach's window options (`WindowManager.getCallPromptWindowConfig()`), sized to the prompt pill (`WINDOW_CONFIG.CALL_PROMPT`, 354×54). `focusable: false` + `showInactive()` so it never takes focus from the call; `setAlwaysOnTop(true, 'screen-saver')`, plus `visibleOnFullScreen` on macOS, so it sits over a full-screen browser. Its transparent area is click-through (`setIgnoreMouseEvents(true, { forward: true })`) until the pointer reaches the pill. Created on show; destroyed on dismiss/timeout, or promoted (below).
+- Look: the coach pill (`.coach-box-bubble`'s background and highlight, 52px tall, 24px radius, 2px/12px padding): Sayso mark where the drag handle is, "Sayso identified a call", **Start**, and a close × whose ring drains over the 10s (`--auto-hide-duration` mirrors `CALL_PROMPT_AUTO_HIDE_MS`).
+- Split: hovering Start (only Start, not the copy) splits it into **Start for Seller** / **Start for Buyer** like two drops separating: two blobs under an SVG goo filter, labels on a layer above it. Seller pulls left across the copy, Buyer stays by the ×, the pill width never changes. The lead pills only become clickable 300ms in (`visibility` transition delay), after their labels are readable, because Buyer lands where Start was and a click aimed at Start would otherwise pick it.
+- Auto-hide: the 10s starts when the window is shown (`ready-to-show` → `onCallPromptShown`), not when it's created, so it matches the ring. If the window isn't shown within 5s (`CALL_PROMPT_LOAD_TIMEOUT_MS`, page failed to load), it closes with `load-failed`, which doesn't count as a dismiss.
+- Hover: the pointer over the pill pauses the auto-hide (`call-prompt:hover` → `setCallPromptHovered`) and turns click-through off; leaving resumes it with the time that was left. The ring pauses with it.
+- Enter / exit: in place, a short fade + scale from the left (`CALL_PROMPT_ENTER_MS` / `CALL_PROMPT_EXIT_MS`). `timeout` and `dismiss` play the exit; main sends `call-prompt:exit` and closes the window after it whether or not it played. The other closing reasons are instant.
+- **Start for Buyer / Seller** → `call-prompt:launch` (invoke): main runs the same mic check as opening the coach from the tray (no mic → `no-mic`, splash), then `launchFromCallPrompt()` hides the prompt with `launch`, which **promotes** the window (`promoteCallPromptWindow()`): click-through off, focusable, normal always-on-top level, adopted as `global.coachWindow`, `call-prompt:promoted` sent. It stays unfocused so the keyboard stays on the call. The renderer sets the lead type and starts Cue right away, but keeps the prompt view (same look and width, "Starting conversation", close × disabled) until the start settles; then the coach view takes over and grows from the prompt's width straight to the active width (or to idle with the error, if the start failed).
+- Opening the coach from anywhere else while the prompt is up (`createCoachWindow()`) hides it with `coach-opened`, which promotes it the same way into the idle coach, so no second window opens.
+- The cursor stays an arrow over the prompt on macOS: the window can't become key, and macOS doesn't apply cursor changes there.
 - Hide reasons:
 
 | Reason | Trigger | Marks session dismissed |
 |---|---|---|
-| `launch` | Launch Coach | no |
+| `launch` | Start for Buyer / Start for Seller (window promoted, session starts) | no |
 | `dismiss` | Dismiss button, or the window closed from outside | yes |
 | `timeout` | 10s untouched (`CALL_PROMPT_AUTO_HIDE_MS`) | yes |
 | `call-ended` | the prompted call ended | no |
-| `coach-opened` | `createCoachWindow()` from any path | no |
+| `coach-opened` | `createCoachWindow()` from any path (window promoted to the idle coach) | no |
 | `signed-out` | sign-out / session expiry | no; clears all dismissed sessions |
 | `disabled` | "Meeting detection" turned off in Settings | no |
+| `load-failed` | not shown within 5s | no |
+| `no-mic` | a lead was picked without mic permission (splash opens) | no |
 
 **Setting (SAYSO-531):** Settings > General > "Meeting detection" is `coach_settings.call_detection_prompt_enabled` (account-wide, default on). Main reads its cached copy (`callDetectionPromptEnabled` in `electron/store/cacheRegistry.ts`) synchronously, so a call never waits on the network. Unknown, a missing column, or no `coach_settings` row (404, SAYSO-446) all mean on. It gates only the prompt; the monitor keeps running.
 
 `call-ended` clears the session from the dismissed set, so the next call prompts again. Dev: the tray shows a "Test call prompt" row in `npm run dev` builds.
+
+**Idle coach (SAYSO-566):** the lead-type dropdown is gone. The idle coach shows **Start for Seller** and **Start for Buyer** side by side (Seller first, as in the prompt) (no split: the user opened Sayso on purpose, so both choices can show at once); picking one sets the lead type and starts Cue. During the session the lead type shows read-only in the toolbar (`LeadTypeLabel.tsx`, a "Buyer" / "Seller" pill).
 
 ## Go / no-go
 

@@ -10,17 +10,19 @@ interface Props {
     isZipDropdownOpen: boolean;
     setZipCodeValue: React.Dispatch<SetStateAction<string>>;
     zipCodeValue: string;
+    /** Shown but not usable, e.g. while the session resets (SAYSO-566). */
+    disabled?: boolean;
 }
 
-export default function Pulse({ isCoachActive, isPulseEnabled, isZipCodeValid, setIsZipDropdownOpen, isZipDropdownOpen, setZipCodeValue, zipCodeValue }: Props) {
+export default function Pulse({ isCoachActive, isPulseEnabled, isZipCodeValid, setIsZipDropdownOpen, isZipDropdownOpen, setZipCodeValue, zipCodeValue, disabled = false }: Props) {
 
     if (!isCoachActive || !isPulseEnabled) return null;
 
 	return (
         <div
-            className={`zip-code-input-container ${isZipCodeValid ? 'active' : ''}`}
+            className={`zip-code-input-container ${isZipCodeValid ? 'active' : ''} ${disabled ? 'disabled' : ''}`}
             onClick={() => {
-                if (isZipCodeValid) setIsZipDropdownOpen(true);
+                if (isZipCodeValid && !disabled) setIsZipDropdownOpen(true);
             }}
         >
             <LuSearch className='zip-code-input-icon' />
@@ -32,11 +34,13 @@ export default function Pulse({ isCoachActive, isPulseEnabled, isZipCodeValid, s
                 inputMode='numeric'
                 pattern='[0-9]{5}'
                 maxLength={5}
+                disabled={disabled}
             />
             {isZipCodeValid && (
                 <button
                     type='button'
                     className='zip-code-chevron-toggle'
+                    disabled={disabled}
                     onClick={(e) => {
                         e.stopPropagation();
                         setIsZipDropdownOpen(prev => !prev);

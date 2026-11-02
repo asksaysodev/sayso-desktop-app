@@ -44,6 +44,9 @@ export interface CoachWindowStore {
     // ========== SHARED STATE ========== //
     isCoachActive: boolean;
     isCoachLoading: boolean;
+    // isCoachLoading because of a start (not a stop): stop flips isCoachActive
+    // off up front, so the two otherwise look the same (SAYSO-566)
+    isCoachStarting: boolean;
     callDurationInSeconds: number;
     sessionData: SessionData | null;
     coachFeature: CoachFeature;

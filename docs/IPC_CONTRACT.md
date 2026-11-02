@@ -135,13 +135,13 @@ not a target.
 
 ### Call-detected prompt — **universal** (`electron/callDetection/callPrompt.ts`)
 
-`call-prompt:*` sends are ignored unless they come from the current prompt window (not one still sliding out).
+The prompt is the coach window in its prompt state (SAYSO-566). `call-prompt:*` messages are ignored unless they come from the current prompt window (not one still playing its exit, nor one already promoted to the coach).
 
 | Channel | Kind | Notes |
 |---|---|---|
-| `call-prompt:launch` | send | Widget's "Launch Coach": hides the prompt, opens or focuses the coach window (no session). |
+| `call-prompt:launch` | invoke | Start for Buyer / Seller. Mic check, then promotes the window to the coach. Resolves `true` once it's the coach (the renderer then starts Cue), `false` if the prompt closed instead (no mic, or it timed out). |
 | `call-prompt:dismiss` | send | Hides the prompt; no re-show for the same mic session. |
-| `call-prompt:hover` | send | `boolean`: pointer entered / left the card. Pauses / resumes the auto-hide with the remaining time. |
+| `call-prompt:hover` | send | `boolean`: pointer entered / left the pill. Pauses / resumes the auto-hide with the remaining time, and turns the window's click-through off / on. |
 | `dev:show-call-prompt` | send | Dev-only tray trigger; no-op when `app.isPackaged`. |
 | `set-call-detection-prompt-enabled-cache` | send | Settings pushes the confirmed "Meeting detection" value into main's cache (SAYSO-531); `false` also closes an open prompt. |
 
@@ -190,11 +190,12 @@ call site.
 | `auth:session-expired` | Session expired. |
 | `auth-session-expired` | Session expired (backward-compat alias). |
 
-**Call-detected prompt (to the widget window only)**
+**Call-detected prompt (to the coach window in its prompt state only)**
 
 | Channel | Purpose |
 |---|---|
-| `call-prompt:exit` | Play the slide-out; main has already widened the window to the screen edge and closes it `CALL_PROMPT_EXIT_MS` later (timeout, dismiss). |
+| `call-prompt:exit` | Play the exit; main closes the window `CALL_PROMPT_EXIT_MS` later (timeout, dismiss). |
+| `call-prompt:promoted` | The window is now the coach (launch, or the coach opened from elsewhere): swap the prompt view for the coach's. |
 
 **Cue**
 

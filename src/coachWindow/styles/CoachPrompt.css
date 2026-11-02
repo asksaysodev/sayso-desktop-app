@@ -1,0 +1,459 @@
+/* SAYSO-566: the coach window's prompt state (CoachPrompt.tsx). Styled to match
+   the coach widget's pill (CoachWindow.css .main-container.coach-box-bubble). */
+.coach-prompt {
+  /* .coach-box-bubble's background and inset top highlight */
+  --pill-bg: var(--sayso-coach-bg);
+  --pill-highlight: inset 0 1px 0 rgba(114, 126, 137, 0.6);
+  /* The coach's 48px content box + its 2px top/bottom padding (content-box there) */
+  --pill-height: 52px;
+  --close-bg: #2b4a6d;
+  --text: #ffffff;
+
+  /* Must match CALL_PROMPT.WIDTH in electron/utils/windowConfig.ts. Fixed:
+     splitting Start never changes it */
+  --pill-width: 354px;
+
+  /* CTA area: the copy, then Start beside the close button. Splitting spreads
+     the two lead pills leftwards over the copy, filling the whole area */
+  --control-height: 36px;
+  --start-width: 68px;
+  /* Between the copy's area and Start */
+  --copy-gap: 8px;
+  --mark-width: 22px;
+  --mark-gap: 12px;
+  /* Pill width − padding (24) − mark + gap (34) − close + margin (48) */
+  --cta-width: calc(var(--pill-width) - 106px);
+  /* Wide enough that the goo filter lets the two drops fully separate */
+  --lead-gap: 10px;
+  --lead-width: calc((var(--cta-width) - var(--lead-gap)) / 2);
+  /* Bleed around the blobs so the blur isn't clipped at the CTA's edges */
+  --goo-bleed: 10px;
+  /* Overshoots a little: the drops stretch past their spot and settle */
+  --liquid: cubic-bezier(0.34, 1.45, 0.55, 1);
+  --split-duration: 560ms;
+
+  /* Must match CALL_PROMPT_AUTO_HIDE_MS / _ENTER_MS / _EXIT_MS in electron/callDetection/callPrompt.ts */
+  --auto-hide-duration: 10s;
+  --enter-duration: 250ms;
+  --exit-duration: 200ms;
+}
+
+.coach-prompt button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* In place, from the coach's own spot: the pill settles in from slightly left
+   and small, and leaves the same way */
+.coach-prompt {
+  display: flex;
+  font-family: Helvetica, Arial, sans-serif;
+  user-select: none;
+  transform-origin: left center;
+  animation: coach-prompt-enter var(--enter-duration) cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+@keyframes coach-prompt-enter {
+  from { opacity: 0; transform: translateX(-8px) scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+
+.coach-prompt--exiting {
+  /* A keyframe animation, not a transition: swapping out the enter animation
+     and changing transform in the same style change makes Chrome jump to the
+     end value instead of transitioning. */
+  animation: coach-prompt-exit var(--exit-duration) cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes coach-prompt-exit {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateX(-8px) scale(0.96); }
+}
+
+.coach-prompt-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+/* ── Pill: the coach widget's main container ─────────────────────────────── */
+
+.coach-prompt-pill {
+  box-sizing: border-box;
+  width: var(--pill-width);
+  height: var(--pill-height);
+  padding: 2px 12px;
+  display: flex;
+  align-items: center;
+  background: var(--pill-bg);
+  box-shadow: var(--pill-highlight);
+  border-radius: 24px;
+}
+
+/* Where the coach widget has its drag handle */
+.coach-prompt-mark {
+  flex-shrink: 0;
+  width: var(--mark-width);
+  height: var(--mark-width);
+  margin-right: var(--mark-gap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+}
+
+.coach-prompt-mark svg {
+  height: 18px;
+}
+
+/* ── Start CTA ────────────────────────────────────────────────────────────── */
+
+.coach-prompt-cta {
+  position: relative;
+  width: var(--cta-width);
+  height: var(--control-height);
+}
+
+.coach-prompt-copy {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Centered in the room between the logo and Start */
+  width: calc(var(--cta-width) - var(--start-width) - var(--copy-gap));
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  font-size: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+  transition:
+    opacity 200ms ease 60ms,
+    filter 200ms ease 60ms,
+    transform 200ms ease 60ms;
+}
+
+/* Swallowed by the drop pulling left */
+.coach-prompt--split .coach-prompt-copy {
+  opacity: 0;
+  filter: blur(4px);
+  transform: translateX(-6px);
+  transition:
+    opacity 160ms ease,
+    filter 160ms ease,
+    transform 160ms ease;
+}
+
+/* Blobs only: the filter thresholds the blurred alpha, so wherever the two
+   overlap or nearly touch they read as one liquid shape with a neck between
+   them. Labels live above this layer so they stay sharp. */
+.coach-prompt-goo {
+  position: absolute;
+  inset: calc(-1 * var(--goo-bleed));
+  filter: url(#coach-prompt-goo);
+  pointer-events: none;
+}
+
+.coach-prompt-blob {
+  position: absolute;
+  top: var(--goo-bleed);
+  /* Collapsed: both stacked on Start, at the right of the CTA area */
+  left: calc(var(--goo-bleed) + var(--cta-width) - var(--start-width));
+  width: var(--start-width);
+  height: var(--control-height);
+  border-radius: 100px;
+  background: var(--sayso-blue);
+  transition:
+    left var(--split-duration) var(--liquid),
+    width var(--split-duration) var(--liquid);
+}
+
+/* Seller pulls away to the left; Buyer stays by the close button */
+.coach-prompt--split .coach-prompt-blob--seller {
+  left: var(--goo-bleed);
+  width: var(--lead-width);
+  animation: coach-prompt-drop-pull var(--split-duration) ease-out;
+}
+
+.coach-prompt--split .coach-prompt-blob--buyer {
+  left: calc(var(--goo-bleed) + var(--lead-width) + var(--lead-gap));
+  width: var(--lead-width);
+  animation: coach-prompt-drop-hold var(--split-duration) ease-out;
+}
+
+/* The drop being pulled away thins as the neck stretches, then plumps back
+   when it snaps free */
+@keyframes coach-prompt-drop-pull {
+  0% { transform: scaleY(1); }
+  40% { transform: scaleY(0.8); }
+  70% { transform: scaleY(1.06); }
+  100% { transform: scaleY(1); }
+}
+
+/* The one left behind wobbles from the recoil */
+@keyframes coach-prompt-drop-hold {
+  0% { transform: scaleY(1); }
+  50% { transform: scaleY(0.92); }
+  80% { transform: scaleY(1.03); }
+  100% { transform: scaleY(1); }
+}
+
+.coach-prompt-start {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--start-width);
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  font-size: 14px;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    filter 140ms ease,
+    transform 140ms ease;
+}
+
+.coach-prompt--split .coach-prompt-start {
+  opacity: 0;
+  filter: blur(4px);
+  transform: scale(0.9);
+}
+
+/* Covers the collapsed Start: hovering or focusing it splits the CTA */
+.coach-prompt-start-target {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--start-width);
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 100px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.coach-prompt-start-target:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+}
+
+.coach-prompt-lead {
+  position: absolute;
+  top: 0;
+  width: var(--lead-width);
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 100px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  filter: blur(6px);
+  transform: scale(0.9);
+  /* Hidden = not clickable. Collapsing hides it after the fade-out */
+  visibility: hidden;
+  transition:
+    opacity 180ms ease,
+    filter 180ms ease,
+    transform 180ms ease,
+    background-color 150ms ease,
+    visibility 0s linear 180ms;
+}
+
+.coach-prompt-lead--seller {
+  left: 0;
+}
+
+.coach-prompt-lead--buyer {
+  left: calc(var(--lead-width) + var(--lead-gap));
+}
+
+/* Labels resolve while the drops are still pulling apart (40ms delay + 200ms
+   fade, readable by 240ms). Clicks and the hover highlight stay off until
+   300ms: Buyer lands right where Start was, so a click aimed at "Start"
+   would otherwise pick it before the user can see what it says. */
+.coach-prompt--split .coach-prompt-lead {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+  visibility: visible;
+  transition:
+    opacity 200ms ease 40ms,
+    filter 200ms ease 40ms,
+    transform 300ms var(--liquid) 40ms,
+    background-color 150ms ease,
+    visibility 0s linear 300ms;
+}
+
+.coach-prompt--split .coach-prompt-lead:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+.coach-prompt--split .coach-prompt-lead:active {
+  transform: scale(0.96);
+  transition: transform 80ms ease;
+}
+
+.coach-prompt-lead:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+}
+
+/* ── Starting: a lead was picked ─────────────────────────────────────────
+   Both pills fade out and "Starting conversation" fades in on its own, plain
+   white copy on the pill (a status, not a button), until the session is up and
+   the coach view takes over (CoachWindowApp.tsx). Same as the idle coach
+   (CoachWindow.css .lead-start). */
+
+.coach-prompt--starting .coach-prompt-close {
+  opacity: 0.35;
+  cursor: default;
+  transition: opacity 180ms ease;
+}
+
+/* The countdown is over: the auto-hide stopped when the prompt became the coach */
+.coach-prompt--starting .coach-prompt-ring-progress {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.coach-prompt--starting .coach-prompt-goo {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.coach-prompt--split.coach-prompt--starting .coach-prompt-lead {
+  opacity: 0;
+  filter: blur(4px);
+  transform: scale(0.96);
+  pointer-events: none;
+  transition: opacity 180ms ease, filter 180ms ease, transform 180ms ease;
+}
+
+.coach-prompt-starting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  font-size: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  filter: blur(4px);
+}
+
+/* Comes in as the pills finish going, then breathes */
+.coach-prompt--starting .coach-prompt-starting {
+  opacity: 1;
+  filter: blur(0);
+  transition: opacity 220ms ease 140ms, filter 220ms ease 140ms;
+  animation: coach-prompt-breathe 1.4s ease-in-out 360ms infinite;
+}
+
+@keyframes coach-prompt-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ── Close: the coach widget's right-side button, with the countdown ring ── */
+
+.coach-prompt-close {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--control-height);
+  height: var(--control-height);
+  margin-left: 12px;
+  padding: 0;
+  border: none;
+  border-radius: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--close-bg);
+  color: var(--text);
+  opacity: 0.8;
+  cursor: pointer;
+  transition: background-color 150ms ease, opacity 150ms ease;
+}
+
+.coach-prompt-close:hover {
+  opacity: 1;
+  background-color: var(--sayso-indigo);
+}
+
+.coach-prompt-close:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+}
+
+.coach-prompt-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* Start at 12 o'clock */
+  transform: rotate(-90deg);
+  fill: none;
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.coach-prompt-ring-track {
+  stroke: rgba(255, 255, 255, 0.12);
+}
+
+/* Drains over the auto-hide duration */
+.coach-prompt-ring-progress {
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+  animation: coach-prompt-countdown var(--auto-hide-duration) linear forwards;
+}
+
+.coach-prompt--paused .coach-prompt-ring-progress {
+  animation-play-state: paused;
+}
+
+@keyframes coach-prompt-countdown {
+  to { stroke-dashoffset: 100; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coach-prompt-ring-progress {
+    animation: none;
+  }
+
+  .coach-prompt,
+  .coach-prompt--exiting,
+  .coach-prompt--split .coach-prompt-blob--seller,
+  .coach-prompt--split .coach-prompt-blob--buyer {
+    animation: none;
+  }
+
+  .coach-prompt--starting .coach-prompt-starting {
+    animation: none;
+  }
+
+  .coach-prompt-blob,
+  .coach-prompt-copy,
+  .coach-prompt--split .coach-prompt-copy,
+  .coach-prompt-start,
+  .coach-prompt-lead,
+  .coach-prompt--split .coach-prompt-lead {
+    transition: none;
+  }
+}
