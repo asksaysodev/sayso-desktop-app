@@ -23,11 +23,6 @@ button {
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
-
-.coach-window.dropdown-open {
-    -webkit-app-region: no-drag;
-    cursor: default;
-}
 .coach-window::-webkit-scrollbar {
     display: none;
 }
@@ -45,13 +40,85 @@ button {
     height: 90px !important;
 }
 
+/* Active (SAYSO-566): the toolbar is five groups spread evenly across the
+   fixed-width pill, handle and right-side buttons on the edges: handle | zip |
+   Reset + Stop | timer | right-side buttons. The wrappers in between step out
+   of the way so their children are the toolbar's own items. */
+.coach-window .main-container.active .main-toolbar {
+    justify-content: space-between;
+    column-gap: 12px;
+}
+
+.coach-window .main-container.active .inner-content-centered,
+.coach-window .main-container.active .coach-buttons-container {
+    display: contents;
+}
+
+/* Only reserved room for Pulse while the pill sized itself to its content */
+.coach-window .main-container.active .pulse-holder {
+    display: none;
+}
+
+.coach-window .main-container.active .right-side-buttons-container,
+.coach-window .main-container.active .coach-window-drag-container {
+    margin: 0;
+}
+
+/* Active session's lead type (LeadTypeLabel.tsx): the label pill of
+   production's locked lead-type dropdown. */
+.coach-window .lead-type-label {
+    /* No global border-box reset in this window: keeps the 1px border inside the height */
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    height: var(--cw-fs-container-height);
+    padding: 0 16px;
+    border: 1px solid rgba(255, 255, 255, 0.234);
+    border-radius: 100px;
+    background-color: #515C6C;
+    color: white;
+    font-size: var(--cw-fs-toolbar-control);
+    opacity: 0.8;
+}
+
+.coach-window .coach-session-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .coach-window .main-container{
     position: relative;
     height: 48px;
-    width: max-content;
-    min-width: var(--cw-base-width);
+    /* Three widths (SAYSO-566), content-box (the 16px padding is on top):
+       - prompt: CoachPrompt.css --pill-width (354) − 16; only the start of the
+         grow when the prompt turns into the coach (.from-prompt)
+       - idle: handle 24 + gap 10 + the two lead buttons (2 × (109 + h) + 10,
+         .lead-start) + right buttons (12 + 2h + 8) = 282 + 4h, ≈ 442px at S
+       - active: production's active pill, so Pulse's market panel and Smart
+         Capture below, sized to this window, keep their room: padding 24 +
+         handle 24 + divider 31 + lead pill (h + 10 + label ≈ 3.64em) + Pulse
+         input (24 + icon 1em + 6 + placeholder) + Reset/Stop/timer (2h + 114)
+         + right buttons (12 + 2h + 8) + the 14px gaps = 281 + 5h + 4.64em +
+         placeholder, ≈ 592px at S; minus 16 for this pill's padding.
+       Extra room lands before the right-side buttons. */
+    --cw-pill-prompt: 338px;
+    --cw-pill-idle: calc(282px + 4 * var(--cw-fs-container-height));
+    --cw-pill-active: calc(
+        265px
+        + 5 * var(--cw-fs-container-height)
+        + 4.64 * var(--cw-fs-toolbar-control)
+        + var(--cw-fs-zip-input-placeholder-width)
+    );
+    width: var(--cw-pill-idle);
+    /* Grows and shrinks between them; clipped so new controls are revealed by
+       the growing pill rather than spilling past it. No overshoot: the window
+       is sized to the target and would cut off anything past it. */
+    overflow: hidden;
+    transition: width 480ms cubic-bezier(0.22, 1, 0.36, 1);
     max-width: 900px;
-    padding:  2px 12px;
+    padding:  2px 8px;
     border-radius: 24px;
     display: flex;
     flex-direction: column;
@@ -59,6 +126,34 @@ button {
     justify-content: center;
 }
 
+.coach-window .main-container.active {
+    width: var(--cw-pill-active);
+}
+
+.coach-window .main-container.from-prompt {
+    width: var(--cw-pill-prompt);
+    transition: none;
+}
+
+/* Same width rules as the pill, without the transition: the width the pill
+   is heading to, which the window is sized to (CoachWindowMain.tsx). */
+.coach-window .main-container.coach-width-probe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .coach-window .main-container {
+        transition: none;
+    }
+}
 
 .coach-window .main-container button, select{
     -webkit-app-region: no-drag;
@@ -86,6 +181,7 @@ button {
     justify-content: center;
     font-size: 24px;
     color: white;
+	margin-right: 10px;
 }
 
 .coach-window .coach-window-drag-indicator {
@@ -156,276 +252,10 @@ button {
     cursor: pointer;
 }
 
-
-
 .coach-window .coach-smart-capture-toggle[data-active="true"] {
     justify-content: end;
     transition: justify-content 0.3s ease-in-out;
     background-color: var(--sayso-success);
-}
-
-.coach-window-select-prospect-button{
-    height: var(--cw-fs-container-height);
-    border: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 4px 16px !important;
-    cursor: pointer;
-    -webkit-app-region: no-drag;
-    background-color:var(--sayso-blue);
-    border-radius: 100px;
-    color: white;
-    border: 1px solid var(--sayso-blue);
-}
-
-.coach-window-select-prospect-button:hover{
-    opacity: 0.9;
-}
-
-.coach-window-select-prospect-button[data-open="true"] {
-    border:  1px solid var(--sayso-border);
-}
-
-
-
-
-.coach-window-select-prospect-button-text{
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 4px 0;
-    font-size: var(--cw-fs-toolbar-control);
-    -webkit-app-region: no-drag;
-}
-
-.coach-window-select-prospect-modal{
-    max-height: 200px;
-    top: 48px;
-    z-index: 1000;
-    margin-top: 6px;
-    position: absolute;
-    -webkit-app-region: no-drag;
-    padding: 6px;
-    border-radius: 12px;
-    background-color: var(--sayso-coach-bg);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-    display: flex;
-    flex-direction: column;
-    align-items: start;
-    justify-content: start;
-}
-
-.coach-window-select-prospect-modal-content{
-    width: 100%;
-    display: flex;  
-    flex-direction: column;
-    align-items: start;
-    justify-content: start;
-}
-
-.coach-window-select-prospect-modal-content ul{
-    width: 100%;
-    max-height: 140px;
-    display: flex;
-    flex-direction: column;
-    align-items: start;
-    justify-content: start;
-    padding: 4px 0;
-    margin: 0;
-    list-style: none;
-    overflow-y: auto;
-    overflow-x: hidden;
-
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-
-    &::-webkit-scrollbar {
-        width: 4px;
-    }
-
-    &::-webkit-scrollbar-track {
-        background: transparent;
-    }
-
-    &::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 3px;
-    }
-
-    &::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.35);
-    }
-}
-
-.coach-window-select-prospect-modal-content ul .ul-divider{
-    width: 100%;
-    height: 1px;
-    background-color: rgba(255, 255, 255, 0.08);
-    margin: 4px 0;
-    display: block;
-    -webkit-app-region: no-drag;
-}
-
-.coach-window-select-prospect-modal-content li{
-    width: -webkit-fill-available;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: start;
-    -webkit-app-region: no-drag;
-    cursor: pointer;
-    padding: 6px 8px;
-    border-radius: 8px;
-    transition: background 0.1s ease;
-}
-
-.coach-window-select-prospect-modal-content li:hover {
-    background: rgba(255, 255, 255, 0.07);
-}
-
-.coach-window-select-prospect-modal-content .prospect-initials-container{
-    width: 40px;
-    height: 40px;
-    aspect-ratio: 1/1;
-    border-radius: 100px;
-    background-color: var(--sayso-white);
-    color: black;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    font-weight: 500;
-}
-
-.coach-window-select-prospect-modal-content .prospect-info-container{
-    width: calc(100% - 40px);
-    display: flex;
-    flex-direction: column;
-    align-items: start;
-    justify-content: start;
-    margin-left: 12px;
-}
-
-.coach-window-select-prospect-modal-content .prospect-info-container.no-initials{
-    width: 100%;
-    margin-left: 0;
-}
-
-.coach-window-select-prospect-modal-content .prospect-info-container h4{
-    margin: 0;
-    padding: 0;
-    font-size: var(--cw-fs-dropdown-item);
-    font-weight: 400;
-    color: #fff;
-    margin-bottom: 2px;
-}
-
-.coach-window-select-prospect-modal-content .prospect-info-container p{
-    margin: 0;
-    padding: 0;
-    font-size: 14px;
-    font-weight: 400;
-    color: rgba(255, 255, 255, 0.5);
-}
-
-
-.coach-window .searchbar-container{
-    width: 100%;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: start;
-    gap: 8px;
-    margin-bottom: 12px;
-    border: 1px solid var(--sayso-border);
-    border-radius: 6px;
-}
-
-.coach-window .searchbar-container:focus-within{
-    border: 1px solid var(--sayso-indigo);
-}
-
-.coach-window .searchbar-container svg{
-    margin-left: 8px;
-    color: var(--sayso-lightgray);
-}
-
-.coach-window .searchbar-container input{
-    width: 100%;
-    height: 100%;
-    border: none;
-    outline: none;
-}
-
-.coach-window-select-prospect-modal .no-prospects-found-text{
-    font-size: 14px;
-    font-weight: 400;
-    width: 100%;
-    color: rgba(255, 255, 255, 0.5);
-    text-align: center;
-    margin: 20px 0;
-    padding: 0;
-}
-
-.coach-window-selected-prospect-button{
-    height: var(--cw-fs-container-height);
-    border: none;
-    display: flex;
-    align-items: center;
-    justify-content: end;
-    gap: 8px;
-    cursor: pointer;
-}
-.coach-window-selected-prospect-button.disabled{
-    cursor: not-allowed !important;
-}
-.coach-window-selected-prospect-button .coach-window-selected-prospect-initials-container{
-    width: var(--cw-fs-container-height);
-    height: var(--cw-fs-container-height);
-    aspect-ratio: 1/1;
-    border-radius: 100px;
-    z-index: 1000;
-    background-color: var(--sayso-white);
-    color: black;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: var(--cw-fs-lead-type-initial-fs);
-    font-weight: 500;
-}
-.coach-window-selected-prospect-button .coach-window-selected-prospect-initials-container.disabled{
-    opacity: 0.8 !important;
-}
-.coach-window .coach-window-selected-prospect-button-text-container{
-    height: var(--cw-fs-container-height);
-    /* No global border-box reset in this window — without this the 1px border
-       stacks on top of the height and the pill outgrows the Start button. */
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: start;
-    gap: 8px;
-    padding-right: 12px;
-    padding-left: 22px;
-    margin-left: -24px;
-    border-top-right-radius: 100px;
-    border-bottom-right-radius: 100px;
-    z-index: 999;
-    -webkit-app-region: no-drag;
-    background-color: #515C6C;
-    border: 1px solid #515C6C;
-    color: white;
-}
-.coach-window .coach-window-selected-prospect-button-text-container p {
-    margin: 0px !important;
-}
-.coach-window .coach-window-selected-prospect-button-text-container.disabled{
-    border: 1px solid rgba(255, 255, 255, 0.234) !important;
-    opacity: 0.8 !important;
 }
 
 .coach-window .pulse-holder{
@@ -444,6 +274,14 @@ button {
 }
 .coach-window .zip-code-input-container.active {
     background-color: #487AB3 !important;
+}
+/* Same dim as the toolbar's other disabled controls (e.g. during a reset) */
+.coach-window .zip-code-input-container.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+.coach-window .zip-code-input-container.disabled input {
+    cursor: not-allowed;
 }
 .coach-window .zip-code-input-icon {
     color: #FFF;
@@ -553,6 +391,14 @@ button {
     cursor: not-allowed;
 }
 
+/* Blocked while the other one works (e.g. Stop during a reset); the one with
+   the spinner keeps its loading look above */
+.coach-window .coach-buttons-container .coach-button:disabled:not(.loading),
+.coach-window .coach-buttons-container .coach-button:disabled:not(.loading):hover {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
 .coach-window .coach-button .loading-spinner {
     position: absolute;
     color: white;
@@ -617,6 +463,107 @@ button {
     }
     to {
         transform: rotate(360deg);
+    }
+}
+
+/* Idle start (SAYSO-566): one button per lead type. While a session starts
+   or stops, both fade out and a status line ("Starting conversation" /
+   "Saving conversation") fades in on its own: a status, not a button, so plain
+   white copy on the widget. When it's done the buttons fade back in. */
+.lead-start {
+    /* 145px at S: fits "Start for Seller" at every size and puts idle between
+       the prompt and active widths. Mirrored in .main-container's
+       --cw-pill-idle. */
+    --ls-width: calc(109px + var(--cw-fs-container-height));
+    --ls-gap: 10px;
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    gap: var(--ls-gap);
+    width: calc(2 * var(--ls-width) + var(--ls-gap));
+    height: var(--cw-fs-container-height);
+    -webkit-app-region: no-drag;
+}
+
+.lead-start-button {
+    width: var(--ls-width);
+    height: 100%;
+    border: none;
+    border-radius: 100px;
+    background-color: var(--sayso-blue);
+    color: white;
+    font-size: var(--cw-fs-launch-btn);
+    white-space: nowrap;
+    cursor: pointer;
+    /* Coming back after a status: let the copy clear first */
+    transition:
+        opacity 260ms ease 120ms,
+        transform 260ms ease 120ms,
+        filter 180ms ease;
+}
+
+/* Brightness rather than opacity, so hovering doesn't wait on the delay above */
+.lead-start-button:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+
+.lead-start-button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.lead-start--busy .lead-start-button {
+    opacity: 0;
+    filter: blur(4px);
+    transform: scale(0.96);
+    pointer-events: none;
+    transition:
+        opacity 180ms ease,
+        transform 180ms ease,
+        filter 180ms ease;
+}
+
+.lead-start-status {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: var(--cw-fs-launch-btn);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+}
+
+/* Keyframes, not a transition, so it also fades in when it mounts already
+   visible (a stop swaps the active controls for this). Comes in as the
+   buttons finish going, then breathes until it's done. */
+.lead-start-status--visible {
+    animation:
+        lead-start-status-in 220ms ease 140ms both,
+        lead-start-breathe 1.4s ease-in-out 360ms infinite;
+}
+
+@keyframes lead-start-status-in {
+    from { opacity: 0; filter: blur(4px); }
+    to { opacity: 1; filter: blur(0); }
+}
+
+@keyframes lead-start-breathe {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lead-start-button,
+    .lead-start--busy .lead-start-button {
+        transition: none;
+    }
+
+    .lead-start-status--visible {
+        animation: none;
+        opacity: 1;
     }
 }
 
@@ -1118,11 +1065,8 @@ button {
     margin-left: 12px;
 }
 
-
-
 /* S — default */
 :root {
-    --cw-fs-lead-type-initial-fs: 14px;
     --cw-fs-container-height: 36px;
     --cw-fs-toolbar-control: 14px;
     --cw-fs-launch-btn: 14px;
@@ -1131,7 +1075,6 @@ button {
     --cw-fs-icon-sm:          16px;
     --cw-fs-dialog-title:     18px;
     --cw-fs-dialog-subtitle:  14px;
-    --cw-fs-dropdown-item:    16px;
     --cw-fs-zip-label:        16px;
     --cw-fs-zip-action:       14px;
     --cw-fs-zip-loading:      15px;
@@ -1139,7 +1082,6 @@ button {
     --cw-fs-zip-city:         15px;
     --cw-fs-zip-fact:         14px;
     --cw-fs-lpmama:           14px;
-    --cw-base-width:          380px;
     --cw-fs-zip-input-width: 44px;
     --cw-fs-zip-input-placeholder-width: 66px;
     --cw-fs-zc-property-tab-fs: 12px;
@@ -1148,7 +1090,6 @@ button {
 
 /* M */
 :root[data-font-size="m"] {
-    --cw-fs-lead-type-initial-fs: 16px;
     --cw-fs-container-height: 36px;
     --cw-fs-toolbar-control: 17px;
     --cw-fs-launch-btn: 16px;
@@ -1157,7 +1098,6 @@ button {
     --cw-fs-icon-sm:          19.2px;
     --cw-fs-dialog-title:     21.6px;
     --cw-fs-dialog-subtitle:  16.8px;
-    --cw-fs-dropdown-item:    19.2px;
     --cw-fs-zip-label:        19.2px;
     --cw-fs-zip-action:       16.8px;
     --cw-fs-zip-loading:      18px;
@@ -1165,7 +1105,6 @@ button {
     --cw-fs-zip-city:         17px;
     --cw-fs-zip-fact:         16.8px;
     --cw-fs-lpmama:           16px;
-    --cw-base-width:          400px;
     --cw-fs-zip-input-width: 53px;
     --cw-fs-zip-input-placeholder-width: 79px;
     --cw-fs-zc-property-tab-fs: 12px;
@@ -1174,7 +1113,6 @@ button {
 
 /* L */
 :root[data-font-size="l"] {
-    --cw-fs-lead-type-initial-fs: 17px;
     --cw-fs-container-height: 35px;
     --cw-fs-toolbar-control: 19px;
     --cw-fs-launch-btn: 19px;
@@ -1183,7 +1121,6 @@ button {
     --cw-fs-icon-sm: 22.4px;
     --cw-fs-dialog-title: 25.2px;
     --cw-fs-dialog-subtitle: 19.6px;
-    --cw-fs-dropdown-item: 22.4px;
     --cw-fs-zip-label: 22.4px;
     --cw-fs-zip-action: 19.6px;
     --cw-fs-zip-loading: 21px;
@@ -1191,7 +1128,6 @@ button {
     --cw-fs-zip-city: 19px;
     --cw-fs-zip-fact: 18px;
     --cw-fs-lpmama: 17px;
-    --cw-base-width: 420px;
     --cw-fs-zip-input-width: 62px;
     --cw-fs-zip-input-placeholder-width: 92px;
     --cw-fs-zc-property-tab-fs: 14px;

@@ -6,10 +6,10 @@ import { MdErrorOutline } from 'react-icons/md';
 import { LuX } from 'react-icons/lu';
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import CoachButtons from './CoachButtons';
-import SelectLeadTypeDropdown from './SelectLeadTypeDropdown';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
 import SessionStoppedDialog, { type SessionStoppedReason } from './SessionStoppedDialog';
 import RightSideButtons from './RightSideButtons';
+import LeadTypeLabel from './LeadTypeLabel';
 import useFontSize from '../hooks/useFontSize';
 import usePulseMarketProperty from '../hooks/usePulseMarketProperty';
 import ZipCodeDropdown from './ZipCodeDropdown';
@@ -31,15 +31,24 @@ const WINDOW_WIDTH_SIZES = {
 
 const WINDOW_HEIGHT_SIZES = {
     BASE: 54,
-    DROPDOWN_OPEN: 220,
     ERROR: 110,
 }
 
 
-export default function CoachWindowMain() {
+interface Props {
+    /** Just turned from the prompt (SAYSO-566): the pill grows from the prompt's width. */
+    fromPrompt?: boolean;
+    /** Mounted behind the prompt while a start from it runs: listening, but not
+        shown and not sizing the window (the prompt keeps its width). */
+    hidden?: boolean;
+}
+
+export default function CoachWindowMain({ fromPrompt = false, hidden = false }: Props) {
     //REFS
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mainContainerRef = useRef<HTMLDivElement | null>(null);
+    // The width the pill is heading to (same rules, no transition): see getWidthByCurrentState
+    const widthProbeRef = useRef<HTMLDivElement | null>(null);
     const insightsLayoutRef = useRef<HTMLDivElement | null>(null);
     const zipCodeDropdownRef = useRef<HTMLDivElement | null>(null);
     const errorContainerRef = useRef<HTMLDivElement | null>(null);
@@ -51,10 +60,11 @@ export default function CoachWindowMain() {
     // Populated on mount via IPC; falls back to screen.availHeight (conservative by ~menuBarHeight).
     const workAreaBottomRef = useRef<number | null>(null);
     //STATE
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
     const [sessionStoppedReason, setSessionStoppedReason] = useState<SessionStoppedReason>('inactivity');
     const [lpmamaTooltipHeight, setLpmamaTooltipHeight] = useState(0);
+    // Held for one painted frame so the width transition has a start point
+    const [isGrowingFromPrompt, setIsGrowingFromPrompt] = useState(fromPrompt);
     //CONTEXT / HOOKS
     const sessionData = useCoachWindowStore(state => state.sessionData);
     const isCoachActive = useCoachWindowStore(state => state.isCoachActive);
@@ -73,6 +83,7 @@ export default function CoachWindowMain() {
     const onPressResetSession = useCoachWindowStore(state => state.cue_onPressResetSession);
     const isSmartCaptureEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('smart_capture'));
     const isPulseEnabled = useCoachWindowStore(state => state.cue.enabledFeatures.includes('pulse'));
+    const isResettingCueSession = useCoachWindowStore(state => state.cue.isResettingCueSession);
     const currentfs = useFontSize();
     const { isReconnecting } = useNetworkState();
     const [zipCodeValue, setZipCodeValue] = useState<string>("")
@@ -172,9 +183,17 @@ export default function CoachWindowMain() {
         return totalHeight; 
     }
     
+    // The pill animates between its prompt / idle / active widths, and the
+    // window can't animate with it. So the window takes the larger of where the
+    // pill is and where it's heading: growing, it's at the target right away;
+    // shrinking, it follows the pill down (ResizeObserver) and lands on the
+    // target when the transition ends. Transparent, so the slack never shows.
     function getWidthByCurrentState() {
         const fsWidthOptions = WINDOW_WIDTH_SIZES[currentfs];
-        const natural = mainContainerRef.current?.offsetWidth ?? fsWidthOptions.BASE;
+        const natural = Math.max(
+            mainContainerRef.current?.offsetWidth ?? fsWidthOptions.BASE,
+            widthProbeRef.current?.offsetWidth ?? 0,
+        );
         return Math.min(fsWidthOptions.MAX_WIDTH, Math.max(fsWidthOptions.BASE, natural));
     }
 
@@ -182,10 +201,6 @@ export default function CoachWindowMain() {
         const showError = coachWindowError && coachFeature === 'cue' && leadType;
         if (showError) {
             return getTotalHeightWithRef(errorContainerRef);
-        }
-
-        if (isDropdownOpen) {
-            return WINDOW_HEIGHT_SIZES.DROPDOWN_OPEN;
         }
 
         if (showSessionAutoStopped) {
@@ -231,8 +246,10 @@ export default function CoachWindowMain() {
     useEffect(() => {
         let isResizing = false;
 
-        const updateWindowSize = () => {
-            if (containerRef.current && window.electronAPI && !isResizing) {
+        // force: skip the throttle, for the last size after a width transition
+        const updateWindowSize = (force = false) => {
+            if (hidden) return;
+            if (containerRef.current && window.electronAPI && (force || !isResizing)) {
                 isResizing = true;
                 const windowWidth = getWidthByCurrentState();
                 const windowHeight = getHeightByCurrentState();
@@ -281,12 +298,20 @@ export default function CoachWindowMain() {
             resizeObserver.observe(insightsLayoutRef.current);
         }
 
+        // The throttle can swallow the observer's last call of a shrink
+        const mainContainer = mainContainerRef.current;
+        const handleWidthTransitionEnd = (event: TransitionEvent) => {
+            if (event.target === mainContainer && event.propertyName === 'width') updateWindowSize(true);
+        };
+        mainContainer?.addEventListener('transitionend', handleWidthTransitionEnd);
+
         return () => {
             clearTimeout(timeoutId);
             if (rafId) cancelAnimationFrame(rafId);
             resizeObserver.disconnect();
+            mainContainer?.removeEventListener('transitionend', handleWidthTransitionEnd);
         };
-    }, [isDropdownOpen, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, allResults, pulseError, isPulsePending, updateInsightsMaxListHeight]);
+    }, [hidden, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, allResults, pulseError, isPulsePending, updateInsightsMaxListHeight]);
 
     /**
      * Handling auto opening of insights layout and unseen insights count for the notification dot
@@ -489,14 +514,29 @@ export default function CoachWindowMain() {
     }, [])
 
     useEffect(() => {
-        if (leadType && (isDropdownOpen || isCoachActive)) {
+        if (leadType && isCoachActive) {
             setShowSessionAutoStopped(false);
         }
-    }, [isDropdownOpen, isCoachActive, leadType]);
+    }, [isCoachActive, leadType]);
 
-    const DropdownComponent = {
-        cue: <SelectLeadTypeDropdown isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} />,
-    };
+    // The market panel belongs to the session being reset; the input stays, disabled
+    useEffect(() => {
+        if (isResettingCueSession) setIsZipDropdownOpen(false);
+    }, [isResettingCueSession]);
+
+    useEffect(() => {
+        // Waits until shown: the grow is what the user sees when it takes over
+        if (!isGrowingFromPrompt || hidden) return;
+        // Two frames: the prompt width has to be painted before it can transition
+        let second = 0;
+        const first = requestAnimationFrame(() => {
+            second = requestAnimationFrame(() => setIsGrowingFromPrompt(false));
+        });
+        return () => {
+            cancelAnimationFrame(first);
+            cancelAnimationFrame(second);
+        };
+    }, [isGrowingFromPrompt, hidden]);
     
     useEffect(() => {
         if (!sessionData) {
@@ -506,23 +546,31 @@ export default function CoachWindowMain() {
     }, [sessionData])
     
     return (
-        <div className={`coach-window${isDropdownOpen && coachFeature === 'cue' ? ' dropdown-open' : ''}`} ref={containerRef}>
-            <div className={`main-container coach-box-bubble`} ref={mainContainerRef}>
+        <div className="coach-window" ref={containerRef} style={hidden ? { display: 'none' } : undefined}>
+            <div
+                className={`main-container${isCoachActive ? ' active' : ''} coach-width-probe`}
+                ref={widthProbeRef}
+                aria-hidden="true"
+            />
+            <div
+                className={[
+                    'main-container coach-box-bubble',
+                    isCoachActive && 'active',
+                    isGrowingFromPrompt && 'from-prompt',
+                ].filter(Boolean).join(' ')}
+                ref={mainContainerRef}
+            >
                 <div className='main-toolbar'>
                     <div className="coach-window-drag-container">
                         <div className='coach-window-drag-indicator'>
                             <MdDragIndicator/>
                         </div>
-                        <div className="coach-window-divider"></div>
+                        {/* <div className="coach-window-divider"></div> */}
                     </div>
                     
                     <div className='inner-content-centered'>
-                        {
-                            DropdownComponent[coachFeature] && (
-                                DropdownComponent[coachFeature]
-                            )
-                        }
-                        
+                        <LeadTypeLabel />
+
                         <Pulse
                             isCoachActive={isCoachActive}
                             isPulseEnabled={isPulseEnabled}
@@ -531,22 +579,17 @@ export default function CoachWindowMain() {
                             isZipDropdownOpen={isZipDropdownOpen}
                             setZipCodeValue={setZipCodeValue}
                             zipCodeValue={zipCodeValue}
+                            disabled={isResettingCueSession}
                         />
 
                         {isCoachActive && !isPulseEnabled && (
                             <div className="pulse-holder" />
                         )}
 
-                        {
-                            leadType && (
-                                <CoachButtons
-                                    setIsDropdownOpen={setIsDropdownOpen}
-                                    isDropdownOpen={isDropdownOpen}
-                                    onRequestStop={coachFeature === 'cue' ? handleRequestStop : undefined}
-                                    onRequestReset={coachFeature === 'cue' ? handleRequestReset : undefined}
-                                />
-                            )
-                        }
+                        <CoachButtons
+                            onRequestStop={coachFeature === 'cue' ? handleRequestStop : undefined}
+                            onRequestReset={coachFeature === 'cue' ? handleRequestReset : undefined}
+                        />
                     </div>
 
                     <RightSideButtons />

@@ -44,6 +44,7 @@ const CUE_INITIAL_STATE = {
 const getInitialSharedState = () => ({
     isCoachActive: false,
     isCoachLoading: false,
+    isCoachStarting: false,
     callDurationInSeconds: 0,
     sessionData: null,
     error: null,
@@ -56,6 +57,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
     // ========== SHARED STATE ========== //
     isCoachActive: false,
     isCoachLoading: false,
+    isCoachStarting: false,
     callDurationInSeconds: 0,
     sessionData: null,
     coachFeature: 'cue',
@@ -184,7 +186,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
     },
 
     cue_handleStartCue: async () => {
-        set({ isCoachLoading: true, error: null });
+        set({ isCoachLoading: true, isCoachStarting: true, error: null });
 
         try {
             const currentLeadType = get().cue.leadType;
@@ -235,7 +237,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
             }
             throw err;
         } finally {
-            set({ isCoachLoading: false })
+            set({ isCoachLoading: false, isCoachStarting: false })
         }
     },
 
@@ -331,8 +333,9 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
 
         // Clear any stale banner (e.g. SAYSO-353's mic-recovery-failed notice, which tells the
         // user to click this exact button) — mirrors cue_handleStartCue clearing error at the
-        // start of its own attempt, not just on success.
-        set({ error: null, cue: { ...get().cue, isResettingCueSession: true, isInsightsLayoutOpen: false, enabledFeatures: ['cue'] as EnabledFeature[] } });
+        // start of its own attempt, not just on success. enabledFeatures stays as it is: the
+        // toolbar keeps its controls through a reset, disabled meanwhile (SAYSO-566).
+        set({ error: null, cue: { ...get().cue, isResettingCueSession: true, isInsightsLayoutOpen: false } });
 
         try {
             const currentLeadType = get().cue.leadType;

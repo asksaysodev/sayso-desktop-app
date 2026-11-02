@@ -8,7 +8,7 @@ const WINDOW_CONFIG = {
     MIN_HEIGHT: 45,
     MAX_HEIGHT: 1400,
     OFFSET_Y: 80, 
-    OFFSET_X: 100, 
+    OFFSET_X: 40, 
     FRAME: false,
     TRANSPARENT: true,
     ALWAYS_ON_TOP: true,
@@ -40,14 +40,12 @@ const WINDOW_CONFIG = {
     FULLSCREENABLE: false,
     HAS_SHADOW: false
   },
-  // SAYSO-530 design. The window is the card plus transparent room for its
-  // shadow; the insets place the card (not the window) as in the Figma mock.
+  // SAYSO-566: the coach window in its prompt state. WIDTH must match
+  // --pill-width in src/coachWindow/styles/CoachPrompt.css; HEIGHT is the
+  // coach's own resting window height (WINDOW_HEIGHT_SIZES.BASE).
   CALL_PROMPT: {
-    CARD_WIDTH: 344,
-    CARD_HEIGHT: 120,
-    SHADOW_PADDING: 16,
-    INSET_RIGHT: 31,
-    INSET_TOP: 52
+    WIDTH: 354,
+    HEIGHT: 54
   }
 };
 

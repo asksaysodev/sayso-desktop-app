@@ -1,16 +1,16 @@
 import type { MicSession } from './micActivityMonitor';
 
-// The "Looks like you've started a call. Launch Sayso?" prompt (SAYSO-529).
-// Pure state and rules; the window itself is created in main.ts, which passes
-// its callbacks in through initCallPrompt().
+// The "Sayso identified a call" prompt (SAYSO-529, SAYSO-566). Pure state and
+// rules; the window is the coach window in its prompt state, created in main.ts,
+// which passes its callbacks in through initCallPrompt().
 
-// Mirrored by --auto-hide-duration (the Dismiss countdown fill) in
-// src/callDetectedWindow/styles/CallDetected.css.
+// Mirrored by --auto-hide-duration (the close button's countdown ring) in
+// src/coachWindow/styles/CoachPrompt.css.
 export const CALL_PROMPT_AUTO_HIDE_MS = 10000;
 // Not shown by then (page failed to load): give up without marking the call dismissed.
 export const CALL_PROMPT_LOAD_TIMEOUT_MS = 5000;
-// Slide in / out. Mirrored by --enter-duration / --exit-duration in
-// src/callDetectedWindow/styles/CallDetected.css.
+// Enter / exit. Mirrored by --enter-duration / --exit-duration in
+// src/coachWindow/styles/CoachPrompt.css.
 export const CALL_PROMPT_ENTER_MS = 250;
 export const CALL_PROMPT_EXIT_MS = 200;
 
@@ -22,16 +22,19 @@ export type CallPromptHideReason =
   | 'coach-opened'
   | 'signed-out'
   | 'disabled'
-  | 'load-failed';
+  | 'load-failed'
+  | 'no-mic';
 
 export interface CallPromptDeps {
   canPrompt: () => boolean;
   isCoachOpen: () => boolean;
   isCueActive: () => boolean;
   openWindow: () => void;
-  // animate: slide the card out before the window closes (timeout, dismiss)
+  // animate: play the exit before the window closes (timeout, dismiss)
   closeWindow: (animate: boolean) => void;
-  launchCoach: () => void;
+  // Keep the window and turn it into the regular coach. 'coach-opened' focuses
+  // it like any opened coach; 'launch' leaves the keyboard on the call.
+  promoteWindow: (reason: 'launch' | 'coach-opened') => void;
 }
 
 let deps: CallPromptDeps | null = null;
@@ -112,8 +115,14 @@ export function hideCallDetectedPrompt(reason: CallPromptHideReason): void {
   if (reason === 'dismiss' || reason === 'timeout') dismissedSessionIds.add(activeSessionId);
   console.log(`[CallDetection] prompt hidden: ${reason} (session ${activeSessionId})`);
   activeSessionId = null;
+  // The window becomes the coach: a lead was picked, or the coach was opened
+  // from elsewhere while the prompt was up.
+  if (reason === 'launch' || reason === 'coach-opened') {
+    deps?.promoteWindow(reason);
+    return;
+  }
   // Both mean "not for this call" and leave the same way; the rest are
-  // instant because something else takes over (coach) or the call is gone.
+  // instant because the call is gone or the prompt can't go anywhere.
   deps?.closeWindow(reason === 'timeout' || reason === 'dismiss');
 }
 
@@ -127,9 +136,12 @@ export function onCallEnded(session: MicSession): void {
   if (activeSessionId === session.id) hideCallDetectedPrompt('call-ended');
 }
 
-/** The prompt's CTA. Change this to start a session once the CTA does that. */
-export function launchFromCallPrompt(): void {
-  if (activeSessionId === null) return;
+/**
+ * A lead pill was picked: the window becomes the coach, whose renderer then
+ * starts the session. False if no prompt is up (it timed out meanwhile).
+ */
+export function launchFromCallPrompt(): boolean {
+  if (activeSessionId === null) return false;
   hideCallDetectedPrompt('launch');
-  deps?.launchCoach();
+  return true;
 }

@@ -34,7 +34,7 @@ import * as audioManager from './audio/audioManager';
 import * as permissions from './permissions/permissionsManager';
 import * as cacheStore from './store/cacheManager';
 import { callDetection, startMicActivityMonitor, stopMicActivityMonitor, type MicSession } from './callDetection/micActivityMonitor';
-import { initCallPrompt, onCallCandidate, onCallEnded, showCallDetectedPrompt, hideCallDetectedPrompt, launchFromCallPrompt, setCallPromptHovered, onCallPromptShown, CALL_PROMPT_ENTER_MS, CALL_PROMPT_EXIT_MS } from './callDetection/callPrompt';
+import { initCallPrompt, onCallCandidate, onCallEnded, showCallDetectedPrompt, hideCallDetectedPrompt, launchFromCallPrompt, setCallPromptHovered, onCallPromptShown, isCallPromptShowing, CALL_PROMPT_EXIT_MS } from './callDetection/callPrompt';
 import { removeLegacyCacheFiles } from './store/persistentStore';
 import { formatLogArgs } from './shared/redact';
 import { enforceLogRetention } from './utils/logRetention';
@@ -578,7 +578,7 @@ initCallPrompt({
   isCueActive: () => audioManager.isCueActive(),
   openWindow: () => createCallPromptWindow(),
   closeWindow: (animate) => closeCallPromptWindow(animate),
-  launchCoach: () => { void openCoachWindowFromUser(); },
+  promoteWindow: (reason) => promoteCallPromptWindow(reason === 'coach-opened'),
 });
 
 callDetection.on('call-candidate', (session: MicSession) => {
@@ -2476,23 +2476,26 @@ async function openCoachWindowFromUser(): Promise<void> {
     sendToOnboardingWindow('onboarding:coach-opened');
     return;
   }
-  // Mic-only gate, routed through the permissions provider (isMicGranted avoids
-  // the screen-recording preflight this handler doesn't need). Fail closed: any
-  // provider error routes to the splash/permissions flow rather than silently
-  // leaving the coach window unopened.
-  let micGranted = false;
-  try {
-    micGranted = await permissions.isMicGranted();
-  } catch (e) {
-    console.error('[MAIN] open-coach-window: mic permission check failed:', e);
-    Sentry.captureException(e);
-  }
-  if (!micGranted) {
+  if (!(await isMicGrantedForCoach())) {
     createSplashWindow();
     return;
   }
   createCoachWindow();
   sendToOnboardingWindow('onboarding:coach-opened');
+}
+
+// Mic-only gate, routed through the permissions provider (isMicGranted avoids
+// the screen-recording preflight the coach doesn't need). Fail closed: any
+// provider error routes the caller to the splash/permissions flow rather than
+// silently leaving the coach unopened.
+async function isMicGrantedForCoach(): Promise<boolean> {
+  try {
+    return await permissions.isMicGranted();
+  } catch (e) {
+    console.error('[MAIN] coach mic permission check failed:', e);
+    Sentry.captureException(e);
+    return false;
+  }
 }
 
 // Classification: universal (the mic pre-flight gate is platform-dispatched via the permissions provider).
@@ -2502,11 +2505,32 @@ ipcMain.on('open-coach-window', () => {
 
 // Call-detected prompt (SAYSO-529). Classification: universal.
 // Only the current prompt counts, not one still sliding out.
-const isCallPromptSender = (event: Electron.IpcMainEvent) => event.sender === callPromptWindow?.webContents;
-ipcMain.on('call-prompt:launch', (event) => {
-  if (!isCallPromptSender(event)) return;
-  launchFromCallPrompt();
+const isCallPromptSender = (event: { sender: Electron.WebContents }) => event.sender === callPromptWindow?.webContents;
+// A lead pill was picked. Same gates as opening the coach from the tray
+// (online, mic); on success the window is already the coach when this
+// resolves, and its renderer starts the session. False: not launched (offline,
+// no mic, or the prompt timed out or was promoted meanwhile); the renderer asks
+// coach:get-mode which view to show.
+ipcMain.handle('call-prompt:launch', async (event) => {
+  if (!isCallPromptSender(event)) return false;
+  if (global.networkState === 'reconnecting') return false;
+  if (!(await isMicGrantedForCoach())) {
+    // Only if this prompt is still the one up: it may have timed out meanwhile
+    if (isCallPromptSender(event)) {
+      hideCallDetectedPrompt('no-mic');
+      createSplashWindow();
+    }
+    return false;
+  }
+  // Re-checked after the await: a newer prompt may have replaced this one
+  if (!isCallPromptSender(event) || !launchFromCallPrompt()) return false;
+  sendToOnboardingWindow('onboarding:coach-opened');
+  return true;
 });
+// Which view the coach window's renderer should show: 'prompt' while it's the
+// prompt, 'coach' once promoted. Asked on mount and after a launch that didn't
+// go through, so a missed call-prompt:promoted can't leave it on the prompt.
+ipcMain.handle('coach:get-mode', (event) => (isCallPromptSender(event) ? 'prompt' : 'coach'));
 ipcMain.on('call-prompt:dismiss', (event) => {
   if (!isCallPromptSender(event)) return;
   hideCallDetectedPrompt('dismiss');
@@ -2514,6 +2538,9 @@ ipcMain.on('call-prompt:dismiss', (event) => {
 ipcMain.on('call-prompt:hover', (event, hovered: boolean) => {
   if (!isCallPromptSender(event)) return;
   setCallPromptHovered(hovered === true);
+  // Clicks pass through the transparent part of the window (the shadow room
+  // around the pill) until the pointer is over the pill itself
+  callPromptWindow?.setIgnoreMouseEvents(hovered !== true, { forward: true });
 });
 // Dev-only trigger from the tray; no-op in packaged builds.
 ipcMain.on('dev:show-call-prompt', () => {
@@ -2844,42 +2871,63 @@ const createCoachWindow = () => {
     global.coachWindow = null;
   }
 
-  hideCallDetectedPrompt('coach-opened');
-  
-  const preloadScriptPath = path.join(__dirname, 'preload.js');
+  // The prompt (SAYSO-566) is the coach window in its prompt state: it becomes
+  // the coach rather than a second window opening next to it.
+  if (isCallPromptShowing()) {
+    hideCallDetectedPrompt('coach-opened');
+    return;
+  }
   
   const windowConfig = WindowManager.getCoachWindowConfig();
   
   const coachWindow = new BrowserWindow({
     ...windowConfig,
     icon: getAssetPath('icon.icns'),
-    webPreferences: {
-      preload: preloadScriptPath,
-      contextIsolation: true,
-      nodeIntegration: false,
-      webSecurity: true,
-      enableBlinkFeatures: 'MediaDevices,MediaStream,WebRTC',
-      // permissions: ['media', 'microphone'], 'permissions' does not exist in type 'WebPreferences'.
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false
-    },
+    webPreferences: getCoachWebPreferences(),
   });
 
+  coachWindow.loadURL(getCoachWindowUrl());
+  
+  if (isDev) {
+    // coachWindow.webContents.openDevTools();
+  }
+
+  adoptCoachWindow(coachWindow);
+
+  if (isDev) {
+    console.log('Coach window created successfully at position:', { x: windowConfig.x, y: windowConfig.y });
+  }
+};
+
+function getCoachWebPreferences(): Electron.WebPreferences {
+  return {
+    preload: path.join(__dirname, 'preload.js'),
+    contextIsolation: true,
+    nodeIntegration: false,
+    webSecurity: true,
+    enableBlinkFeatures: 'MediaDevices,MediaStream,WebRTC',
+    // permissions: ['media', 'microphone'], 'permissions' does not exist in type 'WebPreferences'.
+    allowRunningInsecureContent: false,
+    experimentalFeatures: false
+  };
+}
+
+// dev vs prod URL for the coach window (the HTML that bootstraps src/coachWindow/index.tsx).
+// mode=prompt starts it in its prompt state (SAYSO-566).
+function getCoachWindowUrl(mode?: 'prompt'): string {
+  const query = `?fontSize=${cacheStore.getValue('fontSize')}${mode ? `&mode=${mode}` : ''}`;
+  return isDev
+    ? `http://localhost:5173/coach-window.html${query}`
+    : `file://${path.join(__dirname, '../dist/coach-window.html')}${query}`;
+}
+
+// Makes `win` the coach window: a freshly created one, or the prompt window
+// once it's promoted.
+function adoptCoachWindow(coachWindow: BrowserWindowType): void {
   global.coachWindow = coachWindow;
 
   if (IS_MAC) {
     coachWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  }
-
-  // dev vs prod URL for the coach window (use the HTML that bootstraps src/coachWindow/index.jsx)
-  const coachUrl = isDev
-    ? `http://localhost:5173/coach-window.html?fontSize=${cacheStore.getValue('fontSize')}`
-    : `file://${path.join(__dirname, '../dist/coach-window.html')}?fontSize=${cacheStore.getValue('fontSize')}`;
-
-  coachWindow.loadURL(coachUrl);
-  
-  if (isDev) {
-    // coachWindow.webContents.openDevTools();
   }
 
   coachWindow.on('closed', async () => {
@@ -2903,19 +2951,16 @@ const createCoachWindow = () => {
     updateTrayMenu();
   });
 
-  if (isDev) {
-    console.log('Coach window created successfully at position:', { x: windowConfig.x, y: windowConfig.y });
-  }
-
   updateTrayMenu();
-};
+}
 
-// --- Call-detected prompt (SAYSO-529) ---
-// Created on show and destroyed on hide: it's rare, so no preloaded hidden
-// window. callPrompt.ts owns when; this only owns the window.
+// --- Call-detected prompt (SAYSO-529, SAYSO-566) ---
+// The coach window in its prompt state. Created on show; on dismiss/timeout it's
+// destroyed, on launch it becomes the coach (promoteCallPromptWindow).
+// callPrompt.ts owns when; this only owns the window.
 let callPromptWindow: BrowserWindowType | null = null;
-// A window playing its slide-out. Kept apart from callPromptWindow so a new
-// prompt can open meanwhile and its 'closed' isn't read as an outside dismiss.
+// A window playing its exit. Kept apart from callPromptWindow so a new prompt
+// can open meanwhile and its 'closed' isn't read as an outside dismiss.
 let closingCallPromptWindow: BrowserWindowType | null = null;
 
 function createCallPromptWindow(): void {
@@ -2924,14 +2969,12 @@ function createCallPromptWindow(): void {
   const win = new BrowserWindow({
     ...WindowManager.getCallPromptWindowConfig(),
     icon: getAssetPath('icon.icns'),
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      webSecurity: true,
-    },
+    webPreferences: getCoachWebPreferences(),
   });
   callPromptWindow = win;
+  // Click-through until the pointer reaches the pill; forward keeps the
+  // mouse moves coming so the renderer still sees it arrive (call-prompt:hover)
+  win.setIgnoreMouseEvents(true, { forward: true });
 
   // Above full-screen apps (a full-screen browser call) without taking focus
   win.setAlwaysOnTop(true, 'screen-saver');
@@ -2939,25 +2982,13 @@ function createCallPromptWindow(): void {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   }
 
-  const url = isDev
-    ? 'http://localhost:5173/call-detected-window.html'
-    : `file://${path.join(__dirname, '../dist/call-detected-window.html')}`;
-  win.loadURL(url);
+  win.loadURL(getCoachWindowUrl('prompt'));
 
-  // Slide in from past the screen edge: widened while hidden (transparent, so
-  // invisible), then back to its resting size once the card has landed, which
-  // keeps the edge strip clickable. The card is fixed-width, so it doesn't move.
-  const restingBounds = win.getBounds();
-  win.setBounds(WindowManager.getCallPromptSlideBounds(restingBounds));
   win.once('ready-to-show', () => {
     // Not if it was hidden while loading: it's closing
     if (callPromptWindow !== win || win.isDestroyed()) return;
     win.showInactive();
     onCallPromptShown();
-    setTimeout(() => {
-      // Not if it's already sliding out: the exit owns the bounds then
-      if (callPromptWindow === win && !win.isDestroyed()) win.setBounds(restingBounds);
-    }, CALL_PROMPT_ENTER_MS + 50);
   });
   win.on('closed', () => {
     // Still referenced = closed from outside callPrompt.ts; treat as a dismiss
@@ -2978,10 +3009,6 @@ function closeCallPromptWindow(animate: boolean): void {
     return;
   }
 
-  // Widen to the screen edge only for the exit, so the card slides off the
-  // edge instead of being clipped short — and the strip stays clickable
-  // (browser scrollbars) while the prompt is up. Transparent, so invisible.
-  win.setBounds(WindowManager.getCallPromptSlideBounds(win.getBounds()));
   win.webContents.send('call-prompt:exit');
   closingCallPromptWindow = win;
   // Closes whether or not the renderer animated (reduced motion, not loaded yet)
@@ -2989,6 +3016,35 @@ function closeCallPromptWindow(animate: boolean): void {
     if (!win.isDestroyed()) win.close();
     if (closingCallPromptWindow === win) closingCallPromptWindow = null;
   }, CALL_PROMPT_EXIT_MS + 50);
+}
+
+// The prompt becomes the coach in place: same window, so no second one opens
+// and the renderer swaps its prompt view for the coach's. focus: the coach was
+// opened (tray, onboarding), so it gets the keyboard like any opened coach; a
+// launch leaves it on the call.
+function promoteCallPromptWindow(focus: boolean): void {
+  const win = callPromptWindow;
+  callPromptWindow = null;
+  if (!win || win.isDestroyed()) return;
+
+  win.setIgnoreMouseEvents(false);
+  win.setFocusable(true);
+  win.setAlwaysOnTop(true);
+  win.setSkipTaskbar(IS_WINDOWS);
+  adoptCoachWindow(win);
+  win.webContents.send('call-prompt:promoted');
+
+  // Promoted before its page loaded: the prompt's own ready-to-show no longer
+  // shows it (it's not the prompt any more), so show it here once it's ready
+  if (!win.isVisible()) {
+    win.once('ready-to-show', () => {
+      if (win.isDestroyed()) return;
+      if (focus) win.show();
+      else win.showInactive();
+    });
+  } else if (focus) {
+    win.focus();
+  }
 }
 
 // Update the resize handler to use WindowManager
