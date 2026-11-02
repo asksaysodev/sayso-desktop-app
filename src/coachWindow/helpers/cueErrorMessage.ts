@@ -65,13 +65,13 @@ export const cueStartErrorMessage = (error: unknown): string | null => {
  * string is written for logs, not for a sales rep mid-call.
  */
 const BILLING_REFUSAL_MESSAGES: Readonly<Record<string, string>> = {
-    NO_MINUTES_REMAINING: 'Your team is out of coaching minutes. Ask your admin to add more.',
-    SUBSCRIPTION_INACTIVE: "Your team's Sayso subscription isn't active. Ask your admin to renew it.",
-    TEAM_CAP_REACHED: 'Your team has reached its coaching hour limit. Ask your admin to raise it.',
+    NO_MINUTES_REMAINING: 'Your team is out of coaching minutes. Let your team leader know.',
+    SUBSCRIPTION_INACTIVE: "Your team's Sayso subscription isn't active. Let your team leader know.",
+    TEAM_CAP_REACHED: 'Your team has reached its coaching hour limit. Let your team leader know.',
 };
 
 const BILLING_REFUSAL_FALLBACK =
-    "Your team's plan can't start a session right now. Ask your admin to check it.";
+    "We can't start a session right now. Please try again later.";
 
 /**
  * Banner copy for a 402 from session creation, or null for any other failure.
