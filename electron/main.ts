@@ -141,11 +141,14 @@ function setAuthUser(user: AuthUser | null): void {
 }
 
 /**
- * The onboarding tour only has macOS scenery so far — the Windows version is
- * SAYSO-420. Skipping it here writes no status, so Windows accounts still get
- * the tour once this flips.
+ * Temporarily off on every platform: the tour animations still show the old
+ * coach widget. Skipping it here writes no status, so accounts that haven't seen
+ * the tour still get it once this flips.
+ *
+ * SAYSO-571 restores this to `!IS_WINDOWS`, not `true`: the tour only has macOS
+ * scenery so far (Windows version: SAYSO-422..426).
  */
-const ONBOARDING_TOUR_AVAILABLE = !IS_WINDOWS;
+const ONBOARDING_TOUR_AVAILABLE = false;
 
 /**
  * Whether the onboarding window should be opened for the current account.
