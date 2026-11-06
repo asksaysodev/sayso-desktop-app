@@ -65,7 +65,9 @@ export function isTransientApiError(error: unknown): boolean {
     if (err?.code && TRANSIENT_AXIOS_CODES.has(err.code)) return true;
     const status = err?.response?.status;
     // 522/524: Cloudflare timed out reaching the origin — same set as main's
-    // isTransientUpstreamStatus, minus 429 and 618 (SAYSO-524)
+    // isTransientUpstreamStatus, minus 429, 529 and 618 (SAYSO-524). 529 and 618
+    // are GitHub/release-CDN codes; the renderer only talks to our own API, which
+    // never sends them, so they stay out rather than mask something unexpected.
     return status === 502 || status === 503 || status === 504 || status === 522 || status === 524;
 }
 
