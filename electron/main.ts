@@ -2850,9 +2850,16 @@ const createAppSettingsWindow = (tab?: string, source: 'coach' | 'independent' =
       ? `http://localhost:5173/app-settings-window.html${tabParam}`
       : `file://${path.join(__dirname, '../dist/app-settings-window.html')}${tabParam}`;
 
+    // Closed before the page finished loading (double-clicked toggle, or Coach
+    // closed) rejects loadURL with ERR_FAILED — expected, not a failure. The
+    // rejection lands while the window is still tearing down, so isDestroyed()
+    // alone is still false then (SAYSO-503 didn't hold); 'close' fires as soon as
+    // close() is called, before the rejection (SAYSO-581).
+    let closing = false;
+    appSettingsWindow.once('close', () => { closing = true; });
     appSettingsWindow.loadURL(appSettingsUrl).catch((err: Error) => {
-        // Closed before the page finished loading (double-clicked toggle, or Coach closed) — expected, not a failure
-        if (!appSettingsWindow.isDestroyed()) Sentry.captureException(err);
+        if (closing || appSettingsWindow.isDestroyed() || appSettingsWindow.webContents.isDestroyed()) return;
+        Sentry.captureException(err);
     });
     broadcastAppSettingsWindowState(true);
 

@@ -30,7 +30,7 @@
     "export:staging": "chmod +x scripts/rebuild-and-package-staging.sh && ./scripts/rebuild-and-package-staging.sh",
     "fresh-export": "npm run clean && npm run export",
     "fresh-export:staging": "npm run clean:staging && npm run export:staging",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test test/*.test.mts",
     "kill-port": "lsof -ti :5173 | xargs kill -9 || true"
   },
   "keywords": [
