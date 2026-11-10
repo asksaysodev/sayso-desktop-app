@@ -274,8 +274,10 @@ escuchando al prospect disparaba el banner con un mic que funciona. Se quita en
 - El log `[Cue] Microphone is delivering buffers but no signal…`, una vez por
   tramo de silencio.
 - `[Cue] Microphone signal restored` cuando vuelve la señal.
-- El aviso a Sentry `[Cue] Microphone delivering silence mid-session`, una vez
-  por sesión.
+- ~~El aviso a Sentry `[Cue] Microphone delivering silence mid-session`, una vez
+  por sesión.~~ Quitado en SAYSO-585 junto con `[Cue] Microphone signal restored
+  after silence`: daban falsas alarmas mientras el agente escucha. Queda el aviso
+  de teardown `[Cue] Session ended without hearing speech from the mic`.
 - Las stats de teardown (`userPeakDb`, `userSilentSeconds`).
 
 **Qué NO se tocó:** el banner de mic perdido sin recuperación

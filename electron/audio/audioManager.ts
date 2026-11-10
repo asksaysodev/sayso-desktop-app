@@ -117,7 +117,7 @@ let micRecoveryFailedReportedThisSession = false;
 /** SAYSO-353: mid-session mic-stall watchdog — see startCueMicStallWatchdog. */
 const CUE_MIC_STALL_CHECK_MS = 8000;
 /** SAYSO-383: native starts one stall episode may spend before the watchdog gives up and tells the
- *  user. An episode ends only when user chunks advance again. */
+ *  user. An episode ends when user chunks advance again, or with a wake from sleep. */
 const CUE_MIC_STALL_MAX_RESTARTS = 3;
 let cueMicStallTimer: ReturnType<typeof setInterval> | null = null;
 let cueMicStallLastUserChunks = 0;
@@ -527,11 +527,16 @@ function clearCueMicStallWatchdog() {
   }
   cueMicStallLastUserChunks = 0;
   cueMicStallRecovering = false;
+  resetCueMicStallEpisode();
+  cueMicStallBannerShown = false;
+  cueMicStallGraceUntilMs = 0;
+}
+
+/** A fresh stall episode: full restart budget, not given up. The banner flag is each caller's call. */
+function resetCueMicStallEpisode(): void {
   cueMicStallRestarts = 0;
   cueMicStallEpisodeStartedAtMs = 0;
   cueMicStallGaveUp = false;
-  cueMicStallBannerShown = false;
-  cueMicStallGraceUntilMs = 0;
 }
 
 function installCueMicStallPowerListeners(): void {
@@ -544,7 +549,7 @@ function installCueMicStallPowerListeners(): void {
   const unpause = (why: string) => () => {
     if (why === 'resume') systemAsleep = false;
     else screenLocked = false;
-    rebaselineCueMicStall(why);
+    rebaselineCueMicStall(why, why === 'resume');
   };
   powerMonitor.on('suspend', pause('suspend'));
   powerMonitor.on('lock-screen', pause('lock-screen'));
@@ -553,16 +558,17 @@ function installCueMicStallPowerListeners(): void {
 }
 
 /**
- * After a wake, chunks naturally stopped while asleep — judge a stall only from here, one full check
- * later. Anything spent before the wake says nothing about the mic now, so this is a fresh episode.
+ * After a wake or unlock, chunks may have stopped while paused — judge a stall only from here, one
+ * full check later. After a sleep, restarts spent before it say nothing about the mic now, so it is a
+ * fresh episode. A lock doesn't stop the mic, so it keeps the budget: otherwise every lock/unlock on
+ * a dead mic would buy 3 more restarts and another pair of Sentry events. A restart already in
+ * flight owns its episode, so a wake during it leaves the budget alone.
  */
-function rebaselineCueMicStall(why: string): void {
+function rebaselineCueMicStall(why: string, afterSleep: boolean): void {
   if (!cueMicStallTimer) return;
   cueMicStallLastUserChunks = cueCaptureStats.userChunks;
   cueMicStallGraceUntilMs = Date.now() + CUE_MIC_STALL_CHECK_MS;
-  cueMicStallRestarts = 0;
-  cueMicStallEpisodeStartedAtMs = 0;
-  cueMicStallGaveUp = false;
+  if (afterSleep && !cueMicStallRecovering) resetCueMicStallEpisode();
   console.warn(`[Cue] Mic stall watchdog resumed (${why}); next stall check after grace`);
 }
 
@@ -570,15 +576,16 @@ function isCueMicStallPaused(): boolean {
   if (!systemAsleep && !screenLocked) return false;
   // Nobody types in a dark wake. New input means we're awake and missed the resume/unlock event.
   if (cueMicStallInput.sawNewInput()) {
+    const wasAsleep = systemAsleep;
     systemAsleep = false;
     screenLocked = false;
-    rebaselineCueMicStall('user_active');
+    rebaselineCueMicStall('user_active', wasAsleep);
     return true; // the grace period starts now
   }
   return true;
 }
 
-/** Restart budget spent and the mic is still silent: stop trying, report once, tell the user. */
+/** Restart budget spent and the mic is still silent: stop trying, report, tell the user. Once per episode. */
 async function giveUpCueMicStall(sessionId: string): Promise<void> {
   cueMicStallGaveUp = true;
   cueMicStallBannerShown = true;
@@ -615,12 +622,16 @@ async function giveUpCueMicStall(sessionId: string): Promise<void> {
  * Continuous check, distinct from the one-shot low-audio/warmup checks above: if userChunks
  * stops advancing for ~CUE_MIC_STALL_CHECK_MS while a session is active, restart the mic. A stall
  * episode gets CUE_MIC_STALL_MAX_RESTARTS native starts in total, on the shared backoff; then the
- * watchdog reports once, shows the Reset banner and goes quiet until audio returns. Paused while the
- * Mac sleeps or the screen is locked. This is a JS-side safety net on top of the native backoff
+ * watchdog reports once, shows the Reset banner and goes quiet until audio returns or the Mac wakes
+ * from a sleep, which starts a fresh episode. Paused while the Mac sleeps or the screen is locked. This is a JS-side safety net on top of the native backoff
  * recovery (SaysoScheduleMicRouteRecoveryRetry in audio_device_manager.mm), not the primary path.
  */
 function startCueMicStallWatchdog(sessionId: string, streamingCallback: (buffer: Buffer, format: unknown) => void) {
   clearCueMicStallWatchdog();
+  // Starting a session proves the machine is awake and unlocked. A pause left over from a missed
+  // resume/unlock event must not carry into it: the strict input check might never lift it.
+  systemAsleep = false;
+  screenLocked = false;
   cueMicStallLastUserChunks = cueCaptureStats.userChunks;
 
   cueMicStallTimer = setInterval(async () => {
@@ -640,9 +651,7 @@ function startCueMicStallWatchdog(sessionId: string, streamingCallback: (buffer:
           global.coachWindow.webContents.send('cue-mic-recovery-succeeded');
         }
       }
-      cueMicStallRestarts = 0;
-      cueMicStallEpisodeStartedAtMs = 0;
-      cueMicStallGaveUp = false;
+      resetCueMicStallEpisode();
       cueMicStallBannerShown = false;
       return;
     }
