@@ -12,7 +12,7 @@ export type MicStartOrigin = 'user' | 'delivery_check' | 'watchdog';
 
 /** SAYSO-459: every path that attaches a snapshot. The three start origins keep their
  *  `mic_start_origin` tag so existing Sentry searches still match; the rest aren't mic starts. */
-export type MicDiagnosticsOrigin = MicStartOrigin | 'silence_alert' | 'silence_recovered' | 'session_teardown';
+export type MicDiagnosticsOrigin = MicStartOrigin | 'session_teardown';
 
 const MIC_START_ORIGINS: ReadonlySet<MicDiagnosticsOrigin> = new Set<MicDiagnosticsOrigin>(['user', 'delivery_check', 'watchdog']);
 

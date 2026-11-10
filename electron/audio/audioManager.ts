@@ -5,6 +5,7 @@ import { isTransientNetworkError } from '../utils/transientErrors';
 import type { IAudioProvider, AudioFormat } from './IAudioProvider';
 import { collectMicDiagnostics, installMicDiagnosticsListeners, type MicStartOrigin } from './micDiagnostics';
 import { createMicStarter, MIC_START_MAX_ATTEMPTS, type MicStartAttemptsResult } from './micStartRetry';
+import { createNewInputDetector } from './micStallIdle';
 
 // recorder + audioStreamer are CommonJS modules. Require them LAZILY (not at
 // module top): recorder.ts eagerly pulls in the native audio chain
@@ -76,9 +77,10 @@ let cuePreviousTeardownAtMs = 0;
  *  agent merely listening. The floor has to sit below a real quiet room or this cries wolf on the
  *  agent listening through a long prospect monologue, which is routine on a sales call. It also
  *  only alerts when the call itself has audio, so a pause with nobody talking never fires it.
- *  Logs + reports to Sentry only: the coach-window banner was removed in SAYSO-468 because this floor
- *  is miscalibrated for Windows drivers that zero silence (−100 to −165 dBFS on a working mic), so it
- *  fired whenever the agent listened for 20s. Detection stays as data for the redesign (SAYSO-458). */
+ *  Logs only: the coach-window banner was removed in SAYSO-468 and the mid-session Sentry events after
+ *  that, because this floor is miscalibrated for Windows drivers that zero silence (−100 to −165 dBFS
+ *  on a working mic), so it fires whenever the agent listens. The teardown no-speech event is the
+ *  Sentry signal for a dead mic. Detection stays as data for the redesign (SAYSO-458). */
 const CUE_MIC_SILENCE_FLOOR_DB = -80;
 const CUE_PROSPECT_SPEECH_DB = -50;
 // 20s, not 10s: an AirPods test session logged 8.4s of sub-floor blocks purely from the agent
@@ -93,15 +95,11 @@ function emptyCueMicSilence() {
     lastProspectSpeechMs: 0,
     lastProspectRmsDb: -120,
     alerted: false,
-    reported: false,
-    recoveryReported: false,
+    everAlerted: false,
     lastSilentTotalMs: null as number | null,
   };
 }
 let cueMicSilence = emptyCueMicSilence();
-/** Recovery event gate. The alert still fires whenever a Windows user listens for 30s (drivers zero a
- *  working mic between words), so a shorter silence ending is just the user talking again. */
-const CUE_MIC_RECOVERY_REPORT_MIN_MS = 60000;
 const CUE_SILENT_SESSION_MIN_AUDIO_MS = 60000;
 /** Teardown event gate: the session's loudest mic sample never reached this. A silent *fraction*
  *  can't be the gate — Windows drivers zero a working mic between words, so every listen-heavy call
@@ -127,6 +125,8 @@ let cueMicStallRecovering = false;
 let cueMicStallRestarts = 0;
 let cueMicStallEpisodeStartedAtMs = 0;
 let cueMicStallGaveUp = false;
+/** Outlives cueMicStallGaveUp across a wake, so returning audio still clears the Reset banner. */
+let cueMicStallBannerShown = false;
 
 /** SAYSO-383: the watchdog must not restart the mic while the Mac sleeps. Timers still fire in dark
  *  wakes with no `resume` (Bryson 09-02: 9 restart storms in one sleep; Sheldon 10-22: 4 engine
@@ -134,8 +134,8 @@ let cueMicStallGaveUp = false;
 let systemAsleep = false;
 let screenLocked = false;
 let cueMicStallGraceUntilMs = 0;
-/** A missed `resume` must not disable the watchdog forever: input within this window means awake. */
-const SYSTEM_ACTIVE_IDLE_S = 30;
+/** A missed `resume` must not disable the watchdog forever: input after the pause means awake. */
+const cueMicStallInput = createNewInputDetector(() => powerMonitor.getSystemIdleTime());
 
 /** Shared by every JS mic start so retries never multiply and never land <1s apart (SAYSO-383). */
 const micStarter = createMicStarter();
@@ -334,17 +334,7 @@ function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioForma
     if (cueMicSilence.alerted) {
       cueMicSilence.alerted = false;
       cueMicSilence.lastSilentTotalMs = silentTotalMs;
-      const restored = { sessionId, silentTotalMs, rmsDb: Number(rmsDb.toFixed(1)) };
-      console.log('[Cue] Microphone signal restored', restored);
-      if (
-        cueMicSilence.reported &&
-        !cueMicSilence.recoveryReported &&
-        silentTotalMs !== null &&
-        silentTotalMs >= CUE_MIC_RECOVERY_REPORT_MIN_MS
-      ) {
-        cueMicSilence.recoveryReported = true;
-        void reportCueMicRecovered(restored, summarizeCueLevelStats(cueCaptureStats, now));
-      }
+      console.log('[Cue] Microphone signal restored', { sessionId, silentTotalMs, rmsDb: Number(rmsDb.toFixed(1)) });
     }
     return;
   }
@@ -356,7 +346,8 @@ function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioForma
   if (silentForMs < CUE_MIC_SILENT_ALERT_MS || !callHasAudio || cueMicSilence.alerted) return;
 
   cueMicSilence.alerted = true; // once per silent stretch; cleared when the signal comes back
-  const details = {
+  cueMicSilence.everAlerted = true; // sticky for the session: the teardown event's mic_silence_alerted tag
+  console.warn('[Cue] Microphone is delivering buffers but no signal while the call has audio', {
     sessionId,
     silentForMs,
     rmsDb: Number(rmsDb.toFixed(1)),
@@ -366,57 +357,15 @@ function trackCueUserLevel(sessionId: string, buffer: Buffer, format: AudioForma
     sampleRate: format.sampleRate,
     channels: format.channels,
     bitDepth: format.bitDepth,
-  };
-  console.warn('[Cue] Microphone is delivering buffers but no signal while the call has audio', details);
-  if (!cueMicSilence.reported) {
-    // Once per session — the warning logs on every silent stretch, the Sentry event doesn't.
-    // Latch before the async report, so a buffer arriving during the snapshot can't double-fire.
-    cueMicSilence.reported = true;
-    void reportCueMicSilence(details, summarizeCueLevelStats(cueCaptureStats, now));
-  }
+  });
 }
 
 // ─── Mic silence reporting (SAYSO-459) ────────────────────────────────────────
-// Native device reads happen only here — at alert, recovery and a qualifying teardown — never per
-// buffer. Callers pass plain copies of session state: start-cue reassigns cueCaptureStats and
-// cueMicSilence, so nothing below may read module state after an await. Never throws.
+// Native device reads happen only here, at a qualifying teardown, never per buffer. Callers pass
+// plain copies of session state: start-cue reassigns cueCaptureStats and cueMicSilence, so nothing
+// below may read module state after an await. Never throws.
 
 type CueSessionSummary = ReturnType<typeof summarizeCueLevelStats>;
-
-async function reportCueMicSilence(details: Record<string, unknown> & { sessionId: string }, session: CueSessionSummary) {
-  try {
-    const diagnostics = await collectMicDiagnostics(provider, { origin: 'silence_alert', sessionId: details.sessionId });
-    console.warn('[Cue] Microphone silence diagnostics', { sessionId: details.sessionId, diagnostics: diagnostics.summary });
-    Sentry.captureMessage('[Cue] Microphone delivering silence mid-session', {
-      level: 'warning',
-      tags: { ...diagnostics.tags, mic_sample_rate: String(details.sampleRate), mic_channels: String(details.channels) },
-      extra: { ...details, cue_session: session, ...diagnostics.extra },
-    });
-  } catch (error) {
-    console.error('[Cue] Failed to report mic silence:', error);
-  }
-}
-
-async function reportCueMicRecovered(
-  restored: { sessionId: string; silentTotalMs: number | null; rmsDb: number },
-  session: CueSessionSummary,
-) {
-  try {
-    const diagnostics = await collectMicDiagnostics(provider, { origin: 'silence_recovered', sessionId: restored.sessionId });
-    Sentry.captureMessage('[Cue] Microphone signal restored after silence', {
-      level: 'info',
-      tags: diagnostics.tags,
-      extra: {
-        ...restored,
-        silentAfterAlertMs: restored.silentTotalMs !== null ? restored.silentTotalMs - CUE_MIC_SILENT_ALERT_MS : null,
-        cue_session: session,
-        ...diagnostics.extra,
-      },
-    });
-  } catch (error) {
-    console.error('[Cue] Failed to report mic recovery:', error);
-  }
-}
 
 function bucketSilentFraction(fraction: number): string {
   if (fraction >= 0.95) return '95_100';
@@ -456,7 +405,7 @@ async function reportCueSilentSession(
         mic_silent_bucket: bucketSilentFraction(fraction),
         mic_user_peak_bucket: bucketUserPeak(session.userPeakDb),
         mic_ended_silent: String(silence.silentSinceMs !== null),
-        mic_silence_alerted: String(silence.reported),
+        mic_silence_alerted: String(silence.everAlerted),
       },
       extra: { sessionId, lastSilentTotalMs: silence.lastSilentTotalMs, cue_session: session, ...diagnostics.extra },
     });
@@ -581,6 +530,7 @@ function clearCueMicStallWatchdog() {
   cueMicStallRestarts = 0;
   cueMicStallEpisodeStartedAtMs = 0;
   cueMicStallGaveUp = false;
+  cueMicStallBannerShown = false;
   cueMicStallGraceUntilMs = 0;
 }
 
@@ -588,6 +538,7 @@ function installCueMicStallPowerListeners(): void {
   const pause = (why: string) => () => {
     if (why === 'suspend') systemAsleep = true;
     else screenLocked = true;
+    cueMicStallInput.baseline();
     if (cueMicStallTimer) console.warn(`[Cue] Mic stall watchdog paused (${why})`);
   };
   const unpause = (why: string) => () => {
@@ -601,18 +552,24 @@ function installCueMicStallPowerListeners(): void {
   powerMonitor.on('unlock-screen', unpause('unlock-screen'));
 }
 
-/** After a wake, chunks naturally stopped while asleep — judge a stall only from here, one full check later. */
+/**
+ * After a wake, chunks naturally stopped while asleep — judge a stall only from here, one full check
+ * later. Anything spent before the wake says nothing about the mic now, so this is a fresh episode.
+ */
 function rebaselineCueMicStall(why: string): void {
   if (!cueMicStallTimer) return;
   cueMicStallLastUserChunks = cueCaptureStats.userChunks;
   cueMicStallGraceUntilMs = Date.now() + CUE_MIC_STALL_CHECK_MS;
+  cueMicStallRestarts = 0;
+  cueMicStallEpisodeStartedAtMs = 0;
+  cueMicStallGaveUp = false;
   console.warn(`[Cue] Mic stall watchdog resumed (${why}); next stall check after grace`);
 }
 
 function isCueMicStallPaused(): boolean {
   if (!systemAsleep && !screenLocked) return false;
-  // Nobody types in a dark wake. Recent input means we're awake and missed the resume/unlock event.
-  if (powerMonitor.getSystemIdleTime() < SYSTEM_ACTIVE_IDLE_S) {
+  // Nobody types in a dark wake. New input means we're awake and missed the resume/unlock event.
+  if (cueMicStallInput.sawNewInput()) {
     systemAsleep = false;
     screenLocked = false;
     rebaselineCueMicStall('user_active');
@@ -624,6 +581,7 @@ function isCueMicStallPaused(): boolean {
 /** Restart budget spent and the mic is still silent: stop trying, report once, tell the user. */
 async function giveUpCueMicStall(sessionId: string): Promise<void> {
   cueMicStallGaveUp = true;
+  cueMicStallBannerShown = true;
   const lastChunkAtMs = cueCaptureStats.userLastChunkAtMs;
   const diagnostics = await collectMicDiagnostics(provider, {
     origin: 'watchdog',
@@ -675,16 +633,17 @@ function startCueMicStallWatchdog(sessionId: string, streamingCallback: (buffer:
     const current = cueCaptureStats.userChunks;
     if (current > cueMicStallLastUserChunks) {
       cueMicStallLastUserChunks = current;
-      if (cueMicStallRestarts > 0 || cueMicStallGaveUp) {
+      if (cueMicStallRestarts > 0 || cueMicStallBannerShown) {
         console.warn(`[Cue] User audio flowing again after ${cueMicStallRestarts} watchdog restart(s)`, { sessionId });
         // Clears the banner only when it's still the mic-recovery one (see CoachWindowMain).
-        if (cueMicStallGaveUp && global.coachWindow && !global.coachWindow.isDestroyed()) {
+        if (cueMicStallBannerShown && global.coachWindow && !global.coachWindow.isDestroyed()) {
           global.coachWindow.webContents.send('cue-mic-recovery-succeeded');
         }
       }
       cueMicStallRestarts = 0;
       cueMicStallEpisodeStartedAtMs = 0;
       cueMicStallGaveUp = false;
+      cueMicStallBannerShown = false;
       return;
     }
 
