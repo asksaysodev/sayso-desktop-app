@@ -33,6 +33,20 @@ test('wrapped GitHubProvider 529 (SAYSO-APP-CJ shape) is transient', () => {
   assert.equal(updaterErrorMessage(err), FRIENDLY);
 });
 
+test('wrapped GitHubProvider HTTP/2 refused stream (SAYSO-APP-CJ shape) is transient', () => {
+  const err = Object.assign(
+    new Error(
+      'Cannot parse releases feed: Error: Unable to find latest version on GitHub ' +
+        '(https://github.com/asksaysodev/sayso-desktop-app/releases/latest), ' +
+        'please ensure a production release exists: Error: net::ERR_HTTP2_SERVER_REFUSED_STREAM\n' +
+        '    at SimpleURLLoaderWrapper.<anonymous> (...),\nXML:\n<?xml version="1.0"?><feed>...</feed>',
+    ),
+    { code: 'ERR_UPDATER_INVALID_RELEASE_FEED' },
+  );
+  assert.equal(classifyUpdaterError(err), 'transient');
+  assert.equal(updaterErrorMessage(err), FRIENDLY);
+});
+
 test('a real 404 (no production release) stays fatal', () => {
   const err = Object.assign(
     new Error('Unable to find latest version on GitHub, please ensure a production release exists: HttpError: 404'),
