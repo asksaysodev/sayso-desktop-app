@@ -8,23 +8,39 @@ import type {
   PermissionRequirements,
   PermissionsStatus,
   RequestMicResult,
+  SystemAudioPermissionState,
 } from './IPermissionsProvider';
 
 function completeFlagPath(): string {
   return path.join(app.getPath('userData'), 'permissions-complete');
 }
 
+interface SystemAudioGate {
+  satisfied: boolean;
+  state: SystemAudioPermissionState | null;
+}
+
 class MacPermissionsProvider implements IPermissionsProvider {
-  // Screen & System Audio Recording is gated, and macOS only picks the grant up
-  // at process launch — hence the relaunch at the end of the permissions step.
-  readonly requirements: PermissionRequirements = { screen: true, relaunchOnComplete: true };
+  get requirements(): PermissionRequirements {
+    return audioManager.usesCoreAudioTap()
+      ? { screen: true, relaunchOnComplete: false, systemAudio: 'audio-capture' }
+      : { screen: true, relaunchOnComplete: true, systemAudio: 'screen-recording' };
+  }
+
+  private readSystemAudio(opts?: { warnIfUnavailable?: boolean }): SystemAudioGate {
+    if (audioManager.usesCoreAudioTap()) {
+      const state = audioManager.getSystemAudioPermission();
+      return { satisfied: state === 'granted' || state === 'unknown' || state === null, state };
+    }
+    // Use CGPreflightScreenCaptureAccess (non-prompting) to READ status — never triggers the macOS
+    // dialog. The dialog is only shown on explicit user action via requestScreen().
+    return { satisfied: audioManager.isScreenRecordingGranted(opts), state: null };
+  }
 
   async checkGranted(): Promise<PermissionsStatus> {
     const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
-    // Use CGPreflightScreenCaptureAccess (non-prompting) to READ status — never triggers the macOS
-    // dialog. The dialog is only shown on explicit user action via requestScreen().
-    const screen = audioManager.isScreenRecordingGranted({ warnIfUnavailable: true });
-    return { granted: mic && screen, mic, screen };
+    const gate = this.readSystemAudio({ warnIfUnavailable: true });
+    return { granted: mic && gate.satisfied, mic, screen: gate.satisfied, systemAudio: gate.state };
   }
 
   async checkMic(): Promise<boolean> {
@@ -33,8 +49,7 @@ class MacPermissionsProvider implements IPermissionsProvider {
 
   isComplete(): boolean {
     const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
-    // CGPreflight is accurate for the running process (screen-recording grant is bound at launch).
-    const screen = audioManager.isScreenRecordingGranted();
+    const screen = this.readSystemAudio().satisfied;
     // Live OS state is authoritative: if both are actually granted for this process, onboarding is
     // complete regardless of the flag. This self-heals the case where the flag is missing but perms
     // work — e.g. after the cert migration deletes the flag and the user re-grants + reopens. We only
@@ -65,9 +80,12 @@ class MacPermissionsProvider implements IPermissionsProvider {
     return { mic: false, action: 'open-settings' };
   }
 
-  requestScreen(): void {
-    // Screen Recording is required by ScreenCaptureKit; the prompt lives in the native audio module.
+  async requestScreen(): Promise<SystemAudioPermissionState | null> {
+    if (audioManager.usesCoreAudioTap()) {
+      return audioManager.requestSystemAudioPermission();
+    }
     audioManager.requestScreenRecordingPermission();
+    return null;
   }
 
   async openScreenSettings(): Promise<void> {

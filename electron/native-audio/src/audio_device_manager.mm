@@ -9,6 +9,11 @@
 #include <AVFoundation/AVFoundation.h>
 #include <CoreMedia/CoreMedia.h>
 #include <AudioToolbox/AudioToolbox.h>
+#include <CoreAudio/CATapDescription.h>
+#include <CoreAudio/AudioHardwareTapping.h>
+#include <AppKit/AppKit.h>
+#include <dlfcn.h>
+#include <deque>
 #include <dispatch/dispatch.h>
 #include <algorithm>
 #include <atomic>
@@ -28,7 +33,7 @@ static SCStream* g_stream = nullptr;
 static SCStreamConfiguration* g_config = nullptr;
 static SCContentFilter* g_filter = nullptr;
 static dispatch_queue_t g_audioQueue = nullptr;
-static bool g_isCapturing = false;
+static std::atomic<bool> g_isCapturing{false};
 static std::string g_audioFilePath = "";
 
 // Global variables for audio file writing
@@ -47,7 +52,6 @@ static bool g_streamingOnly = false;
 
 // Global streaming callback for real-time audio chunks
 static Nan::Persistent<v8::Function> g_streamingCallback;
-static uv_async_t* g_streamingAsyncHandle = nullptr;
 
 // Separate callback for microphone audio
 static Nan::Persistent<v8::Function> g_micStreamingCallback;
@@ -167,34 +171,79 @@ struct StreamingData {
     float gainDb = 0;
 };
 
-// Async callback handler (runs on main thread)
-static void StreamingAsyncCallback(uv_async_t* handle) {
-    Nan::HandleScope scope;
-    
-    // Get the data from the handle
-    StreamingData* data = static_cast<StreamingData*>(handle->data);
-    if (!data || g_streamingCallback.IsEmpty()) {
+struct SysAudioChunk {
+    std::vector<char> data;
+    double sampleRate = 0;
+    int channels = 0;
+    int bitDepth = 0;
+    bool isFloat = false;
+};
+
+static const size_t kSysSinkMaxQueued = 256;
+static std::mutex g_sysSinkMutex;
+static std::deque<SysAudioChunk> g_sysSinkQueue;
+static uv_async_t* g_sysSinkAsyncHandle = nullptr;
+static std::atomic<bool> g_sysSinkAccepting{false};
+static std::atomic<uint64_t> g_sysSinkDropped{0};
+static std::atomic<uint64_t> g_sysSinkDelivered{0};
+
+static void SysSinkClear() {
+    std::lock_guard<std::mutex> lk(g_sysSinkMutex);
+    g_sysSinkQueue.clear();
+}
+
+static void SysSinkEnqueue(std::vector<char>&& bytes, double sampleRate, int channels, int bitDepth, bool isFloat) {
+    if (!g_sysSinkAccepting.load(std::memory_order_acquire) || !g_sysSinkAsyncHandle || bytes.empty()) {
         return;
     }
-    
-    // Create Buffer from audio data
-    Local<Object> buffer = Nan::CopyBuffer(data->audioData.data(), data->audioData.size()).ToLocalChecked();
-    
-    // Create format object
-    Local<Object> format = Nan::New<Object>();
-    Nan::Set(format, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(data->sampleRate));
-    Nan::Set(format, Nan::New("channels").ToLocalChecked(), Nan::New<Integer>(data->channels));
-    Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(data->bitDepth));
-    Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(data->isFloat));
-    
-    // Invoke callback
-    Local<Function> callback = Nan::New(g_streamingCallback);
-    Local<Value> argv[2] = {buffer, format};
-    Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
-    
-    // Clean up
-    delete data;
-    handle->data = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(g_sysSinkMutex);
+        if (g_sysSinkQueue.size() >= kSysSinkMaxQueued) {
+            g_sysSinkQueue.pop_front();
+            uint64_t dropped = g_sysSinkDropped.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (dropped == 1 || dropped % 100 == 0) {
+                NSLog(@"⚠️ [NATIVE] System audio sink overflow — JS not draining; dropped=%llu", (unsigned long long)dropped);
+            }
+        }
+        SysAudioChunk chunk;
+        chunk.data = std::move(bytes);
+        chunk.sampleRate = sampleRate;
+        chunk.channels = channels;
+        chunk.bitDepth = bitDepth;
+        chunk.isFloat = isFloat;
+        g_sysSinkQueue.push_back(std::move(chunk));
+    }
+    uv_async_send(g_sysSinkAsyncHandle);
+}
+
+static void SysSinkDrainCallback(uv_async_t* ) {
+    std::deque<SysAudioChunk> batch;
+    {
+        std::lock_guard<std::mutex> lk(g_sysSinkMutex);
+        batch.swap(g_sysSinkQueue);
+    }
+    if (batch.empty()) {
+        return;
+    }
+
+    Nan::HandleScope scope;
+    for (SysAudioChunk& chunk : batch) {
+        if (g_streamingCallback.IsEmpty()) {
+            return;
+        }
+        Local<Object> buffer = Nan::CopyBuffer(chunk.data.data(), chunk.data.size()).ToLocalChecked();
+
+        Local<Object> format = Nan::New<Object>();
+        Nan::Set(format, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(chunk.sampleRate));
+        Nan::Set(format, Nan::New("channels").ToLocalChecked(), Nan::New<Integer>(chunk.channels));
+        Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(chunk.bitDepth));
+        Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(chunk.isFloat));
+
+        Local<Function> callback = Nan::New(g_streamingCallback);
+        Local<Value> argv[2] = {buffer, format};
+        Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
+        g_sysSinkDelivered.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 
 // Separate callback for microphone audio
@@ -798,20 +847,11 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
         // Streaming-only mode: skip file writing but continue to streaming callback
     }
     
-    // Invoke streaming callback if set (for real-time streaming)
-    if (!g_streamingCallback.IsEmpty() && g_streamingAsyncHandle) {
-        // Create data structure with audio data
-        StreamingData* data = new StreamingData();
-        data->audioData.assign(audioDataToWrite, audioDataToWrite + bytesToWrite);
-        data->sampleRate = g_audioFormat.mSampleRate;
-        data->channels = g_audioFormat.mChannelsPerFrame;
-        data->bitDepth = g_audioFormat.mBitsPerChannel;
-        data->isFloat = (g_audioFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0;
-        
-        // Set data and trigger async callback (will run on main thread)
-        g_streamingAsyncHandle->data = data;
-        uv_async_send(g_streamingAsyncHandle);
-    }
+    SysSinkEnqueue(std::vector<char>(audioDataToWrite, audioDataToWrite + bytesToWrite),
+                   g_audioFormat.mSampleRate,
+                   (int)g_audioFormat.mChannelsPerFrame,
+                   (int)g_audioFormat.mBitsPerChannel,
+                   (g_audioFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0);
 }
 
 // ScreenCaptureKit delegate
@@ -874,6 +914,7 @@ enum class SckStartStage {
     getting_shareable_content,  // outstanding: async getShareableContentWithCompletionHandler
     adding_stream_output,       // outstanding: filter/config/SCStream build through addStreamOutput
     starting_capture,           // outstanding: async startCaptureWithCompletionHandler
+    building_tap,
 };
 
 // snake_case to match the lifecycle-event convention (docs/NATIVE_AUDIO_CONTRACT.md) and the existing
@@ -885,6 +926,7 @@ static const char* SckStartStageName(SckStartStage stage) {
         case SckStartStage::getting_shareable_content: return "getting_shareable_content";
         case SckStartStage::adding_stream_output: return "adding_stream_output";
         case SckStartStage::starting_capture: return "starting_capture";
+        case SckStartStage::building_tap: return "building_tap";
     }
     return "unknown";
 }
@@ -1411,6 +1453,613 @@ NAN_METHOD(RequestScreenRecordingPermission) {
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(granted));
 }
 
+enum SaysoBackendId { kBackendNone = 0, kBackendSck = 1, kBackendTap = 2 };
+static std::atomic<int> g_activeBackend{kBackendNone};
+static std::atomic<bool> g_forceScreenCaptureKit{false};
+
+static bool SaysoOSSupportsTap() {
+    if (@available(macOS 14.4, *)) {
+        return true;
+    }
+    return false;
+}
+
+static bool SaysoShouldUseTap() {
+    return SaysoOSSupportsTap() && !g_forceScreenCaptureKit.load(std::memory_order_relaxed);
+}
+
+static int64_t SaysoMonotonicMs() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
+}
+
+enum class AudioCapturePerm { granted, denied, notDetermined, unknown };
+
+static const char* SaysoAudioCapturePermName(AudioCapturePerm p) {
+    switch (p) {
+        case AudioCapturePerm::granted: return "granted";
+        case AudioCapturePerm::denied: return "denied";
+        case AudioCapturePerm::notDetermined: return "not-determined";
+        case AudioCapturePerm::unknown: return "unknown";
+    }
+    return "unknown";
+}
+
+typedef int (*SaysoTccPreflightFn)(CFStringRef service, CFDictionaryRef options);
+typedef void (*SaysoTccRequestFn)(CFStringRef service, CFDictionaryRef options, void (^callback)(::Boolean granted));
+static SaysoTccPreflightFn g_tccPreflight = nullptr;
+static SaysoTccRequestFn g_tccRequest = nullptr;
+
+static void SaysoLoadTcc() {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        void* handle = dlopen("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC", RTLD_LAZY);
+        if (!handle) {
+            NSLog(@"⚠️ [NATIVE] TCC.framework unavailable — audio-capture permission will report 'unknown'");
+            return;
+        }
+        g_tccPreflight = (SaysoTccPreflightFn)dlsym(handle, "TCCAccessPreflight");
+        g_tccRequest = (SaysoTccRequestFn)dlsym(handle, "TCCAccessRequest");
+        if (!g_tccPreflight || !g_tccRequest) {
+            NSLog(@"⚠️ [NATIVE] TCC symbols missing (preflight=%p request=%p)", (void*)g_tccPreflight, (void*)g_tccRequest);
+        }
+    });
+}
+
+static AudioCapturePerm SaysoPreflightAudioCapture() {
+    SaysoLoadTcc();
+    if (!g_tccPreflight) {
+        return AudioCapturePerm::unknown;
+    }
+    switch (g_tccPreflight(CFSTR("kTCCServiceAudioCapture"), nullptr)) {
+        case 0: return AudioCapturePerm::granted;
+        case 1: return AudioCapturePerm::denied;
+        case 2: return AudioCapturePerm::notDetermined;
+        default: return AudioCapturePerm::unknown;
+    }
+}
+
+struct SaysoTapPipeline {
+    AudioObjectID tapID = kAudioObjectUnknown;
+    AudioObjectID aggID = kAudioObjectUnknown;
+    AudioDeviceIOProcID procID = nullptr;
+    AudioObjectID outputDeviceID = kAudioObjectUnknown;
+    double outputRate = 0;
+    double ioRate = 0;
+    AudioStreamBasicDescription format = {};
+    bool listenersInstalled = false;
+};
+
+static dispatch_queue_t g_tapQueue = nullptr;
+static dispatch_queue_t g_tapIoQueue = nullptr;
+static SaysoTapPipeline g_tap;
+static dispatch_source_t g_tapWatchdog = nullptr;
+static uint64_t g_tapEvalToken = 0;
+static int64_t g_tapNextAutoRetryMs = 0;
+
+static std::atomic<uint64_t> g_tapSession{0};
+static std::atomic<bool> g_tapWanted{false};
+static std::atomic<bool> g_tapSleeping{false};
+static std::atomic<bool> g_tapRecovering{false};
+static std::atomic<int64_t> g_tapLastIoMs{0};
+static std::atomic<uint64_t> g_tapIoBuffers{0};
+static std::atomic<uint64_t> g_tapRecoveries{0};
+static std::atomic<double> g_tapRate{0};
+static std::atomic<int> g_tapChannels{0};
+
+static void SaysoTapEnsureQueues() {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        g_tapQueue = dispatch_queue_create("com.sayso.audio.tap",
+            dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0));
+        g_tapIoQueue = dispatch_queue_create("com.sayso.audio.tap.io",
+            dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
+    });
+}
+
+static AudioObjectID SaysoGetDefaultOutputDeviceID() {
+    AudioObjectID dev = kAudioObjectUnknown;
+    UInt32 sz = sizeof(dev);
+    AudioObjectPropertyAddress pa = {
+        kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain
+    };
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &pa, 0, nullptr, &sz, &dev) != noErr) {
+        return kAudioObjectUnknown;
+    }
+    return dev;
+}
+
+static double SaysoReadNominalRate(AudioObjectID device) {
+    Float64 rate = 0;
+    SaysoReadHalPod(device, kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal,
+                    kAudioObjectPropertyElementMain, &rate, sizeof(rate));
+    return rate;
+}
+
+static bool SaysoReadTapFormat(AudioObjectID tap, AudioStreamBasicDescription& out) {
+    AudioObjectPropertyAddress pa = {
+        kAudioTapPropertyFormat, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain
+    };
+    UInt32 sz = sizeof(out);
+    return AudioObjectGetPropertyData(tap, &pa, 0, nullptr, &sz, &out) == noErr && sz == sizeof(out);
+}
+
+static void SaysoTapHandleInput(const AudioBufferList* abl, double sampleRate) {
+    g_tapLastIoMs.store(SaysoMonotonicMs(), std::memory_order_relaxed);
+    g_tapIoBuffers.fetch_add(1, std::memory_order_relaxed);
+    if (!abl || abl->mNumberBuffers == 0) {
+        return;
+    }
+    const AudioBuffer& first = abl->mBuffers[0];
+    if (!first.mData || first.mDataByteSize == 0) {
+        return;
+    }
+
+    std::vector<char> out;
+    int channels = 0;
+    if (abl->mNumberBuffers == 1) {
+        channels = (int)std::max<UInt32>(1, first.mNumberChannels);
+        out.assign(static_cast<const char*>(first.mData), static_cast<const char*>(first.mData) + first.mDataByteSize);
+    } else {
+        channels = (int)abl->mNumberBuffers;
+        UInt32 minBytes = first.mDataByteSize;
+        for (UInt32 i = 1; i < abl->mNumberBuffers; i++) {
+            minBytes = std::min(minBytes, abl->mBuffers[i].mDataByteSize);
+        }
+        const size_t frames = minBytes / sizeof(float);
+        out.resize(frames * (size_t)channels * sizeof(float));
+        float* dst = reinterpret_cast<float*>(out.data());
+        for (UInt32 c = 0; c < abl->mNumberBuffers; c++) {
+            const float* src = static_cast<const float*>(abl->mBuffers[c].mData);
+            if (!src) {
+                continue;
+            }
+            for (size_t f = 0; f < frames; f++) {
+                dst[f * (size_t)channels + c] = src[f];
+            }
+        }
+    }
+
+    if (g_actualStartMs == 0.0) {
+        g_actualStartMs = (double)SaysoRealtimeNowMs();
+    }
+    SysSinkEnqueue(std::move(out), sampleRate, channels, 32, true);
+}
+
+static void SaysoTapScheduleEvaluate(const char* reason);
+static void SaysoTapRecover(const std::string& reason, uint64_t session);
+
+static OSStatus SaysoTapPropertyListener(AudioObjectID , UInt32 ,
+                                         const AudioObjectPropertyAddress* , void* ) {
+    SaysoTapScheduleEvaluate("property_changed");
+    return noErr;
+}
+
+static OSStatus SaysoDefaultOutputListener(AudioObjectID , UInt32 ,
+                                           const AudioObjectPropertyAddress* , void* ) {
+    SaysoTapScheduleEvaluate("default_output_changed");
+    return noErr;
+}
+
+static void SaysoTapListenerAddresses(const SaysoTapPipeline& p, AudioObjectID ids[3], AudioObjectPropertyAddress addrs[3]) {
+    ids[0] = p.tapID;
+    addrs[0] = { kAudioTapPropertyFormat, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+    ids[1] = p.outputDeviceID;
+    addrs[1] = { kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+    ids[2] = p.aggID;
+    addrs[2] = { kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+}
+
+static void SaysoTapEvaluate(const std::string& reason, uint64_t session) {
+    if (session != g_tapSession.load() || !g_tapWanted.load() || g_tapSleeping.load() || g_tapRecovering.load()) {
+        return;
+    }
+    const char* why = nullptr;
+    if (g_tap.tapID == kAudioObjectUnknown) {
+        why = "no_pipeline";
+    } else {
+        AudioObjectID currentOut = SaysoGetDefaultOutputDeviceID();
+        AudioStreamBasicDescription fmt = {};
+        if (currentOut != kAudioObjectUnknown && currentOut != g_tap.outputDeviceID) {
+            why = "output_device_changed";
+        } else if (SaysoReadTapFormat(g_tap.tapID, fmt) &&
+                   (fmt.mSampleRate != g_tap.format.mSampleRate || fmt.mChannelsPerFrame != g_tap.format.mChannelsPerFrame)) {
+            why = "tap_format_changed";
+        } else {
+            double rate = SaysoReadNominalRate(g_tap.outputDeviceID);
+            double aggRate = SaysoReadNominalRate(g_tap.aggID);
+            if (rate > 0 && g_tap.outputRate > 0 && rate != g_tap.outputRate) {
+                why = "output_rate_changed";
+            } else if (aggRate > 0 && g_tap.ioRate > 0 && aggRate != g_tap.ioRate) {
+                why = "aggregate_rate_changed";
+            }
+        }
+    }
+    if (why) {
+        SaysoTapRecover(std::string(why), session);
+    }
+}
+
+static void SaysoTapScheduleEvaluate(const char* reason) {
+    if (!g_tapWanted.load()) {
+        return;
+    }
+    SaysoTapEnsureQueues();
+    std::string r(reason);
+    const uint64_t session = g_tapSession.load();
+    dispatch_async(g_tapQueue, ^{
+        const uint64_t token = ++g_tapEvalToken;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC), g_tapQueue, ^{
+            if (token != g_tapEvalToken) {
+                return;
+            }
+            SaysoTapEvaluate(r, session);
+        });
+    });
+}
+
+static void SaysoTapDestroy(SaysoTapPipeline& p) {
+    if (p.listenersInstalled) {
+        AudioObjectID ids[3];
+        AudioObjectPropertyAddress addrs[3];
+        SaysoTapListenerAddresses(p, ids, addrs);
+        for (int i = 0; i < 3; i++) {
+            if (ids[i] != kAudioObjectUnknown) {
+                AudioObjectRemovePropertyListener(ids[i], &addrs[i], SaysoTapPropertyListener, nullptr);
+            }
+        }
+        p.listenersInstalled = false;
+    }
+    if (p.aggID != kAudioObjectUnknown && p.procID) {
+        AudioDeviceStop(p.aggID, p.procID);
+        AudioDeviceDestroyIOProcID(p.aggID, p.procID);
+        p.procID = nullptr;
+        dispatch_sync(g_tapIoQueue, ^{});
+    }
+    if (p.aggID != kAudioObjectUnknown) {
+        OSStatus st = AudioHardwareDestroyAggregateDevice(p.aggID);
+        if (st != noErr) {
+            EmitLifecycleEvent("tap_destroy_aggregate_failed OSStatus=" + std::to_string((int)st));
+        }
+        p.aggID = kAudioObjectUnknown;
+    }
+    if (p.tapID != kAudioObjectUnknown) {
+        if (@available(macOS 14.2, *)) {
+            OSStatus st = AudioHardwareDestroyProcessTap(p.tapID);
+            if (st != noErr) {
+                EmitLifecycleEvent("tap_destroy_tap_failed OSStatus=" + std::to_string((int)st));
+            }
+        }
+        p.tapID = kAudioObjectUnknown;
+    }
+}
+
+static std::string SaysoStatusMsg(const char* step, OSStatus st) {
+    return std::string(step) + " OSStatus=" + std::to_string((int)st);
+}
+
+static bool SaysoTapBuildPipeline(uint64_t session, std::string& err) {
+    if (@available(macOS 14.4, *)) {
+        SaysoTapPipeline p;
+
+        p.outputDeviceID = SaysoGetDefaultOutputDeviceID();
+        std::string outUID;
+        if (p.outputDeviceID == kAudioObjectUnknown ||
+            !SaysoReadHalString(p.outputDeviceID, kAudioDevicePropertyDeviceUID, outUID) || outUID.empty()) {
+            err = "no_output_device";
+            return false;
+        }
+        p.outputRate = SaysoReadNominalRate(p.outputDeviceID);
+        NSString* outUIDString = [NSString stringWithUTF8String:outUID.c_str()];
+
+        NSArray<NSNumber*>* excluded = @[];
+        {
+            pid_t pid = getpid();
+            AudioObjectID procObject = kAudioObjectUnknown;
+            UInt32 sz = sizeof(procObject);
+            AudioObjectPropertyAddress pa = {
+                kAudioHardwarePropertyTranslatePIDToProcessObject, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain
+            };
+            if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &pa, sizeof(pid), &pid, &sz, &procObject) == noErr &&
+                procObject != kAudioObjectUnknown) {
+                excluded = @[@(procObject)];
+            }
+        }
+
+        CATapDescription* description = [[CATapDescription alloc] initStereoGlobalTapButExcludeProcesses:excluded];
+        NSUUID* tapUUID = [NSUUID UUID];
+        description.name = @"Sayso System Audio Tap";
+        description.UUID = tapUUID;
+        description.privateTap = YES;
+        description.muteBehavior = CATapUnmuted;
+        OSStatus st = AudioHardwareCreateProcessTap(description, &p.tapID);
+        [description release];
+        if (st != noErr || p.tapID == kAudioObjectUnknown) {
+            err = SaysoStatusMsg("create_tap_failed", st);
+            p.tapID = kAudioObjectUnknown;
+            return false;
+        }
+
+        if (!SaysoReadTapFormat(p.tapID, p.format)) {
+            err = "read_tap_format_failed";
+            SaysoTapDestroy(p);
+            return false;
+        }
+        if (p.format.mFormatID != kAudioFormatLinearPCM || !(p.format.mFormatFlags & kAudioFormatFlagIsFloat) ||
+            p.format.mBitsPerChannel != 32 || p.format.mSampleRate <= 0 || p.format.mChannelsPerFrame == 0) {
+            err = "unsupported_tap_format rate=" + std::to_string((int)p.format.mSampleRate) +
+                  " bits=" + std::to_string((int)p.format.mBitsPerChannel) +
+                  " ch=" + std::to_string((int)p.format.mChannelsPerFrame);
+            SaysoTapDestroy(p);
+            return false;
+        }
+
+        NSString* aggUID = [[NSUUID UUID] UUIDString];
+        NSDictionary* aggregate = @{
+            @kAudioAggregateDeviceNameKey: @"Sayso System Audio",
+            @kAudioAggregateDeviceUIDKey: aggUID,
+            @kAudioAggregateDeviceMainSubDeviceKey: outUIDString,
+            @kAudioAggregateDeviceIsPrivateKey: @YES,
+            @kAudioAggregateDeviceIsStackedKey: @NO,
+            @kAudioAggregateDeviceTapAutoStartKey: @YES,
+            @kAudioAggregateDeviceSubDeviceListKey: @[ @{ @kAudioSubDeviceUIDKey: outUIDString } ],
+            @kAudioAggregateDeviceTapListKey: @[ @{
+                @kAudioSubTapDriftCompensationKey: @YES,
+                @kAudioSubTapUIDKey: [tapUUID UUIDString],
+            } ],
+        };
+        st = AudioHardwareCreateAggregateDevice((CFDictionaryRef)aggregate, &p.aggID);
+        if (st != noErr || p.aggID == kAudioObjectUnknown) {
+            err = SaysoStatusMsg("create_aggregate_failed", st);
+            p.aggID = kAudioObjectUnknown;
+            SaysoTapDestroy(p);
+            return false;
+        }
+
+        p.ioRate = SaysoReadNominalRate(p.aggID);
+        if (p.ioRate <= 0) {
+            p.ioRate = p.outputRate > 0 ? p.outputRate : p.format.mSampleRate;
+        }
+        const double rate = p.ioRate;
+        AudioDeviceIOBlock ioBlock = ^(const AudioTimeStamp* , const AudioBufferList* inInputData,
+                                       const AudioTimeStamp* inInputTime, AudioBufferList* ,
+                                       const AudioTimeStamp* ) {
+            if (session != g_tapSession.load(std::memory_order_relaxed)) {
+                return;
+            }
+            SaysoTapHandleInput(inInputData, rate);
+        };
+        st = AudioDeviceCreateIOProcIDWithBlock(&p.procID, p.aggID, g_tapIoQueue, ioBlock);
+        if (st != noErr || !p.procID) {
+            err = SaysoStatusMsg("create_ioproc_failed", st);
+            p.procID = nullptr;
+            SaysoTapDestroy(p);
+            return false;
+        }
+        g_tapLastIoMs.store(SaysoMonotonicMs(), std::memory_order_relaxed);
+        st = AudioDeviceStart(p.aggID, p.procID);
+        if (st != noErr) {
+            err = SaysoStatusMsg("start_device_failed", st);
+            SaysoTapDestroy(p);
+            return false;
+        }
+
+        {
+            AudioObjectID ids[3];
+            AudioObjectPropertyAddress addrs[3];
+            SaysoTapListenerAddresses(p, ids, addrs);
+            for (int i = 0; i < 3; i++) {
+                AudioObjectAddPropertyListener(ids[i], &addrs[i], SaysoTapPropertyListener, nullptr);
+            }
+            p.listenersInstalled = true;
+        }
+
+        g_tap = p;
+        g_tapRate.store(p.ioRate);
+        g_tapChannels.store((int)p.format.mChannelsPerFrame);
+        NSLog(@"✅ [NATIVE] Core Audio tap running: %.0f Hz (tap format %.0f Hz), %u ch, output device %u (%s)",
+              p.ioRate, p.format.mSampleRate, (unsigned)p.format.mChannelsPerFrame, (unsigned)p.outputDeviceID, outUID.c_str());
+        return true;
+    }
+    err = "macos_14_4_required";
+    return false;
+}
+
+static void SaysoTapTeardownPipeline() {
+    SaysoTapDestroy(g_tap);
+    g_tap = SaysoTapPipeline();
+}
+
+static void SaysoTapTeardownAll() {
+    if (g_tapWatchdog) {
+        dispatch_source_cancel(g_tapWatchdog);
+        dispatch_release(g_tapWatchdog);
+        g_tapWatchdog = nullptr;
+    }
+    const bool hadPipeline = g_tap.tapID != kAudioObjectUnknown || g_tap.aggID != kAudioObjectUnknown;
+    SaysoTapTeardownPipeline();
+    g_tapRecovering.store(false);
+    g_tapNextAutoRetryMs = 0;
+    SysSinkClear();
+    if (hadPipeline) {
+        EmitLifecycleEvent("tap_teardown_complete");
+    }
+}
+
+static void SaysoTapRecoverAttempt(std::string reason, uint64_t session, int attempt, int64_t startedMs) {
+    if (session != g_tapSession.load() || !g_tapWanted.load()) {
+        g_tapRecovering.store(false);
+        return;
+    }
+    if (g_tapSleeping.load()) {
+        g_tapRecovering.store(false);
+        return;
+    }
+    SaysoTapTeardownPipeline();
+    std::string err;
+    if (SaysoTapBuildPipeline(session, err)) {
+        g_tapRecovering.store(false);
+        g_tapNextAutoRetryMs = 0;
+        g_tapRecoveries.fetch_add(1, std::memory_order_relaxed);
+        EmitLifecycleEvent("tap_recovery_succeeded reason=" + reason + " attempts=" + std::to_string(attempt + 1) +
+                           " elapsed_ms=" + std::to_string(SaysoMonotonicMs() - startedMs));
+        return;
+    }
+    static const int kBackoffMs[] = {500, 1000, 2000, 4000, 8000};
+    const int kMaxRetries = (int)(sizeof(kBackoffMs) / sizeof(kBackoffMs[0]));
+    if (attempt >= kMaxRetries) {
+        g_tapRecovering.store(false);
+        g_tapNextAutoRetryMs = SaysoMonotonicMs() + 30000;
+        EmitLifecycleEvent("tap_recovery_failed reason=" + reason + " attempts=" + std::to_string(attempt + 1) +
+                           " error=" + err);
+        return;
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)kBackoffMs[attempt] * NSEC_PER_MSEC), g_tapQueue, ^{
+        SaysoTapRecoverAttempt(reason, session, attempt + 1, startedMs);
+    });
+}
+
+static void SaysoTapRecover(const std::string& reason, uint64_t session) {
+    if (g_tapRecovering.exchange(true)) {
+        return;
+    }
+    EmitLifecycleEvent("tap_recovery_started reason=" + reason);
+    SaysoTapRecoverAttempt(reason, session, 0, SaysoMonotonicMs());
+}
+
+static bool SaysoOutputDeviceRunning(AudioObjectID device) {
+    UInt32 running = 0;
+    UInt32 sz = sizeof(running);
+    AudioObjectPropertyAddress pa = {
+        kAudioDevicePropertyDeviceIsRunningSomewhere, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain
+    };
+    if (AudioObjectGetPropertyData(device, &pa, 0, nullptr, &sz, &running) != noErr) {
+        return true;
+    }
+    return running != 0;
+}
+
+static void SaysoTapStartWatchdog(uint64_t session) {
+    if (g_tapWatchdog) {
+        dispatch_source_cancel(g_tapWatchdog);
+        dispatch_release(g_tapWatchdog);
+        g_tapWatchdog = nullptr;
+    }
+    g_tapWatchdog = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, g_tapQueue);
+    dispatch_source_set_timer(g_tapWatchdog, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC),
+                              2 * NSEC_PER_SEC, 500 * NSEC_PER_MSEC);
+    dispatch_source_set_event_handler(g_tapWatchdog, ^{
+        if (session != g_tapSession.load() || !g_tapWanted.load() || g_tapSleeping.load() || g_tapRecovering.load()) {
+            return;
+        }
+        const int64_t now = SaysoMonotonicMs();
+        const bool havePipeline = g_tap.tapID != kAudioObjectUnknown;
+        if (havePipeline) {
+            const int64_t ageMs = now - g_tapLastIoMs.load();
+            if (ageMs > 4000 && SaysoOutputDeviceRunning(g_tap.outputDeviceID)) {
+                EmitLifecycleEvent("tap_io_stalled age_ms=" + std::to_string(ageMs));
+                SaysoTapRecover("io_stalled", session);
+            }
+        } else if (g_tapNextAutoRetryMs != 0 && now >= g_tapNextAutoRetryMs) {
+            SaysoTapRecover("auto_retry", session);
+        }
+    });
+    dispatch_resume(g_tapWatchdog);
+}
+
+static void SaysoTapInstallGlobalObservers() {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        SaysoTapEnsureQueues();
+        AudioObjectPropertyAddress pa = {
+            kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain
+        };
+        AudioObjectAddPropertyListener(kAudioObjectSystemObject, &pa, SaysoDefaultOutputListener, nullptr);
+
+        NSNotificationCenter* center = [[NSWorkspace sharedWorkspace] notificationCenter];
+        [center addObserverForName:NSWorkspaceWillSleepNotification object:nil queue:nil
+                        usingBlock:^(NSNotification* ) {
+            if (!g_tapWanted.load()) {
+                return;
+            }
+            g_tapSleeping.store(true);
+            dispatch_async(g_tapQueue, ^{
+                if (g_tap.tapID != kAudioObjectUnknown) {
+                    EmitLifecycleEvent("tap_sleep_teardown");
+                    SaysoTapTeardownPipeline();
+                }
+            });
+        }];
+        [center addObserverForName:NSWorkspaceDidWakeNotification object:nil queue:nil
+                        usingBlock:^(NSNotification* ) {
+            if (!g_tapWanted.load()) {
+                return;
+            }
+            const uint64_t session = g_tapSession.load();
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500 * NSEC_PER_MSEC), g_tapQueue, ^{
+                if (session != g_tapSession.load() || !g_tapWanted.load()) {
+                    return;
+                }
+                g_tapSleeping.store(false);
+                SaysoTapRecover("wake", session);
+            });
+        }];
+    });
+}
+
+static void SaysoTapCleanupHook(void* ) {
+    if (!g_tapQueue) {
+        return;
+    }
+    g_tapWanted.store(false);
+    g_tapSession.fetch_add(1);
+    dispatch_group_t group = dispatch_group_create();
+    dispatch_group_async(group, g_tapQueue, ^{
+        SaysoTapTeardownAll();
+    });
+    dispatch_group_wait(group, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
+    dispatch_release(group);
+}
+
+static void SaysoTapStartOnQueue(uint64_t startGen, uint64_t session) {
+    auto failStart = [&](const std::string& message) {
+        SettleSckStartForGeneration(startGen, true, message);
+        if (session == g_tapSession.load()) {
+            g_tapWanted.store(false);
+            g_activeBackend.store(kBackendNone);
+        }
+    };
+
+    if (SckStartAbandoned(startGen)) {
+        EmitLifecycleEvent("tap_start_late_callback_ignored gen=" + std::to_string(startGen));
+        return;
+    }
+    SckStartAdvanceStage(startGen, SckStartStage::building_tap);
+
+    if (SaysoPreflightAudioCapture() == AudioCapturePerm::denied) {
+        failStart("system_audio_permission_denied: System Audio Recording permission is denied");
+        return;
+    }
+
+    std::string err;
+    if (!SaysoTapBuildPipeline(session, err)) {
+        failStart("tap_start_failed: " + err);
+        return;
+    }
+
+    if (SettleSckStartForGeneration(startGen, false, "")) {
+        g_isCapturing.store(true);
+        SaysoTapStartWatchdog(session);
+        EmitLifecycleEvent("tap_started gen=" + std::to_string(startGen) +
+                           " rate=" + std::to_string((int)g_tap.ioRate) +
+                           " channels=" + std::to_string((int)g_tap.format.mChannelsPerFrame));
+    } else {
+        EmitLifecycleEvent("tap_orphan_pipeline_destroyed gen=" + std::to_string(startGen));
+        SaysoTapTeardownPipeline();
+    }
+}
+
 // Start system audio capture
 NAN_METHOD(StartSystemAudioCapture) {
     NSLog(@"🎤 [NATIVE] Starting system audio capture");
@@ -1500,23 +2149,48 @@ NAN_METHOD(StartSystemAudioCapture) {
         std::lock_guard<std::mutex> lk(g_sckStartMutex);
         g_sckStartPending = pending;
     }
-    NSLog(@"🎤 [NATIVE] SCK start pending (gen=%llu)", (unsigned long long)startGen);
+    const bool useTap = g_streamingOnly && SaysoShouldUseTap();
+    const char* backendTag = useTap ? "tap" : "sck";
+    NSLog(@"🎤 [NATIVE] %s start pending (gen=%llu)", backendTag, (unsigned long long)startGen);
 
     // Watchdog: SCK completion handlers are not guaranteed to fire (SAYSO-355 saw a start wedge for
     // the process lifetime). If nothing settles this generation in time, reject it so Cue can retry
     // without an app relaunch. Captures the generation VALUE — safe after the struct is freed.
-    const int64_t kSckStartWatchdogNs = 10 * NSEC_PER_SEC;
+    int64_t watchdogNs = 10 * NSEC_PER_SEC;
+    if (useTap) {
+        AudioCapturePerm perm = SaysoPreflightAudioCapture();
+        if (perm == AudioCapturePerm::notDetermined || perm == AudioCapturePerm::unknown) {
+            watchdogNs = 120 * NSEC_PER_SEC;
+        }
+    }
+    const int64_t kSckStartWatchdogNs = watchdogNs;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kSckStartWatchdogNs), dispatch_get_main_queue(), ^{
         // SAYSO-359: peek the stage BEFORE settling — the watchdog fires from an independent timer
         // with no idea which async step was in flight, so this is the only chance to capture it.
         SckStartStage stage = SckStartPeekStage(startGen);
-        std::string msg = std::string("sck_start_timeout stage=") + SckStartStageName(stage) +
-            ": ScreenCaptureKit start did not settle within 10s";
+        std::string msg = std::string(backendTag) + "_start_timeout stage=" + SckStartStageName(stage) +
+            ": system audio start did not settle within " + std::to_string(kSckStartWatchdogNs / NSEC_PER_SEC) + "s";
         if (SettleSckStartForGeneration(startGen, true, msg)) {
-            EmitLifecycleEvent("sck_start_watchdog_fired gen=" + std::to_string(startGen) +
-                               " stage=" + SckStartStageName(stage) + " timeout_ms=10000");
+            EmitLifecycleEvent(std::string(backendTag) + "_start_watchdog_fired gen=" + std::to_string(startGen) +
+                               " stage=" + SckStartStageName(stage) + " timeout_ms=" +
+                               std::to_string(kSckStartWatchdogNs / NSEC_PER_MSEC));
         }
     });
+
+    if (useTap) {
+        SaysoTapEnsureQueues();
+        SaysoTapInstallGlobalObservers();
+        g_activeBackend.store(kBackendTap);
+        g_tapSleeping.store(false);
+        g_tapWanted.store(true);
+        g_actualStartMs = 0.0;
+        const uint64_t session = g_tapSession.fetch_add(1) + 1;
+        dispatch_async(g_tapQueue, ^{
+            SaysoTapStartOnQueue(startGen, session);
+        });
+        return;
+    }
+    g_activeBackend.store(kBackendSck);
 
     // The blocks below deliberately build the pipeline in LOCALS and publish to globals only after
     // winning settlement. An abandoned (timed-out/canceled) start must never clobber the globals of a
@@ -1680,8 +2354,9 @@ NAN_METHOD(StopSystemAudioCapture) {
         }
     }
 
-    // Idle: no stream object (covers "not capturing"; a pending start was just canceled above)
-    if (!g_stream) {
+    const bool tapBackend = g_activeBackend.load() == kBackendTap;
+
+    if (!g_stream && !tapBackend) {
         NSLog(@"⚠️ [NATIVE] System audio capture not active (no stream)");
         MaybeLocal<Promise::Resolver> maybeIdle = Promise::Resolver::New(context);
         if (maybeIdle.IsEmpty()) {
@@ -1750,6 +2425,22 @@ NAN_METHOD(StopSystemAudioCapture) {
         NSLog(@"⚠️ [NATIVE] No file path available at stop");
     }
     
+    if (tapBackend) {
+        pending->hasFilePath = false;
+        pending->savedFilePath.clear();
+        g_tapWanted.store(false);
+        g_tapSession.fetch_add(1);
+        dispatch_async(g_tapQueue, ^{
+            SaysoTapTeardownAll();
+            g_isCapturing.store(false);
+            g_streamingOnly = false;
+            g_activeBackend.store(kBackendNone);
+            uv_async_send(&pending->async);
+        });
+        info.GetReturnValue().Set(firstResolver->GetPromise());
+        return;
+    }
+
     [g_stream stopCaptureWithCompletionHandler:^(NSError *error) {
         if (error) {
             NSLog(@"❌ [NATIVE] Failed to stop capture: %@", error.localizedDescription);
@@ -1769,18 +2460,13 @@ NAN_METHOD(StopSystemAudioCapture) {
         g_streamingOnly = false;
         closeAudioFile();
         g_streamingCallback.Reset();
-        
-        if (g_streamingAsyncHandle) {
-            uv_async_t* handleToDelete = g_streamingAsyncHandle;
-            g_streamingAsyncHandle = nullptr;
-            uv_close((uv_handle_t*)handleToDelete, [](uv_handle_t* handle) {
-                delete reinterpret_cast<uv_async_t*>(handle);
-            });
-        }
+        g_sysSinkAccepting.store(false, std::memory_order_release);
+        SysSinkClear();
         
         g_stream = nil;
         g_filter = nil;
         g_config = nil;
+        g_activeBackend.store(kBackendNone);
         
         uv_async_send(&pending->async);
     }];
@@ -2798,18 +3484,9 @@ NAN_METHOD(GetMicInputDiagnostics) {
 // Set streaming callback for real-time audio chunks
 NAN_METHOD(SetStreamingCallback) {
     if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
-        // Clear callback
+        g_sysSinkAccepting.store(false, std::memory_order_release);
         g_streamingCallback.Reset();
-        
-        // Clean up async handle
-        if (g_streamingAsyncHandle) {
-            uv_async_t* handleToDelete = g_streamingAsyncHandle;
-            g_streamingAsyncHandle = nullptr;
-            uv_close((uv_handle_t*)handleToDelete, [](uv_handle_t* handle) {
-                delete reinterpret_cast<uv_async_t*>(handle);
-            });
-        }
-        
+        SysSinkClear();
         info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
         return;
     }
@@ -2822,11 +3499,19 @@ NAN_METHOD(SetStreamingCallback) {
     // Store persistent reference to callback
     g_streamingCallback.Reset(Nan::To<Function>(info[0]).ToLocalChecked());
     
-    // Create async handle if it doesn't exist
-    if (!g_streamingAsyncHandle) {
-        g_streamingAsyncHandle = new uv_async_t();
-        uv_async_init(uv_default_loop(), g_streamingAsyncHandle, StreamingAsyncCallback);
+    if (!g_sysSinkAsyncHandle) {
+        uv_async_t* handle = new uv_async_t();
+        if (uv_async_init(uv_default_loop(), handle, SysSinkDrainCallback) != 0) {
+            delete handle;
+            g_streamingCallback.Reset();
+            Nan::ThrowError("Failed to initialize system audio sink");
+            return;
+        }
+        uv_unref(reinterpret_cast<uv_handle_t*>(handle));
+        g_sysSinkAsyncHandle = handle;
     }
+    SysSinkClear();
+    g_sysSinkAccepting.store(true, std::memory_order_release);
     
     NSLog(@"🎤 [NATIVE] Streaming callback set");
     info.GetReturnValue().Set(Nan::New<v8::Boolean>(true));
@@ -3073,6 +3758,74 @@ NAN_METHOD(DeleteMultiOutputDevice) {
 }
 
 // Module initialization
+
+NAN_METHOD(SetForceScreenCaptureKit) {
+    bool force = info.Length() > 0 && Nan::To<bool>(info[0]).FromMaybe(false);
+    g_forceScreenCaptureKit.store(force);
+    NSLog(@"🎤 [NATIVE] System audio backend override: forceScreenCaptureKit=%d", force);
+    info.GetReturnValue().Set(Nan::New<v8::Boolean>(force));
+}
+
+NAN_METHOD(GetSystemAudioBackend) {
+    info.GetReturnValue().Set(Nan::New(SaysoShouldUseTap() ? "core-audio-tap" : "screencapturekit").ToLocalChecked());
+}
+
+NAN_METHOD(GetSystemAudioPermissionStatus) {
+    info.GetReturnValue().Set(Nan::New(SaysoAudioCapturePermName(SaysoPreflightAudioCapture())).ToLocalChecked());
+}
+
+struct PendingPermRequest {
+    uv_async_t async;
+    Nan::Persistent<v8::Promise::Resolver> resolver;
+};
+
+static void PermRequestSettledCb(uv_async_t* handle) {
+    PendingPermRequest* p = static_cast<PendingPermRequest*>(handle->data);
+    Nan::HandleScope scope;
+    Local<Context> context = Isolate::GetCurrent()->GetCurrentContext();
+    Local<Promise::Resolver> res = Nan::New(p->resolver);
+    p->resolver.Reset();
+    res->Resolve(context, Nan::New(SaysoAudioCapturePermName(SaysoPreflightAudioCapture())).ToLocalChecked()).Check();
+    uv_close(reinterpret_cast<uv_handle_t*>(handle), [](uv_handle_t* h) {
+        delete static_cast<PendingPermRequest*>(h->data);
+    });
+}
+
+NAN_METHOD(RequestSystemAudioPermission) {
+    Isolate* isolate = info.GetIsolate();
+    Local<Context> context = isolate->GetCurrentContext();
+    MaybeLocal<Promise::Resolver> maybe = Promise::Resolver::New(context);
+    if (maybe.IsEmpty()) {
+        info.GetReturnValue().Set(MakeRejectedPromise(isolate, "Failed to create promise resolver"));
+        return;
+    }
+    Local<Promise::Resolver> resolver = maybe.ToLocalChecked();
+    info.GetReturnValue().Set(resolver->GetPromise());
+
+    AudioCapturePerm current = SaysoPreflightAudioCapture();
+    if (current == AudioCapturePerm::granted || current == AudioCapturePerm::denied) {
+        resolver->Resolve(context, Nan::New(SaysoAudioCapturePermName(current)).ToLocalChecked()).Check();
+        return;
+    }
+    if (!g_tccRequest) {
+        resolver->Resolve(context, Nan::New(SaysoAudioCapturePermName(AudioCapturePerm::unknown)).ToLocalChecked()).Check();
+        return;
+    }
+
+    PendingPermRequest* pending = new PendingPermRequest();
+    pending->async.data = pending;
+    if (uv_async_init(uv_default_loop(), &pending->async, PermRequestSettledCb) != 0) {
+        delete pending;
+        resolver->Reject(context, Nan::Error("Failed to initialize async notifier for permission request")).Check();
+        return;
+    }
+    pending->resolver.Reset(resolver);
+    g_tccRequest(CFSTR("kTCCServiceAudioCapture"), nullptr, ^(::Boolean granted) {
+        NSLog(@"🎤 [NATIVE] System audio permission request answered: granted=%d", granted);
+        uv_async_send(&pending->async);
+    });
+}
+
 NAN_MODULE_INIT(Init) {
     Nan::Set(target, Nan::New("initialize").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(Initialize)).ToLocalChecked());
@@ -3082,7 +3835,18 @@ NAN_MODULE_INIT(Init) {
 
     Nan::Set(target, Nan::New("requestScreenRecordingPermission").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(RequestScreenRecordingPermission)).ToLocalChecked());
-    
+
+    Nan::Set(target, Nan::New("setForceScreenCaptureKit").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(SetForceScreenCaptureKit)).ToLocalChecked());
+    Nan::Set(target, Nan::New("getSystemAudioBackend").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(GetSystemAudioBackend)).ToLocalChecked());
+    Nan::Set(target, Nan::New("getSystemAudioPermissionStatus").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(GetSystemAudioPermissionStatus)).ToLocalChecked());
+    Nan::Set(target, Nan::New("requestSystemAudioPermission").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(RequestSystemAudioPermission)).ToLocalChecked());
+
+    node::AddEnvironmentCleanupHook(v8::Isolate::GetCurrent(), SaysoTapCleanupHook, nullptr);
+
     Nan::Set(target, Nan::New("startSystemAudioCapture").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(StartSystemAudioCapture)).ToLocalChecked());
     

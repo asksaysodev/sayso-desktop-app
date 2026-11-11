@@ -2,7 +2,8 @@ import { app, ipcMain } from 'electron';
 import * as Sentry from '@sentry/electron/main';
 
 import { isTransientNetworkError } from '../utils/transientErrors';
-import type { IAudioProvider, AudioFormat } from './IAudioProvider';
+import type { IAudioProvider, AudioFormat, SystemAudioBackend, SystemAudioPermissionState } from './IAudioProvider';
+import * as cacheStore from '../store/cacheManager';
 import { collectMicDiagnostics, installMicDiagnosticsListeners } from './micDiagnostics';
 
 // recorder + audioStreamer are CommonJS modules. Require them LAZILY (not at
@@ -209,6 +210,49 @@ export function isScreenRecordingGranted(opts?: { warnIfUnavailable?: boolean })
 export function requestScreenRecordingPermission(): void {
   if (!provider || typeof provider.requestScreenRecordingPermission !== 'function') return;
   try { provider.requestScreenRecordingPermission(); } catch { /* ignore */ }
+}
+
+export const FORCE_SCK_AUDIO_FEATURE = 'force_sck_audio';
+
+let lastAppliedForceSck: boolean | null = null;
+
+export function applySystemAudioBackendOverride(): void {
+  if (!provider || typeof provider.setForceScreenCaptureKit !== 'function') return;
+  let force = false;
+  try {
+    force = cacheStore.getValue('enabledFeatures').includes(FORCE_SCK_AUDIO_FEATURE);
+  } catch {
+    force = false;
+  }
+  if (force === lastAppliedForceSck) return;
+  lastAppliedForceSck = force;
+  provider.setForceScreenCaptureKit(force);
+  console.log(`[Audio] System-audio backend override: ${force ? 'forcing ScreenCaptureKit' : 'none'}`);
+}
+
+export function getSystemAudioBackend(): SystemAudioBackend | null {
+  if (!provider || typeof provider.getSystemAudioBackend !== 'function') return null;
+  applySystemAudioBackendOverride();
+  return provider.getSystemAudioBackend() ?? null;
+}
+
+export function usesCoreAudioTap(): boolean {
+  return getSystemAudioBackend() === 'core-audio-tap';
+}
+
+export function getSystemAudioPermission(): SystemAudioPermissionState | null {
+  if (!provider || typeof provider.getSystemAudioPermissionStatus !== 'function') return null;
+  return provider.getSystemAudioPermissionStatus() ?? null;
+}
+
+export async function requestSystemAudioPermission(): Promise<SystemAudioPermissionState | null> {
+  if (!provider || typeof provider.requestSystemAudioPermission !== 'function') return null;
+  try {
+    return (await provider.requestSystemAudioPermission()) ?? null;
+  } catch (e) {
+    console.warn('[Permissions] requestSystemAudioPermission failed:', e);
+    return getSystemAudioPermission();
+  }
 }
 
 // ─── Cue lifecycle accessors (used by auth handlers in main) ──────────────────
@@ -752,6 +796,8 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       if (!provider) {
         throw new Error('Native audio module not loaded. Please wait for app initialization.');
       }
+
+      applySystemAudioBackendOverride();
 
       const permsCheck = await checkOSPermissionsGranted();
       if (!permsCheck.granted) {

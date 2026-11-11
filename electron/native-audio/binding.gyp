@@ -15,6 +15,7 @@
               "-framework Foundation",
               "-framework ScreenCaptureKit",
               "-framework AVFoundation",
+              "-framework AppKit",
               "-framework CoreMedia"
             ]
           },

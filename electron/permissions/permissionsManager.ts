@@ -44,12 +44,17 @@ export function registerPermissionsIpc(): void {
     try {
       const result = await provider.checkGranted();
       if (isDev) console.log('[Permissions] check:', result);
-      return { mic: result.mic, screen: result.screen, requirements: provider.requirements };
+      return {
+        mic: result.mic,
+        screen: result.screen,
+        systemAudio: result.systemAudio ?? null,
+        requirements: provider.requirements,
+      };
     } catch (e: any) {
       console.error('[MAIN] [Permissions] Error checking permissions:', e);
       Sentry.captureException(e);
       // `requirements` is static, so the screen can still lay itself out on error.
-      return { mic: false, screen: false, requirements: provider.requirements, error: e.message };
+      return { mic: false, screen: false, systemAudio: null, requirements: provider.requirements, error: e.message };
     }
   });
 
@@ -74,9 +79,13 @@ export function registerPermissionsIpc(): void {
     }
   });
 
-  // Prompt macOS to surface the Screen Recording row in System Settings (fire-and-forget)
-  ipcMain.handle('permissions-request-screen', () => {
-    provider.requestScreen();
+  ipcMain.handle('permissions-request-screen', async () => {
+    try {
+      return await provider.requestScreen();
+    } catch (e: any) {
+      console.warn('[MAIN] [Permissions] Error requesting system audio permission:', e?.message || e);
+      return null;
+    }
   });
 
   // Open Screen Recording privacy pane directly

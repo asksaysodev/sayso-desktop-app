@@ -75,7 +75,7 @@ export interface PermissionsAPI {
   check: () => Promise<PermissionsCheckResult>;
   requestMic: () => Promise<{ mic: boolean; action: string; error?: string }>;
   checkScreen: () => Promise<boolean>;
-  requestScreen: () => Promise<void>;
+  requestScreen: () => Promise<'granted' | 'denied' | 'not-determined' | 'unknown' | null>;
   openScreenSettings: () => Promise<void>;
   complete: () => Promise<{ error?: string } | void>;
   getFlag: () => Promise<boolean>;

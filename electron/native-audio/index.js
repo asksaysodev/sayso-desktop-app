@@ -46,6 +46,39 @@ class AudioDeviceManager {
     return nativeAudio.checkScreenRecordingGranted();
   }
 
+  setForceScreenCaptureKit(force) {
+    if (typeof nativeAudio.setForceScreenCaptureKit !== 'function') return false;
+    nativeAudio.setForceScreenCaptureKit(!!force);
+    return true;
+  }
+
+  getSystemAudioBackend() {
+    if (typeof nativeAudio.getSystemAudioBackend !== 'function') return null;
+    return nativeAudio.getSystemAudioBackend();
+  }
+
+  getSystemAudioPermissionStatus() {
+    if (typeof nativeAudio.getSystemAudioPermissionStatus !== 'function') return null;
+    return nativeAudio.getSystemAudioPermissionStatus();
+  }
+
+  async requestSystemAudioPermission() {
+    if (typeof nativeAudio.requestSystemAudioPermission !== 'function') return null;
+    const PROMPT_TIMEOUT_MS = 120000;
+    try {
+      let timer;
+      const timeout = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(nativeAudio.getSystemAudioPermissionStatus()), PROMPT_TIMEOUT_MS);
+      });
+      const status = await Promise.race([nativeAudio.requestSystemAudioPermission(), timeout]);
+      clearTimeout(timer);
+      return status;
+    } catch (error) {
+      console.warn('🎤 [AUDIO MANAGER] requestSystemAudioPermission failed:', error && error.message ? error.message : error);
+      return nativeAudio.getSystemAudioPermissionStatus();
+    }
+  }
+
   /**
    * Set streaming callback for real-time audio chunks
    * @param {Function} callback - Callback function(buffer, format)
@@ -77,7 +110,7 @@ class AudioDeviceManager {
     // Lifecycle logs are deliberately unconditional: in packaged builds main's console is wrapped
     // into the file logger, and SCK start/settle timing is the evidence SAYSO-355 lacked.
     const startedAt = Date.now();
-    console.log('🎤 [AUDIO MANAGER] SCK start requested');
+    console.log(`🎤 [AUDIO MANAGER] System audio start requested (backend=${this.getSystemAudioBackend() || 'screencapturekit'})`);
     try {
       await this.initialize();
       const { streamingCallback, ...captureOptions } = options;
@@ -86,7 +119,7 @@ class AudioDeviceManager {
       }
       const nativeResult = await nativeAudio.startSystemAudioCapture(captureOptions);
       if (nativeResult) {
-        console.log(`🎤 [AUDIO MANAGER] SCK start settled ok in ${Date.now() - startedAt}ms`);
+        console.log(`🎤 [AUDIO MANAGER] System audio start settled ok in ${Date.now() - startedAt}ms`);
         return { success: true };
       }
       return {
@@ -95,7 +128,7 @@ class AudioDeviceManager {
       };
     } catch (err) {
       const message = err && err.message ? err.message : String(err);
-      console.warn(`🎤 [AUDIO MANAGER] SCK start failed after ${Date.now() - startedAt}ms: ${message}`);
+      console.warn(`🎤 [AUDIO MANAGER] System audio start failed after ${Date.now() - startedAt}ms: ${message}`);
       return { success: false, error: message };
     }
   }
@@ -128,13 +161,13 @@ class AudioDeviceManager {
    */
   async stopSystemAudioCapture() {
     const startedAt = Date.now();
-    console.log('🎤 [AUDIO MANAGER] SCK stop requested');
+    console.log('🎤 [AUDIO MANAGER] System audio stop requested');
     await this.initialize();
 
     this.setStreamingCallback(null);
 
     const result = await nativeAudio.stopSystemAudioCapture();
-    console.log(`🎤 [AUDIO MANAGER] SCK stop settled in ${Date.now() - startedAt}ms (success=${result && result.success})`);
+    console.log(`🎤 [AUDIO MANAGER] System audio stop settled in ${Date.now() - startedAt}ms (success=${result && result.success})`);
     return result;
   }
 

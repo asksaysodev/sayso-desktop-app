@@ -97,12 +97,21 @@ export interface MicInputDiagnostics {
   };
 }
 
+export type SystemAudioPermissionState = 'granted' | 'denied' | 'not-determined' | 'unknown';
+
+export type SystemAudioBackend = 'core-audio-tap' | 'screencapturekit';
+
 export interface IAudioProvider {
   initialize(): Promise<void>;
 
   // Permissions — macOS requires explicit grants; other platforms return safe defaults
   checkScreenRecordingGranted(): boolean;
   requestScreenRecordingPermission(): Promise<void>;
+
+  setForceScreenCaptureKit?(force: boolean): boolean;
+  getSystemAudioBackend?(): SystemAudioBackend | null;
+  getSystemAudioPermissionStatus?(): SystemAudioPermissionState | null;
+  requestSystemAudioPermission?(): Promise<SystemAudioPermissionState | null>;
 
   // System audio capture (ScreenCaptureKit on Mac, WASAPI loopback on Windows).
   // The public entry point is startProspectStreaming (below); the provider owns
