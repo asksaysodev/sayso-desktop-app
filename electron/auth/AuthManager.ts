@@ -70,6 +70,18 @@ function isExpectedRefreshFailure(error: unknown): boolean {
   return isTransientNetworkError(error);
 }
 
+// Shown for any network-class failure during sign-in / MFA verification, in
+// place of the raw error string (SAYSO-602).
+const NETWORK_RETRY_MESSAGE = "Couldn't reach Sayso. Check your connection and try again.";
+
+/** User-facing text for a sign-in / MFA failure: friendly for network-class errors, Supabase's own message otherwise. */
+function signInErrorMessage(error: unknown): string {
+  if (error instanceof AuthError && (error.kind === 'network' || isTransientUpstreamStatus(error.status))) {
+    return NETWORK_RETRY_MESSAGE;
+  }
+  return (error as Error)?.message ?? 'Sign-in failed';
+}
+
 // Upper bound for one Supabase Auth request, body included. Long enough for a
 // slow but healthy network; short enough that a stalled response fails fast and
 // the retry backoff below takes over instead of undici's 300s body timeout.
@@ -149,6 +161,9 @@ export class AuthManager extends EventEmitter {
    * up with verifyMFA() before the session is considered fully authenticated.
    */
   async signIn(email: string, password: string): Promise<SignInResult> {
+    // Set once this attempt has put its own tokens in memory, so a failure only
+    // ever clears what this attempt created.
+    let tokensSet = false;
     try {
       const data = await this._post<{ access_token: string; refresh_token: string }>(
         '/auth/v1/token?grant_type=password',
@@ -156,9 +171,21 @@ export class AuthManager extends EventEmitter {
       );
 
       this._setTokens(data.access_token, data.refresh_token);
+      tokensSet = true;
 
-      // Check for enrolled TOTP factors to determine if MFA step is needed
-      const factors = await this._getVerifiedFactors();
+      // Check for enrolled TOTP factors to determine if MFA step is needed.
+      // Fails closed (SAYSO-602): if the lookup errors we cannot tell whether the
+      // account has MFA, so we must not treat it as "none" and complete an aal1
+      // sign-in. The catch below drops the in-memory tokens and reports a
+      // retryable error; nothing has been persisted or emitted yet.
+      let factors: MFAFactor[];
+      try {
+        factors = await this._getVerifiedFactors();
+      } catch (lookupError: any) {
+        console.warn('[AuthManager] MFA factor lookup failed — failing sign-in closed:', lookupError?.message);
+        this._clearSession();
+        return { success: false, error: NETWORK_RETRY_MESSAGE };
+      }
       const payload = this._decodePayload(data.access_token);
       const currentAAL = payload?.aal ?? 'aal1';
 
@@ -172,7 +199,10 @@ export class AuthManager extends EventEmitter {
       this.emit('signed-in', this.getState());
       return { success: true };
     } catch (error: any) {
-      return { success: false, error: error.message };
+      // Drop any aal1 tokens set before the failure (memory only — nothing from
+      // this attempt was persisted).
+      if (tokensSet) this._clearSession();
+      return { success: false, error: signInErrorMessage(error) };
     }
   }
 
@@ -205,7 +235,7 @@ export class AuthManager extends EventEmitter {
       this.emit('signed-in', this.getState());
       return { success: true };
     } catch (error: any) {
-      return { success: false, error: error.message };
+      return { success: false, error: signInErrorMessage(error) };
     }
   }
 
@@ -472,15 +502,14 @@ export class AuthManager extends EventEmitter {
   /**
    * Returns the user's verified TOTP factors by fetching /auth/v1/user.
    * Used after password sign-in to determine if an MFA step is required.
+   * Errors propagate: an empty list must mean "no MFA enrolled", never "lookup
+   * failed" (SAYSO-602). The no-token guard is unreachable from signIn() but
+   * kept as a defensive no-op.
    */
   private async _getVerifiedFactors(): Promise<MFAFactor[]> {
     if (!this.accessToken) return [];
-    try {
-      const user = await this._get<{ factors?: MFAFactor[] }>('/auth/v1/user', this.accessToken);
-      return (user.factors ?? []).filter(f => f.status === 'verified' && f.factor_type === 'totp');
-    } catch {
-      return [];
-    }
+    const user = await this._get<{ factors?: MFAFactor[] }>('/auth/v1/user', this.accessToken);
+    return (user.factors ?? []).filter(f => f.status === 'verified' && f.factor_type === 'totp');
   }
 
   // ─── Private: HTTP ─────────────────────────────────────────────────────────
