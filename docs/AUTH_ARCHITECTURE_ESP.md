@@ -206,6 +206,10 @@ La única fuente de verdad para auth en el proceso main. ~350 líneas.
 **Eventos:**
 - `signed-in`, `signed-out`, `token-refreshed`, `session-expired` — main los escucha y hace broadcast a todas las ventanas + actualiza variables global + reapunta los WebSockets.
 
+**HTTP (`_request`, detrás de `_post` / `_get`):**
+- Toda request a Supabase Auth lleva `AbortSignal.timeout(15_000)`, que cubre conexión, headers y body. Antes de SAYSO-600, un refresh cuyo body de `200` se trababa colgaba los 300s del `bodyTimeout` por defecto de undici, reteniendo `refreshPromise` (y a todo caller de `auth:get-token`) todo ese tiempo.
+- Cualquier falla antes de tener un body exitoso parseado — `fetch()` que tira, el timeout que salta, el stream del body que muere a mitad de lectura (`TypeError: terminated`), JSON inválido en un 2xx — se convierte en `AuthError('network')`: no va a Sentry, la sesión se mantiene y se agenda el retry con backoff. Solo un status de error que el servidor efectivamente devolvió puede terminar la sesión (`invalid_grant` y similares).
+
 **Persistencia:**
 - El refresh token es lo único que se persiste, y pasa por `safeStorage` (keychain del SO — Keychain en macOS, DPAPI en Windows, libsecret en Linux). Implementado en `electron/utils/tokenStore.ts`. En macOS el ítem del keychain es **`Sayso Safe Storage`**, nombrado a partir del nombre de la app en producción definido en `main.ts` (SAYSO-272).
 - `loadRefreshToken()` se auto-repara: si el blob en disco existe pero no se puede desencriptar — ej. la clave de `safeStorage` cambió tras el renombrado del keychain o una migración de firma/certificado — descarta el archivo viejo con `clearRefreshToken()` y devuelve `null`, así el usuario simplemente vuelve a iniciar sesión en vez de quedar bloqueado (sin crash, sin diálogo del keychain). Un archivo inexistente (`ENOENT`) es el caso normal de "no autenticado" y se deja intacto.
@@ -508,6 +512,9 @@ Los restos del Supabase JS SDK que figuraban acá como "muertos pero no eliminad
 
 El SDK ya no se importa para auth en runtime en ningún lado — la única referencia
 que queda es un `import type { Factor }` en `src/context/AuthContext.tsx`.
+
+`electron/utils/authTokens.ts` (`refreshAuthTokens`), huérfano desde que se fue
+su último import en mayo de 2026, se eliminó con SAYSO-600.
 
 ### Tocados pero sin cambios sustanciales
 

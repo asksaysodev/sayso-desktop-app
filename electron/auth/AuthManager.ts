@@ -70,6 +70,11 @@ function isExpectedRefreshFailure(error: unknown): boolean {
   return isTransientNetworkError(error);
 }
 
+// Upper bound for one Supabase Auth request, body included. Long enough for a
+// slow but healthy network; short enough that a stalled response fails fast and
+// the retry backoff below takes over instead of undici's 300s body timeout.
+const AUTH_REQUEST_TIMEOUT_MS = 15_000;
+
 // Backoff delays (ms) for transient refresh failures: 1s, 3s, 10s, 30s, 60s cap
 const RETRY_DELAYS_MS = [1_000, 3_000, 10_000, 30_000, 60_000];
 
@@ -486,20 +491,45 @@ export class AuthManager extends EventEmitter {
       'apikey': this.supabaseAnonKey,
     };
     if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+    return this._request<T>(path, { method: 'POST', headers, body: JSON.stringify(body) });
+  }
 
+  private async _get<T>(path: string, accessToken: string): Promise<T> {
+    return this._request<T>(path, {
+      headers: {
+        'apikey': this.supabaseAnonKey,
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    });
+  }
+
+  /**
+   * The one place main talks to Supabase Auth. Every request carries a timeout
+   * covering the whole exchange — connect, headers *and* body — so a stalled
+   * response can no longer hold the refreshPromise lock for undici's default
+   * 300s body timeout (SAYSO-600).
+   *
+   * Anything that fails on the way to a parsed success body — fetch() throwing,
+   * the timeout aborting, the body stream dying mid-read (`TypeError:
+   * terminated`), or a 2xx carrying malformed JSON — becomes AuthError('network'),
+   * so the refresh path retries it and keeps it out of Sentry. Only a response
+   * the server actually answered with an error status can end the session.
+   */
+  private async _request<T>(path: string, init: RequestInit): Promise<T> {
     let response: Response;
     try {
       response = await fetch(`${this.supabaseUrl}${path}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
+        ...init,
+        signal: AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS),
       });
     } catch (fetchError: any) {
       // fetch() itself threw — DNS failure, ENOTFOUND, offline, timeout, etc.
-      throw new AuthError('network', fetchError.message ?? 'Network error');
+      throw new AuthError('network', fetchError?.message ?? 'Network error');
     }
 
     if (!response.ok) {
+      // A stalled error body is cut by the same timeout signal; the catch then
+      // falls back to the status alone, which is what decides the outcome here.
       const err = await response.json().catch(() => ({})) as {
         error?: string;
         error_code?: string;
@@ -527,48 +557,12 @@ export class AuthManager extends EventEmitter {
       );
     }
 
-    return response.json() as Promise<T>;
-  }
-
-  private async _get<T>(path: string, accessToken: string): Promise<T> {
-    let response: Response;
     try {
-      response = await fetch(`${this.supabaseUrl}${path}`, {
-        headers: {
-          'apikey': this.supabaseAnonKey,
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-    } catch (fetchError: any) {
-      throw new AuthError('network', fetchError.message ?? 'Network error');
+      // `await` matters: returning the bare promise would let its rejection
+      // escape this try, which is exactly how `terminated` reached Sentry.
+      return await response.json() as T;
+    } catch (bodyError: any) {
+      throw new AuthError('network', bodyError?.message ?? 'Network error');
     }
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({})) as {
-        error?: string;
-        error_code?: string;
-        error_description?: string;
-        message?: string;
-        msg?: string;
-      };
-
-      const errorCode = err.error_code ?? err.error ?? '';
-      const errorMessage = err.error_description ?? err.message ?? err.msg ?? err.error;
-
-      if (TERMINAL_GRANT_ERRORS.has(errorCode)) {
-        throw new AuthError(
-          'invalid_grant',
-          errorMessage ?? `Auth rejected: ${response.status}`,
-          response.status,
-        );
-      }
-      throw new AuthError(
-        'unknown',
-        errorMessage ?? `Request failed: ${response.status}`,
-        response.status,
-      );
-    }
-
-    return response.json() as Promise<T>;
   }
 }

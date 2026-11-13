@@ -206,6 +206,10 @@ The single source of truth for auth in the main process. ~350 lines.
 **Events:**
 - `signed-in`, `signed-out`, `token-refreshed`, `session-expired` — main listens to these and broadcasts to all windows + updates global vars + re-points the WebSockets.
 
+**HTTP (`_request`, behind `_post` / `_get`):**
+- Every Supabase Auth request carries `AbortSignal.timeout(15_000)`, covering connect, headers and body. Before SAYSO-600 a refresh whose `200` body stalled hung for undici's default 300s `bodyTimeout`, holding `refreshPromise` (and every `auth:get-token` caller) the whole time.
+- Any failure before a parsed success body — `fetch()` throwing, the timeout firing, the body stream dying mid-read (`TypeError: terminated`), malformed JSON on a 2xx — becomes `AuthError('network')`: kept out of Sentry, session preserved, retry backoff scheduled. Only an error status the server actually returned can end the session (`invalid_grant` and friends).
+
 **Persistence:**
 - The refresh token is the only thing persisted, and it goes through `safeStorage` (OS keychain — Keychain on macOS, DPAPI on Windows, libsecret on Linux). Implemented in `electron/utils/tokenStore.ts`. On macOS the keychain item is **`Sayso Safe Storage`**, named from the production app name set in `main.ts` (SAYSO-272).
 - `loadRefreshToken()` is self-healing: if the on-disk blob exists but can't be decrypted — e.g. the `safeStorage` key changed after the keychain rename or a code-signing/cert migration — it discards the stale file via `clearRefreshToken()` and returns `null`, so the user just signs in again instead of getting stuck (no crash, no keychain prompt). A missing file (`ENOENT`) is the normal "not signed in" case and is left untouched.
@@ -507,6 +511,9 @@ The Supabase JS SDK leftovers listed here as "dead but not deleted" are now gone
 
 The SDK is no longer imported for runtime auth anywhere — the only remaining
 reference is a `import type { Factor }` in `src/context/AuthContext.tsx`.
+
+`electron/utils/authTokens.ts` (`refreshAuthTokens`), orphaned since its last
+import went in May 2026, was deleted with SAYSO-600.
 
 ### Touched but otherwise unchanged
 
