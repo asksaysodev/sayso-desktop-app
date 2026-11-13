@@ -103,11 +103,28 @@ const FLAKY_NETWORK_PATTERNS = [
   'EPIPE',
   'socket hang up',
   'fetch failed',
+  // Node fetch (undici) losing a response *after* the headers arrived: the body
+  // stream dies as `TypeError: terminated`, with the real reason on `cause`
+  // (UND_ERR_BODY_TIMEOUT on a stalled body, UND_ERR_SOCKET on a dropped one).
+  // 'terminated' is a broad substring, but it is the only text undici puts on
+  // the top-level error (SAYSO-600).
+  'terminated',
+  'UND_ERR_BODY_TIMEOUT',
+  // AbortSignal.timeout() firing on a main-process fetch (TimeoutError).
+  'aborted due to timeout',
 ];
 
-/** Scan both `message` and `code` — Node surfaces the code in either place. */
+/**
+ * Scan both `message` and `code` — Node surfaces the code in either place — on
+ * the error and one level down its `cause`, where Node fetch keeps the undici
+ * error that explains a generic `fetch failed` / `terminated`.
+ */
 function matchesAny(err: any, patterns: string[]): boolean {
-  const haystack = `${err?.message ?? ''} ${err?.code ?? ''}`.toLowerCase();
+  const cause = err?.cause;
+  const haystack = [err?.message, err?.code, cause?.message, cause?.code]
+    .map(part => `${part ?? ''}`)
+    .join(' ')
+    .toLowerCase();
   return patterns.some(p => haystack.includes(p.toLowerCase()));
 }
 
