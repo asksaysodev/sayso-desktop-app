@@ -38,7 +38,7 @@ All permission logic goes through `IPermissionsProvider`, dispatched by platform
 - `checkOSPermissionsGranted()` → `provider.checkGranted()` — returns `{ granted, mic, screen }` (live read, non-prompting). Used by the `start-cue` guard.
 - `isMicGranted()` → `provider.checkMic()` — mic only. Used by the coach-window gate.
 - `isPermissionsComplete()` → `provider.isComplete()` — macOS: `flag && mic && screen`; Windows: live mic only. Used for startup routing.
-- `provider.requirements` — `{ screen, relaunchOnComplete }`, static per platform (macOS `{ true, true }`, Windows `{ false, false }`). Returned by `permissions-check` so the permissions screen can lay itself out from it rather than sniffing the platform.
+- `provider.requirements` — `{ screen, relaunchOnComplete, systemAudio }`. Windows `{ false, false, 'none' }`. macOS follows the system-audio backend: ScreenCaptureKit `{ true, true, 'screen-recording' }`, Core Audio tap (14.4+) `{ true, false, 'audio-capture' }`, where `screen` means "System Audio Recording" and no relaunch is needed. Returned by `permissions-check` so the permissions screen can lay itself out from it rather than sniffing the platform.
 
 ### The completion flag
 - `permissions-complete` file in `{userData}/`, written by the `permissions-complete` IPC when the user finishes the permissions step ("Quit and Reopen").
