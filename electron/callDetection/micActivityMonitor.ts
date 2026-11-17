@@ -185,6 +185,11 @@ export function startMicActivityMonitor(): void {
   }
 }
 
+/** True while the monitor is watching: signed in, addon built, OS supported. */
+export function isMicActivityMonitorRunning(): boolean {
+  return running;
+}
+
 /** Stop watching and forget all sessions. Ends in-progress candidates silently. */
 export function stopMicActivityMonitor(): void {
   if (!running || !addon) return;
