@@ -31,7 +31,7 @@ function dialogOptions(): MessageBoxOptions {
       type: 'warning',
       message: 'End your coaching session?',
       detail: 'Sayso is coaching a live call. Quitting will end the session.',
-      buttons: ['End Session & Quit', 'Cancel'],
+      buttons: ['End Session & Close', 'Cancel'],
     };
   }
 
@@ -49,7 +49,7 @@ function dialogOptions(): MessageBoxOptions {
     type: 'none',
     message: 'Close Sayso?',
     detail,
-    buttons: ['Cancel', 'Quit'],
+    buttons: ['Cancel', 'Close'],
   };
 }
 
