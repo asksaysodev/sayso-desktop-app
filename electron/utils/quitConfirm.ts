@@ -23,11 +23,11 @@ export function initQuitConfirm(callbacks: QuitConfirmDeps): void {
 
 // One state shows, in priority order: Cue session → call detection → default.
 function dialogOptions(): MessageBoxOptions {
-  const base = { cancelId: 1, defaultId: 0, noLink: true };
-
   if (deps?.isCueActive()) {
     return {
-      ...base,
+      cancelId: 1,
+      defaultId: 0,
+      noLink: true,
       type: 'warning',
       message: 'End your coaching session?',
       detail: 'Sayso is coaching a live call. Quitting will end the session.',
@@ -36,10 +36,21 @@ function dialogOptions(): MessageBoxOptions {
   }
 
   const detail = deps?.isCallDetectionActive()
-    ? "Sayso won't detect your meetings or offer to launch the coach until you open it again."
-    : `You can reopen it anytime from ${IS_MAC ? 'Applications' : 'the Start menu'}.`;
+    ? "Sayso won't automatically detect your conversations until you reopen the app."
+    : "You won't be able to launch your coach until you reopen the app.";
 
-  return { ...base, type: 'none', message: 'Quit Sayso?', detail, buttons: ['Quit', 'Cancel'] };
+  // Cancel is the default (blue on macOS, Enter) so the eye lands on not
+  // quitting. First in the list puts it rightmost on macOS. Because it is also
+  // the cancelId, macOS can't bind Esc to it as well, so Enter cancels instead.
+  return {
+    cancelId: 0,
+    defaultId: 0,
+    noLink: true,
+    type: 'none',
+    message: 'Close Sayso?',
+    detail,
+    buttons: ['Cancel', 'Quit'],
+  };
 }
 
 /** Ask, then quit if the user confirms. Cue keeps running while the dialog is open. */
@@ -50,8 +61,9 @@ export async function requestQuit(): Promise<void> {
     // The tray popover hides on blur, so the dialog has no parent; bring the
     // app forward or it can open behind whatever app the user was in.
     if (IS_MAC) app.focus({ steal: true });
-    const { response } = await dialog.showMessageBox(dialogOptions());
-    if (response === 0) app.quit();
+    const options = dialogOptions();
+    const { response } = await dialog.showMessageBox(options);
+    if (response !== options.cancelId) app.quit();
   } catch (err) {
     // Never leave the user unable to quit.
     console.warn('[Quit] confirmation dialog failed, quitting without it', err);
