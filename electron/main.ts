@@ -33,7 +33,8 @@ import type { AuthState } from './auth/AuthManager';
 import * as audioManager from './audio/audioManager';
 import * as permissions from './permissions/permissionsManager';
 import * as cacheStore from './store/cacheManager';
-import { callDetection, startMicActivityMonitor, stopMicActivityMonitor, type MicSession } from './callDetection/micActivityMonitor';
+import { callDetection, startMicActivityMonitor, stopMicActivityMonitor, isMicActivityMonitorRunning, type MicSession } from './callDetection/micActivityMonitor';
+import { initQuitConfirm, requestQuit } from './utils/quitConfirm';
 import { initCallPrompt, onCallCandidate, onCallEnded, showCallDetectedPrompt, hideCallDetectedPrompt, launchFromCallPrompt, setCallPromptHovered, onCallPromptShown, isCallPromptShowing, CALL_PROMPT_EXIT_MS } from './callDetection/callPrompt';
 import { removeLegacyCacheFiles } from './store/persistentStore';
 import { formatLogArgs } from './shared/redact';
@@ -582,6 +583,17 @@ initCallPrompt({
   openWindow: () => createCallPromptWindow(),
   closeWindow: (animate) => closeCallPromptWindow(animate),
   promoteWindow: (reason) => promoteCallPromptWindow(reason === 'coach-opened'),
+});
+
+// Quit confirmation (SAYSO-613). "Call detection active" is the effective gate
+// for the prompt minus the network: reconnecting doesn't turn detection off.
+initQuitConfirm({
+  isCueActive: () => audioManager.isCueActive(),
+  isCallDetectionActive: () =>
+    isMicActivityMonitorRunning()
+    && hasActiveSubscription()
+    && !!cacheStore.getValue('callDetectionPromptEnabled'),
+  isQuitting: () => isAppQuitting,
 });
 
 callDetection.on('call-candidate', (session: MicSession) => {
@@ -1983,6 +1995,31 @@ app.whenReady().then(async () => {
   if (!enforceApplicationsFolderLocation()) return;
 
   if (IS_WINDOWS) Menu.setApplicationMenu(null);
+  // macOS: Electron's default menu, except ⌘Q goes through the quit
+  // confirmation (SAYSO-613). Edit keeps the clipboard accelerators, View the
+  // ⌥⌘I DevTools toggle.
+  if (IS_MAC) {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      {
+        label: app.name,
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { label: `Quit ${app.name}`, accelerator: 'Command+Q', click: () => { void requestQuit(); } },
+        ],
+      },
+      { role: 'fileMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+    ]));
+  }
 
   // Rehome any Run value written under the pre-AUMID name (see launchAtLogin.ts).
   // Must run before the settings window can read the toggle, and it is cheap.
@@ -2747,9 +2784,9 @@ ipcMain.on('set-tray-menu-height', (_event: Electron.IpcMainEvent, height: numbe
   trayMenuWindow.setBounds({ x, y, width: TRAY_MENU_WIDTH, height: target });
 });
 
-// Handler for quitting the app
+// Tray → Quit. Confirms first (SAYSO-613).
 ipcMain.on('quit-app', () => {
-  app.quit();
+  void requestQuit();
 });
 
 // --- Coach Settings Window ---
