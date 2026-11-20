@@ -1,4 +1,5 @@
 const { execSync } = require('child_process');
+const { nativeBuildEnv } = require('./native-build-env');
 const path = require('path');
 const fs = require('fs');
 const { archOfBinary } = require('./binary-arch');
@@ -33,7 +34,8 @@ try {
     `npx node-gyp rebuild --target=${electronVersion} --arch=${defaultArch} --dist-url=https://electronjs.org/headers`,
     { 
       cwd: nativeAudioDir,
-      stdio: 'inherit' 
+      stdio: 'inherit',
+      env: nativeBuildEnv()
     }
   );
   

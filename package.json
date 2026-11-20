@@ -127,7 +127,11 @@
       "!electron/chunks/**/*",
       "!release/**/*",
       "!release-staging/**/*",
-      "!electron/mic-activity/{node_modules,src}{,/**/*}"
+      "!electron/mic-activity/{node_modules,src}{,/**/*}",
+      "!electron/native-audio/deps/**/*",
+      "!electron/native-audio/tools/**/*",
+      "!electron/native-audio/third_party/**/*",
+      "!electron/native-audio/scripts/**/*"
     ],
     "extraResources": [
       {

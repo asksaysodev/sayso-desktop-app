@@ -39,6 +39,9 @@ electron/native-audio/build/*.target.mk
 electron/native-audio/build/node_gyp_bins/
 electron/native-audio/build/*.d
 electron/native-audio/build/*.o
+# WebRTC AEC static library, produced by electron/native-audio/scripts/build-webrtc-apm.ps1
+electron/native-audio/deps/
+electron/native-audio/tools/aec_wav_harness/build/
 electron/bin/ffmpeg.x86_64.bak
 electron/bin/ffmpeg
 # Sentry Config File

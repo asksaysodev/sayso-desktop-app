@@ -1,0 +1,22 @@
+# Copied to //sayso_apm/ inside a WebRTC checkout by
+# electron/native-audio/scripts/build-webrtc-apm.ps1. complete_static_lib
+# bundles every transitive WebRTC/abseil object into the one .lib that
+# native_audio.node links, so no WebRTC DLL ships.
+
+import("../webrtc.gni")
+
+rtc_static_library("sayso_apm") {
+  complete_static_lib = true
+  # Chromium's toolchain writes "thin" archives that only point at object
+  # files elsewhere; MSVC's linker cannot read those. Embed the objects.
+  suppressed_configs = [ "//build/config/compiler:thin_archive" ]
+  sources = [
+    "sayso_apm.cc",
+    "sayso_apm.h",
+  ]
+  deps = [
+    "//api/audio:audio_processing",
+    "//api/audio:builtin_audio_processing_builder",
+    "//api/environment:environment_factory",
+  ]
+}
