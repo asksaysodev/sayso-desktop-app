@@ -7,7 +7,19 @@
       ],
       "conditions": [
         ["OS=='mac'", {
-          "sources": [ "src/audio_device_manager.mm" ],
+          "sources": [ "src/audio_device_manager.mm", "src/echo/echo_engine.cpp", "src/echo/echo_pipeline.cpp" ],
+          "variables": {
+            "apm_lib%": "<!(test -f third_party/webrtc-apm/lib/<(target_arch)/libsayso_apm.a && echo yes || echo no)"
+          },
+          "conditions": [
+            ["apm_lib=='yes'", {
+              "defines": [ "SAYSO_HAVE_APM=1" ],
+              "include_dirs": [ "third_party/webrtc-apm/include" ],
+              "link_settings": {
+                "libraries": [ "<(module_root_dir)/third_party/webrtc-apm/lib/<(target_arch)/libsayso_apm.a" ]
+              }
+            }]
+          ],
           "link_settings": {
             "libraries": [
               "-framework CoreAudio",

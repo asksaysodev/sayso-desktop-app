@@ -101,6 +101,91 @@ export type SystemAudioPermissionState = 'granted' | 'denied' | 'not-determined'
 
 export type SystemAudioBackend = 'core-audio-tap' | 'screencapturekit';
 
+export type EchoCancellationMode = 'off' | 'auto' | 'on';
+
+export interface EchoCancellationSetResult {
+  requested: EchoCancellationMode;
+  engaged: boolean;
+  appliedLive: boolean;
+  available: boolean;
+}
+
+export type EchoReason = 'active' | 'disabled' | 'headphones' | 'engine_unavailable' | 'no_reference';
+
+export interface EchoCancellationStatus {
+  requested: EchoCancellationMode;
+  engaged: boolean;
+  linked: boolean;
+  running?: boolean;
+  processing?: boolean;
+  reason?: EchoReason;
+  setting?: EchoCancellationMode;
+  output?: 'unknown' | 'speakers' | 'headphones';
+  referenceActive?: boolean;
+  engineAvailable?: boolean;
+  framesOut?: number;
+  framesNoReference?: number;
+  refWaitTimeouts?: number;
+  resyncs?: number;
+  engineResyncs?: number;
+  deviceChanges?: number;
+  gapsFilled?: number;
+  transitions?: number;
+  stepsSnapped?: number;
+  slips?: number;
+  netSlippedSamples?: number;
+  driftPpm?: number;
+  refErrorSamples?: number;
+  offsetMs?: number;
+  refBufferedMs?: number;
+  erleDb?: number;
+  apmDelayMs?: number;
+  apmCpuPct?: number;
+  micChunksDropped?: number;
+  refChunksDropped?: number;
+  concurrentPushDropped?: number;
+  sinkDelivered: number;
+  sinkDropped: number;
+}
+
+export interface EchoEngineInfo {
+  available: boolean;
+  linked: boolean;
+  version: string | null;
+}
+
+export interface OutputDeviceInfo {
+  id: number;
+  name: string;
+  uid: string;
+  transport: string;
+  transportRaw: string;
+  dataSource: string;
+  sampleRate: number;
+  kind: 'speakers' | 'headphones' | 'unknown';
+}
+
+export interface StampStats {
+  buffers: number;
+  measured: number;
+  estimated: number;
+  nonMonotonic: number;
+  gaps: number;
+  rebases: number;
+  sampleRate: number;
+  lagMs: number;
+  jitterUs: number;
+  maxJitterUs: number;
+  clockPpm: number | null;
+}
+
+export interface CaptureTimestampStats {
+  clock: string;
+  nowMs: number;
+  mic: StampStats;
+  system: StampStats;
+}
+
 export interface IAudioProvider {
   initialize(): Promise<void>;
 
@@ -110,6 +195,13 @@ export interface IAudioProvider {
 
   setForceScreenCaptureKit?(force: boolean): boolean;
   getSystemAudioBackend?(): SystemAudioBackend | null;
+  setEchoCancellation?(mode: EchoCancellationMode): EchoCancellationSetResult | null;
+  getEchoCancellationStatus?(): EchoCancellationStatus | null;
+  getEchoEngineInfo?(): EchoEngineInfo | null;
+  getOutputDeviceInfo?(): OutputDeviceInfo | null;
+  startOutputDeviceWatcher?(): OutputDeviceInfo | null;
+  stopOutputDeviceWatcher?(): boolean;
+  getCaptureTimestampStats?(reset?: boolean): CaptureTimestampStats | null;
   getSystemAudioPermissionStatus?(): SystemAudioPermissionState | null;
   requestSystemAudioPermission?(): Promise<SystemAudioPermissionState | null>;
 

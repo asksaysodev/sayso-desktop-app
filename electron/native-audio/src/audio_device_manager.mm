@@ -25,6 +25,11 @@
 #include <string>
 #include <unistd.h>
 #include <time.h>
+#include "echo/echo_engine.h"
+#include "echo/echo_pipeline.h"
+#include "echo/stamp_tracker.h"
+#include "echo/stream_resampler.h"
+#include "echo/output_classifier.h"
 
 using namespace v8;
 
@@ -158,6 +163,42 @@ static int64_t SaysoRealtimeNowMs() {
     return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
 }
 
+static uint64_t SaysoHostNowNs() {
+    return AudioConvertHostTimeToNanos(AudioGetCurrentHostTime());
+}
+
+static bool SaysoHostNsFromAudioTimeStamp(const AudioTimeStamp* ts, uint64_t& ns) {
+    if (!ts || !(ts->mFlags & kAudioTimeStampHostTimeValid) || ts->mHostTime == 0) return false;
+    ns = AudioConvertHostTimeToNanos(ts->mHostTime);
+    return true;
+}
+
+static bool SaysoHostNsFromAVAudioTime(AVAudioTime* t, uint64_t& ns) {
+    if (!t || !t.isHostTimeValid || t.hostTime == 0) return false;
+    ns = AudioConvertHostTimeToNanos(t.hostTime);
+    return true;
+}
+
+static bool SaysoHostNsFromCMTime(CMTime t, uint64_t nowNs, uint64_t& ns) {
+    const CMTimeFlags nonNumeric = kCMTimeFlags_PositiveInfinity | kCMTimeFlags_NegativeInfinity | kCMTimeFlags_Indefinite;
+    if (!(t.flags & kCMTimeFlags_Valid) || (t.flags & nonNumeric)) return false;
+    const CMTime n = CMTimeConvertScale(t, 1000000000, kCMTimeRoundingMethod_Default);
+    if (n.value <= 0) return false;
+    const uint64_t v = (uint64_t)n.value;
+    const uint64_t diff = v > nowNs ? v - nowNs : nowNs - v;
+    if (diff > 10ULL * 1000000000ULL) return false;
+    ns = v;
+    return true;
+}
+
+static uint64_t SaysoEstimateStampNs(uint64_t nowNs, size_t frames, double sampleRate) {
+    const uint64_t dur = sampleRate > 0 ? (uint64_t)((double)frames / sampleRate * 1e9) : 0;
+    return nowNs > dur ? nowNs - dur : 0;
+}
+
+static sayso::echo::StampTracker g_micStamps;
+static sayso::echo::StampTracker g_sysStamps;
+
 // Structure to pass audio data to async callback
 struct StreamingData {
     std::vector<char> audioData;
@@ -169,7 +210,25 @@ struct StreamingData {
     // watchdog subtracts it so it judges the mic's real level, not the boosted one — otherwise the
     // gain would hide the very failure that watchdog exists to catch.
     float gainDb = 0;
+    uint64_t hostTimeNs = 0;
 };
+
+static sayso::echo::EchoPipeline* g_echoPipe = nullptr;
+static std::atomic<bool> g_echoEngaged{false};
+static std::atomic<int> g_echoRequested{(int)sayso::echo::Setting::kOff};
+static std::atomic<bool> g_echoMicMultiChannel{false};
+static std::atomic<bool> g_echoAgcResetRequested{false};
+
+static void SaysoEchoPushReference(const std::vector<char>& bytes, double sampleRate, int channels, int bitDepth, bool isFloat, uint64_t hostNs) {
+    if (!g_echoEngaged.load(std::memory_order_acquire) || !g_echoPipe || channels <= 0 || bitDepth < 8 || bytes.empty()) return;
+    const size_t frames = bytes.size() / ((size_t)channels * (size_t)(bitDepth / 8));
+    if (frames == 0) return;
+    if (bitDepth == 32 && isFloat) {
+        g_echoPipe->PushReference(reinterpret_cast<const float*>(bytes.data()), frames, channels, (int)sampleRate, hostNs);
+    } else if (bitDepth == 16 && !isFloat) {
+        g_echoPipe->PushReference(reinterpret_cast<const int16_t*>(bytes.data()), frames, channels, (int)sampleRate, hostNs);
+    }
+}
 
 struct SysAudioChunk {
     std::vector<char> data;
@@ -177,6 +236,7 @@ struct SysAudioChunk {
     int channels = 0;
     int bitDepth = 0;
     bool isFloat = false;
+    uint64_t hostNs = 0;
 };
 
 static const size_t kSysSinkMaxQueued = 256;
@@ -192,9 +252,15 @@ static void SysSinkClear() {
     g_sysSinkQueue.clear();
 }
 
-static void SysSinkEnqueue(std::vector<char>&& bytes, double sampleRate, int channels, int bitDepth, bool isFloat) {
+static void SysSinkEnqueue(std::vector<char>&& bytes, double sampleRate, int channels, int bitDepth, bool isFloat,
+                           uint64_t hostNs, bool stampMeasured) {
+    SaysoEchoPushReference(bytes, sampleRate, channels, bitDepth, isFloat, hostNs);
     if (!g_sysSinkAccepting.load(std::memory_order_acquire) || !g_sysSinkAsyncHandle || bytes.empty()) {
         return;
+    }
+    if (channels > 0 && bitDepth >= 8) {
+        g_sysStamps.Observe(hostNs, bytes.size() / ((size_t)channels * (size_t)(bitDepth / 8)), sampleRate,
+                            stampMeasured, SaysoHostNowNs());
     }
     {
         std::lock_guard<std::mutex> lk(g_sysSinkMutex);
@@ -211,6 +277,7 @@ static void SysSinkEnqueue(std::vector<char>&& bytes, double sampleRate, int cha
         chunk.channels = channels;
         chunk.bitDepth = bitDepth;
         chunk.isFloat = isFloat;
+        chunk.hostNs = hostNs;
         g_sysSinkQueue.push_back(std::move(chunk));
     }
     uv_async_send(g_sysSinkAsyncHandle);
@@ -238,11 +305,94 @@ static void SysSinkDrainCallback(uv_async_t* ) {
         Nan::Set(format, Nan::New("channels").ToLocalChecked(), Nan::New<Integer>(chunk.channels));
         Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(chunk.bitDepth));
         Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(chunk.isFloat));
+        Nan::Set(format, Nan::New("hostTimeMs").ToLocalChecked(), Nan::New<Number>((double)chunk.hostNs / 1e6));
 
         Local<Function> callback = Nan::New(g_streamingCallback);
         Local<Value> argv[2] = {buffer, format};
         Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
         g_sysSinkDelivered.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+struct MicOutChunk {
+    std::vector<char> data;
+    double sampleRate = 0;
+    int channels = 0;
+    int bitDepth = 0;
+    bool isFloat = false;
+    float gainDb = 0;
+    uint64_t hostNs = 0;
+};
+
+static const size_t kMicSinkMaxQueued = 512;
+static std::mutex g_micSinkMutex;
+static std::deque<MicOutChunk> g_micSinkQueue;
+static uv_async_t* g_micSinkAsyncHandle = nullptr;
+static std::atomic<bool> g_micSinkAccepting{false};
+static std::atomic<uint64_t> g_micSinkDropped{0};
+static std::atomic<uint64_t> g_micSinkDelivered{0};
+
+static void MicSinkClear() {
+    std::lock_guard<std::mutex> lk(g_micSinkMutex);
+    g_micSinkQueue.clear();
+}
+
+static void MicSinkEnqueue(MicOutChunk&& chunk) {
+    if (!g_micSinkAccepting.load(std::memory_order_acquire) || !g_micSinkAsyncHandle || chunk.data.empty()) return;
+    {
+        std::lock_guard<std::mutex> lk(g_micSinkMutex);
+        if (g_micSinkQueue.size() >= kMicSinkMaxQueued) {
+            g_micSinkQueue.pop_front();
+            g_micSinkDropped.fetch_add(1, std::memory_order_relaxed);
+        }
+        g_micSinkQueue.push_back(std::move(chunk));
+    }
+    uv_async_send(g_micSinkAsyncHandle);
+}
+
+static void MicSinkDrainCallback(uv_async_t* ) {
+    std::deque<MicOutChunk> batch;
+    {
+        std::lock_guard<std::mutex> lk(g_micSinkMutex);
+        batch.swap(g_micSinkQueue);
+    }
+    if (batch.empty()) return;
+    Nan::HandleScope scope;
+    size_t i = 0;
+    while (i < batch.size()) {
+        Nan::Persistent<v8::Function>& target = g_micStreamingCallback;
+        if (target.IsEmpty()) return;
+        size_t j = i + 1, bytes = batch[i].data.size();
+        while (j < batch.size() && batch[j].sampleRate == batch[i].sampleRate &&
+               batch[j].channels == batch[i].channels && batch[j].bitDepth == batch[i].bitDepth &&
+               batch[j].isFloat == batch[i].isFloat) {
+            bytes += batch[j].data.size();
+            j++;
+        }
+        std::vector<char> merged;
+        merged.reserve(bytes);
+        for (size_t k = i; k < j; k++) merged.insert(merged.end(), batch[k].data.begin(), batch[k].data.end());
+        Local<Object> buffer = Nan::CopyBuffer(merged.data(), merged.size()).ToLocalChecked();
+        Local<Object> format = Nan::New<Object>();
+        Nan::Set(format, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(batch[i].sampleRate));
+        Nan::Set(format, Nan::New("channels").ToLocalChecked(), Nan::New<Integer>(batch[i].channels));
+        Nan::Set(format, Nan::New("bitDepth").ToLocalChecked(), Nan::New<Integer>(batch[i].bitDepth));
+        Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(batch[i].isFloat));
+        Nan::Set(format, Nan::New("gainDb").ToLocalChecked(), Nan::New<Number>(batch[j - 1].gainDb));
+        Nan::Set(format, Nan::New("hostTimeMs").ToLocalChecked(), Nan::New<Number>((double)batch[i].hostNs / 1e6));
+        Local<Function> callback = Nan::New(target);
+        Local<Value> argv[2] = {buffer, format};
+        Nan::Call(callback, Nan::GetCurrentContext()->Global(), 2, argv);
+        g_micSinkDelivered.fetch_add(j - i, std::memory_order_relaxed);
+        i = j;
+    }
+}
+
+static void MicSinkEnsureHandle() {
+    if (!g_micSinkAsyncHandle) {
+        uv_async_t* h = new uv_async_t;
+        uv_async_init(uv_default_loop(), h, MicSinkDrainCallback);
+        g_micSinkAsyncHandle = h;
     }
 }
 
@@ -268,6 +418,7 @@ static void MicStreamingAsyncCallback(uv_async_t* handle) {
     Nan::Set(format, Nan::New("isFloat").ToLocalChecked(), Nan::New<v8::Boolean>(data->isFloat));
     
     Nan::Set(format, Nan::New("gainDb").ToLocalChecked(), Nan::New<Number>(data->gainDb));
+    Nan::Set(format, Nan::New("hostTimeMs").ToLocalChecked(), Nan::New<Number>((double)data->hostTimeNs / 1e6));
 
     // Invoke callback
     Local<Function> callback = Nan::New(g_micStreamingCallback);
@@ -847,11 +998,20 @@ static void audioCallback(CMSampleBufferRef sampleBuffer) {
         // Streaming-only mode: skip file writing but continue to streaming callback
     }
     
+    uint64_t sckNowNs = SaysoHostNowNs();
+    uint64_t sckStampNs = 0;
+    const bool sckStampMeasured = SaysoHostNsFromCMTime(CMSampleBufferGetPresentationTimeStamp(sampleBuffer), sckNowNs, sckStampNs);
+    if (!sckStampMeasured) {
+        const uint32_t bytesPerFrame = g_audioFormat.mBytesPerFrame ? g_audioFormat.mBytesPerFrame : 1;
+        sckStampNs = SaysoEstimateStampNs(sckNowNs, bytesToWrite / bytesPerFrame, g_audioFormat.mSampleRate);
+    }
+    
     SysSinkEnqueue(std::vector<char>(audioDataToWrite, audioDataToWrite + bytesToWrite),
                    g_audioFormat.mSampleRate,
                    (int)g_audioFormat.mChannelsPerFrame,
                    (int)g_audioFormat.mBitsPerChannel,
-                   (g_audioFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0);
+                   (g_audioFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0,
+                   sckStampNs, sckStampMeasured);
 }
 
 // ScreenCaptureKit delegate
@@ -1585,7 +1745,7 @@ static bool SaysoReadTapFormat(AudioObjectID tap, AudioStreamBasicDescription& o
     return AudioObjectGetPropertyData(tap, &pa, 0, nullptr, &sz, &out) == noErr && sz == sizeof(out);
 }
 
-static void SaysoTapHandleInput(const AudioBufferList* abl, double sampleRate) {
+static void SaysoTapHandleInput(const AudioBufferList* abl, double sampleRate, const AudioTimeStamp* inputTime) {
     g_tapLastIoMs.store(SaysoMonotonicMs(), std::memory_order_relaxed);
     g_tapIoBuffers.fetch_add(1, std::memory_order_relaxed);
     if (!abl || abl->mNumberBuffers == 0) {
@@ -1624,7 +1784,12 @@ static void SaysoTapHandleInput(const AudioBufferList* abl, double sampleRate) {
     if (g_actualStartMs == 0.0) {
         g_actualStartMs = (double)SaysoRealtimeNowMs();
     }
-    SysSinkEnqueue(std::move(out), sampleRate, channels, 32, true);
+    uint64_t stampNs = 0;
+    const bool measured = SaysoHostNsFromAudioTimeStamp(inputTime, stampNs);
+    if (!measured) {
+        stampNs = SaysoEstimateStampNs(SaysoHostNowNs(), channels > 0 ? out.size() / ((size_t)channels * sizeof(float)) : 0, sampleRate);
+    }
+    SysSinkEnqueue(std::move(out), sampleRate, channels, 32, true, stampNs, measured);
 }
 
 static void SaysoTapScheduleEvaluate(const char* reason);
@@ -1828,7 +1993,7 @@ static bool SaysoTapBuildPipeline(uint64_t session, std::string& err) {
             if (session != g_tapSession.load(std::memory_order_relaxed)) {
                 return;
             }
-            SaysoTapHandleInput(inInputData, rate);
+            SaysoTapHandleInput(inInputData, rate, inInputTime);
         };
         st = AudioDeviceCreateIOProcIDWithBlock(&p.procID, p.aggID, g_tapIoQueue, ioBlock);
         if (st != noErr || !p.procID) {
@@ -2104,6 +2269,7 @@ NAN_METHOD(StartSystemAudioCapture) {
     
     // Reset actual start timestamp
     g_actualStartMs = 0.0;
+    g_sysStamps.RequestReset();
 
     // Set output directory
     std::string currentPath = std::string([[[NSBundle mainBundle] bundlePath] UTF8String]);
@@ -2184,6 +2350,7 @@ NAN_METHOD(StartSystemAudioCapture) {
         g_tapSleeping.store(false);
         g_tapWanted.store(true);
         g_actualStartMs = 0.0;
+        g_sysStamps.RequestReset();
         const uint64_t session = g_tapSession.fetch_add(1) + 1;
         dispatch_async(g_tapQueue, ^{
             SaysoTapStartOnQueue(startGen, session);
@@ -2610,11 +2777,15 @@ static const int kMicAgcStatusEveryBlocks = 300;    // then ~every 30s while mul
 static std::atomic<bool> g_micTapStateResetRequested{true};
 static int g_micTapLastChannels = 0;
 static double g_micTapLastSampleRate = 0;
-static float g_micAgcGain = 1.0f;
-static float g_micAgcSpeechLevel = 0; // 0 = no speech block seen yet since the format was adopted
-static float g_micAgcNoiseFloor = 0;  // 0 = not yet seeded
-static int g_micAgcBlocks = 0;
-static int g_micAgcSpeechRun = 0;     // consecutive speech blocks, for the first-speech lock
+struct MicAgcState {
+    float gain = 1.0f;
+    float speechLevel = 0;
+    float noiseFloor = 0;
+    int blocks = 0;
+    int speechRun = 0;
+    void Reset() { *this = MicAgcState(); }
+};
+static MicAgcState g_micAgc;
 static bool g_micLayoutMismatchReported = false;
 
 static std::string SaysoFormatDb(float linear) {
@@ -2642,11 +2813,10 @@ static int SaysoMicReadableFrames(AVAudioPCMBuffer* buffer, bool interleaved, in
 
 // Averages all channels into `out` (mono float32) and applies the AGC + soft limiter in place.
 // Called only from the mic tap block for channels > 1.
-static void SaysoMicDownmixWithGain(AVAudioPCMBuffer* buffer, bool isFloat32, bool interleaved, int channels,
+static void SaysoMicDownmix(AVAudioPCMBuffer* buffer, bool isFloat32, bool interleaved, int channels,
                                     int frames, std::vector<float>& out) {
     out.resize(frames);
     const float invChannels = 1.0f / (float)channels;
-    double sumSq = 0;
     // Channel pointers hoisted out of the sample loop: `buffer.floatChannelData` is an ObjC property
     // access, and reading it per sample cost ~144k message sends/s on the tap thread.
     float* const* floatChannels = isFloat32 ? buffer.floatChannelData : nullptr;
@@ -2667,54 +2837,114 @@ static void SaysoMicDownmixWithGain(AVAudioPCMBuffer* buffer, bool isFloat32, bo
         }
         const float mono = sum * invChannels;
         out[i] = mono;
-        sumSq += (double)mono * mono;
-    }
-
-    const float blockRms = frames > 0 ? (float)sqrt(sumSq / frames) : 0;
-    const float prevGain = g_micAgcGain;
-
-    if (blockRms >= kMicAgcFloorMinRms) {
-        if (g_micAgcNoiseFloor <= 0 || blockRms < g_micAgcNoiseFloor) {
-            g_micAgcNoiseFloor = blockRms;                       // a quieter real block IS the new floor
-        } else {
-            g_micAgcNoiseFloor = std::min(g_micAgcNoiseFloor * kMicAgcNoiseFloorRise, blockRms);
         }
     }
 
-    const bool isSpeech = g_micAgcNoiseFloor > 0 && blockRms > kMicAgcMinRms &&
-                          blockRms > g_micAgcNoiseFloor * kMicAgcSpeechOverNoise;
-    g_micAgcSpeechRun = isSpeech ? g_micAgcSpeechRun + 1 : 0;
+static void SaysoMicAgcApply(MicAgcState& st, float* x, int frames) {
+    double sumSq = 0;
+    for (int i = 0; i < frames; i++) sumSq += (double)x[i] * x[i];
+    const float blockRms = frames > 0 ? (float)sqrt(sumSq / frames) : 0;
+    const float prevGain = st.gain;
+
+    if (blockRms >= kMicAgcFloorMinRms) {
+        if (st.noiseFloor <= 0 || blockRms < st.noiseFloor) {
+            st.noiseFloor = blockRms;
+        } else {
+            st.noiseFloor = std::min(st.noiseFloor * kMicAgcNoiseFloorRise, blockRms);
+        }
+    }
+
+    const bool isSpeech = st.noiseFloor > 0 && blockRms > kMicAgcMinRms &&
+                          blockRms > st.noiseFloor * kMicAgcSpeechOverNoise;
+    st.speechRun = isSpeech ? st.speechRun + 1 : 0;
 
     // During warm-up only the floor is seeded; the gain stays at unity (audio untouched).
-    if (isSpeech && g_micAgcBlocks >= kMicAgcWarmupBlocks) {
-        if (g_micAgcSpeechLevel <= 0) {
-            if (g_micAgcSpeechRun >= kMicAgcSpeechBlocksToLock) {
+    if (isSpeech && st.blocks >= kMicAgcWarmupBlocks) {
+        if (st.speechLevel <= 0) {
+            if (st.speechRun >= kMicAgcSpeechBlocksToLock) {
                 // First speech: jump straight to the right gain rather than ramping, so the opening
                 // word isn't lost and a loud multi-channel interface isn't slammed into the limiter.
-                g_micAgcSpeechLevel = blockRms;
-                g_micAgcGain = std::min(kMicAgcMaxGain, std::max(1.0f, kMicAgcTargetRms / blockRms));
+                st.speechLevel = blockRms;
+                st.gain = std::min(kMicAgcMaxGain, std::max(1.0f, kMicAgcTargetRms / blockRms));
             }
         } else {
             // Fast attack, slow release on the speech-level estimate.
-            const float coeff = blockRms > g_micAgcSpeechLevel ? 0.5f : 0.05f;
-            g_micAgcSpeechLevel += coeff * (blockRms - g_micAgcSpeechLevel);
-            const float desired = std::min(kMicAgcMaxGain, std::max(1.0f, kMicAgcTargetRms / g_micAgcSpeechLevel));
-            g_micAgcGain = desired < g_micAgcGain ? desired : std::min(desired, g_micAgcGain * kMicAgcGainRisePerBlock);
+            const float coeff = blockRms > st.speechLevel ? 0.5f : 0.05f;
+            st.speechLevel += coeff * (blockRms - st.speechLevel);
+            const float desired = std::min(kMicAgcMaxGain, std::max(1.0f, kMicAgcTargetRms / st.speechLevel));
+            st.gain = desired < st.gain ? desired : std::min(desired, st.gain * kMicAgcGainRisePerBlock);
         }
     }
     // Between words the gain holds — silence never pumps the noise floor up.
 
     for (int i = 0; i < frames; i++) {
-        const float g = prevGain + (g_micAgcGain - prevGain) * ((float)i / (float)frames); // no zipper steps
-        float y = out[i] * g;
+        const float g = prevGain + (st.gain - prevGain) * ((float)i / (float)frames);
+        float y = x[i] * g;
         const float a = fabs(y);
         if (a > kMicLimiterKnee) {
             const float headroom = 1.0f - kMicLimiterKnee;
             y = copysign(kMicLimiterKnee + headroom * (float)tanh((a - kMicLimiterKnee) / headroom), y);
         }
-        out[i] = y;
+        x[i] = y;
     }
 }
+
+static void SaysoMicDownmixWithGain(AVAudioPCMBuffer* buffer, bool isFloat32, bool interleaved, int channels,
+                                    int frames, std::vector<float>& out) {
+    SaysoMicDownmix(buffer, isFloat32, interleaved, channels, frames, out);
+    if (out.empty()) return;
+    SaysoMicAgcApply(g_micAgc, out.data(), frames);
+}
+
+static MicAgcState g_micAgcPipe;
+static std::vector<float> g_agcAccum;
+static uint64_t g_agcAccumStampNs = 0;
+static const size_t kAgcBlockFrames = 8;
+
+static void SaysoEchoDeliver(const int16_t* pcm, size_t n, float gainDb, uint64_t hostNs) {
+    MicOutChunk c;
+    c.data.assign(reinterpret_cast<const char*>(pcm), reinterpret_cast<const char*>(pcm) + n * sizeof(int16_t));
+    c.sampleRate = sayso::echo::EchoPipeline::kSampleRate;
+    c.channels = 1;
+    c.bitDepth = 16;
+    c.isFloat = false;
+    c.gainDb = gainDb;
+    c.hostNs = hostNs;
+    MicSinkEnqueue(std::move(c));
+}
+
+static void SaysoEchoFlushAgcAccum() {
+    if (g_agcAccum.empty()) return;
+    std::vector<int16_t> pcm(g_agcAccum.size());
+    for (size_t i = 0; i < pcm.size(); i++) pcm[i] = sayso::echo::FloatToS16(g_agcAccum[i]);
+    SaysoEchoDeliver(pcm.data(), pcm.size(), 0.0f, g_agcAccumStampNs);
+    g_agcAccum.clear();
+}
+
+static void SaysoEchoFrameSink(const int16_t* s, size_t n, uint64_t hostNs) {
+    if (g_echoAgcResetRequested.exchange(false, std::memory_order_acq_rel)) {
+        SaysoEchoFlushAgcAccum();
+        g_micAgcPipe.Reset();
+    }
+    if (!g_echoMicMultiChannel.load(std::memory_order_relaxed)) {
+        SaysoEchoFlushAgcAccum();
+        SaysoEchoDeliver(s, n, 0.0f, hostNs);
+        return;
+    }
+    if (g_agcAccum.empty()) g_agcAccumStampNs = hostNs;
+    for (size_t i = 0; i < n; i++) g_agcAccum.push_back(sayso::echo::S16ToFloat(s[i]));
+    if (g_agcAccum.size() < kAgcBlockFrames * n) return;
+    SaysoMicAgcApply(g_micAgcPipe, g_agcAccum.data(), (int)g_agcAccum.size());
+    g_micAgcPipe.blocks++;
+    std::vector<int16_t> pcm(g_agcAccum.size());
+    for (size_t i = 0; i < pcm.size(); i++) pcm[i] = sayso::echo::FloatToS16(g_agcAccum[i]);
+    const float gainDb = g_micAgcPipe.gain > 0 ? (float)(20.0 * log10(g_micAgcPipe.gain)) : 0.0f;
+    SaysoEchoDeliver(pcm.data(), pcm.size(), gainDb, g_agcAccumStampNs);
+    g_agcAccum.clear();
+}
+
+static void SaysoEchoEngage();
+static void SaysoEchoDisengage();
 
 // Starts engine and blocks until the realtime tap enqueues at least one buffer (or timeout).
 // SAYSO-347: `failReason`, when non-null, is set to one of "no_input_node" / "tap_install_failed" /
@@ -2754,6 +2984,7 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
     // raise NSException "Failed to create tap due to format mismatch" on some routes (e.g. after SCK).
     @try {
         [g_micInputNode installTapOnBus:0 bufferSize:4096 format:nil block:^(AVAudioPCMBuffer* buffer, AVAudioTime* when) {
+        const uint64_t micCallbackNs = SaysoHostNowNs();
         if (!buffer) {
             return;
         }
@@ -2793,18 +3024,58 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
             channels != g_micTapLastChannels || bufferFormat.sampleRate != g_micTapLastSampleRate) {
             g_micTapLastChannels = channels;
             g_micTapLastSampleRate = bufferFormat.sampleRate;
-            g_micAgcGain = 1.0f;
-            g_micAgcSpeechLevel = 0;
-            g_micAgcNoiseFloor = 0;
-            g_micAgcBlocks = 0;
-            g_micAgcSpeechRun = 0;
+            g_micAgc.gain = 1.0f;
+            g_micAgc.speechLevel = 0;
+            g_micAgc.noiseFloor = 0;
+            g_micAgc.blocks = 0;
+            g_micAgc.speechRun = 0;
             g_micLayoutMismatchReported = false;
+            g_micStamps.Rebase();
+            g_echoAgcResetRequested.store(true, std::memory_order_release);
             const bool downmix = channels > 1 && (isFloat32 || isInt16);
             EmitLifecycleEvent("mic_input_format sample_rate=" + std::to_string((int)bufferFormat.sampleRate) +
                                " channels=" + std::to_string(channels) +
                                " interleaved=" + (interleaved ? "1" : "0") +
                                " common_format=" + std::to_string((unsigned long)bufferFormat.commonFormat) +
                                " downmix=" + (downmix ? "1" : "0") + " agc=" + (downmix ? "1" : "0"));
+        }
+
+        if (g_echoEngaged.load(std::memory_order_acquire) && g_echoPipe && (isFloat32 || isInt16)) {
+            uint64_t echoStampNs = 0;
+            const bool echoStampMeasured = SaysoHostNsFromAVAudioTime(when, echoStampNs);
+            const int echoRate = (int)bufferFormat.sampleRate;
+            size_t pushed = 0;
+            if (channels > 1) {
+                const int frames = SaysoMicReadableFrames(buffer, interleaved, channels, isFloat32 ? sizeof(float) : sizeof(int16_t));
+                std::vector<float> mono;
+                if (frames > 0) SaysoMicDownmix(buffer, isFloat32, interleaved, channels, frames, mono);
+                if (mono.empty()) {
+                    g_micTapDroppedLayout.fetch_add(1, std::memory_order_relaxed);
+                    return;
+                }
+                pushed = mono.size();
+                if (!echoStampMeasured) echoStampNs = SaysoEstimateStampNs(micCallbackNs, pushed, bufferFormat.sampleRate);
+                g_echoMicMultiChannel.store(true, std::memory_order_relaxed);
+                g_echoPipe->PushMic(mono.data(), pushed, 1, echoRate, echoStampNs);
+            } else {
+                pushed = (size_t)frameLength;
+                if (!echoStampMeasured) echoStampNs = SaysoEstimateStampNs(micCallbackNs, pushed, bufferFormat.sampleRate);
+                g_echoMicMultiChannel.store(false, std::memory_order_relaxed);
+                if (isFloat32) {
+                    float* const* fc = buffer.floatChannelData;
+                    if (!fc) { g_micTapDroppedLayout.fetch_add(1, std::memory_order_relaxed); return; }
+                    g_echoPipe->PushMic(fc[0], pushed, 1, echoRate, echoStampNs);
+                } else {
+                    int16_t* const* ic = buffer.int16ChannelData;
+                    if (!ic) { g_micTapDroppedLayout.fetch_add(1, std::memory_order_relaxed); return; }
+                    g_echoPipe->PushMic(ic[0], pushed, 1, echoRate, echoStampNs);
+                }
+            }
+            g_micStamps.Observe(echoStampNs, pushed, bufferFormat.sampleRate, echoStampMeasured, micCallbackNs);
+            g_micFirstTapSeen.store(true, std::memory_order_release);
+            g_micTapDelivered.fetch_add(1, std::memory_order_relaxed);
+            g_micTapLastDeliveredMs.store(SaysoRealtimeNowMs(), std::memory_order_relaxed);
+            return;
         }
 
         StreamingData* streamData = new StreamingData();
@@ -2836,16 +3107,16 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
             memcpy(streamData->audioData.data(), mono.data(), dataSize);
             streamData->bitDepth = 32;
             streamData->isFloat = true;
-            streamData->gainDb = g_micAgcGain > 0 ? (float)(20.0 * log10(g_micAgcGain)) : 0.0f;
+            streamData->gainDb = g_micAgc.gain > 0 ? (float)(20.0 * log10(g_micAgc.gain)) : 0.0f;
             channels = 1;
 
-            g_micAgcBlocks++;
-            if (g_micAgcBlocks == kMicAgcStatusFirstBlocks ||
-                (g_micAgcBlocks > kMicAgcStatusFirstBlocks &&
-                 (g_micAgcBlocks - kMicAgcStatusFirstBlocks) % kMicAgcStatusEveryBlocks == 0)) {
-                EmitLifecycleEvent("mic_agc_status gain_db=" + SaysoFormatDb(g_micAgcGain) +
-                                   " speech_db=" + (g_micAgcSpeechLevel > 0 ? SaysoFormatDb(g_micAgcSpeechLevel) : std::string("none")) +
-                                   " noise_db=" + SaysoFormatDb(g_micAgcNoiseFloor) +
+            g_micAgc.blocks++;
+            if (g_micAgc.blocks == kMicAgcStatusFirstBlocks ||
+                (g_micAgc.blocks > kMicAgcStatusFirstBlocks &&
+                 (g_micAgc.blocks - kMicAgcStatusFirstBlocks) % kMicAgcStatusEveryBlocks == 0)) {
+                EmitLifecycleEvent("mic_agc_status gain_db=" + SaysoFormatDb(g_micAgc.gain) +
+                                   " speech_db=" + (g_micAgc.speechLevel > 0 ? SaysoFormatDb(g_micAgc.speechLevel) : std::string("none")) +
+                                   " noise_db=" + SaysoFormatDb(g_micAgc.noiseFloor) +
                                    " source_channels=" + std::to_string(g_micTapLastChannels));
             }
         } else if (isFloat32) {
@@ -2871,6 +3142,13 @@ static bool TryStartMicrophoneCaptureOnce(int waitForFirstTapMs, const char** fa
         
         streamData->sampleRate = bufferFormat.sampleRate;
         streamData->channels = channels;
+        
+        uint64_t micStampNs = 0;
+        const bool micStampMeasured = SaysoHostNsFromAVAudioTime(when, micStampNs);
+        const size_t micSentFrames = streamData->audioData.size() / ((size_t)(streamData->bitDepth / 8) * (size_t)channels);
+        if (!micStampMeasured) micStampNs = SaysoEstimateStampNs(micCallbackNs, micSentFrames, bufferFormat.sampleRate);
+        g_micStamps.Observe(micStampNs, micSentFrames, bufferFormat.sampleRate, micStampMeasured, micCallbackNs);
+        streamData->hostTimeNs = micStampNs;
         
         g_micFirstTapSeen.store(true, std::memory_order_release);
         g_micTapDelivered.fetch_add(1, std::memory_order_relaxed);
@@ -3200,6 +3478,7 @@ NAN_METHOD(StartMicrophoneCapture) {
         g_micStreamingAsyncHandle = new uv_async_t;
         uv_async_init(uv_default_loop(), g_micStreamingAsyncHandle, MicStreamingAsyncCallback);
     }
+    MicSinkEnsureHandle();
 
     __block bool alreadyActive = false;
     __block bool started = false;
@@ -3218,6 +3497,8 @@ NAN_METHOD(StartMicrophoneCapture) {
             return;
         }
 
+        SaysoEchoEngage();
+
         const int kFirstTapWaitMs = 1200;
         const int kRetryTapWaitMs = 1500;
 
@@ -3227,6 +3508,7 @@ NAN_METHOD(StartMicrophoneCapture) {
             if (!TryStartMicrophoneCaptureOnce(kRetryTapWaitMs, &failReason)) {
                 NSLog(@"❌ [NATIVE] Microphone capture failed after retry: %s", failReason ? failReason : "unknown");
                 g_micOpenedInputDeviceId = kAudioObjectUnknown;
+                SaysoEchoDisengage();
                 return;
             }
         }
@@ -3268,6 +3550,7 @@ NAN_METHOD(StopMicrophoneCapture) {
         // Stop is authoritative and must not leave a stale recovery flag behind for the next session.
         g_micRouteRecovering = false;
     });
+    SaysoEchoDisengage();
 
     // Note: On macOS, no audio session to deactivate
     NSLog(@"✅ [NATIVE] Microphone capture stopped");
@@ -3520,6 +3803,8 @@ NAN_METHOD(SetStreamingCallback) {
 // Set microphone-specific streaming callback
 NAN_METHOD(SetMicrophoneStreamingCallback) {
     if (info.Length() < 1 || info[0]->IsNull() || info[0]->IsUndefined()) {
+        g_micSinkAccepting.store(false, std::memory_order_release);
+        MicSinkClear();
         // Clear callback
         g_micStreamingCallback.Reset();
         
@@ -3543,6 +3828,9 @@ NAN_METHOD(SetMicrophoneStreamingCallback) {
     
     // Store persistent reference to callback
     g_micStreamingCallback.Reset(Nan::To<Function>(info[0]).ToLocalChecked());
+    MicSinkEnsureHandle();
+    MicSinkClear();
+    g_micSinkAccepting.store(true, std::memory_order_release);
     
     // Create async handle if it doesn't exist
     if (!g_micStreamingAsyncHandle) {
@@ -3826,6 +4114,436 @@ NAN_METHOD(RequestSystemAudioPermission) {
     });
 }
 
+static std::string SaysoFourCC(UInt32 v) {
+    char c[5] = {(char)(v >> 24), (char)(v >> 16), (char)(v >> 8), (char)v, 0};
+    for (int i = 0; i < 4; i++) {
+        if (c[i] < 32 || c[i] > 126) return std::to_string(v);
+    }
+    return std::string(c);
+}
+
+static std::string SaysoStringProperty(AudioObjectID obj, AudioObjectPropertySelector sel) {
+    AudioObjectPropertyAddress a = {sel, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+    CFStringRef cf = nullptr;
+    UInt32 size = sizeof(cf);
+    if (AudioObjectGetPropertyData(obj, &a, 0, nullptr, &size, &cf) != noErr || !cf) return "";
+    char buf[512];
+    const bool ok = CFStringGetCString(cf, buf, sizeof(buf), kCFStringEncodingUTF8);
+    CFRelease(cf);
+    return ok ? std::string(buf) : "";
+}
+
+struct SaysoOutputDevice {
+    AudioObjectID id = kAudioObjectUnknown;
+    std::string name, uid, transportName, transportRaw, dataSourceRaw;
+    double sampleRate = 0;
+    sayso::echo::Transport transport = sayso::echo::Transport::kOther;
+    sayso::echo::OutputKind kind = sayso::echo::OutputKind::kUnknown;
+};
+
+static bool SaysoQueryDefaultOutputDevice(SaysoOutputDevice& out) {
+    AudioObjectPropertyAddress a = {kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+    AudioObjectID dev = kAudioObjectUnknown;
+    UInt32 size = sizeof(dev);
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, nullptr, &size, &dev) != noErr || dev == kAudioObjectUnknown) return false;
+    out.id = dev;
+    out.name = SaysoStringProperty(dev, kAudioObjectPropertyName);
+    out.uid = SaysoStringProperty(dev, kAudioDevicePropertyDeviceUID);
+
+    UInt32 t = 0;
+    size = sizeof(t);
+    AudioObjectPropertyAddress ta = {kAudioDevicePropertyTransportType, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+    if (AudioObjectGetPropertyData(dev, &ta, 0, nullptr, &size, &t) == noErr) {
+        out.transportRaw = SaysoFourCC(t);
+        using sayso::echo::Transport;
+        switch (t) {
+            case kAudioDeviceTransportTypeBuiltIn: out.transport = Transport::kBuiltIn; out.transportName = "builtin"; break;
+            case kAudioDeviceTransportTypeBluetooth:
+            case kAudioDeviceTransportTypeBluetoothLE: out.transport = Transport::kBluetooth; out.transportName = "bluetooth"; break;
+            case kAudioDeviceTransportTypeUSB: out.transport = Transport::kUsb; out.transportName = "usb"; break;
+            case kAudioDeviceTransportTypeHDMI:
+            case kAudioDeviceTransportTypeDisplayPort: out.transport = Transport::kDisplay; out.transportName = "display"; break;
+            case kAudioDeviceTransportTypeAirPlay: out.transport = Transport::kAirPlay; out.transportName = "airplay"; break;
+            case kAudioDeviceTransportTypeVirtual:
+            case kAudioDeviceTransportTypeAggregate:
+            case kAudioDeviceTransportTypeAutoAggregate: out.transport = Transport::kVirtual; out.transportName = "virtual"; break;
+            default: out.transport = Transport::kOther; out.transportName = "other"; break;
+        }
+    }
+
+    std::string dataSource;
+    UInt32 ds = 0;
+    size = sizeof(ds);
+    AudioObjectPropertyAddress da = {kAudioDevicePropertyDataSource, kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain};
+    if (AudioObjectHasProperty(dev, &da) && AudioObjectGetPropertyData(dev, &da, 0, nullptr, &size, &ds) == noErr) {
+        out.dataSourceRaw = SaysoFourCC(ds);
+        if (out.dataSourceRaw == "hdpn" || out.dataSourceRaw == "ihdp") dataSource = "headphones";
+        else if (out.dataSourceRaw == "ispk" || out.dataSourceRaw == "espk") dataSource = "speaker";
+    }
+    Float64 rate = 0;
+    size = sizeof(rate);
+    AudioObjectPropertyAddress ra = {kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+    if (AudioObjectGetPropertyData(dev, &ra, 0, nullptr, &size, &rate) == noErr) out.sampleRate = rate;
+    out.kind = sayso::echo::ClassifyOutput(out.transport, dataSource, out.name);
+    return true;
+}
+
+static Local<Object> SaysoOutputDeviceToObject(const SaysoOutputDevice& d);
+
+NAN_METHOD(GetOutputDeviceInfo) {
+    SaysoOutputDevice d;
+    if (!SaysoQueryDefaultOutputDevice(d)) {
+        info.GetReturnValue().Set(Nan::Null());
+        return;
+    }
+    info.GetReturnValue().Set(SaysoOutputDeviceToObject(d));
+}
+
+using SaysoOutputChangeHandler = std::function<void(const SaysoOutputDevice&, const std::string& cause)>;
+
+static dispatch_queue_t g_devWatchQueue = nullptr;
+static dispatch_source_t g_devWatchTimer = nullptr;
+static AudioObjectPropertyListenerBlock g_devWatchBlock = nullptr;
+static AudioObjectID g_devWatchedOutput = kAudioObjectUnknown;
+static bool g_devWatching = false;
+static std::string g_devWatchCauses;
+static std::mutex g_outputChangeMutex;
+static SaysoOutputChangeHandler g_outputChangeHandler;
+static std::atomic<uint64_t> g_devWatchReports{0};
+static std::atomic<bool> g_devWatchUserStarted{false};
+
+static const AudioObjectPropertyAddress kAddrDefaultOut = {kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+static const AudioObjectPropertyAddress kAddrDefaultIn = {kAudioHardwarePropertyDefaultInputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+static const AudioObjectPropertyAddress kAddrRate = {kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+static const AudioObjectPropertyAddress kAddrSource = {kAudioDevicePropertyDataSource, kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain};
+
+static void SaysoDevWatchDetach() {
+    if (g_devWatchedOutput != kAudioObjectUnknown && g_devWatchBlock) {
+        AudioObjectPropertyAddress r = kAddrRate, d = kAddrSource;
+        AudioObjectRemovePropertyListenerBlock(g_devWatchedOutput, &r, g_devWatchQueue, g_devWatchBlock);
+        AudioObjectRemovePropertyListenerBlock(g_devWatchedOutput, &d, g_devWatchQueue, g_devWatchBlock);
+    }
+    g_devWatchedOutput = kAudioObjectUnknown;
+}
+
+static void SaysoDevWatchAttach(AudioObjectID dev) {
+    SaysoDevWatchDetach();
+    if (dev == kAudioObjectUnknown || !g_devWatchBlock) return;
+    AudioObjectPropertyAddress r = kAddrRate, d = kAddrSource;
+    AudioObjectAddPropertyListenerBlock(dev, &r, g_devWatchQueue, g_devWatchBlock);
+    if (AudioObjectHasProperty(dev, &d)) AudioObjectAddPropertyListenerBlock(dev, &d, g_devWatchQueue, g_devWatchBlock);
+    g_devWatchedOutput = dev;
+}
+
+static void SaysoDevWatchReport() {
+    if (!g_devWatching) return;
+    const std::string cause = g_devWatchCauses;
+    g_devWatchCauses.clear();
+    SaysoOutputDevice d;
+    const bool have = SaysoQueryDefaultOutputDevice(d);
+    SaysoDevWatchAttach(have ? d.id : kAudioObjectUnknown);
+    g_devWatchReports.fetch_add(1, std::memory_order_relaxed);
+    if (have) {
+        EmitLifecycleEvent("output_device_changed cause=" + cause + " name=\"" + d.name + "\" transport=" + d.transportName +
+                           " data_source=" + (d.dataSourceRaw.empty() ? std::string("none") : d.dataSourceRaw) +
+                           " rate=" + std::to_string((int)d.sampleRate) + " kind=" + sayso::echo::ToString(d.kind));
+    } else {
+        EmitLifecycleEvent("output_device_changed cause=" + cause + " device=none");
+    }
+    SaysoOutputChangeHandler handler;
+    {
+        std::lock_guard<std::mutex> lk(g_outputChangeMutex);
+        handler = g_outputChangeHandler;
+    }
+    if (handler && have) handler(d, cause);
+}
+
+static void SaysoDevWatchNotified(const char* cause) {
+    if (!g_devWatching) return;
+    if (g_devWatchCauses.find(cause) == std::string::npos) {
+        if (!g_devWatchCauses.empty()) g_devWatchCauses += ",";
+        g_devWatchCauses += cause;
+    }
+    dispatch_source_set_timer(g_devWatchTimer, dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC), DISPATCH_TIME_FOREVER, 10 * NSEC_PER_MSEC);
+}
+
+static void SaysoDevWatchStop() {
+    if (!g_devWatchQueue) return;
+    dispatch_sync(g_devWatchQueue, ^{
+        if (!g_devWatching) return;
+        g_devWatching = false;
+        AudioObjectPropertyAddress o = kAddrDefaultOut, i = kAddrDefaultIn;
+        if (g_devWatchBlock) {
+            AudioObjectRemovePropertyListenerBlock(kAudioObjectSystemObject, &o, g_devWatchQueue, g_devWatchBlock);
+            AudioObjectRemovePropertyListenerBlock(kAudioObjectSystemObject, &i, g_devWatchQueue, g_devWatchBlock);
+        }
+        SaysoDevWatchDetach();
+        if (g_devWatchTimer) {
+            dispatch_source_cancel(g_devWatchTimer);
+            dispatch_release(g_devWatchTimer);
+            g_devWatchTimer = nullptr;
+        }
+        if (g_devWatchBlock) {
+            Block_release(g_devWatchBlock);
+            g_devWatchBlock = nullptr;
+        }
+        g_devWatchCauses.clear();
+    });
+}
+
+static bool SaysoDevWatchStart(SaysoOutputDevice& initial) {
+    if (!g_devWatchQueue) g_devWatchQueue = dispatch_queue_create("com.sayso.deviceWatch", DISPATCH_QUEUE_SERIAL);
+    __block bool started = false;
+    __block bool have = false;
+    dispatch_sync(g_devWatchQueue, ^{
+        if (g_devWatching) {
+            have = SaysoQueryDefaultOutputDevice(initial);
+            started = true;
+            return;
+        }
+        g_devWatchTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, g_devWatchQueue);
+        dispatch_source_set_event_handler(g_devWatchTimer, ^{ SaysoDevWatchReport(); });
+        dispatch_source_set_timer(g_devWatchTimer, DISPATCH_TIME_FOREVER, DISPATCH_TIME_FOREVER, 0);
+        dispatch_resume(g_devWatchTimer);
+        g_devWatchBlock = Block_copy(^(UInt32 count, const AudioObjectPropertyAddress* addrs) {
+            for (UInt32 k = 0; k < count; k++) {
+                switch (addrs[k].mSelector) {
+                    case kAudioHardwarePropertyDefaultOutputDevice: SaysoDevWatchNotified("default_output"); break;
+                    case kAudioHardwarePropertyDefaultInputDevice: SaysoDevWatchNotified("default_input"); break;
+                    case kAudioDevicePropertyNominalSampleRate: SaysoDevWatchNotified("sample_rate"); break;
+                    case kAudioDevicePropertyDataSource: SaysoDevWatchNotified("data_source"); break;
+                    default: SaysoDevWatchNotified("other"); break;
+                }
+            }
+        });
+        g_devWatching = true;
+        AudioObjectPropertyAddress o = kAddrDefaultOut, i = kAddrDefaultIn;
+        AudioObjectAddPropertyListenerBlock(kAudioObjectSystemObject, &o, g_devWatchQueue, g_devWatchBlock);
+        AudioObjectAddPropertyListenerBlock(kAudioObjectSystemObject, &i, g_devWatchQueue, g_devWatchBlock);
+        have = SaysoQueryDefaultOutputDevice(initial);
+        SaysoDevWatchAttach(have ? initial.id : kAudioObjectUnknown);
+        started = true;
+    });
+    return started && have;
+}
+
+static void SaysoDevWatchCleanupHook(void* ) { SaysoDevWatchStop(); }
+
+static Local<Object> SaysoOutputDeviceToObject(const SaysoOutputDevice& d) {
+    Local<Object> o = Nan::New<Object>();
+    Nan::Set(o, Nan::New("id").ToLocalChecked(), Nan::New<Number>((double)d.id));
+    Nan::Set(o, Nan::New("name").ToLocalChecked(), Nan::New(d.name).ToLocalChecked());
+    Nan::Set(o, Nan::New("uid").ToLocalChecked(), Nan::New(d.uid).ToLocalChecked());
+    Nan::Set(o, Nan::New("transport").ToLocalChecked(), Nan::New(d.transportName).ToLocalChecked());
+    Nan::Set(o, Nan::New("transportRaw").ToLocalChecked(), Nan::New(d.transportRaw).ToLocalChecked());
+    Nan::Set(o, Nan::New("dataSource").ToLocalChecked(), Nan::New(d.dataSourceRaw).ToLocalChecked());
+    Nan::Set(o, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(d.sampleRate));
+    Nan::Set(o, Nan::New("kind").ToLocalChecked(), Nan::New(sayso::echo::ToString(d.kind)).ToLocalChecked());
+    return o;
+}
+
+NAN_METHOD(StartOutputDeviceWatcher) {
+    g_devWatchUserStarted.store(true);
+    SaysoOutputDevice d;
+    if (SaysoDevWatchStart(d)) {
+        info.GetReturnValue().Set(SaysoOutputDeviceToObject(d));
+    } else {
+        info.GetReturnValue().Set(Nan::Null());
+    }
+}
+
+NAN_METHOD(StopOutputDeviceWatcher) {
+    g_devWatchUserStarted.store(false);
+    if (!g_echoEngaged.load()) SaysoDevWatchStop();
+    info.GetReturnValue().Set(Nan::True());
+}
+
+static void SaysoEchoOnOutputChanged(const SaysoOutputDevice& d, const std::string& ) {
+    if (!g_echoPipe) return;
+    g_echoPipe->SetOutputKind(d.kind);
+    g_echoPipe->NotifyDeviceChange();
+}
+
+static void SaysoEchoEngage() {
+    using namespace sayso::echo;
+    const Setting want = (Setting)g_echoRequested.load();
+    if (want == Setting::kOff) {
+        g_echoEngaged.store(false, std::memory_order_release);
+        return;
+    }
+    if (!EchoEngine::IsCompiledIn()) {
+        g_echoEngaged.store(false, std::memory_order_release);
+        EmitLifecycleEvent("echo_unavailable reason=engine_not_linked");
+        return;
+    }
+    if (!g_echoPipe) {
+        EchoPipeline::Config cfg;
+        cfg.setting = want;
+        cfg.onEvent = [](const EchoEvent& e) { EmitLifecycleEvent(FormatEvent(e)); };
+        g_echoPipe = new EchoPipeline(SaysoEchoFrameSink, cfg);
+    }
+    g_echoPipe->SetSetting(want);
+    SaysoOutputDevice out;
+    const bool haveOut = SaysoQueryDefaultOutputDevice(out);
+    g_echoPipe->SetOutputKind(haveOut ? out.kind : OutputKind::kUnknown);
+    g_micAgcPipe.Reset();
+    g_agcAccum.clear();
+    g_echoMicMultiChannel.store(false, std::memory_order_relaxed);
+    g_echoAgcResetRequested.store(false, std::memory_order_relaxed);
+    MicSinkClear();
+    if (!g_echoPipe->Start()) {
+        g_echoEngaged.store(false, std::memory_order_release);
+        EmitLifecycleEvent("echo_unavailable reason=pipeline_start_failed");
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lk(g_outputChangeMutex);
+        g_outputChangeHandler = SaysoEchoOnOutputChanged;
+    }
+    SaysoOutputDevice watched;
+    SaysoDevWatchStart(watched);
+    g_echoEngaged.store(true, std::memory_order_release);
+    EmitLifecycleEvent(std::string("echo_engaged setting=") + ToString(want) + " output=" + ToString(haveOut ? out.kind : OutputKind::kUnknown));
+}
+
+static void SaysoEchoDisengage() {
+    if (!g_echoEngaged.exchange(false, std::memory_order_acq_rel)) return;
+    if (g_echoPipe) g_echoPipe->Stop();
+    {
+        std::lock_guard<std::mutex> lk(g_outputChangeMutex);
+        g_outputChangeHandler = nullptr;
+    }
+    if (!g_devWatchUserStarted.load()) SaysoDevWatchStop();
+    MicSinkClear();
+    EmitLifecycleEvent("echo_disengaged");
+}
+
+NAN_METHOD(SetEchoCancellation) {
+    using namespace sayso::echo;
+    if (info.Length() < 1 || !info[0]->IsString()) {
+        Nan::ThrowTypeError("setEchoCancellation expects 'off', 'auto' or 'on'");
+        return;
+    }
+    const std::string mode = *Nan::Utf8String(info[0]);
+    Setting want;
+    if (mode == "off") want = Setting::kOff;
+    else if (mode == "auto") want = Setting::kAuto;
+    else if (mode == "on") want = Setting::kOn;
+    else {
+        info.GetReturnValue().Set(Nan::Null());
+        return;
+    }
+    g_echoRequested.store((int)want);
+    const bool engaged = g_echoEngaged.load(std::memory_order_acquire);
+    bool live = false;
+    if (engaged && g_echoPipe) {
+        g_echoPipe->SetSetting(want);
+        live = true;
+    }
+    Local<Object> r = Nan::New<Object>();
+    Nan::Set(r, Nan::New("requested").ToLocalChecked(), Nan::New(mode).ToLocalChecked());
+    Nan::Set(r, Nan::New("engaged").ToLocalChecked(), Nan::New<v8::Boolean>(engaged));
+    Nan::Set(r, Nan::New("appliedLive").ToLocalChecked(), Nan::New<v8::Boolean>(live));
+    Nan::Set(r, Nan::New("available").ToLocalChecked(), Nan::New<v8::Boolean>(EchoEngine::IsCompiledIn()));
+    info.GetReturnValue().Set(r);
+}
+
+NAN_METHOD(GetEchoCancellationStatus) {
+    using namespace sayso::echo;
+    auto num = [](Local<Object> o, const char* k, double v) { Nan::Set(o, Nan::New(k).ToLocalChecked(), Nan::New<Number>(v)); };
+    auto str = [](Local<Object> o, const char* k, const char* v) { Nan::Set(o, Nan::New(k).ToLocalChecked(), Nan::New(v).ToLocalChecked()); };
+    auto flag = [](Local<Object> o, const char* k, bool v) { Nan::Set(o, Nan::New(k).ToLocalChecked(), Nan::New<v8::Boolean>(v)); };
+    Local<Object> o = Nan::New<Object>();
+    const int req = g_echoRequested.load();
+    str(o, "requested", req == (int)Setting::kOff ? "off" : (req == (int)Setting::kOn ? "on" : "auto"));
+    flag(o, "engaged", g_echoEngaged.load(std::memory_order_acquire));
+    flag(o, "linked", EchoEngine::IsCompiledIn());
+    if (g_echoPipe) {
+        const PipelineStats st = g_echoPipe->GetStats();
+        flag(o, "running", st.running);
+        flag(o, "processing", st.processing);
+        str(o, "reason", ToString(st.reason));
+        str(o, "setting", ToString(st.setting));
+        str(o, "output", ToString(st.output));
+        flag(o, "referenceActive", st.referenceActive);
+        flag(o, "engineAvailable", st.engineAvailable);
+        num(o, "framesOut", (double)st.framesOut);
+        num(o, "framesNoReference", (double)st.framesNoReference);
+        num(o, "refWaitTimeouts", (double)st.refWaitTimeouts);
+        num(o, "resyncs", (double)st.resyncs);
+        num(o, "engineResyncs", (double)st.engineResyncs);
+        num(o, "deviceChanges", (double)st.deviceChanges);
+        num(o, "gapsFilled", (double)st.gapsFilled);
+        num(o, "transitions", (double)st.transitions);
+        num(o, "stepsSnapped", (double)st.stepsSnapped);
+        num(o, "slips", (double)st.slips);
+        num(o, "netSlippedSamples", (double)st.netSlippedSamples);
+        num(o, "driftPpm", st.driftPpm);
+        num(o, "refErrorSamples", st.refErrorSamples);
+        num(o, "offsetMs", st.offsetMs);
+        num(o, "refBufferedMs", st.refBufferedMs);
+        num(o, "erleDb", st.erleDb);
+        num(o, "apmDelayMs", st.apmDelayMs);
+        num(o, "apmCpuPct", st.apmCpuPct);
+        num(o, "micChunksDropped", (double)st.micChunksDropped);
+        num(o, "refChunksDropped", (double)st.refChunksDropped);
+        num(o, "concurrentPushDropped", (double)st.concurrentPushDropped);
+    }
+    num(o, "sinkDelivered", (double)g_micSinkDelivered.load());
+    num(o, "sinkDropped", (double)g_micSinkDropped.load());
+    info.GetReturnValue().Set(o);
+}
+
+static Local<Object> StampStatsToObject(const sayso::echo::StampStats& st) {
+    Local<Object> o = Nan::New<Object>();
+    Nan::Set(o, Nan::New("buffers").ToLocalChecked(), Nan::New<Number>((double)st.buffers));
+    Nan::Set(o, Nan::New("measured").ToLocalChecked(), Nan::New<Number>((double)st.measured));
+    Nan::Set(o, Nan::New("estimated").ToLocalChecked(), Nan::New<Number>((double)st.estimated));
+    Nan::Set(o, Nan::New("nonMonotonic").ToLocalChecked(), Nan::New<Number>((double)st.nonMonotonic));
+    Nan::Set(o, Nan::New("gaps").ToLocalChecked(), Nan::New<Number>((double)st.gaps));
+    Nan::Set(o, Nan::New("rebases").ToLocalChecked(), Nan::New<Number>((double)st.rebases));
+    Nan::Set(o, Nan::New("sampleRate").ToLocalChecked(), Nan::New<Number>(st.sampleRate));
+    Nan::Set(o, Nan::New("lagMs").ToLocalChecked(), Nan::New<Number>(st.lagMs));
+    Nan::Set(o, Nan::New("jitterUs").ToLocalChecked(), Nan::New<Number>(st.jitterUs));
+    Nan::Set(o, Nan::New("maxJitterUs").ToLocalChecked(), Nan::New<Number>(st.maxJitterUs));
+    Nan::Set(o, Nan::New("clockPpm").ToLocalChecked(), st.clockPpmValid ? Nan::New<Number>(st.clockPpm).As<v8::Value>() : Nan::Null().As<v8::Value>());
+    return o;
+}
+
+NAN_METHOD(GetCaptureTimestampStats) {
+    Local<Object> result = Nan::New<Object>();
+    Nan::Set(result, Nan::New("clock").ToLocalChecked(), Nan::New("mach_absolute_time").ToLocalChecked());
+    Nan::Set(result, Nan::New("nowMs").ToLocalChecked(), Nan::New<Number>((double)SaysoHostNowNs() / 1e6));
+    Nan::Set(result, Nan::New("mic").ToLocalChecked(), StampStatsToObject(g_micStamps.Get()));
+    Nan::Set(result, Nan::New("system").ToLocalChecked(), StampStatsToObject(g_sysStamps.Get()));
+    if (info.Length() > 0 && info[0]->IsTrue()) {
+        g_micStamps.RequestReset();
+        g_sysStamps.RequestReset();
+    }
+    info.GetReturnValue().Set(result);
+}
+
+NAN_METHOD(GetEchoEngineInfo) {
+    using sayso::echo::EchoEngine;
+    Local<Object> result = Nan::New<Object>();
+    bool available = false;
+    if (EchoEngine::IsCompiledIn()) {
+        EchoEngine engine;
+        if (engine.Start()) {
+            int16_t mic[sayso::echo::kFrameSamples] = {0};
+            int16_t out[sayso::echo::kFrameSamples];
+            engine.ProcessReference(mic);
+            available = engine.ProcessCapture(mic, out);
+        }
+    }
+    const char* version = EchoEngine::Version();
+    Nan::Set(result, Nan::New("available").ToLocalChecked(), Nan::New<v8::Boolean>(available));
+    Nan::Set(result, Nan::New("linked").ToLocalChecked(), Nan::New<v8::Boolean>(EchoEngine::IsCompiledIn()));
+    Nan::Set(result, Nan::New("version").ToLocalChecked(),
+             version ? Nan::New(version).ToLocalChecked() : Nan::Null().As<v8::Value>());
+    info.GetReturnValue().Set(result);
+}
+
 NAN_MODULE_INIT(Init) {
     Nan::Set(target, Nan::New("initialize").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(Initialize)).ToLocalChecked());
@@ -3844,6 +4562,21 @@ NAN_MODULE_INIT(Init) {
              Nan::GetFunction(Nan::New<FunctionTemplate>(GetSystemAudioPermissionStatus)).ToLocalChecked());
     Nan::Set(target, Nan::New("requestSystemAudioPermission").ToLocalChecked(),
              Nan::GetFunction(Nan::New<FunctionTemplate>(RequestSystemAudioPermission)).ToLocalChecked());
+    Nan::Set(target, Nan::New("startOutputDeviceWatcher").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(StartOutputDeviceWatcher)).ToLocalChecked());
+    Nan::Set(target, Nan::New("stopOutputDeviceWatcher").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(StopOutputDeviceWatcher)).ToLocalChecked());
+    node::AddEnvironmentCleanupHook(v8::Isolate::GetCurrent(), SaysoDevWatchCleanupHook, nullptr);
+    Nan::Set(target, Nan::New("getOutputDeviceInfo").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(GetOutputDeviceInfo)).ToLocalChecked());
+    Nan::Set(target, Nan::New("getCaptureTimestampStats").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(GetCaptureTimestampStats)).ToLocalChecked());
+    Nan::Set(target, Nan::New("setEchoCancellation").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(SetEchoCancellation)).ToLocalChecked());
+    Nan::Set(target, Nan::New("getEchoCancellationStatus").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(GetEchoCancellationStatus)).ToLocalChecked());
+    Nan::Set(target, Nan::New("getEchoEngineInfo").ToLocalChecked(),
+             Nan::GetFunction(Nan::New<FunctionTemplate>(GetEchoEngineInfo)).ToLocalChecked());
 
     node::AddEnvironmentCleanupHook(v8::Isolate::GetCurrent(), SaysoTapCleanupHook, nullptr);
 

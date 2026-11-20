@@ -2,7 +2,7 @@ import { app, ipcMain } from 'electron';
 import * as Sentry from '@sentry/electron/main';
 
 import { isTransientNetworkError } from '../utils/transientErrors';
-import type { IAudioProvider, AudioFormat, SystemAudioBackend, SystemAudioPermissionState } from './IAudioProvider';
+import type { IAudioProvider, AudioFormat, SystemAudioBackend, SystemAudioPermissionState, EchoCancellationMode } from './IAudioProvider';
 import * as cacheStore from '../store/cacheManager';
 import { collectMicDiagnostics, installMicDiagnosticsListeners } from './micDiagnostics';
 
@@ -228,6 +228,26 @@ export function applySystemAudioBackendOverride(): void {
   lastAppliedForceSck = force;
   provider.setForceScreenCaptureKit(force);
   console.log(`[Audio] System-audio backend override: ${force ? 'forcing ScreenCaptureKit' : 'none'}`);
+}
+
+export const ECHO_CANCELLATION_FEATURE = 'echo_cancellation';
+export const ECHO_CANCELLATION_ALWAYS_FEATURE = 'echo_cancellation_always';
+
+let lastAppliedEcho: EchoCancellationMode | null = null;
+
+export function applyEchoCancellationSetting(): void {
+  if (!provider || typeof provider.setEchoCancellation !== 'function') return;
+  let mode: EchoCancellationMode = 'off';
+  try {
+    const features = cacheStore.getValue('enabledFeatures');
+    if (features.includes(ECHO_CANCELLATION_ALWAYS_FEATURE)) mode = 'on';
+    else if (features.includes(ECHO_CANCELLATION_FEATURE)) mode = 'auto';
+  } catch {
+  }
+  if (mode === lastAppliedEcho) return;
+  lastAppliedEcho = mode;
+  const result = provider.setEchoCancellation(mode);
+  console.log(`[Audio] Echo cancellation: ${mode}${result ? ` (engine ${result.available ? 'linked' : 'not linked'}, ${result.engaged ? (result.appliedLive ? 'applied live' : 'engaged') : 'applies at next mic start'})` : ''}`);
 }
 
 export function getSystemAudioBackend(): SystemAudioBackend | null {
@@ -798,6 +818,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       }
 
       applySystemAudioBackendOverride();
+      applyEchoCancellationSetting();
 
       const permsCheck = await checkOSPermissionsGranted();
       if (!permsCheck.granted) {

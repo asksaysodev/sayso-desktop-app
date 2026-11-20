@@ -79,6 +79,41 @@ class AudioDeviceManager {
     }
   }
 
+  getOutputDeviceInfo() {
+    if (typeof nativeAudio.getOutputDeviceInfo !== 'function') return null;
+    return nativeAudio.getOutputDeviceInfo();
+  }
+
+  startOutputDeviceWatcher() {
+    if (typeof nativeAudio.startOutputDeviceWatcher !== 'function') return null;
+    return nativeAudio.startOutputDeviceWatcher();
+  }
+
+  stopOutputDeviceWatcher() {
+    if (typeof nativeAudio.stopOutputDeviceWatcher !== 'function') return false;
+    return nativeAudio.stopOutputDeviceWatcher();
+  }
+
+  getCaptureTimestampStats(reset = false) {
+    if (typeof nativeAudio.getCaptureTimestampStats !== 'function') return null;
+    return nativeAudio.getCaptureTimestampStats(!!reset);
+  }
+
+  setEchoCancellation(mode) {
+    if (typeof nativeAudio.setEchoCancellation !== 'function') return null;
+    return nativeAudio.setEchoCancellation(mode);
+  }
+
+  getEchoCancellationStatus() {
+    if (typeof nativeAudio.getEchoCancellationStatus !== 'function') return null;
+    return nativeAudio.getEchoCancellationStatus();
+  }
+
+  getEchoEngineInfo() {
+    if (typeof nativeAudio.getEchoEngineInfo !== 'function') return null;
+    return nativeAudio.getEchoEngineInfo();
+  }
+
   /**
    * Set streaming callback for real-time audio chunks
    * @param {Function} callback - Callback function(buffer, format)
