@@ -18,7 +18,7 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 
 ---
 
-## The NAN surface (14 methods)
+## The NAN surface (16 methods)
 
 `Init` (`NAN_MODULE_INIT`) must export exactly these. Names are case-sensitive.
 
@@ -38,6 +38,8 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 | 12 | `setMicrophoneStreamingCallback` | `void` | no (sync) |
 | 13 | `setLifecycleEventCallback` | `void` | no (sync) |
 | 14 | `getMicInputDiagnostics` | `Promise<MicInputDiagnostics \| null>` | yes — **optional** (SAYSO-431; Windows SAYSO-459) |
+| 15 | `setEchoCancellationEnabled` | `void` | no (sync) — **optional** (echo cancellation; Windows today) |
+| 16 | `getEchoCancellationState` | `{ enabled, active, delayMs? }` | no (sync) — **optional** (echo cancellation; Windows today) |
 
 > The macOS `.mm` also still exports the dead trio `listOutputDevices`,
 > `createMultiOutputDevice`, `deleteMultiOutputDevice` — **do not implement
@@ -237,6 +239,39 @@ NOT delivered here — they travel in the start promise rejection message
 (`sck_start_timeout…`, `sck_start_canceled_by_stop…`); this channel is for
 events that occur after a promise has already settled.
 
+### `setEchoCancellationEnabled(on: boolean)` → `void`
+Runtime on/off switch for removing the prospect's voice (played on the rep's
+speakers) from the mic. Throws `TypeError` unless `on` is a boolean.
+
+- **Live.** Switching on mid-call routes the mic through the echo canceller
+  from the next packet; switching off hands back everything in flight, in
+  order, then returns delivery to the normal capture path. Either way no mic
+  audio is lost, duplicated or reordered. Also applies to later sessions.
+- **Off means today's behavior, exactly:** the mic reaches the callback with
+  the same bytes, chunks and format as a build without echo cancellation.
+- **On, without a reference, also passes through exactly.** Until system audio
+  is being captured (`startProspectStreaming`), or if the engine cannot run,
+  the mic is delivered as captured: original bytes and format.
+- Emits `aec_switched on` / `aec_switched off` on the lifecycle channel.
+- **Default: off.** Nothing changes for the app until JS calls
+  `setEchoCancellationEnabled(true)` (for example once, before the first
+  `startMicrophoneCapture`), or the module is built with
+  `SAYSO_AEC_DEFAULT_ON=1` in `binding.gyp`. See
+  [ECHO_CANCELLATION_SWITCH.md](ECHO_CANCELLATION_SWITCH.md).
+- **Optional.** `index.js` returns `false` when the native method is absent
+  (macOS today, older builds) and `true` otherwise; callers must not depend on
+  it existing.
+
+### `getEchoCancellationState()` → `{ enabled, active, delayMs? }`
+Sync diagnostics, never throws, safe at any time.
+
+- `enabled`: the switch.
+- `active`: cleaned audio is being delivered right now. `false` while passing
+  the mic through (no reference yet, engine unavailable or failed, mic idle).
+- `delayMs`: the echo delay the engine measured (speaker → mic), when known.
+
+`index.js` returns `null` when the native method is absent.
+
 ---
 
 ## Buffer format contract
@@ -268,6 +303,13 @@ route is announced on the lifecycle channel instead of via a format change:
 on the first buffer of every engine build, then
 `mic_agc_status gain_db=… speech_db=… source_channels=3` ~5s in and every ~30s
 while downmixing.
+
+**Windows with echo cancellation on:** while the echo canceller is cleaning the
+mic, chunks are **48 kHz / 1 channel / 32-bit float**. While it passes the mic
+through (no system audio yet, switched off, engine unavailable), chunks carry
+the device's original bytes and format. The format can therefore change
+between two callbacks of the same session (it also changes today when the mic
+device changes); each callback's `format` describes its own `buffer`.
 
 **Windows is not required to match 48 kHz / float exactly.** Downstream
 `streaming/audioConverter.js` resamples/downmixes to the wire format
@@ -324,6 +366,17 @@ Windows/WASAPI equivalent: subscribe to `IMMNotificationClient`
 way, and re-initialize the affected capture client without interrupting the other
 path. Aim to match the "user swaps devices mid-call and Cue keeps running" bar.
 
+**Echo cancellation across device changes (Windows).** Every capture client
+(re)initialization is a new stream to the echo canceller: an input or output
+device switch, a Bluetooth profile change (e.g. 48 kHz → 16 kHz when a headset
+joins a call), a sample-rate change, sleep/wake or an audio-service restart.
+On a new stream it hands over the old stream's remaining mic audio, starts the
+canceller over (adapted state never carries across a route change) and
+re-aligns mic and system audio from their timestamps, typically within a
+second (`aec_stream_started`, `aec_engine_ready reason=…`). While system audio
+is absent the mic passes through untouched; cancellation resumes when it
+returns (`aec_reference_missing` / `aec_reference_present`).
+
 ---
 
 ## Error & observability
@@ -362,9 +415,36 @@ The bar, learned from real macOS incidents:
 - **Never free async plumbing on callback-clear (SAYSO-349).** Passing `null` to
   a callback setter clears the callback only; the `uv_async_t` handles are torn
   down on Stop, not on clear. Freeing them on clear is a use-after-free.
+- **Echo cancellation never costs mic audio.** If it cannot work (no system
+  audio, engine failure, worker stalled) the mic is delivered as captured, and
+  the reason is on the lifecycle channel (below).
 - **Distinguish transient from fatal.** A single dropped buffer or a mid-swap gap
   is transient (the resilience layer recovers — no Sentry); an unrecoverable
   teardown is fatal (`_failed` → Sentry). Labeling them keeps the signal clean.
+
+### Echo-cancellation events (Windows)
+
+On the lifecycle channel, prefixed `aec_`, `key=value` details after the name.
+Only `aec_failed` is a failure (escalated); the rest are breadcrumbs.
+
+| Event | Meaning |
+|---|---|
+| `aec_switched on\|off` | `setEchoCancellationEnabled` was called |
+| `aec_started rate=48000 frame_ms=10` | echo canceller started with the mic session |
+| `aec_stream_started path=mic\|system stream= rate=` / `aec_stream_ended … reason=` | a capture stream (re)started or ended: device change, format change, stop |
+| `aec_engine_ready engine= reason=` | canceller (re)started; `reason` says why (`mic_stream_changed`, `system_stream_changed`, `reference_lost`, `mic_timing_jump`, …) |
+| `aec_engine_unavailable reason=not_built` | build without the WebRTC library (development only; release builds refuse to build without it): mic passes through |
+| `aec_reference_present` / `aec_reference_missing reason=system_audio_not_started\|system_audio_stopped` | system audio appeared or went away; without it the mic passes through |
+| `aec_resynced path= reason=jump\|slip` | a stream's timing broke or drifted too far and was re-aligned |
+| `aec_timestamps_untrusted path= offset_s=` | a device stamps buffers on a foreign clock (seen with Remote Desktop); placed by arrival time instead |
+| `aec_clock_jumped path= shift_s=` | a device's clock stopped and resumed (seen after laptop sleep); its timestamps are shifted back by that amount |
+| `aec_backlog_dropped frames= total=` | the canceller fell over 2 s behind; those frames skipped cancellation and went out as captured |
+| `aec_queue_full packets= total=` | its queues filled (worker stalled for seconds); the capture thread delivered those packets directly |
+| `aec_delivery_returned_to_capture` | switched off: delivery handed back to the capture path |
+| `aec_stats …` (every 60 s) / `aec_stopped …` (session end) | mode, frames cancelled vs passed through, echo delay, echo reduction (dB), added latency, CPU per frame, drops |
+| `aec_failed reason=engine_create_failed` | the WebRTC engine would not start: mic passes through |
+| `aec_failed reason=process_error code=` | 100 frames in a row failed: engine dropped, mic passes through, retried on the next stream change |
+| `aec_failed reason=worker_start_failed code=` | the processing thread could not start: mic keeps its normal path |
 
 > Observability is a prerequisite for the device-change resilience bar above:
 > "survives a mid-call swap" is only *testable* if a failed recovery emits a
@@ -380,7 +460,15 @@ The bar, learned from real macOS incidents:
   CoreFoundation, Foundation, ScreenCaptureKit, AVFoundation, CoreMedia; C++20 /
   libc++, deployment target 11.0 (must stay below 13.0, SAYSO-A3).
 - **win** (`OS=="win"`): `src/audio_device_manager_win.cpp` + `ole32`,
-  `mmdevapi`, `ksuser`.
+  `mmdevapi`, `ksuser`; the platform-free echo-cancellation core
+  `src/aec/*.cc`, linked statically with the WebRTC audio-processing library
+  `deps/webrtc_apm/win-x64/sayso_webrtc_apm.lib` (built once with
+  `scripts/build-webrtc-apm.ps1`, VS 2022; not in git, see
+  [WEBRTC_LIBRARY_BUILD.md](WEBRTC_LIBRARY_BUILD.md)) + `winmm`, `user32`.
+  Still one `native_audio.node`, no DLL. Packaging builds
+  (`scripts/rebuild-native-*.js`) fail when the library is missing, so a
+  release never ships without echo cancellation by accident. Licences:
+  `THIRD_PARTY_NOTICES.txt` (all permissive).
 
 Verify: `npm run rebuild-native` (macOS) or `npm run rebuild-native-win`
 (Windows) produces `build/Release/native_audio.node`.
