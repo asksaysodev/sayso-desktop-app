@@ -122,6 +122,8 @@
 #include <string>
 #include <vector>
 
+#include "aec/aec_pipeline.h"
+
 using namespace v8;
 
 namespace {
@@ -760,8 +762,266 @@ bool ClaimAbandoned(MicStartContext* ctx) { return !TrySettle(ctx, /*asAbandoned
 // (TryStartMicrophoneCaptureOnce's 1200ms / 1500ms waits).
 const int kMicFirstBufferWaitMs[2] = {1200, 1500};
 
-void PushCapturedBuffer(AudioDeliveryChannel* channel, BYTE* data, UINT32 framesAvailable, DWORD flags,
-                        UINT32 blockAlign, double sampleRate, int channels, int bitDepth, bool isFloat) {
+// ── Per-stream capture timing (echo-cancellation groundwork) ───────────────
+// Echo cancellation has to line the mic up against the system-audio
+// reference, and has to know how far each device's clock drifts from the
+// other's. WASAPI hands out both with every packet — the device position of
+// the packet's first frame, and the QPC time it was captured (100ns units) —
+// on one QPC clock shared by both paths. Every GetBuffer call used to discard
+// them.
+//
+// One StreamTiming per IAudioClient stream: a restart opens a new stream whose
+// device position starts over, so it gets a fresh one. Owned by whichever
+// thread polls that stream and never shared, so no locking.
+//
+// Delivery to JS is unaffected. With SAYSO_AEC_DIAG=1 in the environment, each
+// stream reports a summary every 60s and once when it ends: its sample rate
+// measured against QPC (mic-vs-system drift is the difference of the two
+// paths' drift_ppm), device-position gaps, and the discontinuity/timestamp-
+// error flags WASAPI raised. Off by default — nothing is logged in production.
+
+bool AecDiagEnabled() {
+  static const bool enabled = [] {
+    char value[8] = {0};
+    DWORD n = GetEnvironmentVariableA("SAYSO_AEC_DIAG", value, sizeof(value));
+    return n > 0 && n < sizeof(value) && value[0] == '1';
+  }();
+  return enabled;
+}
+
+// Current QPC time in 100 ns units, the unit WASAPI timestamps packets in.
+uint64_t HostTimeNow() {
+  LARGE_INTEGER counter;
+  LARGE_INTEGER frequency;
+  QueryPerformanceCounter(&counter);
+  QueryPerformanceFrequency(&frequency);
+  const uint64_t c = static_cast<uint64_t>(counter.QuadPart);
+  const uint64_t f = static_cast<uint64_t>(frequency.QuadPart);
+  return c / f * 10000000ull + c % f * 10000000ull / f;
+}
+
+void EmitAecEvent(const std::string& event) { EmitLifecycleEvent(event); }
+
+// Echo-cancellation pipeline (src/aec). Runs alongside the mic session when
+// echo cancellation is switched on (setEchoCancellationEnabled), then
+// delivering the mic to JS itself: cleaned when it can cancel, the original
+// bytes when it cannot. With SAYSO_AEC_DIAG=1 alone it runs for diagnostics
+// and JS keeps receiving the mic from the capture path, exactly as without
+// it. Created on the first mic start that needs it and never freed, so a
+// capture thread can always dereference what it loaded.
+std::atomic<sayso::aec::AecPipeline*> g_aec{nullptr};
+
+// UTF-8 value of an environment variable; empty when unset.
+std::string EnvUtf8(const wchar_t* name) {
+  wchar_t buf[1024];
+  const DWORD n = GetEnvironmentVariableW(name, buf, static_cast<DWORD>(std::size(buf)));
+  if (n == 0 || n >= std::size(buf)) {
+    return std::string();
+  }
+  return WideToUtf8(buf);
+}
+
+// Diagnostic WAVs (reference / raw mic / clean mic) are recorded only when
+// SAYSO_AEC_DIAG_WAV_DIR names an existing folder; at most
+// SAYSO_AEC_DIAG_WAV_MAX_SEC seconds per session (default 300).
+const double kDefaultDiagWavMaxSeconds = 300;
+
+// The echo-cancellation switch (setEchoCancellationEnabled). Its state at
+// launch comes from SAYSO_AEC_DEFAULT_ON, set in binding.gyp (0 = off, the
+// default; 1 = on). SAYSO_AEC_ENABLE in the environment overrides it for
+// testing: 1 switches on, 0 switches off. JS thread only.
+#ifndef SAYSO_AEC_DEFAULT_ON
+#define SAYSO_AEC_DEFAULT_ON 0
+#endif
+bool g_aecRequested = [] {
+  char value[8] = {0};
+  const DWORD n = GetEnvironmentVariableA("SAYSO_AEC_ENABLE", value, sizeof(value));
+  if (n > 0 && n < sizeof(value)) {
+    return value[0] == '1';
+  }
+  return SAYSO_AEC_DEFAULT_ON != 0;
+}();
+
+// Worker thread: mic audio the pipeline delivers while echo cancellation is
+// on, into the same queue and format contract as captured packets.
+void DeliverAecAudio(const uint8_t* bytes, size_t size, double sampleRate, int channels, int bitDepth, bool isFloat);
+
+// JS thread: alongside a successful mic start, or when the switch is turned
+// on mid-call. Runs when echo cancellation is switched on, or for
+// diagnostics (SAYSO_AEC_DIAG=1, where nothing is delivered from it).
+void StartAecIfEnabled() {
+  if (!AecDiagEnabled() && !g_aecRequested) {
+    return;
+  }
+  sayso::aec::AecPipeline* aec = g_aec.load(std::memory_order_acquire);
+  if (!aec) {
+    aec = new sayso::aec::AecPipeline(EmitAecEvent, HostTimeNow);
+    aec->SetDeliverySink(DeliverAecAudio);
+    g_aec.store(aec, std::memory_order_release);
+  }
+  aec->SetEnabled(g_aecRequested);
+  if (aec->Running()) {
+    return;
+  }
+  const std::string maxSeconds = EnvUtf8(L"SAYSO_AEC_DIAG_WAV_MAX_SEC");
+  const double parsed = maxSeconds.empty() ? 0 : atof(maxSeconds.c_str());
+  aec->SetDiagnosticRecording(EnvUtf8(L"SAYSO_AEC_DIAG_WAV_DIR"),
+                              parsed > 0 ? parsed : kDefaultDiagWavMaxSeconds);
+  aec->Start();
+}
+
+// JS thread: once the mic capture thread has been joined, and before the mic
+// channel is closed (the worker delivers into it).
+void StopAec() {
+  if (sayso::aec::AecPipeline* aec = g_aec.load(std::memory_order_acquire)) {
+    aec->Stop();
+  }
+}
+
+void DeliverAecAudio(const uint8_t* bytes, size_t size, double sampleRate, int channels, int bitDepth, bool isFloat) {
+  StreamingData* payload = new StreamingData();
+  payload->audioData.assign(reinterpret_cast<const char*>(bytes), reinterpret_cast<const char*>(bytes) + size);
+  payload->sampleRate = sampleRate;
+  payload->channels = channels;
+  payload->bitDepth = bitDepth;
+  payload->isFloat = isFloat;
+  g_micChannel.Push(payload);
+}
+
+std::atomic<uint64_t> g_nextStreamId{0};
+const int64_t kStreamTimingReportIntervalMs = 60000;
+// Shorter spans make the measured rate mostly packet-timing jitter.
+const double kMinRateSpanSeconds = 1.0;
+
+struct StreamTiming {
+  const char* path = "";   // lifecycle event prefix: "mic" or "sys_audio"
+  sayso::aec::AecPath aecPath = sayso::aec::AecPath::kCapture;
+  uint64_t streamId = 0;   // 0 = Begin() never called; nothing to report
+  double nominalRate = 0;
+
+  bool havePosition = false;
+  UINT64 nextDevicePosition = 0;  // where the next packet should start if nothing was lost
+
+  bool haveTimestamp = false;     // first/last pair excludes TIMESTAMP_ERROR packets
+  UINT64 firstDevicePosition = 0;
+  UINT64 firstQpc = 0;
+  UINT64 lastDevicePosition = 0;
+  UINT64 lastQpc = 0;
+
+  uint64_t packets = 0;
+  uint64_t frames = 0;
+  uint64_t gapEvents = 0;
+  uint64_t gapFrames = 0;
+  uint64_t overlapEvents = 0;
+  uint64_t discontinuityFlags = 0;
+  uint64_t timestampErrorFlags = 0;
+  int64_t lastReportMs = 0;
+
+  // Once per stream, right after IAudioClient::Start() succeeds.
+  void Begin(const char* pathName, sayso::aec::AecPath echoPath, double sampleRate) {
+    *this = StreamTiming();
+    path = pathName;
+    aecPath = echoPath;
+    streamId = g_nextStreamId.fetch_add(1, std::memory_order_relaxed) + 1;
+    nominalRate = sampleRate;
+    lastReportMs = NowMs();
+  }
+
+  void Note(UINT32 framesInPacket, DWORD flags, UINT64 devicePosition, UINT64 qpcPosition) {
+    packets++;
+    frames += framesInPacket;
+    if (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) {
+      discontinuityFlags++;
+    }
+    if (havePosition) {
+      if (devicePosition > nextDevicePosition) {
+        gapEvents++;
+        gapFrames += devicePosition - nextDevicePosition;
+      } else if (devicePosition < nextDevicePosition) {
+        overlapEvents++;
+      }
+    }
+    havePosition = true;
+    nextDevicePosition = devicePosition + framesInPacket;
+
+    if (flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR) {
+      timestampErrorFlags++;
+    } else {
+      if (!haveTimestamp) {
+        haveTimestamp = true;
+        firstDevicePosition = devicePosition;
+        firstQpc = qpcPosition;
+      }
+      lastDevicePosition = devicePosition;
+      lastQpc = qpcPosition;
+    }
+
+    if (AecDiagEnabled()) {
+      int64_t now = NowMs();
+      if (now - lastReportMs >= kStreamTimingReportIntervalMs) {
+        lastReportMs = now;
+        Report("timing");
+      }
+    }
+  }
+
+  // When the stream's thread stops polling it.
+  void End() {
+    Report("timing_final");
+    if (sayso::aec::AecPipeline* aec = g_aec.load(std::memory_order_acquire)) {
+      if (streamId != 0) {
+        aec->EndStream(aecPath, streamId);
+      }
+    }
+  }
+
+  // No-op unless SAYSO_AEC_DIAG=1. `kind` is "timing" (periodic) or "timing_final".
+  void Report(const char* kind) const {
+    if (!AecDiagEnabled() || streamId == 0) {
+      return;
+    }
+    const double spanSeconds = haveTimestamp ? static_cast<double>(lastQpc - firstQpc) / 1e7 : 0.0;
+    char rate[64] = "rate_measured=na drift_ppm=na";
+    if (spanSeconds >= kMinRateSpanSeconds && nominalRate > 0) {
+      const double measured = static_cast<double>(lastDevicePosition - firstDevicePosition) / spanSeconds;
+      snprintf(rate, sizeof(rate), "rate_measured=%.3f drift_ppm=%.1f", measured,
+               (measured / nominalRate - 1.0) * 1e6);
+    }
+    char msg[512];
+    snprintf(msg, sizeof(msg),
+             "%s_%s stream=%llu rate_nominal=%.0f %s span_s=%.1f first_qpc_ms=%.3f packets=%llu frames=%llu "
+             "gaps=%llu gap_frames=%llu overlaps=%llu discontinuities=%llu ts_errors=%llu",
+             path, kind, static_cast<unsigned long long>(streamId), nominalRate, rate, spanSeconds,
+             static_cast<double>(firstQpc) / 1e4, static_cast<unsigned long long>(packets),
+             static_cast<unsigned long long>(frames), static_cast<unsigned long long>(gapEvents),
+             static_cast<unsigned long long>(gapFrames), static_cast<unsigned long long>(overlapEvents),
+             static_cast<unsigned long long>(discontinuityFlags),
+             static_cast<unsigned long long>(timestampErrorFlags));
+    EmitLifecycleEvent(msg);
+  }
+};
+
+void PushCapturedBuffer(AudioDeliveryChannel* channel, StreamTiming& timing, BYTE* data, UINT32 framesAvailable,
+                        DWORD flags, UINT64 devicePosition, UINT64 qpcPosition, UINT32 blockAlign,
+                        double sampleRate, int channels, int bitDepth, bool isFloat) {
+  timing.Note(framesAvailable, flags, devicePosition, qpcPosition);
+  channel->diagPushed.fetch_add(1, std::memory_order_relaxed);
+  if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+    channel->diagSilentFlagged.fetch_add(1, std::memory_order_relaxed);
+  }
+  channel->diagLastPushMs.store(NowMs(), std::memory_order_relaxed);
+  channel->diagLastSampleRate.store(static_cast<int>(sampleRate), std::memory_order_relaxed);
+  channel->diagLastChannels.store(channels, std::memory_order_relaxed);
+  if (sayso::aec::AecPipeline* aec = g_aec.load(std::memory_order_acquire)) {
+    const bool silent = (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
+    const bool takenOver =
+        aec->PushPacket(timing.aecPath, timing.streamId, sampleRate, silent ? nullptr : data, framesAvailable, channels,
+                        sayso::aec::DescribeSampleType(bitDepth, isFloat), qpcPosition,
+                        (flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR) == 0);
+    if (takenOver) {
+      return;  // echo cancellation is on: the pipeline delivers this mic packet (DeliverAecAudio)
+    }
+  }
   StreamingData* payload = new StreamingData();
   payload->audioData.resize(static_cast<size_t>(framesAvailable) * blockAlign);
   if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
@@ -773,13 +1033,6 @@ void PushCapturedBuffer(AudioDeliveryChannel* channel, BYTE* data, UINT32 frames
   payload->channels = channels;
   payload->bitDepth = bitDepth;
   payload->isFloat = isFloat;
-  channel->diagPushed.fetch_add(1, std::memory_order_relaxed);
-  if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
-    channel->diagSilentFlagged.fetch_add(1, std::memory_order_relaxed);
-  }
-  channel->diagLastPushMs.store(NowMs(), std::memory_order_relaxed);
-  channel->diagLastSampleRate.store(static_cast<int>(sampleRate), std::memory_order_relaxed);
-  channel->diagLastChannels.store(channels, std::memory_order_relaxed);
   channel->Push(payload);
 }
 
@@ -804,6 +1057,7 @@ DWORD WINAPI MicCaptureThreadProc(LPVOID param) {
   std::wstring endpointId;
   const char* failReason = "no_tap_buffers";
   bool started = false;
+  StreamTiming timing;
 
   auto cleanupAttempt = [&]() {
     SafeRelease(&captureClient);
@@ -879,6 +1133,7 @@ DWORD WINAPI MicCaptureThreadProc(LPVOID param) {
       cleanupAttempt();
       continue;
     }
+    timing.Begin("mic", sayso::aec::AecPath::kCapture, sampleRate);
 
     // Wait (bounded per attempt) for the first real buffer. Note: unlike the
     // steady-state loop below, this does NOT check stopEvent — a Stop cannot
@@ -903,14 +1158,16 @@ DWORD WINAPI MicCaptureThreadProc(LPVOID param) {
       BYTE* data = nullptr;
       UINT32 framesAvailable = 0;
       DWORD flags = 0;
-      hr = captureClient->GetBuffer(&data, &framesAvailable, &flags, nullptr, nullptr);
+      UINT64 devicePosition = 0;
+      UINT64 qpcPosition = 0;
+      hr = captureClient->GetBuffer(&data, &framesAvailable, &flags, &devicePosition, &qpcPosition);
       if (FAILED(hr)) {
         fatal = true;
         break;
       }
       if (framesAvailable > 0) {
-        PushCapturedBuffer(&g_micChannel, data, framesAvailable, flags, blockAlign, sampleRate, channels, bitDepth,
-                            isFloat);
+        PushCapturedBuffer(&g_micChannel, timing, data, framesAvailable, flags, devicePosition, qpcPosition,
+                            blockAlign, sampleRate, channels, bitDepth, isFloat);
         firstBufferSeen = true;
       }
       captureClient->ReleaseBuffer(framesAvailable);
@@ -987,13 +1244,15 @@ DWORD WINAPI MicCaptureThreadProc(LPVOID param) {
       BYTE* data = nullptr;
       UINT32 framesAvailable = 0;
       DWORD flags = 0;
-      if (FAILED(captureClient->GetBuffer(&data, &framesAvailable, &flags, nullptr, nullptr))) {
+      UINT64 devicePosition = 0;
+      UINT64 qpcPosition = 0;
+      if (FAILED(captureClient->GetBuffer(&data, &framesAvailable, &flags, &devicePosition, &qpcPosition))) {
         packetLength = 0;
         break;
       }
       if (framesAvailable > 0) {
-        PushCapturedBuffer(&g_micChannel, data, framesAvailable, flags, blockAlign, sampleRate, channels, bitDepth,
-                            isFloat);
+        PushCapturedBuffer(&g_micChannel, timing, data, framesAvailable, flags, devicePosition, qpcPosition, blockAlign,
+                            sampleRate, channels, bitDepth, isFloat);
       }
       captureClient->ReleaseBuffer(framesAvailable);
       if (FAILED(captureClient->GetNextPacketSize(&packetLength))) {
@@ -1002,6 +1261,7 @@ DWORD WINAPI MicCaptureThreadProc(LPVOID param) {
     }
   }
 
+  timing.End();
   audioClient->Stop();
   CoUninitialize();
   return 0;
@@ -1025,6 +1285,7 @@ struct MicOpenResult {
   int bitDepth = 0;
   bool isFloat = false;
   UINT32 blockAlign = 0;
+  StreamTiming timing;  // begun once Start() succeeds; handed on to the poll-only thread
 };
 
 void ReleaseMicOpenResult(MicOpenResult* r) {
@@ -1101,6 +1362,7 @@ bool TryOpenMicCaptureOnce(int waitForFirstBufferMs, MicOpenResult* out, const c
     ReleaseMicOpenResult(out);
     return false;
   }
+  out->timing.Begin("mic", sayso::aec::AecPath::kCapture, out->sampleRate);
 
   bool firstBufferSeen = false;
   DWORD waitStartTick = GetTickCount();
@@ -1116,12 +1378,14 @@ bool TryOpenMicCaptureOnce(int waitForFirstBufferMs, MicOpenResult* out, const c
     BYTE* data = nullptr;
     UINT32 framesAvailable = 0;
     DWORD flags = 0;
-    if (FAILED(out->captureClient->GetBuffer(&data, &framesAvailable, &flags, nullptr, nullptr))) {
+    UINT64 devicePosition = 0;
+    UINT64 qpcPosition = 0;
+    if (FAILED(out->captureClient->GetBuffer(&data, &framesAvailable, &flags, &devicePosition, &qpcPosition))) {
       break;
     }
     if (framesAvailable > 0) {
-      PushCapturedBuffer(&g_micChannel, data, framesAvailable, flags, out->blockAlign, out->sampleRate,
-                          out->channels, out->bitDepth, out->isFloat);
+      PushCapturedBuffer(&g_micChannel, out->timing, data, framesAvailable, flags, devicePosition, qpcPosition,
+                          out->blockAlign, out->sampleRate, out->channels, out->bitDepth, out->isFloat);
       firstBufferSeen = true;
     }
     out->captureClient->ReleaseBuffer(framesAvailable);
@@ -1145,6 +1409,7 @@ struct MicPollOnlyParams {
   int channels;
   int bitDepth;
   bool isFloat;
+  StreamTiming timing;
 };
 
 // The long-lived thread a successful restart spawns: identical
@@ -1162,6 +1427,7 @@ DWORD WINAPI MicPollOnlyThreadProc(LPVOID param) {
   int channels = p->channels;
   int bitDepth = p->bitDepth;
   bool isFloat = p->isFloat;
+  StreamTiming timing = p->timing;
   delete p;
 
   HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -1175,13 +1441,15 @@ DWORD WINAPI MicPollOnlyThreadProc(LPVOID param) {
       BYTE* data = nullptr;
       UINT32 framesAvailable = 0;
       DWORD flags = 0;
-      if (FAILED(captureClient->GetBuffer(&data, &framesAvailable, &flags, nullptr, nullptr))) {
+      UINT64 devicePosition = 0;
+      UINT64 qpcPosition = 0;
+      if (FAILED(captureClient->GetBuffer(&data, &framesAvailable, &flags, &devicePosition, &qpcPosition))) {
         packetLength = 0;
         break;
       }
       if (framesAvailable > 0) {
-        PushCapturedBuffer(&g_micChannel, data, framesAvailable, flags, blockAlign, sampleRate, channels, bitDepth,
-                            isFloat);
+        PushCapturedBuffer(&g_micChannel, timing, data, framesAvailable, flags, devicePosition, qpcPosition, blockAlign,
+                            sampleRate, channels, bitDepth, isFloat);
       }
       captureClient->ReleaseBuffer(framesAvailable);
       if (FAILED(captureClient->GetNextPacketSize(&packetLength))) {
@@ -1190,6 +1458,7 @@ DWORD WINAPI MicPollOnlyThreadProc(LPVOID param) {
     }
   }
 
+  timing.End();
   audioClient->Stop();
   if (SUCCEEDED(hrInit)) {
     CoUninitialize();
@@ -1306,7 +1575,7 @@ bool PublishMicRestartSuccessLocked(MicOpenResult& result) {
   }
   MicPollOnlyParams* pollParams = new MicPollOnlyParams{result.captureClient, result.audioClient, stopEvent,
                                                          result.blockAlign,   result.sampleRate,   result.channels,
-                                                         result.bitDepth,     result.isFloat};
+                                                         result.bitDepth,     result.isFloat,      result.timing};
   HANDLE thread = CreateThread(nullptr, 0, MicPollOnlyThreadProc, pollParams, 0, nullptr);
   if (!thread) {
     delete pollParams;
@@ -2045,6 +2314,8 @@ DWORD WINAPI LoopbackCaptureThreadProc(LPVOID param) {
     fail("sys_audio_start_failed");
     return 0;
   }
+  StreamTiming timing;
+  timing.Begin("sys_audio", sayso::aec::AecPath::kRender, sampleRate);
 
   // Settle + publish are one atomic step inside SettleLoopbackStart (under
   // g_loopbackStartMutex) — see that function's comment for why this must
@@ -2077,13 +2348,15 @@ DWORD WINAPI LoopbackCaptureThreadProc(LPVOID param) {
       BYTE* data = nullptr;
       UINT32 framesAvailable = 0;
       DWORD flags = 0;
-      if (FAILED(captureClient->GetBuffer(&data, &framesAvailable, &flags, nullptr, nullptr))) {
+      UINT64 devicePosition = 0;
+      UINT64 qpcPosition = 0;
+      if (FAILED(captureClient->GetBuffer(&data, &framesAvailable, &flags, &devicePosition, &qpcPosition))) {
         packetLength = 0;
         break;
       }
       if (framesAvailable > 0) {
-        PushCapturedBuffer(&g_systemChannel, data, framesAvailable, flags, blockAlign, sampleRate, channels, bitDepth,
-                            isFloat);
+        PushCapturedBuffer(&g_systemChannel, timing, data, framesAvailable, flags, devicePosition, qpcPosition,
+                            blockAlign, sampleRate, channels, bitDepth, isFloat);
       }
       captureClient->ReleaseBuffer(framesAvailable);
       if (FAILED(captureClient->GetNextPacketSize(&packetLength))) {
@@ -2092,6 +2365,7 @@ DWORD WINAPI LoopbackCaptureThreadProc(LPVOID param) {
     }
   }
 
+  timing.End();
   audioClient->Stop();
   CoUninitialize();
   return 0;
@@ -2117,6 +2391,7 @@ struct LoopbackOpenResult {
   int bitDepth = 0;
   bool isFloat = false;
   UINT32 blockAlign = 0;
+  StreamTiming timing;  // begun once Start() succeeds; handed on to the poll-only thread
 };
 
 void ReleaseLoopbackOpenResult(LoopbackOpenResult* r) {
@@ -2189,6 +2464,7 @@ bool TryOpenLoopbackCaptureOnce(LoopbackOpenResult* out, const char** failReason
     ReleaseLoopbackOpenResult(out);
     return false;
   }
+  out->timing.Begin("sys_audio", sayso::aec::AecPath::kRender, out->sampleRate);
   return true;
 }
 
@@ -2201,6 +2477,7 @@ struct LoopbackPollOnlyParams {
   int channels;
   int bitDepth;
   bool isFloat;
+  StreamTiming timing;
 };
 
 DWORD WINAPI LoopbackPollOnlyThreadProc(LPVOID param) {
@@ -2213,6 +2490,7 @@ DWORD WINAPI LoopbackPollOnlyThreadProc(LPVOID param) {
   int channels = p->channels;
   int bitDepth = p->bitDepth;
   bool isFloat = p->isFloat;
+  StreamTiming timing = p->timing;
   delete p;
 
   HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -2226,13 +2504,15 @@ DWORD WINAPI LoopbackPollOnlyThreadProc(LPVOID param) {
       BYTE* data = nullptr;
       UINT32 framesAvailable = 0;
       DWORD flags = 0;
-      if (FAILED(captureClient->GetBuffer(&data, &framesAvailable, &flags, nullptr, nullptr))) {
+      UINT64 devicePosition = 0;
+      UINT64 qpcPosition = 0;
+      if (FAILED(captureClient->GetBuffer(&data, &framesAvailable, &flags, &devicePosition, &qpcPosition))) {
         packetLength = 0;
         break;
       }
       if (framesAvailable > 0) {
-        PushCapturedBuffer(&g_systemChannel, data, framesAvailable, flags, blockAlign, sampleRate, channels, bitDepth,
-                            isFloat);
+        PushCapturedBuffer(&g_systemChannel, timing, data, framesAvailable, flags, devicePosition, qpcPosition,
+                            blockAlign, sampleRate, channels, bitDepth, isFloat);
       }
       captureClient->ReleaseBuffer(framesAvailable);
       if (FAILED(captureClient->GetNextPacketSize(&packetLength))) {
@@ -2241,6 +2521,7 @@ DWORD WINAPI LoopbackPollOnlyThreadProc(LPVOID param) {
     }
   }
 
+  timing.End();
   audioClient->Stop();
   if (SUCCEEDED(hrInit)) {
     CoUninitialize();
@@ -2264,7 +2545,8 @@ bool PublishLoopbackRestartSuccessLocked(LoopbackOpenResult& result) {
   }
   LoopbackPollOnlyParams* pollParams =
       new LoopbackPollOnlyParams{result.captureClient, result.audioClient, stopEvent,        result.blockAlign,
-                                  result.sampleRate,    result.channels,    result.bitDepth,  result.isFloat};
+                                  result.sampleRate,    result.channels,    result.bitDepth,  result.isFloat,
+                                  result.timing};
   HANDLE thread = CreateThread(nullptr, 0, LoopbackPollOnlyThreadProc, pollParams, 0, nullptr);
   if (!thread) {
     delete pollParams;
@@ -2958,6 +3240,7 @@ NAN_METHOD(StartMicrophoneCapture) {
   delete ctx;
   g_micState.capturing.store(true, std::memory_order_release);
   g_micState.routeRecovering.store(false, std::memory_order_release);
+  StartAecIfEnabled();
 
   info.GetReturnValue().Set(MicStartResult(true));
 }
@@ -3014,6 +3297,7 @@ NAN_METHOD(StopMicrophoneCapture) {
       // in g_micState to tear down.
       g_micState.capturing.store(false, std::memory_order_release);
       g_micState.routeRecovering.store(false, std::memory_order_release);
+      StopAec();
       info.GetReturnValue().Set(Nan::True());
       return;
     }
@@ -3032,6 +3316,9 @@ NAN_METHOD(StopMicrophoneCapture) {
   // still be in use), accepting a one-time resource leak over a
   // use-after-free.
   bool torn = JoinAndReleaseSessionClaim(claim, "mic_capture_thread_join_timeout");
+  // The echo-cancellation worker may deliver into the mic channel: stop it
+  // before that channel's async handle is closed below.
+  StopAec();
 
   std::lock_guard<std::mutex> lk2(g_micState.engineLock);
   // Bug fix: ClaimSessionLocked above set claimActive=true; this call is
@@ -3458,6 +3745,46 @@ void MicDiagnosticsSettledCb(uv_async_t* handle) {
 
 // Resolves the snapshot object, or null when a previous snapshot is still in
 // flight or the work couldn't be scheduled. Never rejects.
+// setEchoCancellationEnabled(on: boolean) -> undefined. Additive (brief:
+// "runtime on/off switch"). Live: switching on mid-call routes the mic through
+// the echo canceller from the next packet; switching off returns delivery to
+// the capture path once everything in flight is handed over. Off means the
+// mic reaches JS exactly as without echo cancellation.
+NAN_METHOD(SetEchoCancellationEnabled) {
+  if (info.Length() < 1 || !info[0]->IsBoolean()) {
+    Nan::ThrowTypeError("setEchoCancellationEnabled(on: boolean)");
+    return;
+  }
+  g_aecRequested = Nan::To<bool>(info[0]).FromJust();
+  if (sayso::aec::AecPipeline* aec = g_aec.load(std::memory_order_acquire)) {
+    aec->SetEnabled(g_aecRequested);
+  }
+  if (g_aecRequested && g_micState.capturing.load(std::memory_order_acquire)) {
+    StartAecIfEnabled();  // mid-call: starts the pipeline if it is not running yet
+  }
+  EmitLifecycleEvent(g_aecRequested ? "aec_switched on" : "aec_switched off");
+}
+
+// getEchoCancellationState() -> { enabled, active, delayMs? }. Sync, never
+// throws. active = currently delivering cleaned audio (false while passing
+// the mic through for lack of a reference or engine).
+NAN_METHOD(GetEchoCancellationState) {
+  Local<Object> result = Nan::New<Object>();
+  bool active = false;
+  int delayMs = -1;
+  if (sayso::aec::AecPipeline* aec = g_aec.load(std::memory_order_acquire)) {
+    const sayso::aec::AecPipeline::State st = aec->GetState();
+    active = aec->Running() && st.active;
+    delayMs = st.delayMs;
+  }
+  Nan::Set(result, Nan::New("enabled").ToLocalChecked(), Nan::New<v8::Boolean>(g_aecRequested));
+  Nan::Set(result, Nan::New("active").ToLocalChecked(), Nan::New<v8::Boolean>(active));
+  if (delayMs >= 0) {
+    Nan::Set(result, Nan::New("delayMs").ToLocalChecked(), Nan::New<Integer>(delayMs));
+  }
+  info.GetReturnValue().Set(result);
+}
+
 NAN_METHOD(GetMicInputDiagnostics) {
   Isolate* isolate = info.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext();
@@ -3518,6 +3845,10 @@ NAN_MODULE_INIT(Init) {
            Nan::GetFunction(Nan::New<v8::FunctionTemplate>(SetMicrophoneStreamingCallback)).ToLocalChecked());
   Nan::Set(target, Nan::New("setLifecycleEventCallback").ToLocalChecked(),
            Nan::GetFunction(Nan::New<v8::FunctionTemplate>(SetLifecycleEventCallback)).ToLocalChecked());
+  Nan::Set(target, Nan::New("setEchoCancellationEnabled").ToLocalChecked(),
+           Nan::GetFunction(Nan::New<v8::FunctionTemplate>(SetEchoCancellationEnabled)).ToLocalChecked());
+  Nan::Set(target, Nan::New("getEchoCancellationState").ToLocalChecked(),
+           Nan::GetFunction(Nan::New<v8::FunctionTemplate>(GetEchoCancellationState)).ToLocalChecked());
   Nan::Set(target, Nan::New("getMicInputDiagnostics").ToLocalChecked(),
            Nan::GetFunction(Nan::New<v8::FunctionTemplate>(GetMicInputDiagnostics)).ToLocalChecked());
 }

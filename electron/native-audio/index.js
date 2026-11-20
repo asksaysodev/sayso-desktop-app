@@ -234,6 +234,29 @@ class AudioDeviceManager {
     if (typeof nativeAudio.getMicInputDiagnostics !== 'function') return null;
     return nativeAudio.getMicInputDiagnostics();
   }
+
+  /**
+   * Echo cancellation switch (optional; native builds without it ignore the call).
+   * Live: switching on mid-call routes the mic through the echo canceller from the
+   * next packet; off means the mic reaches the streaming callback exactly as before.
+   * @param {boolean} on
+   * @returns {boolean} whether the native module supports echo cancellation
+   */
+  setEchoCancellationEnabled(on) {
+    if (typeof nativeAudio.setEchoCancellationEnabled !== 'function') return false;
+    nativeAudio.setEchoCancellationEnabled(Boolean(on));
+    return true;
+  }
+
+  /**
+   * Echo cancellation state, or null when the native module has no echo cancellation.
+   * `active` is false while the mic is passed through for lack of a reference.
+   * @returns {{enabled: boolean, active: boolean, delayMs?: number}|null}
+   */
+  getEchoCancellationState() {
+    if (typeof nativeAudio.getEchoCancellationState !== 'function') return null;
+    return nativeAudio.getEchoCancellationState();
+  }
 }
 
 module.exports = new AudioDeviceManager();

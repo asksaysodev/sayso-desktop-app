@@ -2,6 +2,10 @@
   "targets": [
     {
       "target_name": "native_audio",
+      "variables": {
+        "webrtc_apm_win": "<!(node scripts/webrtc-apm-status.js)",
+        "aec_diag_recording": "<!(node -p \"process.env.SAYSO_AEC_DIAG_RECORDING === '1' ? 1 : 0\")"
+      },
       "include_dirs": [
         "<!(node -e \"require('nan')\")"
       ],
@@ -33,7 +37,18 @@
           }
         }],
         ["OS=='win'", {
-          "sources": [ "src/audio_device_manager_win.cpp" ],
+          "sources": [
+            "src/audio_device_manager_win.cpp",
+            "src/aec/aec_engine.cc",
+            "src/aec/aec_pipeline.cc",
+            "src/aec/audio_format.cc",
+            "src/aec/resampler.cc"
+          ],
+          "include_dirs": [ "third_party/sayso_webrtc_apm" ],
+          # Echo cancellation at launch, before JS calls
+          # setEchoCancellationEnabled: 0 = off (the mic exactly as before),
+          # 1 = on. See docs/ECHO_CANCELLATION_SWITCH.md.
+          "defines": [ "SAYSO_AEC_DEFAULT_ON=0" ],
           "link_settings": {
             "libraries": [
               "ole32.lib",
@@ -46,7 +61,31 @@
               "ExceptionHandling": 1,
               "AdditionalOptions": ["/std:c++20"]
             }
-          }
+          },
+          # WebRTC AEC3, linked statically when
+          # scripts/build-webrtc-apm.ps1 has produced the library. Without it
+          # the addon still builds and the echo canceller reports
+          # "aec_engine_unavailable reason=not_built", passing the mic through.
+          "conditions": [
+            # Diagnostic call recording (reference / raw mic / clean mic WAVs)
+            # is compiled into developer builds only: set
+            # SAYSO_AEC_DIAG_RECORDING=1 when building. Release packaging
+            # clears it (scripts/native-build-env.js).
+            ["aec_diag_recording==1", {
+              "defines": [ "SAYSO_AEC_DIAG_RECORDING" ],
+              "sources": [ "src/aec/diagnostic_recorder.cc" ]
+            }],
+            ["webrtc_apm_win==1", {
+              "defines": [ "SAYSO_HAVE_WEBRTC_APM" ],
+              "link_settings": {
+                "libraries": [
+                  "<(module_root_dir)/deps/webrtc_apm/win-x64/sayso_webrtc_apm.lib",
+                  "winmm.lib",
+                  "user32.lib"
+                ]
+              }
+            }]
+          ]
         }]
       ]
     }
