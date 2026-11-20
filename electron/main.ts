@@ -572,10 +572,16 @@ authManager.on('session-expired', () => {
 // The "Meeting detection" setting (SAYSO-531) gates only the prompt, read from
 // the cache so a call never waits on the network; the monitor keeps running.
 const hasActiveSubscription = () => !!global.authUser && global.authUser.subscription_plan_id !== null;
+// No prompt during first-run setup (SAYSO-627). Live grants alone aren't enough:
+// they land before the splash's Continue / Quit and Reopen, so an open splash or
+// onboarding window still counts as setup.
+const isSetupComplete = () =>
+  permissions.isPermissionsComplete() && !isSplashWindowOpen() && !isOnboardingWindowOpen();
 
 initCallPrompt({
   canPrompt: () =>
     hasActiveSubscription()
+    && isSetupComplete()
     && global.networkState !== 'reconnecting'
     && cacheStore.getValue('callDetectionPromptEnabled'),
   isCoachOpen: () => !!isCoachWindowOpen(),
@@ -592,6 +598,7 @@ initQuitConfirm({
   isCallDetectionActive: () =>
     isMicActivityMonitorRunning()
     && hasActiveSubscription()
+    && isSetupComplete()
     && !!cacheStore.getValue('callDetectionPromptEnabled'),
   isQuitting: () => isAppQuitting,
 });
@@ -1004,6 +1011,12 @@ function isAppSettingsWindowOpen() {
 }
 function isPlaybookWindowOpen() {
   return global.playbookWindow && !global.playbookWindow.isDestroyed();
+}
+function isSplashWindowOpen() {
+  return !!splashWindowInstance && !splashWindowInstance.isDestroyed();
+}
+function isOnboardingWindowOpen() {
+  return !!onboardingWindowInstance && !onboardingWindowInstance.isDestroyed();
 }
 
 /**
