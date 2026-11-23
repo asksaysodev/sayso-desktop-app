@@ -208,7 +208,7 @@ Run with Sayso quit and again with Sayso running.
 
 | macOS | Native | Request | App | Capture | Observed | Notes |
 |---|---|---|---|---|---|---|
-| 14.4 | Backend `coreaudio_tap`; audio `not_determined` | Prompt on "Allow System Audio"; no relaunch (expected) | First launch: flag 1 → incomplete → `/permissions` with copy "Sayso now uses a lighter permission for call audio". User closes splash and starts Cue → **S-3** (SCK, still works) | Never blocked from a call; SCK until granted, tap after | | No `tccutil` reset. Screen Recording grant left in place |
+| 14.4 | Backend `coreaudio_tap`; audio `not_determined` | Prompt on "Allow System Audio"; no relaunch (expected) | First launch: audio `not-determined` → incomplete → `/permissions` upgrade screen ("We've improved audio capture for more reliable prompting", System Audio row only). Allow → success view, "You can close this window now". Don't Allow → "You can turn this on anytime in System Settings", complete from then on (denied + Screen Recording). Closing the splash without answering and starting Cue → **S-3** | Never blocked from a call; SCK until granted, tap after | | No `tccutil` reset. Screen Recording grant left in place |
 | 15 | Same | Same | Same | Same | | |
 | 26 | Same | Same | Same | Same | | |
 
@@ -319,7 +319,7 @@ Done: backend selection at 14.4+; P-G / P-ND / P-D; S-1 to S-5; the `tap_permiss
 
 Not done yet:
 - **Versioned completion flag** (§3). `isComplete()` reads live state only (mic && audio ∈ {granted, unknown}). Case 7 still re-routes once, because live audio is `not-determined`, but `unknown` counts as complete without the user ever seeing the step.
-- **Case 7 copy** ("one new permission") and the **S-3 coach banner**. Today S-3 only logs `backend_fallback` plus a Sentry breadcrumb.
+- **S-3 coach banner.** Today S-3 only logs `backend_fallback` plus a Sentry breadcrumb. (The case 7 copy is done, see §10.2.)
 - **`AudioCapture` reset in `permissionsMigration.ts`** (§4, case 11).
 - **Silent-tap watchdog** (§6). Only matters on the S-4 `unknown` path.
 - **`force_sck_audio` has no catalog row.** `company_features.feature_key` is an FK to `features`, and `GET /features/` (the web Marketplace) lists every row. With status `live`/`beta`, the admin sync also enables it for every company. It needs a hidden status, or a per-account field, before it can be used.
@@ -335,3 +335,11 @@ Tested on dev (`npm run dev`, macOS 15, MacBook Pro). Outputs used: built-in spe
 - **Not reachable on this hardware:** `tap_skipping_device_input`. macOS splits AirPods into separate `:output` and `:input` devices, and the built-in headphone jack has no input streams. A USB headset or a Loom-style virtual device would exercise it.
 - **Expected and not a bug:** AirPods drop to HFP when they're the mic (any app that opens their mic does this). The built-in or headset mic picks up speaker or earbud bleed, which lands in the **rep** transcript. That's the opposite direction from the leak.
 - **Still to run on a signed staging build:** the §5 permission matrix.
+
+### 10.2 Permissions screen on the tap backend (2026-11-23)
+
+- **Upgrade screen (case 7).** `checkGranted()` returns `upgrade` = audio pending (not granted, not unknown) **and** Screen Recording granted, passed through `permissions-check`. The screen shows the upgrade title, only the System Audio row with a "New" tag, and a bottom-pinned "Allow System Audio".
+- **Declining is an answer, not a dead end (option a).** An upgrading user who picks Don't Allow sees "You can turn this on anytime in System Settings. You can close this window now." and stays on ScreenCaptureKit (S-3). `isComplete()` counts `denied` + Screen Recording granted as complete, so the screen doesn't return every launch. `not-determined` still routes to it, so every existing user sees the explanation and the macOS prompt once. Turning Screen Recording off is left to the user.
+- **Success sequence.** On the tap backend a grant is detected live, so instead of a Continue button: each row's icon turns green with a check as it's granted; once mic and audio are both granted `permissions-complete` is written immediately, the screen fades out, and a drawn check appears. New users get "Permissions granted / You can start using Sayso now" and **Launch Coach** (opens the coach, then `splash-login-success`, which closes the splash and opens the onboarding tour if due). Upgrading users get "Permissions have been updated / You can close this window now" and no button.
+- **New-user screen** title is "Grant permissions" (all backends). The "Allow Sayso to use your Microphone" and "Allow Sayso to record system audio when macOS asks" hints are gone on the tap backend; the SCK screen keeps its hints, "Open System Settings" and "Quit and Reopen".
+- Tested in dev (grants attributed to Terminal): a real grant on the upgrade screen, plus the new-user, upgrade and decline sequences through a temporary dev-only simulator (not committed). The signed-build pass is still part of §9.

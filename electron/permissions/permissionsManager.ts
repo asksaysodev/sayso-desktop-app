@@ -49,6 +49,7 @@ export function registerPermissionsIpc(): void {
         screen: result.screen,
         systemAudio: result.systemAudio ?? null,
         requirements: provider.requirements,
+        upgrade: result.upgrade ?? false,
       };
     } catch (e: any) {
       console.error('[MAIN] [Permissions] Error checking permissions:', e);

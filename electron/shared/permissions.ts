@@ -36,5 +36,9 @@ export interface PermissionsCheckResult {
   screen: boolean;
   systemAudio: SystemAudioPermissionState | null;
   requirements: PermissionRequirements;
+  // macOS tap backend: an existing user (Screen Recording already granted) who still has to grant
+  // System Audio after the update. The screen shows the "we've updated how we capture audio" copy
+  // instead of first-run onboarding, and lets them continue on ScreenCaptureKit if they decline.
+  upgrade?: boolean;
   error?: string;
 }
