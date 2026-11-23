@@ -47,19 +47,23 @@ class MacPermissionsProvider implements IPermissionsProvider {
   async checkGranted(): Promise<PermissionsStatus> {
     const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
     const gate = this.readSystemAudio({ warnIfUnavailable: true });
-    let systemAudioFallback = false;
-    const audioPending = gate.state !== null && gate.state !== 'granted' && gate.state !== 'unknown';
-    if (gate.state !== null && gate.state !== 'granted' && audioManager.usesCoreAudioTap()) {
-      systemAudioFallback = audioManager.isScreenRecordingGranted();
-    }
+    const systemAudioFallback = this.screenCaptureKitFallback(gate);
     return {
       granted: mic && (gate.satisfied || systemAudioFallback),
       mic,
       screen: gate.satisfied,
       systemAudio: gate.state,
       systemAudioFallback,
-      upgrade: audioPending && systemAudioFallback,
+      // Existing user with something left to answer. `unknown` has nothing for them to click.
+      upgrade: systemAudioFallback && gate.state !== 'unknown',
     };
+  }
+
+  // S-3: on the tap backend, System Audio not granted but Screen Recording is, so Cue can run on
+  // ScreenCaptureKit. Single source for the start-cue fallback, the upgrade screen and completion.
+  private screenCaptureKitFallback(gate: SystemAudioGate): boolean {
+    if (!audioManager.usesCoreAudioTap() || gate.state === null || gate.state === 'granted') return false;
+    return audioManager.isScreenRecordingGranted();
   }
 
   async checkMic(): Promise<boolean> {
@@ -72,7 +76,7 @@ class MacPermissionsProvider implements IPermissionsProvider {
     // An upgrading user who declined System Audio has made their choice: calls run on
     // ScreenCaptureKit (S-3) and onboarding is done. `not-determined` still routes to the upgrade
     // screen, so every existing user sees the explanation and the macOS prompt once.
-    const declinedWithFallback = gate.state === 'denied' && audioManager.isScreenRecordingGranted();
+    const declinedWithFallback = gate.state === 'denied' && this.screenCaptureKitFallback(gate);
     const screen = gate.satisfied || declinedWithFallback;
     // Live OS state is authoritative: if both are actually granted for this process, onboarding is
     // complete regardless of the flag. This self-heals the case where the flag is missing but perms

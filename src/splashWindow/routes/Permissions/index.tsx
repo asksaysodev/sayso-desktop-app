@@ -50,7 +50,10 @@ export default function Permissions() {
     // An upgrading user who declines keeps working on ScreenCaptureKit (spec S-3), so a denial is an
     // answer, not a dead end. New users have no such fallback and still need the grant.
     const upgradeDeclined = upgrade && systemAudioState === 'denied';
-    const hideMic = upgrade && perms.mic === 'granted';
+    // From the state on mount: an upgrading user who also has to grant the mic keeps the row (and its
+    // grant animation) instead of it vanishing the moment the mic is granted.
+    const [micGrantedOnMount, setMicGrantedOnMount] = useState(false);
+    const hideMic = upgrade && micGrantedOnMount;
     const celebrating = phase !== 'idle';
     // True from the render where the last grant lands, one frame before the phase effect runs, so the
     // Continue button never flashes in ahead of the animation.
@@ -88,11 +91,10 @@ export default function Permissions() {
         }
     }, [phase]);
 
-    // New user's "Launch Coach": open the coach, then let main finish the splash exactly as after any
-    // completed permissions step (closes this window, opens the onboarding tour if it's due).
+    // New user's "Launch Coach": main finishes the splash as after any completed permissions step,
+    // then opens the coach, or the onboarding tour instead when it's due (the tour leads to the coach).
     const handleLaunchCoach = () => {
-        window.electron?.ipcRenderer?.send('open-coach-window');
-        window.electron?.ipcRenderer?.send('splash-login-success');
+        window.electron?.ipcRenderer?.send('splash-login-success', { openCoach: true });
     };
 
     const canComplete = perms.mic === 'granted'
@@ -108,6 +110,7 @@ export default function Permissions() {
                     screen: result.screen ? 'granted' : 'pending',
                 };
                 initialPermsRef.current = initial;
+                setMicGrantedOnMount(initial.mic === 'granted');
                 setPerms(initial);
                 setSystemAudioState(result.systemAudio ?? null);
                 setRequirements(result.requirements);
@@ -354,7 +357,7 @@ export default function Permissions() {
                     >
                         {completing
                             ? <><LuLoader size={14} className="perm-spin" /> {relaunches ? 'Restarting…' : 'Continuing…'}</>
-                            : relaunches ? 'Quit and Reopen →' : upgradeDeclined ? 'Continue for now →' : 'Continue →'
+                            : relaunches ? 'Quit and Reopen →' : 'Continue →'
                         }
                     </button>
                 )}

@@ -96,8 +96,9 @@ System audio comes from the "System Audio Recording Only" permission (`kTCCServi
     │          → permissions-complete written immediately (no relaunch)
     │          → screen fades out, success view: drawn check, "Permissions granted /
     │            You can start using Sayso now", "Launch Coach"
-    │          → Launch Coach: open-coach-window + splash-login-success
-    │            (closes the splash, opens the onboarding tour if it's due)
+    │          → Launch Coach: splash-login-success { openCoach: true }
+    │            (closes the splash, then opens the onboarding tour if it's due,
+    │            otherwise the coach — never both)
     └─ Don't Allow → "Open System Settings" (System Audio pane); the screen polls and
                      turns green on grant. No fallback: a new user needs the grant.
 ```
@@ -199,6 +200,8 @@ The poll is what replaces the macOS relaunch. Windows has no dialog and no per-a
 `loadBootSession()` in `main.ts` runs on **both** authenticated boot branches. The permissions-splash branch starts it un-awaited and parks the promise in `authUserReady`, so the splash still appears immediately while the profile fetch and the cache reconcile run behind it. `splash-login-success` awaits that same promise before deciding on onboarding.
 
 Starting it at boot rather than on Continue is deliberate: the splash is not the only way out of `/permissions`. A user can close it with the title-bar X, fix the microphone in Settings themselves, and open Cue straight from the tray — `open-coach-window` only gates on `isMicGranted()`, so it never routes back through the splash. Tying the load to Continue left that session with no playbooks, no font size and no profile until an offline→online flap. `replayPendingOnboardingStatus()` is deliberately **not** inside the helper, because each path must replay exactly once.
+
+On the splash path the replay and the onboarding gate live in `runPostSplashSteps()`, called from `splash-login-success`, or from the splash's `closed` handler when the user closes it by hand after permissions are complete (the tap backend's success views and the declined upgrade screen say "You can close this window now"). `splash-login-success` sets `splashFinishHandled` before closing, so the two never both run.
 
 ### Testing
 Flip either switch off in Settings → Privacy & security → Microphone and launch: the splash routes to `/permissions`, `start-cue` returns `permissions_denied`, and opening the coach window re-surfaces the splash instead. Flip it back on and relaunch: straight to the tray. Works from `npm run dev`.
