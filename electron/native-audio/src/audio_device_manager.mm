@@ -1682,8 +1682,6 @@ static bool SaysoReadTapFormat(AudioObjectID tap, AudioStreamBasicDescription& o
 // sees one system-audio stream whichever backend runs.
 static void SaysoTapHandleInput(const AudioBufferList* abl, double sampleRate, UInt32 tapCount,
                                 UInt32 tapChannelsPerBuffer) {
-    g_tapLastIoMs.store(SaysoMonotonicMs(), std::memory_order_relaxed);
-    g_tapIoBuffers.fetch_add(1, std::memory_order_relaxed);
     if (!abl || tapCount == 0) {
         return;
     }
@@ -1702,6 +1700,10 @@ static void SaysoTapHandleInput(const AudioBufferList* abl, double sampleRate, U
             return;
         }
     }
+    // Only now is this callback audio we can use. Stamping earlier made a pipeline whose layout is
+    // always rejected look healthy to the stall watchdog: silent, never rebuilt, never reported.
+    g_tapLastIoMs.store(SaysoMonotonicMs(), std::memory_order_relaxed);
+    g_tapIoBuffers.fetch_add(1, std::memory_order_relaxed);
     if (!SaysoAudioPipeIsOpen(g_sckAudioPipe)) {
         return;  // no JS callback: don't allocate on the IO queue for nothing
     }
@@ -2022,7 +2024,12 @@ static void SaysoTapTeardownAll() {
 }
 
 static void SaysoTapRecoverAttempt(std::string reason, uint64_t session, int attempt, int64_t startedMs) {
-    if (session != g_tapSession.load() || !g_tapWanted.load()) {
+    if (session != g_tapSession.load()) {
+        // A retry scheduled by an earlier session. Stop already cleared g_tapRecovering for it, and
+        // a newer session may own the flag now: clearing it here let a second rebuild chain start.
+        return;
+    }
+    if (!g_tapWanted.load()) {
         g_tapRecovering.store(false);
         return;
     }
@@ -2097,7 +2104,7 @@ static void SaysoTapStartWatchdog(uint64_t session) {
                 g_tapLayoutReported = true;
                 const UInt32 skipped = inBuffers >= g_tap.tapBufferCount ? inBuffers - g_tap.tapBufferCount : 0;
                 if (g_tapLayoutBad.load()) {
-                    EmitLifecycleEvent("unexpected_tap_input_layout input_buffers=" + std::to_string(inBuffers) +
+                    EmitLifecycleEvent("tap_input_layout_failed input_buffers=" + std::to_string(inBuffers) +
                                        " tap_buffers=" + std::to_string(g_tap.tapBufferCount) +
                                        " tap_channels_per_buffer=" + std::to_string(g_tap.tapChannelsPerBuffer));
                 } else if (skipped > 0) {

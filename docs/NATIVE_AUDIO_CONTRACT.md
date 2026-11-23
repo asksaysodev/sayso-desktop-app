@@ -78,7 +78,7 @@ escalates to Sentry in `audioManager.ts`):
 | `tap_stall_backoff streak= next_retry_ms=` | streak past 2: the next rebuild waits 5, 10, 20, 40, then 60 s. 10 s of healthy IO resets the streak |
 | `tap_stall_recovery_failed streak= output_device=` | first time a session's streak passes 2. Sentry, once per session |
 | `tap_skipping_device_input buffers=` | the output device's own mic buffers were skipped (once per pipeline) |
-| `unexpected_tap_input_layout …` | buffer shape didn't match the tap format, so nothing is posted |
+| `tap_input_layout_failed …` | buffer shape didn't match the tap format, so nothing is posted. Sentry. Those callbacks don't count as IO, so the stall watchdog rebuilds |
 | `tap_sleep_teardown` | system sleep. Rebuilt 1.5 s after wake |
 | `audio_pipe_closed pipe= delivered= overflow_dropped= undelivered_at_close=` | per-session pipe counters (system and mic) |
 
