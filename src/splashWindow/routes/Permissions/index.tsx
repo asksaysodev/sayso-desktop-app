@@ -93,7 +93,11 @@ export default function Permissions() {
 
     // New user's "Launch Coach": main finishes the splash as after any completed permissions step,
     // then opens the coach, or the onboarding tour instead when it's due (the tour leads to the coach).
+    // One send only: the coach open awaits a mic check in main, so a second click could open two.
+    const [launching, setLaunching] = useState(false);
     const handleLaunchCoach = () => {
+        if (launching) return;
+        setLaunching(true);
         window.electron?.ipcRenderer?.send('splash-login-success', { openCoach: true });
     };
 
@@ -173,7 +177,8 @@ export default function Permissions() {
                 setScreenOpened(true);
                 if (state) setSystemAudioState(state);
                 if (state === 'granted') setPerms(p => ({ ...p, screen: 'granted' }));
-                // Upgrading users who decline get "Continue for now", not a trip to System Settings.
+                // Upgrading users who decline stay on ScreenCaptureKit: the screen shows a hint and they
+                // close the window, with no trip to System Settings.
                 if (state !== 'denied' || upgrade) return;
             }
             await window.electron?.ipcRenderer?.invoke('permissions-open-screen-settings');
@@ -224,7 +229,7 @@ export default function Permissions() {
                         </div>
                     </div>
                     {!upgrade && (
-                        <button className="permissions-cta-btn perm-success-cta" onClick={handleLaunchCoach}>
+                        <button className="permissions-cta-btn perm-success-cta" onClick={handleLaunchCoach} disabled={launching}>
                             Launch Coach
                         </button>
                     )}
