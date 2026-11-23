@@ -301,3 +301,37 @@ Each lists the rows it unblocks.
 2. For each case × version: reset with the scoped `tccutil` against the staging bundle id `com.asksayso.app.staging` (`com.asksayso.app` for a production artifact) (and delete `~/Library/Application Support/sayso-app-staging/permissions-complete` (`sayso-app` for production) where the case starts from fresh), set up the precondition, run, record Observed.
 3. For every row that starts a session: play known audio (a Zoom / Meet test call) and confirm prospect transcripts arrive; for every blocked row confirm no session was created server-side.
 4. Any Observed ≠ Expected → ticket, linked here.
+
+---
+
+## 10. Implementation status (taps backend, first cut)
+
+Hestabit's backend (`5e75641`), rebased by us onto `development`. Names differ from §2:
+
+| §2 spec | Implemented |
+|---|---|
+| `'coreaudio_tap'` | `'core-audio-tap'` |
+| `checkSystemAudioPermission()` | `getSystemAudioPermissionStatus()`. States use hyphens (`not-determined`) |
+| `setSystemAudioBackendOverride(v)` | `setForceScreenCaptureKit(bool)`, driven by the `force_sck_audio` company feature |
+| one-session SCK fallback | `startSystemAudioCapture({ forceScreenCaptureKit: true })` |
+
+Done: backend selection at 14.4+; P-G / P-ND / P-D; S-1 to S-5; the `tap_permission_denied` and `tap_permission_not_determined` start rejections (native never prompts from a Cue start); a live grant with no relaunch; `audio` on `permissions_denied`.
+
+Not done yet:
+- **Versioned completion flag** (§3). `isComplete()` reads live state only (mic && audio ∈ {granted, unknown}). Case 7 still re-routes once, because live audio is `not-determined`, but `unknown` counts as complete without the user ever seeing the step.
+- **Case 7 copy** ("one new permission") and the **S-3 coach banner**. Today S-3 only logs `backend_fallback` plus a Sentry breadcrumb.
+- **`AudioCapture` reset in `permissionsMigration.ts`** (§4, case 11).
+- **Silent-tap watchdog** (§6). Only matters on the S-4 `unknown` path.
+- **`force_sck_audio` has no catalog row.** `company_features.feature_key` is an FK to `features`, and `GET /features/` (the web Marketplace) lists every row. With status `live`/`beta`, the admin sync also enables it for every company. It needs a hidden status, or a per-account field, before it can be used.
+
+### 10.1 Dev testing findings (2026-11-17)
+
+Tested on dev (`npm run dev`, macOS 15, MacBook Pro). Outputs used: built-in speakers, a 3.5 mm headset, AirPods. Cases are the 10 in the PR description.
+
+- **Leak fix, first version, broke capture.** It read the aggregate's input stream layout before `AudioDeviceStart`. The IOProc was then never called again: the tap stalled and was rebuilt every ~6 s, prospect audio was 0–7%, and the rebuild loop cut playback in every other app. The run that settled it was Hestabit's unmodified `5e75641` on the same headset, which captured about 97%. The layout is now taken in the IO block from the buffers it receives (the tap's buffers are last). No property reads before the start.
+- **First-start stall** (Hestabit's build has it too). Sometimes a freshly built pipeline gets no IO callback at all (`io_calls=0`), and the old 4 s watchdog cost the first ~5 s of prospect audio. Now `no_first_io` rebuilds after 1.5 s. Root cause unknown. This is a workaround.
+- **Rebuild backoff.** 2 free rebuilds, then 5/10/20/40/60 s, plus one `tap_stall_recovery_failed` to Sentry. Seen once in testing: AirPods going into the case flapped the output, and 3 fresh pipelines on the speakers got no IO for ~11 s. The 4th worked.
+- **Passed:** speakers; 3.5 mm headset; AirPods output with the built-in mic (A2DP, 48 kHz); AirPods as output and mic (HFP, the tap follows to 24 kHz, no leak); hot-plugging the headset; switching to AirPods mid-call; AirPods → headset → speakers; 4 quick output switches (each followed in < 0.5 s); 8 rapid start/stop cycles (shortest 0.6 s, clean teardown); lid-close sleep (`tap_sleep_teardown`, rebuilt 137 ms after wake, session kept running).
+- **Not reachable on this hardware:** `tap_skipping_device_input`. macOS splits AirPods into separate `:output` and `:input` devices, and the built-in headphone jack has no input streams. A USB headset or a Loom-style virtual device would exercise it.
+- **Expected and not a bug:** AirPods drop to HFP when they're the mic (any app that opens their mic does this). The built-in or headset mic picks up speaker or earbud bleed, which lands in the **rep** transcript. That's the opposite direction from the leak.
+- **Still to run on a signed staging build:** the §5 permission matrix.

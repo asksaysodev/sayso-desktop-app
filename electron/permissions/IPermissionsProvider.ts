@@ -1,7 +1,15 @@
+import type { SystemAudioPermissionState } from '../shared/permissions';
+export type { SystemAudioPermissionState };
+
 export interface PermissionsStatus {
   granted: boolean;
   mic: boolean;
   screen: boolean;
+  systemAudio?: SystemAudioPermissionState | null;
+  // SAYSO-513 rule S-3: tap backend, System Audio not granted, but Screen Recording is. Cue may
+  // start, on ScreenCaptureKit for that one session, so an existing user is never locked out of a
+  // call while the one-time System Audio step is pending.
+  systemAudioFallback?: boolean;
 }
 
 export type RequestMicAction = 'already-granted' | 'asked' | 'open-settings' | 'error';
@@ -35,8 +43,7 @@ export interface IPermissionsProvider {
   // Request microphone access. May prompt or open System Settings. Never restarts the app.
   requestMic(): Promise<RequestMicResult>;
 
-  // Ask the OS to surface the Screen Recording prompt / settings row (fire-and-forget).
-  requestScreen(): void;
+  requestScreen(): Promise<SystemAudioPermissionState | null>;
 
   // Open the Screen Recording privacy pane directly.
   openScreenSettings(): Promise<void>;

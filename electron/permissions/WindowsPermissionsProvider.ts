@@ -16,7 +16,7 @@ import type {
 // 'denied', DeniedBySystem → 'restricted', Unspecified → 'not-determined',
 // anything else → 'unknown'. For a non-packaged app it reflects both switches.
 class WindowsPermissionsProvider implements IPermissionsProvider {
-  readonly requirements: PermissionRequirements = { screen: false, relaunchOnComplete: false };
+  readonly requirements: PermissionRequirements = { screen: false, relaunchOnComplete: false, systemAudio: 'none' };
 
   // Only an explicit denial blocks. 'not-determined' and 'unknown' count as
   // granted — Windows has no dialog to resolve them, so blocking would leave the
@@ -58,8 +58,9 @@ class WindowsPermissionsProvider implements IPermissionsProvider {
     return { mic: false, action: 'open-settings' };
   }
 
-  requestScreen(): void {
+  async requestScreen(): Promise<null> {
     // No Screen Recording permission model on Windows.
+    return null;
   }
 
   async openScreenSettings(): Promise<void> {

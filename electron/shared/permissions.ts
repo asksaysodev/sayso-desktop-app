@@ -23,7 +23,10 @@ export interface PermissionRequirements {
   // Must the app relaunch after the permissions step? macOS binds the
   // screen-recording grant at process launch, so yes. Windows: no.
   relaunchOnComplete: boolean;
+  systemAudio: 'audio-capture' | 'screen-recording' | 'none';
 }
+
+export type SystemAudioPermissionState = 'granted' | 'denied' | 'not-determined' | 'unknown';
 
 // Payload of the `permissions-check` invoke. Distinct from the provider-side
 // PermissionsStatus (`{ granted, mic, screen }`): the handler drops `granted`
@@ -31,6 +34,7 @@ export interface PermissionRequirements {
 export interface PermissionsCheckResult {
   mic: boolean;
   screen: boolean;
+  systemAudio: SystemAudioPermissionState | null;
   requirements: PermissionRequirements;
   error?: string;
 }
