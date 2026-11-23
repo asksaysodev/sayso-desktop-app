@@ -81,6 +81,43 @@ Routing detail: after a successful login or MFA the renderer navigates to `/` (n
 ### Why "Quit and Reopen" is offered optimistically
 Because a mid-session SCK grant can't be detected live, the permissions screen shows "Quit and Reopen" once **mic is granted and the user has opened System Settings** — it doesn't wait for a (impossible) live SCK confirmation. The next launch is the source of truth; if SCK wasn't actually granted, `isPermissionsComplete()` returns false and the user lands back on `/permissions`.
 
+The diagram above is the ScreenCaptureKit backend: macOS 13 to 14.3, or 14.4+ with the `force_sck_audio` company feature. It is unchanged.
+
+### macOS 14.4+ (Core Audio tap backend)
+
+System audio comes from the "System Audio Recording Only" permission (`kTCCServiceAudioCapture`) instead of Screen Recording. Its grant applies live, so there is no relaunch and no "Quit and Reopen". Full policy: `docs/MACOS_AUDIO_CAPTURE_PERMISSIONS.md`.
+
+**New user** (no Screen Recording grant). Title "Grant permissions", Microphone and System Audio rows.
+
+```
+"Allow Microphone" → askForMediaAccess        → Microphone icon turns green (check, pop)
+"Allow System Audio" → requestSystemAudioPermission → macOS prompt
+    ├─ Allow → System Audio icon turns green
+    │          → permissions-complete written immediately (no relaunch)
+    │          → screen fades out, success view: drawn check, "Permissions granted /
+    │            You can start using Sayso now", "Launch Coach"
+    │          → Launch Coach: splash-login-success { openCoach: true }
+    │            (closes the splash, then opens the onboarding tour if it's due,
+    │            otherwise the coach — never both)
+    └─ Don't Allow → "Open System Settings" (System Audio pane); the screen polls and
+                     turns green on grant. No fallback: a new user needs the grant.
+```
+
+**Existing user upgrading** (Screen Recording already granted, System Audio not yet). `permissions-check` returns `upgrade: true`. Title "We've improved audio capture for more reliable prompting", only the System Audio row (with a "New" tag; the mic row shows only if the mic isn't granted), CTA pinned to the bottom.
+
+```
+"Allow System Audio" → macOS prompt
+    ├─ Allow → same sequence as above; success view says "Permissions have been updated /
+    │          You can close this window now", no button
+    └─ Don't Allow → hint "You can turn this on anytime in System Settings. You can close
+                     this window now." No button, no settings pane.
+                     Calls keep running on ScreenCaptureKit (S-3), and isComplete() treats
+                     denied + Screen Recording granted as complete, so the screen doesn't
+                     come back on the next launch.
+```
+
+Grant animations and the success view run only on the tap backend (they need a live grant). On ScreenCaptureKit and Windows a newly granted Microphone row still gets the green pop; everything else is as before.
+
 ---
 
 ## Runtime enforcement (Cue session)
@@ -109,6 +146,8 @@ This composes correctly with the permission logic: CGPreflight is scoped to the 
 ## Testing caveat (dev mode)
 
 Screen-recording (and mic) permission is subject to macOS **responsible-process attribution** — under `npm run dev` the permission is attributed to Electron / the parent (Cursor, Terminal), not to the packaged "Sayso" app. So permission flows **cannot be tested from dev mode**; use the packaged app (`npm run package:staging`).
+
+The tap backend's System Audio permission is attributed the same way, but since its grant applies live the screen itself can be exercised in dev: `tccutil reset AudioCapture com.apple.Terminal` (and `Microphone`) brings the prompts back, and deleting `~/Library/Application Support/sayso-app-dev/permissions-complete` routes back to `/permissions`. Which screen you get depends on Terminal's own Screen Recording grant: granted → the upgrade screen, not granted → the new-user screen.
 
 This is macOS-only. Windows has no per-process attribution — the mic switches apply to every desktop app at once — so the Windows flow *can* be exercised from `npm run dev`.
 
@@ -161,6 +200,8 @@ The poll is what replaces the macOS relaunch. Windows has no dialog and no per-a
 `loadBootSession()` in `main.ts` runs on **both** authenticated boot branches. The permissions-splash branch starts it un-awaited and parks the promise in `authUserReady`, so the splash still appears immediately while the profile fetch and the cache reconcile run behind it. `splash-login-success` awaits that same promise before deciding on onboarding.
 
 Starting it at boot rather than on Continue is deliberate: the splash is not the only way out of `/permissions`. A user can close it with the title-bar X, fix the microphone in Settings themselves, and open Cue straight from the tray — `open-coach-window` only gates on `isMicGranted()`, so it never routes back through the splash. Tying the load to Continue left that session with no playbooks, no font size and no profile until an offline→online flap. `replayPendingOnboardingStatus()` is deliberately **not** inside the helper, because each path must replay exactly once.
+
+On the splash path the replay and the onboarding gate live in `runPostSplashSteps()`, called from `splash-login-success`, or from the splash's `closed` handler when the user closes it by hand after permissions are complete (the tap backend's success views and the declined upgrade screen say "You can close this window now"). `splash-login-success` sets `splashFinishHandled` before closing, so the two never both run.
 
 ### Testing
 Flip either switch off in Settings → Privacy & security → Microphone and launch: the splash routes to `/permissions`, `start-cue` returns `permissions_denied`, and opening the coach window re-surfaces the splash instead. Flip it back on and relaunch: straight to the tray. Works from `npm run dev`.

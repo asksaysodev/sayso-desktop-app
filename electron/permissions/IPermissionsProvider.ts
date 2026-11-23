@@ -10,6 +10,8 @@ export interface PermissionsStatus {
   // start, on ScreenCaptureKit for that one session, so an existing user is never locked out of a
   // call while the one-time System Audio step is pending.
   systemAudioFallback?: boolean;
+  // Same condition as the renderer's `upgrade` copy (see PermissionsCheckResult.upgrade).
+  upgrade?: boolean;
 }
 
 export type RequestMicAction = 'already-granted' | 'asked' | 'open-settings' | 'error';
