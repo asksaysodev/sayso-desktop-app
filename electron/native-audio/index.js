@@ -250,8 +250,9 @@ class AudioDeviceManager {
 
   /**
    * Echo cancellation state, or null when the native module has no echo cancellation.
-   * `active` is false while the mic is passed through for lack of a reference.
-   * @returns {{enabled: boolean, active: boolean, delayMs?: number}|null}
+   * `built` = the WebRTC engine is compiled in. `active` is false while the mic is passed
+   * through for lack of a reference. `lastError` = the most recent failure event since launch.
+   * @returns {{built: boolean, enabled: boolean, active: boolean, delayMs?: number, lastError?: string}|null}
    */
   getEchoCancellationState() {
     if (typeof nativeAudio.getEchoCancellationState !== 'function') return null;

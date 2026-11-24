@@ -45,23 +45,15 @@ exposes the switch:
 
 ```js
 nativeAudio.setEchoCancellationEnabled(true);   // returns false when the build has no echo cancellation
-nativeAudio.getEchoCancellationState();         // { enabled, active, delayMs? } or null
+nativeAudio.getEchoCancellationState();         // { built, enabled, active, delayMs?, lastError? } or null
 ```
 
 Both are safe on every platform. On macOS, and on builds without echo
 cancellation, the first returns `false` and the second returns `null`, and
-nothing else happens.
+nothing else happens. Both are declared as optional methods in
+`electron/audio/IAudioProvider.ts` (`EchoCancellationState` is the state's type).
 
-**1. Declare the methods (TypeScript).** In `electron/audio/IAudioProvider.ts`,
-add them as optional, like the other optional methods:
-
-```ts
-  // Echo cancellation (Windows). Optional: builds without it return false / null.
-  setEchoCancellationEnabled?(on: boolean): boolean;
-  getEchoCancellationState?(): { enabled: boolean; active: boolean; delayMs?: number } | null;
-```
-
-**2. Call it before the mic starts.** In `electron/recorder.ts`, in
+**Call it before the mic starts.** In `electron/recorder.ts`, in
 `startUserStreaming`, just before
 `nativeAudio.startMicrophoneCapture({ streamingCallback })`:
 
@@ -131,16 +123,62 @@ transcript, while the prospect's side is transcribed as normal.
 If echo cancellation cannot run, the mic passes through exactly as with it
 off. It never blocks or drops the rep's audio.
 
-A failure is reported as `aec_failed reason=…`. The app already sends every
-`_failed` lifecycle event to Sentry as a warning (`audioManager.ts`), so these
-reach Sentry with no further change.
+A mid-call failure stays silent for the rep: the mic keeps working, and there
+is nothing for them to do. It is logged, and reported as below. The code is in
+`electron/audio/audioManager.ts` and `electron/audio/aecCallSummary.ts`.
+
+**Sentry warnings, deduplicated.** A failure is emitted as
+`aec_failed reason=…` and sent to Sentry as a warning
+(`[native-audio] aec_failed …`), at most **once per failure type per call**
+(event + reason; a repeat with another error code counts as the same type).
+Nothing is sent per packet or per chunk.
+
+**One summary per call.** When a call ends, the app logs one line:
+
+```
+[Cue] Echo cancellation summary — session=<id> enabled=true active=true active_pct=93.4 delay_ms=12 added_latency_ms=21.5 reduction_db=18.0 engine=webrtc_aec3 fallbacks=aec_reference_missing:system_audio_not_startedx1 last_error=none
+```
+
+| Field | Meaning |
+|---|---|
+| `enabled` / `active` | Switched on during the call / delivered cleaned audio during the call |
+| `active_pct` | Share of the rep's mic audio that was echo-cancelled |
+| `delay_ms` | The engine's echo delay estimate (speaker → mic) |
+| `added_latency_ms` / `reduction_db` | Mic latency added, and echo removed, over the call's last mic session |
+| `fallbacks` | Each time the mic went out without cancellation, by event and reason, with a count |
+| `last_error` | The call's last failure, if any |
+
+`aec_reference_missing:system_audio_not_started` is normal: the call starts
+before the prospect's audio does.
+
+In Sentry, the same summary sits on the scope for the whole call, so **any
+event during the call** carries it: context `echo_cancellation` and tags
+`aec_enabled`, `aec_active`, `aec_fallback` (`none`, `no_reference` or
+`problem`). This sends nothing by itself. One Sentry event,
+`[Cue] Echo cancellation fell back during the call` (warning), is sent at the
+end of a call **only** when echo cancellation was on and fell back for a real
+problem: a failure, a build without the library, or audio that skipped
+cancellation (`aec_backlog_dropped`, `aec_queue_full`). Calls with echo
+cancellation off, and calls that went normally, send nothing.
+
+The 60-second `aec_stats` lines stay in the app log only.
+
+**Mic diagnostics.** The existing mic diagnostics
+(`electron/audio/micDiagnostics.ts`, attached to mic start-failure, stall and
+teardown reports) include echo cancellation:
+
+- tags `aec` (`off`, `active`, `passthrough`, or `unavailable` on macOS) and
+  `aec_built`;
+- extra `mic_aec`: `{ built, enabled, active, delayMs, lastError }`;
+- the log line: `aec=… aec_built=… aec_delay_ms=… aec_last_error=…`.
 
 ## Requirements
 
 - **Build library.** Windows builds need the WebRTC echo library at
-  `electron/native-audio/deps/webrtc_apm/win-x64/sayso_webrtc_apm.lib`.
-  Packaging builds stop with an error if it is missing. How to get or build
-  it, and where to keep it: [WEBRTC_LIBRARY_BUILD.md](WEBRTC_LIBRARY_BUILD.md).
+  `electron/native-audio/deps/webrtc_apm/win-x64/sayso_webrtc_apm.lib`. It is
+  committed with Git LFS: run `git lfs install` once, then `git lfs pull`.
+  Packaging builds stop with an error if it is missing. Details and how to
+  rebuild it: [WEBRTC_LIBRARY_BUILD.md](WEBRTC_LIBRARY_BUILD.md).
 - **Development builds without the library.** They log
   `aec_engine_unavailable reason=not_built` and pass the mic through.
 - **Headsets.** Echo cancellation is only needed on speakers. With a headset

@@ -800,7 +800,20 @@ uint64_t HostTimeNow() {
   return c / f * 10000000ull + c % f * 10000000ull / f;
 }
 
-void EmitAecEvent(const std::string& event) { EmitLifecycleEvent(event); }
+// The most recent echo-cancellation failure (an aec_failed or
+// aec_engine_unavailable event, as emitted), for getEchoCancellationState's
+// lastError. Kept for the life of the process. Written from the pipeline's
+// threads, read on the JS thread.
+std::mutex g_aecLastErrorLock;
+std::string g_aecLastError;
+
+void EmitAecEvent(const std::string& event) {
+  if (event.rfind("aec_failed", 0) == 0 || event.rfind("aec_engine_unavailable", 0) == 0) {
+    std::lock_guard<std::mutex> lock(g_aecLastErrorLock);
+    g_aecLastError = event;
+  }
+  EmitLifecycleEvent(event);
+}
 
 // Echo-cancellation pipeline (src/aec). Runs alongside the mic session when
 // echo cancellation is switched on (setEchoCancellationEnabled), then
@@ -3765,9 +3778,11 @@ NAN_METHOD(SetEchoCancellationEnabled) {
   EmitLifecycleEvent(g_aecRequested ? "aec_switched on" : "aec_switched off");
 }
 
-// getEchoCancellationState() -> { enabled, active, delayMs? }. Sync, never
-// throws. active = currently delivering cleaned audio (false while passing
-// the mic through for lack of a reference or engine).
+// getEchoCancellationState() -> { built, enabled, active, delayMs?, lastError? }.
+// Sync, never throws. built = the WebRTC engine is compiled in. active =
+// currently delivering cleaned audio (false while passing the mic through for
+// lack of a reference or engine). lastError = the most recent failure event
+// since the app started, e.g. "aec_failed reason=process_error code=-11".
 NAN_METHOD(GetEchoCancellationState) {
   Local<Object> result = Nan::New<Object>();
   bool active = false;
@@ -3777,10 +3792,24 @@ NAN_METHOD(GetEchoCancellationState) {
     active = aec->Running() && st.active;
     delayMs = st.delayMs;
   }
+#ifdef SAYSO_HAVE_WEBRTC_APM
+  const bool built = true;
+#else
+  const bool built = false;
+#endif
+  std::string lastError;
+  {
+    std::lock_guard<std::mutex> lock(g_aecLastErrorLock);
+    lastError = g_aecLastError;
+  }
+  Nan::Set(result, Nan::New("built").ToLocalChecked(), Nan::New<v8::Boolean>(built));
   Nan::Set(result, Nan::New("enabled").ToLocalChecked(), Nan::New<v8::Boolean>(g_aecRequested));
   Nan::Set(result, Nan::New("active").ToLocalChecked(), Nan::New<v8::Boolean>(active));
   if (delayMs >= 0) {
     Nan::Set(result, Nan::New("delayMs").ToLocalChecked(), Nan::New<Integer>(delayMs));
+  }
+  if (!lastError.empty()) {
+    Nan::Set(result, Nan::New("lastError").ToLocalChecked(), Nan::New(lastError).ToLocalChecked());
   }
   info.GetReturnValue().Set(result);
 }

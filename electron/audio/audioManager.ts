@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/electron/main';
 
 import { isTransientNetworkError } from '../utils/transientErrors';
 import type { IAudioProvider, AudioFormat } from './IAudioProvider';
+import { aecCallSummaryTags, createAecCallTracker, formatAecCallSummary } from './aecCallSummary';
 import { collectMicDiagnostics, installMicDiagnosticsListeners, type MicStartOrigin } from './micDiagnostics';
 import { createMicStarter, MIC_START_MAX_ATTEMPTS, type MicStartAttemptsResult } from './micStartRetry';
 import { createNewInputDetector } from './micStallIdle';
@@ -114,6 +115,72 @@ let cueLowAudioTimer: ReturnType<typeof setTimeout> | null = null;
  *  report is throttled. Reset at session start alongside cueCaptureStats. */
 let micRecoveryFailedReportedThisSession = false;
 
+/** Echo cancellation over the current call (Windows): dedupes its Sentry warnings to one per
+ *  failure type per call, and builds the one summary per call. Reset at session start. */
+const aecCall = createAecCallTracker();
+let aecCallSessionId: string | null = null;
+/** Pending end-of-call summary. Native emits the final `aec_stopped` from the mic stop, and its
+ *  lifecycle events reach JS asynchronously, so the summary waits briefly after teardown. */
+let aecCallSummaryTimer: ReturnType<typeof setTimeout> | null = null;
+const AEC_CALL_SUMMARY_DELAY_MS = 500;
+
+/** Keeps the call's echo-cancellation state on the Sentry scope, so any event during the call
+ *  carries it. Local only: sends nothing. */
+function updateAecSentryScope(): void {
+  const summary = aecCall.summary();
+  if (!summary) return;
+  Sentry.setTags(aecCallSummaryTags(summary));
+  Sentry.setContext('echo_cancellation', { ...summary });
+}
+
+function clearAecSentryScope(): void {
+  Sentry.setTags({ aec_enabled: undefined, aec_active: undefined, aec_fallback: undefined });
+  Sentry.setContext('echo_cancellation', null);
+}
+
+/** End of call: one log line, and one Sentry event only when echo cancellation was on and fell
+ *  back for a real problem (failure or dropped audio). Never throws. */
+function finishAecCall(): void {
+  if (aecCallSummaryTimer) {
+    clearTimeout(aecCallSummaryTimer);
+    aecCallSummaryTimer = null;
+  }
+  try {
+    const summary = aecCall.summary();
+    if (summary) {
+      console.log(`[Cue] Echo cancellation summary — session=${aecCallSessionId ?? 'unknown'} ${formatAecCallSummary(summary)}`);
+      if (summary.enabled && summary.hadProblem) {
+        Sentry.captureMessage('[Cue] Echo cancellation fell back during the call', {
+          level: 'warning',
+          tags: aecCallSummaryTags(summary),
+          contexts: { echo_cancellation: { ...summary } },
+          extra: { sessionId: aecCallSessionId },
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[Cue] Failed to report the echo cancellation summary:', error);
+  } finally {
+    clearAecSentryScope();
+    aecCall.reset(false);
+    aecCallSessionId = null;
+  }
+}
+
+function startAecCall(sessionId: string | null): void {
+  if (aecCallSummaryTimer) finishAecCall();  // previous call's summary still pending
+  let enabledNow = false;
+  try {
+    enabledNow = provider?.getEchoCancellationState?.()?.enabled ?? false;
+  } catch {
+    /* treat as off */
+  }
+  aecCall.reset(enabledNow);
+  aecCallSessionId = sessionId;
+  clearAecSentryScope();
+  updateAecSentryScope();
+}
+
 /** SAYSO-353: mid-session mic-stall watchdog — see startCueMicStallWatchdog. */
 const CUE_MIC_STALL_CHECK_MS = 8000;
 /** SAYSO-383: native starts one stall episode may spend before the watchdog gives up and tells the
@@ -164,6 +231,19 @@ export function initAudioProvider(): void {
     if (provider && typeof provider.setLifecycleEventCallback === 'function') {
       provider.setLifecycleEventCallback((event: string) => {
         console.warn(`[NativeAudio] lifecycle: ${event}`);
+
+        if (event.startsWith('aec_')) {
+          aecCall.onEvent(event);
+          if (event.startsWith('aec_stats') || event.startsWith('aec_stopped') || event.startsWith('aec_switched')) {
+            updateAecSentryScope();
+          }
+          // Echo cancellation never costs mic audio (the mic passes through), so its failures stay
+          // warnings, and each type reaches Sentry at most once per call.
+          if (event.includes('_failed')) {
+            if (aecCall.shouldReport(event)) Sentry.captureMessage(`[native-audio] ${event}`, 'warning');
+            return;
+          }
+        }
 
         if (event.startsWith('mic_route_recovery_failed')) {
           // SAYSO-353: terminal mid-session mic-recovery failure (native backoff exhausted its
@@ -880,6 +960,11 @@ export async function stopCue(): Promise<{ success: boolean; error?: string; ded
       return { success: false, error: error.message };
     } finally {
       if (statsAtStop.sessionStartedAtMs > 0) cuePreviousTeardownAtMs = Date.now();
+      // After teardown, failed or not: the call is over for echo cancellation either way.
+      if (statsAtStop.sessionStartedAtMs > 0) {
+        if (aecCallSummaryTimer) clearTimeout(aecCallSummaryTimer);
+        aecCallSummaryTimer = setTimeout(finishAecCall, AEC_CALL_SUMMARY_DELAY_MS);
+      }
       cueStopInFlight = null;
     }
   })();
@@ -952,6 +1037,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       cueCaptureStats.sessionStartedAtMs = Date.now();
       cueMicSilence = emptyCueMicSilence();
       micRecoveryFailedReportedThisSession = false;
+      startAecCall(sessionId ?? null);
 
       // Create AudioStreamer for 2 audio websockets (user + prospect)
       const AudioStreamer = getAudioStreamerCtor();

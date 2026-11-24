@@ -1,6 +1,6 @@
 import { powerMonitor, screen } from 'electron';
 
-import type { IAudioProvider, MicDeviceSnapshot, MicInputDiagnostics } from './IAudioProvider';
+import type { EchoCancellationState, IAudioProvider, MicDeviceSnapshot, MicInputDiagnostics } from './IAudioProvider';
 
 // SAYSO-431: context attached to the two mic events that only said "it failed" — the mid-session
 // stall (SAYSO-APP-AE) and every mic start failure (SAYSO-APP-AC and siblings). Pure reporting: it
@@ -89,6 +89,22 @@ async function takeSnapshot(provider: IAudioProvider | null): Promise<{ status: 
   }
 }
 
+/** Echo cancellation (Windows): a sync native read, null where the module has none (macOS). */
+function readEchoCancellationState(provider: IAudioProvider | null): EchoCancellationState | null {
+  try {
+    return provider?.getEchoCancellationState?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** off · active (delivering cleaned audio) · passthrough (on, but nothing to cancel or failed). */
+function aecState(state: EchoCancellationState | null): string {
+  if (!state) return 'unavailable';
+  if (!state.enabled) return 'off';
+  return state.active ? 'active' : 'passthrough';
+}
+
 /** Never throws, and resolves within MIC_DIAGNOSTICS_TIMEOUT_MS. */
 export async function collectMicDiagnostics(
   provider: IAudioProvider | null,
@@ -141,6 +157,17 @@ export async function collectMicDiagnostics(
       ` since_last_tap_ms=${tap.msSinceLastCallback ?? 'never'}` +
       ` since_config_change_ms=${snapshot.msSinceEngineConfigChange ?? 'never'}` +
       ` since_default_change_ms=${snapshot.msSinceDefaultInputChange ?? 'never'}`;
+  }
+
+  // Echo cancellation: built / enabled / active / last error.
+  const aec = readEchoCancellationState(provider);
+  tags.aec = aecState(aec);
+  if (aec) {
+    tags.aec_built = aec.built === undefined ? 'unknown' : String(aec.built);
+    extra.mic_aec = { ...aec };
+    summary +=
+      ` aec=${tags.aec} aec_built=${tags.aec_built} aec_delay_ms=${aec.delayMs ?? '?'}` +
+      ` aec_last_error=${aec.lastError ? `"${aec.lastError}"` : 'none'}`;
   }
 
   summary +=

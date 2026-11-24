@@ -39,7 +39,7 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 | 13 | `setLifecycleEventCallback` | `void` | no (sync) |
 | 14 | `getMicInputDiagnostics` | `Promise<MicInputDiagnostics \| null>` | yes — **optional** (SAYSO-431; Windows SAYSO-459) |
 | 15 | `setEchoCancellationEnabled` | `void` | no (sync) — **optional** (echo cancellation; Windows today) |
-| 16 | `getEchoCancellationState` | `{ enabled, active, delayMs? }` | no (sync) — **optional** (echo cancellation; Windows today) |
+| 16 | `getEchoCancellationState` | `{ built, enabled, active, delayMs?, lastError? }` | no (sync) — **optional** (echo cancellation; Windows today) |
 
 > The macOS `.mm` also still exports the dead trio `listOutputDevices`,
 > `createMultiOutputDevice`, `deleteMultiOutputDevice` — **do not implement
@@ -262,15 +262,20 @@ speakers) from the mic. Throws `TypeError` unless `on` is a boolean.
   (macOS today, older builds) and `true` otherwise; callers must not depend on
   it existing.
 
-### `getEchoCancellationState()` → `{ enabled, active, delayMs? }`
+### `getEchoCancellationState()` → `{ built, enabled, active, delayMs?, lastError? }`
 Sync diagnostics, never throws, safe at any time.
 
+- `built`: the WebRTC engine is compiled in (`false` in a build without the
+  library, which passes the mic through).
 - `enabled`: the switch.
 - `active`: cleaned audio is being delivered right now. `false` while passing
   the mic through (no reference yet, engine unavailable or failed, mic idle).
 - `delayMs`: the echo delay the engine measured (speaker → mic), when known.
+- `lastError`: the most recent `aec_failed` / `aec_engine_unavailable` event
+  since the app started, as emitted; absent when there has been none.
 
-`index.js` returns `null` when the native method is absent.
+`index.js` returns `null` when the native method is absent. Typed as
+`EchoCancellationState` in `electron/audio/IAudioProvider.ts`.
 
 ---
 
@@ -463,7 +468,7 @@ Only `aec_failed` is a failure (escalated); the rest are breadcrumbs.
   `mmdevapi`, `ksuser`; the platform-free echo-cancellation core
   `src/aec/*.cc`, linked statically with the WebRTC audio-processing library
   `deps/webrtc_apm/win-x64/sayso_webrtc_apm.lib` (built once with
-  `scripts/build-webrtc-apm.ps1`, VS 2022; not in git, see
+  `scripts/build-webrtc-apm.ps1`, VS 2022; committed with Git LFS, see
   [WEBRTC_LIBRARY_BUILD.md](WEBRTC_LIBRARY_BUILD.md)) + `winmm`, `user32`.
   Still one `native_audio.node`, no DLL. Packaging builds
   (`scripts/rebuild-native-*.js`) fail when the library is missing, so a

@@ -60,6 +60,20 @@ export interface MicDeviceSnapshot {
   state?: string | null;
 }
 
+/** Returned by getEchoCancellationState (docs/NATIVE_AUDIO_CONTRACT.md). */
+export interface EchoCancellationState {
+  /** The WebRTC engine is compiled in. Absent in older native builds. */
+  built?: boolean;
+  /** Switched on (setEchoCancellationEnabled / SAYSO_AEC_DEFAULT_ON / SAYSO_AEC_ENABLE). */
+  enabled: boolean;
+  /** Delivering cleaned audio right now; false while the mic passes through (e.g. no call audio). */
+  active: boolean;
+  /** Engine's echo delay estimate, ms. */
+  delayMs?: number;
+  /** Most recent failure since the app started, e.g. "aec_failed reason=process_error code=-11". */
+  lastError?: string;
+}
+
 /** SAYSO-431: snapshot returned by getMicInputDiagnostics. Tap counters cover the current (or last
  *  failed) engine build; `msSinceLast*` on the tap are process-wide. */
 export interface MicInputDiagnostics {
@@ -126,6 +140,11 @@ export interface IAudioProvider {
   // when the native build lacks it or a snapshot is already in flight — callers must never block a
   // restart or a report on it.
   getMicInputDiagnostics?(): Promise<MicInputDiagnostics | null>;
+
+  // Echo cancellation of the rep's mic (Windows; docs/ECHO_CANCELLATION_SWITCH.md). Optional: macOS
+  // and older native builds lack it, and the index.js wrappers then return false / null.
+  setEchoCancellationEnabled?(on: boolean): boolean;
+  getEchoCancellationState?(): EchoCancellationState | null;
 
   // Streaming
   setStreamingCallback(callback: StreamingCallback | null): void;
