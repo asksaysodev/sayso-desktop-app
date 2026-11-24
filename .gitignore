@@ -39,8 +39,14 @@ electron/native-audio/build/*.target.mk
 electron/native-audio/build/node_gyp_bins/
 electron/native-audio/build/*.d
 electron/native-audio/build/*.o
-# WebRTC AEC static library, produced by electron/native-audio/scripts/build-webrtc-apm.ps1
-electron/native-audio/deps/
+# WebRTC AEC static library, produced by electron/native-audio/scripts/build-webrtc-apm.ps1.
+# Only the library itself is committed (Git LFS, see .gitattributes); the rest of deps/ stays out.
+electron/native-audio/deps/*
+!electron/native-audio/deps/webrtc_apm/
+electron/native-audio/deps/webrtc_apm/*
+!electron/native-audio/deps/webrtc_apm/win-x64/
+electron/native-audio/deps/webrtc_apm/win-x64/*
+!electron/native-audio/deps/webrtc_apm/win-x64/sayso_webrtc_apm.lib
 electron/native-audio/tools/aec_wav_harness/build/
 electron/bin/ffmpeg.x86_64.bak
 electron/bin/ffmpeg

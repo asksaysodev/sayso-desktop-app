@@ -1,6 +1,9 @@
 # Builds WebRTC AudioProcessing (AEC3) as ONE static library and drops it in
 # electron/native-audio/deps/webrtc_apm/win-x64/, where binding.gyp links it
-# into native_audio.node. No WebRTC DLL ships.
+# into native_audio.node. No WebRTC DLL ships. The library is committed with
+# Git LFS at that path: commit the rebuilt one as described in
+# docs/WEBRTC_LIBRARY_BUILD.md ("Commit a rebuilt library"), never as a GitHub
+# Release asset (releases feed the app's auto-updater).
 #
 # WebRTC only builds with its own clang-cl, so this runs inside a WebRTC
 # checkout. Two settings keep the result linkable by node-gyp's MSVC build:
@@ -151,3 +154,4 @@ $notices = Join-Path $nativeAudio "THIRD_PARTY_NOTICES.txt"
 # UTF-8 without BOM, LF line endings, like the rest of the repository.
 [System.IO.File]::WriteAllText($notices, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "Third-party notices ($(@($used.Keys).Count) components) -> $notices"
+Write-Host "Next: commit the library (Git LFS) and the notices; see docs/WEBRTC_LIBRARY_BUILD.md, 'Commit a rebuilt library'."

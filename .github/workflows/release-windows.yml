@@ -282,10 +282,13 @@ jobs:
 
     steps:
       # The commit resolve checked, not the ref name — see "Record the resolved
-      # commit" above.
+      # commit" above. lfs: the WebRTC echo-cancellation library
+      # (electron/native-audio/deps/webrtc_apm/win-x64/sayso_webrtc_apm.lib) is
+      # in Git LFS; without it the native build stops with "library is missing".
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve.outputs.checkout_sha }}
+          lfs: true
 
       - uses: actions/setup-node@v4
         with:

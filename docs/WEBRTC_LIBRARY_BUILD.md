@@ -1,14 +1,15 @@
 # WebRTC echo-cancellation library (Windows)
 
 On Windows, echo cancellation uses the WebRTC AEC3 echo canceller. It is built
-once, outside this repo, as a single static library, `sayso_webrtc_apm.lib`.
-`native_audio.node` links it in, so no extra DLL ships with the app.
+once, from WebRTC source outside this repo, as a single static library,
+`sayso_webrtc_apm.lib`. The built library is committed to this repo with
+**Git LFS**. `native_audio.node` links it in, so no extra DLL ships with the app.
 
 This guide covers:
 
 1. how the pieces fit together;
-2. getting the library: the prebuilt file, or building it yourself;
-3. where to put it, for local builds and for CI;
+2. the committed library (Git LFS) and CI;
+3. rebuilding it yourself, and committing the new one;
 4. checking that echo cancellation works in the built app;
 5. troubleshooting.
 
@@ -32,7 +33,8 @@ electron/native-audio/build/Release/native_audio.node   (ships in the installer)
 |---|---|
 | `third_party/sayso_webrtc_apm/` | Our wrapper: a GN target (`BUILD.gn`) and a small C interface over AEC3 (`sayso_apm.h`, `sayso_apm.cc`). Only the echo canceller is built: no noise suppression or gain control. |
 | `scripts/build-webrtc-apm.ps1` | Copies the wrapper into a WebRTC checkout, builds the library, copies it to `deps/webrtc_apm/win-x64/`, and regenerates `THIRD_PARTY_NOTICES.txt`. |
-| `scripts/webrtc-apm-status.js` | Run by `binding.gyp`. It tells the build whether the library is present. |
+| `scripts/webrtc-apm-status.js` | Run by `binding.gyp`. It tells the build whether the library is present, and says what to do when the file is only a Git LFS pointer. |
+| `.gitattributes` (repo root) | Stores the library in Git LFS. `.gitignore` keeps the rest of `deps/` out of git. |
 | `scripts/native-build-env.js` (repo root) | Used by the packaging builds. On Windows it sets `SAYSO_REQUIRE_WEBRTC_APM=1`, so packaging **stops with an error** if the library is missing, rather than shipping without echo cancellation. |
 | `THIRD_PARTY_NOTICES.txt` | Licences of everything inside the library (all permissive: BSD, Apache 2.0, MIT-style). It ships next to `native_audio.node`. |
 
@@ -43,9 +45,11 @@ out of the installer.
 All paths below are relative to `electron/native-audio/` unless they start
 with the repo root.
 
-## Option 1: use the prebuilt library
+## The committed library (Git LFS)
 
-We built the library with the same toolchain as your release workflow:
+The library is committed at
+`electron/native-audio/deps/webrtc_apm/win-x64/sayso_webrtc_apm.lib`, stored
+with Git LFS. It was built with the same toolchain as the release workflow:
 
 | | |
 |---|---|
@@ -54,19 +58,33 @@ We built the library with the same toolchain as your release workflow:
 | WebRTC revision | `d943abd3750afb3fb6c956a4bafc4ef294b55198` |
 | Toolchain | Visual Studio 2022 Build Tools 17.14 (MSVC 14.44, v143), Windows SDK 10.0.26100, x64 Release, static CRT (`/MT`) |
 
-1. Put it at `electron/native-audio/deps/webrtc_apm/win-x64/sayso_webrtc_apm.lib`.
-2. Check the hash (PowerShell):
+1. **Install Git LFS once per machine** (it comes with Git for Windows) and
+   fetch the library, from the repo root:
+   ```powershell
+   git lfs install
+   git lfs pull
+   ```
+   A clone made after `git lfs install` fetches it automatically. Without Git
+   LFS the file is a small text pointer; the native build then says so and
+   prints these two commands.
+2. Optional: check the hash (PowerShell):
    ```powershell
    Get-FileHash electron\native-audio\deps\webrtc_apm\win-x64\sayso_webrtc_apm.lib
    ```
-3. Continue with [Where to keep it](#where-to-keep-it) and
-   [Build the app and check it](#build-the-app-and-check-it).
+3. Continue with [Build the app and check it](#build-the-app-and-check-it).
 
-## Option 2: build it yourself
+**CI.** The build job in `.github/workflows/release-windows.yml` checks out
+with `lfs: true`, so the release runner gets the library with the code.
 
-Do this when you want your own build of the library or need to move to a
-newer WebRTC. It is a one-off job: the first download and build take a few
-hours and about 30 GB of disk. After that, a rebuild takes minutes.
+**Not in GitHub Releases.** Don't publish the library as a GitHub Release
+asset: this repo's releases feed the app's auto-updater.
+
+## Rebuilding it yourself
+
+Do this to move to a newer WebRTC, or to reproduce the committed library. It
+is a one-off job: the first download and build take a few hours and about
+30 GB of disk. After that, a rebuild takes minutes. When it is done, commit
+the new library as in [Commit a rebuilt library](#commit-a-rebuilt-library).
 
 ### Prerequisites
 
@@ -83,7 +101,7 @@ hours and about 30 GB of disk. After that, a rebuild takes minutes.
 - **Debugging Tools for Windows.** WebRTC's build needs them. Open
   *Settings → Apps → Windows Software Development Kit 10.0.26100 → Modify*,
   choose *Change*, and tick **Debugging Tools for Windows**.
-- **Git for Windows.**
+- **Git for Windows**, with Git LFS set up (`git lfs install`).
 - **Python 3.11** for the app's own native build (node-gyp 9, same as CI).
   WebRTC brings its own Python for its part of the build.
 
@@ -161,22 +179,22 @@ commit it with the code.
 The script also copies `sayso_apm.h` into `deps/`. The build does not use that
 copy; it reads the header from `third_party/sayso_webrtc_apm/`.
 
-## Where to keep it
+## Commit a rebuilt library
 
-`electron/native-audio/deps/` is in `.gitignore`. Keep the library in one of
-these places:
+The script writes the new library to the committed path, so commit it from the
+repo root as usual (with Git LFS installed):
 
-- **In git (simplest; CI works with no changes).** Force-add only the library:
-  ```powershell
-  git add -f electron/native-audio/deps/webrtc_apm/win-x64/sayso_webrtc_apm.lib
-  ```
-  Once tracked, git keeps tracking it, and the rest of `deps/` stays ignored.
-  The file is 10.6 MB, well under GitHub's 100 MB limit.
-- **Outside git** (release asset, artifact store, CI cache). Add a step to
-  `.github/workflows/release-windows.yml` that downloads the file to
-  `electron/native-audio/deps/webrtc_apm/win-x64/` before
-  **Build the native audio addon**. Without it, the Windows release stops with
-  the "library is missing" error.
+```powershell
+git add electron/native-audio/deps/webrtc_apm/win-x64/sayso_webrtc_apm.lib electron/native-audio/THIRD_PARTY_NOTICES.txt
+git lfs ls-files     # must list sayso_webrtc_apm.lib: stored in LFS, not as a plain git blob
+git commit -m "build(native-audio): rebuild WebRTC library at <revision>"
+git push
+```
+
+`.gitattributes` sends the file to Git LFS; `.gitignore` keeps the rest of
+`deps/` (the header copy) out of git. CI needs no change. As above, keep it out
+of GitHub Releases. When you change WebRTC revision, also update the revision in
+this guide.
 
 ## Build the app and check it
 
@@ -209,7 +227,9 @@ these places:
 
 | Problem | Cause and fix |
 |---|---|
-| Packaging stops with `the WebRTC echo-cancellation library is missing` | The `.lib` is not at `deps/webrtc_apm/win-x64/`. Put it there, or add the CI download step. For an emergency build without echo cancellation only: `SAYSO_ALLOW_BUILD_WITHOUT_AEC=1`. |
+| The build says `the WebRTC echo-cancellation library is a Git LFS pointer` | The repo was cloned or pulled without Git LFS. Run `git lfs install`, then `git lfs pull`, and rebuild. |
+| Linker error `LNK1107: invalid or corrupt file` on `sayso_webrtc_apm.lib` | Same cause: a Git LFS pointer instead of the library. Run `git lfs pull`. |
+| Packaging stops with `the WebRTC echo-cancellation library is missing` | The `.lib` is not at `deps/webrtc_apm/win-x64/`: run `git lfs pull`. In CI, check `lfs: true` on the build job's checkout. For an emergency build without echo cancellation only: `SAYSO_ALLOW_BUILD_WITHOUT_AEC=1`. |
 | Linker errors about a newer compiler, `LNK1143`, or `C1900`/IPDB mismatch | The library was built with a newer Visual Studio than the one linking it. Rebuild it with VS 2022, no newer than CI's. |
 | Linker errors `LNK2038` mismatch for `RuntimeLibrary` or `_ITERATOR_DEBUG_LEVEL` | The library was not built by the script (wrong CRT or a debug build). Use `build-webrtc-apm.ps1`; it sets the right options. |
 | The script stops with `Visual Studio 2022 with C++ tools ... is not installed` | Install the *Desktop development with C++* workload. |
