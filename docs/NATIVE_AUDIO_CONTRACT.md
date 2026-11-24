@@ -38,8 +38,51 @@ Read alongside [`AUDIO_MODULE_WINDOWS_ASSESSMENT.md`](./AUDIO_MODULE_WINDOWS_ASS
 | 12 | `setMicrophoneStreamingCallback` | `void` | no (sync) |
 | 13 | `setLifecycleEventCallback` | `void` | no (sync) |
 | 14 | `getMicInputDiagnostics` | `Promise<MicInputDiagnostics \| null>` | yes — **optional** (SAYSO-431; Windows SAYSO-459) |
-| 15 | `setEchoCancellationEnabled` | `void` | no (sync) — **optional** (echo cancellation; Windows today) |
-| 16 | `getEchoCancellationState` | `{ built, enabled, active, delayMs?, lastError? }` | no (sync) — **optional** (echo cancellation; Windows today) |
+| 15 | `getSystemAudioBackend` | `'core-audio-tap' \| 'screencapturekit'` | no (sync) — **optional, macOS** (SAYSO-513) |
+| 16 | `setForceScreenCaptureKit` | `boolean` | no (sync) — **optional, macOS**. Global override (the `force_sck_audio` company feature) |
+| 17 | `getSystemAudioPermissionStatus` | `'granted' \| 'denied' \| 'not-determined' \| 'unknown'` | no (sync) — **optional, macOS**. Never prompts |
+| 18 | `requestSystemAudioPermission` | `Promise<same union>` | yes — **optional, macOS**. Prompts only when `not-determined` |
+| 19 | `setEchoCancellationEnabled` | `void` | no (sync) — **optional** (echo cancellation; Windows today) |
+| 20 | `getEchoCancellationState` | `{ built, enabled, active, delayMs?, lastError? }` | no (sync) — **optional** (echo cancellation; Windows today) |
+
+Rows 15–18 are feature-checked by `index.js` (it returns `null` / `false` when a
+method is missing), so Windows doesn't export them. On macOS 14.4+ system audio
+comes from a Core Audio process tap instead of ScreenCaptureKit. Things a
+native implementer must keep:
+- `startSystemAudioCapture` takes `forceScreenCaptureKit: true` to use
+  ScreenCaptureKit **for that start only** (the S-3 permission fallback in
+  `docs/MACOS_AUDIO_CAPTURE_PERMISSIONS.md`). It must not change
+  `getSystemAudioBackend()`.
+- A tap start rejects `tap_permission_denied` / `tap_permission_not_determined`
+  when the status is known missing. It never starts "healthy but silent", and it
+  never brings up the macOS prompt during a call.
+- Tap audio goes through the same `g_sckAudioPipe` as ScreenCaptureKit, and
+  only the **tap's** input buffers are posted. The aggregate device also
+  exposes the output device's own mic (headsets, AirPods) ahead of the tap.
+  The IO block takes the **last** N buffers of what it receives (N = 1 when
+  interleaved, else one per channel) and checks each one's channel count.
+  Never find the layout by reading the aggregate's
+  `kAudioDevicePropertyStreamConfiguration` before `AudioDeviceStart`: that read
+  left the IOProc never called, so audio stalled every few seconds
+  (2026-11-17).
+- A stalled tap is rebuilt, but with backoff. Each rebuild disturbs the output
+  device, and a tight loop cut playback for every app on the Mac. There is no
+  backend to fall back to, because 14.4+ users have no Screen Recording grant.
+
+Tap lifecycle events (through `setLifecycleEventCallback`; any `_failed` event
+escalates to Sentry in `audioManager.ts`):
+
+| Event | Meaning |
+|---|---|
+| `tap_started` / `tap_teardown_complete` | pipeline up / down |
+| `tap_io_stalled reason=no_first_io\|io_stalled\|layout_rejected … never_ran= streak= io_calls= handled=` | no IO callback 1.5 s after a build (first try of a streak only), or none for 4 s. `layout_rejected`: callbacks arrive but their buffer shape is refused |
+| `tap_recovery_started` / `tap_recovery_succeeded reason=…` | rebuild (`output_device_changed`, `wake`, `no_first_io`, `io_stalled`, `auto_retry`) |
+| `tap_stall_backoff streak= next_retry_ms=` | streak past 2: the next rebuild waits 5, 10, 20, 40, then 60 s. 10 s of healthy IO resets the streak |
+| `tap_stall_recovery_failed streak= output_device=` | first time a session's streak passes 2. Sentry, once per session |
+| `tap_skipping_device_input buffers=` | the output device's own mic buffers were skipped (once per pipeline) |
+| `tap_input_layout_failed …` | buffer shape didn't match the tap format, so nothing is posted. Sentry, once per session. Those callbacks don't count as IO, so the stall watchdog rebuilds (with the usual backoff) |
+| `tap_sleep_teardown` | system sleep. Rebuilt 1.5 s after wake |
+| `audio_pipe_closed pipe= delivered= overflow_dropped= undelivered_at_close=` | per-session pipe counters (system and mic) |
 
 > The macOS `.mm` also still exports the dead trio `listOutputDevices`,
 > `createMultiOutputDevice`, `deleteMultiOutputDevice` — **do not implement

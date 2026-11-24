@@ -111,12 +111,21 @@ export interface MicInputDiagnostics {
   };
 }
 
+export type SystemAudioPermissionState = 'granted' | 'denied' | 'not-determined' | 'unknown';
+
+export type SystemAudioBackend = 'core-audio-tap' | 'screencapturekit';
+
 export interface IAudioProvider {
   initialize(): Promise<void>;
 
   // Permissions — macOS requires explicit grants; other platforms return safe defaults
   checkScreenRecordingGranted(): boolean;
   requestScreenRecordingPermission(): Promise<void>;
+
+  setForceScreenCaptureKit?(force: boolean): boolean;
+  getSystemAudioBackend?(): SystemAudioBackend | null;
+  getSystemAudioPermissionStatus?(): SystemAudioPermissionState | null;
+  requestSystemAudioPermission?(): Promise<SystemAudioPermissionState | null>;
 
   // System audio capture (ScreenCaptureKit on Mac, WASAPI loopback on Windows).
   // The public entry point is startProspectStreaming (below); the provider owns
@@ -148,7 +157,9 @@ export interface IAudioProvider {
 
   // Streaming
   setStreamingCallback(callback: StreamingCallback | null): void;
-  startProspectStreaming(options: { streamingCallback: StreamingCallback }): Promise<AudioCaptureResult>;
+  // forceScreenCaptureKit: macOS only, this start only — the S-3 permission fallback. Ignored on
+  // Windows and on macOS < 14.4 (already ScreenCaptureKit).
+  startProspectStreaming(options: { streamingCallback: StreamingCallback; forceScreenCaptureKit?: boolean }): Promise<AudioCaptureResult>;
 
   // Native lifecycle diagnostics (SAYSO-355): short snake_case event strings emitted for
   // capture-lifecycle anomalies (watchdog fired, orphaned stream, late callbacks). Optional so a

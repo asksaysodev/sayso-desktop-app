@@ -114,6 +114,20 @@
 	color: var(--sayso-success)
 }
 
+/* "New" tag on the System Audio row for upgrading users */
+.perm-new-tag {
+	margin-left: 8px;
+	padding: 1px 7px;
+	border-radius: 999px;
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	color: #8fb1f7;
+	background: rgba(35, 103, 238, 0.18);
+	border: 1px solid rgba(35, 103, 238, 0.45);
+}
+
 .perm-divider {
     height: 1px;
     background: rgba(255, 255, 255, 0.06);
@@ -208,4 +222,147 @@
 @keyframes perm-spin {
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }
+}
+
+/* ── Upgrade success sequence ── */
+/* 1. The System Audio icon turns green and pops. */
+.perm-icon-bg--pop {
+	animation: perm-icon-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.perm-icon-bg--pop .perm-icon-check {
+	animation: perm-fade-scale-in 0.3s ease-out both;
+}
+
+@keyframes perm-icon-pop {
+	0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(33, 158, 102, 0.5); }
+	45%  { transform: scale(1.18); box-shadow: 0 0 0 8px rgba(33, 158, 102, 0.15); }
+	100% { transform: scale(1);    box-shadow: 0 0 0 14px rgba(33, 158, 102, 0); }
+}
+
+/* 2. Everything else fades away and scales down. */
+.permissions-body--leaving {
+	animation: perm-leave 0.45s ease-in forwards;
+	pointer-events: none;
+}
+
+@keyframes perm-leave {
+	from { opacity: 1; transform: scale(1); }
+	to   { opacity: 0; transform: scale(0.92); }
+}
+
+/* 3. The centered check draws itself, then the copy (and the new user's Start CTA) fade and scale in. */
+.perm-success {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding: 0 24px 28px;
+	text-align: center;
+	-webkit-app-region: no-drag;
+}
+
+.perm-success-center {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 22px;
+}
+
+/* Same bottom slot as the upgrade screen's CTA */
+.perm-success-cta {
+	margin-top: 0;
+	animation: perm-fade-scale-in 0.4s ease-out 0.9s both;
+}
+
+.perm-success-check {
+	width: 72px;
+	height: 72px;
+	overflow: visible;
+}
+
+.perm-success-ring,
+.perm-success-tick {
+	fill: none;
+	stroke: var(--sayso-success);
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.perm-success-ring {
+	stroke-width: 2.5;
+	stroke-dasharray: 208;
+	stroke-dashoffset: 208;
+	transform: rotate(-90deg);
+	transform-origin: 36px 36px;
+	animation: perm-draw 0.6s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+.perm-success-tick {
+	stroke-width: 3.5;
+	stroke-dasharray: 44;
+	stroke-dashoffset: 44;
+	animation: perm-draw 0.35s cubic-bezier(0.65, 0, 0.35, 1) 0.5s forwards;
+}
+
+@keyframes perm-draw {
+	to { stroke-dashoffset: 0; }
+}
+
+.perm-success-copy {
+	animation: perm-fade-scale-in 0.4s ease-out 0.75s both;
+}
+
+.perm-success-title {
+	font-size: 16px;
+	font-weight: 600;
+	color: #fff;
+	margin-bottom: 6px;
+}
+
+.perm-success-sub {
+	font-size: 13px;
+	color: rgba(255, 255, 255, 0.55);
+}
+
+@keyframes perm-fade-scale-in {
+	from { opacity: 0; transform: scale(0.9); }
+	to   { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.perm-icon-bg--pop,
+	.perm-icon-bg--pop .perm-icon-check,
+	.permissions-body--leaving,
+	.perm-success-copy,
+	.perm-success-cta { animation-duration: 0.01s; animation-delay: 0s; }
+	.perm-success-ring,
+	.perm-success-tick { animation: none; stroke-dashoffset: 0; }
+}
+
+/* Upgrade screen has no subtitle: the title takes over its spacing. Its auto top margin pairs with
+   the CTA's, so the title + row group sits centered in the space above the button. */
+.permissions-title--solo {
+	margin-top: auto;
+	margin-bottom: 42px;
+	line-height: 1.35;
+}
+
+/* Upgrade screen: the CTA sits at the bottom of the window */
+.permissions-body--upgrade {
+	padding-bottom: 28px;
+}
+
+.permissions-cta-btn--bottom {
+	margin-top: auto;
+	transition: background 0.15s, opacity 0.3s ease, visibility 0.3s;
+}
+
+.permissions-cta-btn--gone,
+.permissions-cta-btn--gone:disabled {
+	opacity: 0;
+	visibility: hidden;
+	pointer-events: none;
 }

@@ -2,7 +2,8 @@ import { app, ipcMain, powerMonitor } from 'electron';
 import * as Sentry from '@sentry/electron/main';
 
 import { isTransientNetworkError } from '../utils/transientErrors';
-import type { IAudioProvider, AudioFormat } from './IAudioProvider';
+import type { IAudioProvider, AudioFormat, SystemAudioBackend, SystemAudioPermissionState } from './IAudioProvider';
+import * as cacheStore from '../store/cacheManager';
 import { aecCallSummaryTags, createAecCallTracker, formatAecCallSummary } from './aecCallSummary';
 import { collectMicDiagnostics, installMicDiagnosticsListeners, type MicStartOrigin } from './micDiagnostics';
 import { createMicStarter, MIC_START_MAX_ATTEMPTS, type MicStartAttemptsResult } from './micStartRetry';
@@ -45,7 +46,7 @@ let cueStopInFlight: Promise<{ success: boolean; error?: string; deduped?: boole
 
 /** Serialize start-cue: overlapping invokes (double-click, renderer retry) dedupe onto the same
  *  in-flight start instead of interleaving through its multi-await body (SAYSO-355). */
-let cueStartInFlight: Promise<{ success: boolean; error?: string; sessionId?: string; mic?: boolean; screen?: boolean }> | null = null;
+let cueStartInFlight: Promise<{ success: boolean; error?: string; sessionId?: string; mic?: boolean; screen?: boolean; audio?: SystemAudioPermissionState | null }> | null = null;
 
 /** Per-session telemetry: chunks + bytes forwarded from native callbacks into AudioStreamer, plus
  *  signal levels (SAYSO-428) — byte counts alone read "healthy" for a mic that streams silence. */
@@ -212,7 +213,13 @@ let notifyOnboarding: (channel: string) => void = () => {};
 
 /** Dependencies injected by main so this module stays free of window/permission internals. */
 export interface CueIpcDeps {
-  checkOSPermissionsGranted: () => Promise<{ granted: boolean; mic: boolean; screen: boolean }>;
+  checkOSPermissionsGranted: () => Promise<{
+    granted: boolean;
+    mic: boolean;
+    screen: boolean;
+    systemAudio?: SystemAudioPermissionState | null;
+    systemAudioFallback?: boolean;
+  }>;
   createSplashWindow: () => void;
   sendToOnboardingWindow: (channel: string) => void;
 }
@@ -309,6 +316,49 @@ export function isScreenRecordingGranted(opts?: { warnIfUnavailable?: boolean })
 export function requestScreenRecordingPermission(): void {
   if (!provider || typeof provider.requestScreenRecordingPermission !== 'function') return;
   try { provider.requestScreenRecordingPermission(); } catch { /* ignore */ }
+}
+
+export const FORCE_SCK_AUDIO_FEATURE = 'force_sck_audio';
+
+let lastAppliedForceSck: boolean | null = null;
+
+export function applySystemAudioBackendOverride(): void {
+  if (!provider || typeof provider.setForceScreenCaptureKit !== 'function') return;
+  let force = false;
+  try {
+    force = cacheStore.getValue('enabledFeatures').includes(FORCE_SCK_AUDIO_FEATURE);
+  } catch {
+    force = false;
+  }
+  if (force === lastAppliedForceSck) return;
+  lastAppliedForceSck = force;
+  provider.setForceScreenCaptureKit(force);
+  console.log(`[Audio] System-audio backend override: ${force ? 'forcing ScreenCaptureKit' : 'none'}`);
+}
+
+export function getSystemAudioBackend(): SystemAudioBackend | null {
+  if (!provider || typeof provider.getSystemAudioBackend !== 'function') return null;
+  applySystemAudioBackendOverride();
+  return provider.getSystemAudioBackend() ?? null;
+}
+
+export function usesCoreAudioTap(): boolean {
+  return getSystemAudioBackend() === 'core-audio-tap';
+}
+
+export function getSystemAudioPermission(): SystemAudioPermissionState | null {
+  if (!provider || typeof provider.getSystemAudioPermissionStatus !== 'function') return null;
+  return provider.getSystemAudioPermissionStatus() ?? null;
+}
+
+export async function requestSystemAudioPermission(): Promise<SystemAudioPermissionState | null> {
+  if (!provider || typeof provider.requestSystemAudioPermission !== 'function') return null;
+  try {
+    return (await provider.requestSystemAudioPermission()) ?? null;
+  } catch (e) {
+    console.warn('[Permissions] requestSystemAudioPermission failed:', e);
+    return getSystemAudioPermission();
+  }
 }
 
 // ─── Cue lifecycle accessors (used by auth handlers in main) ──────────────────
@@ -985,7 +1035,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       const result = await cueStartInFlight;
       return { ...result, deduped: true };
     }
-    const startWork = (async (): Promise<{ success: boolean; error?: string; sessionId?: string; mic?: boolean; screen?: boolean }> => {
+    const startWork = (async (): Promise<{ success: boolean; error?: string; sessionId?: string; mic?: boolean; screen?: boolean; audio?: SystemAudioPermissionState | null }> => {
     try {
       if (!token) {
         throw new Error('Token is required');
@@ -999,12 +1049,31 @@ export function registerCueIpc(deps: CueIpcDeps): void {
         throw new Error('Native audio module not loaded. Please wait for app initialization.');
       }
 
+      applySystemAudioBackendOverride();
+
       const permsCheck = await checkOSPermissionsGranted();
       if (!permsCheck.granted) {
         console.warn('[Cue] OS permissions not granted — mic:', permsCheck.mic, 'screen:', permsCheck.screen);
         // Surface the splash window; PostAuthRedirect sees permissions are incomplete and routes to /permissions.
         createSplashWindow();
-        return { success: false, error: 'permissions_denied', mic: permsCheck.mic, screen: permsCheck.screen };
+        return {
+          success: false,
+          error: 'permissions_denied',
+          mic: permsCheck.mic,
+          screen: permsCheck.screen,
+          audio: permsCheck.systemAudio ?? null,
+        };
+      }
+      // S-3: Read once here and carried to the prospect start below, so a grant mid-start can't
+      // flip it halfway.
+      const forceScreenCaptureKitThisSession = !!permsCheck.systemAudioFallback;
+      if (forceScreenCaptureKitThisSession) {
+        console.log(`[Cue] backend_fallback reason=audio_${permsCheck.systemAudio} — ScreenCaptureKit for this session`);
+        Sentry.addBreadcrumb({
+          category: 'cue',
+          message: 'system audio backend fallback to ScreenCaptureKit',
+          data: { systemAudio: permsCheck.systemAudio },
+        });
       }
 
       if (cueStopInFlight) {
@@ -1140,6 +1209,7 @@ export function registerCueIpc(deps: CueIpcDeps): void {
       }
 
       await provider.startProspectStreaming({
+        forceScreenCaptureKit: forceScreenCaptureKitThisSession,
         streamingCallback: (buffer: Buffer, format: AudioFormat) => {
           if (cueAudioStreamer) {
             cueCaptureStats.prospectChunks += 1;

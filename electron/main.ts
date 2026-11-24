@@ -572,10 +572,16 @@ authManager.on('session-expired', () => {
 // The "Meeting detection" setting (SAYSO-531) gates only the prompt, read from
 // the cache so a call never waits on the network; the monitor keeps running.
 const hasActiveSubscription = () => !!global.authUser && global.authUser.subscription_plan_id !== null;
+// No prompt during first-run setup (SAYSO-627). Live grants alone aren't enough:
+// they land before the splash's Continue / Quit and Reopen, so an open splash or
+// onboarding window still counts as setup.
+const isSetupComplete = () =>
+  permissions.isPermissionsComplete() && !isSplashWindowOpen() && !isOnboardingWindowOpen();
 
 initCallPrompt({
   canPrompt: () =>
     hasActiveSubscription()
+    && isSetupComplete()
     && global.networkState !== 'reconnecting'
     && cacheStore.getValue('callDetectionPromptEnabled'),
   isCoachOpen: () => !!isCoachWindowOpen(),
@@ -592,6 +598,7 @@ initQuitConfirm({
   isCallDetectionActive: () =>
     isMicActivityMonitorRunning()
     && hasActiveSubscription()
+    && isSetupComplete()
     && !!cacheStore.getValue('callDetectionPromptEnabled'),
   isQuitting: () => isAppQuitting,
 });
@@ -1004,6 +1011,12 @@ function isAppSettingsWindowOpen() {
 }
 function isPlaybookWindowOpen() {
   return global.playbookWindow && !global.playbookWindow.isDestroyed();
+}
+function isSplashWindowOpen() {
+  return !!splashWindowInstance && !splashWindowInstance.isDestroyed();
+}
+function isOnboardingWindowOpen() {
+  return !!onboardingWindowInstance && !onboardingWindowInstance.isDestroyed();
 }
 
 /**
@@ -1715,6 +1728,8 @@ const isDev = !app.isPackaged;
 
 // Keep track of window instances
 let splashWindowInstance: BrowserWindowType | null = null;
+// Set when splash-login-success closes the splash: it runs the post-permissions steps itself.
+let splashFinishHandled = false;
 
 // --- Splash Window (Auth / Loading Screen) ---
 const createSplashWindow = (opts: { logout?: boolean; reason?: 'session-expired' } | boolean = {}) => {
@@ -1772,7 +1787,18 @@ const createSplashWindow = (opts: { logout?: boolean; reason?: 'session-expired'
   }
 
   splashWindow.on('closed', () => {
+    const finishedByRenderer = splashFinishHandled;
+    splashFinishHandled = false;
     splashWindowInstance = null;
+    // The tap-backend upgrade screen ends with "You can close this window now", so the user closes
+    // the splash by hand and splash-login-success never runs. When boot found permissions
+    // incomplete it deferred the post-permissions steps to that IPC, so run them here instead.
+    if (finishedByRenderer || isAppQuitting) return;
+    if (!authManager.getState().isAuthenticated || !permissions.isPermissionsComplete()) return;
+    void runPostSplashSteps().then((openOnboarding) => {
+      console.log('[MAIN] splash closed by user after permissions — opening onboarding:', openOnboarding);
+      if (openOnboarding && !isAppQuitting) createOnboardingWindow();
+    });
   });
 };
 
@@ -2703,7 +2729,9 @@ ipcMain.on('complete-onboarding', (_event) => {
 });
 
 // Handler for the splash window to signal successful login — closes splash, then opens onboarding if needed
-ipcMain.on('splash-login-success', async () => {
+// Steps owed once the splash is done (signed in, permissions complete). Returns whether the
+// onboarding tour should open.
+async function runPostSplashSteps(): Promise<boolean> {
   // Wait for the sign-in profile fetch so the gate reads a fresh
   // onboarding_status rather than a stale `false` from before login.
   await authUserReady;
@@ -2711,18 +2739,27 @@ ipcMain.on('splash-login-success', async () => {
   // otherwise only replay on a launch that happens to go through silent auth,
   // leaving the pending file to sit in userData indefinitely. SAYSO-338.
   replayPendingOnboardingStatus();
-  const openOnboarding = shouldOpenOnboarding();
-  console.log('[MAIN] splash-login-success — profile:', global.authUser ? 'present' : 'missing', '| opening onboarding:', openOnboarding);
+  return shouldOpenOnboarding();
+}
 
+// `openCoach` (the permissions screen's "Launch Coach"): open the coach after the splash closes,
+// unless the onboarding tour is due, in which case the tour opens instead and leads to the coach
+// itself. Opening both put the tour and the coach on screen together.
+ipcMain.on('splash-login-success', async (_event: Electron.IpcMainEvent, opts?: { openCoach?: boolean }) => {
+  const openOnboarding = await runPostSplashSteps();
+  const openCoach = !openOnboarding && !!opts?.openCoach;
+  console.log('[MAIN] splash-login-success — profile:', global.authUser ? 'present' : 'missing', '| opening onboarding:', openOnboarding, '| opening coach:', openCoach);
+
+  const next = () => {
+    if (openOnboarding) createOnboardingWindow();
+    else if (openCoach) void openCoachWindowFromUser();
+  };
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
-    splashWindowInstance.once('closed', () => {
-      if (openOnboarding) {
-        createOnboardingWindow();
-      }
-    });
+    splashFinishHandled = true;
+    splashWindowInstance.once('closed', next);
     splashWindowInstance.close();
-  } else if (openOnboarding) {
-    createOnboardingWindow();
+  } else {
+    next();
   }
 });
 
