@@ -153,10 +153,10 @@ points**, with two deliberate exceptions:
 - `src/types/electron.d.ts` and `src/vite-env.d.ts` — ambient declarations, never
   imported by design.
 
-`Account.role?: UserRole` in `src/types/user.ts` is still declared and still never
-read: **the app has no role gates.** It's kept deliberately — unreferenced *type
-declarations* are cheap and are not deletion targets; unreferenced
-*implementation* is.
+`Account.role` is read in one place, `src/utils/canManageBilling.ts`, which only picks
+the copy of the paused / inactive subscription banners (SAYSO-547): **the app has no role gates**,
+the server enforces them. Unreferenced *type declarations* are cheap and are not
+deletion targets; unreferenced *implementation* is.
 
 To re-check reachability after a refactor, walk the import graph from the six
 root HTML entries; anything under `src/` that it doesn't reach is a deletion

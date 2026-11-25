@@ -44,7 +44,7 @@ try {
 
     // Opens the web app signed in. Main owns the whole flow — token, request and
     // browser launch — so no credential crosses into a renderer. SAYSO-433.
-    openWebApp: () => ipcRenderer.invoke('auth:open-web-app'),
+    openWebApp: (page?: 'subscription') => ipcRenderer.invoke('auth:open-web-app', page),
 
     // Cue API (handles 2 audio websockets + insights websocket)
     cue: {

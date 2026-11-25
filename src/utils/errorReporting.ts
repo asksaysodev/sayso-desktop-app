@@ -90,7 +90,7 @@ export function isAuthTeardownError(error: unknown): boolean {
 
 /**
  * A 402 from `POST /cue/session/new`: the org is out of minutes, its subscription
- * is inactive, or the user's team hit its hour cap (server middleware/hasMinutes.js,
+ * is inactive or paused, or the user's team hit its hour cap (server middleware/hasMinutes.js,
  * hasTeamHours.js). An account's billing state, not a bug — the fix is an admin
  * topping up, so reporting it only adds Sentry noise.
  */

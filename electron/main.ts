@@ -2387,7 +2387,9 @@ ipcMain.handle('auth:get-state', () => {
 const WEB_APP_URL = 'https://app.asksayso.com/';
 
 /**
- * Opens the web app in the browser with the user already signed in, on the dashboard.
+ * Opens the web app in the browser with the user already signed in: on the dashboard,
+ * or on Subscription for page 'subscription' (SAYSO-547). Renderers name a page, never
+ * a URL or path: the result carries a sign-in token.
  *
  * Lives in main rather than the tray because the token must not have to cross into a
  * renderer for this, because main reads the live session instead of a captured React
@@ -2405,8 +2407,9 @@ const WEB_APP_URL = 'https://app.asksayso.com/';
  * Every path opens the page. Landing on the login screen is worse than being signed in
  * and far better than a click that does nothing.
  */
-ipcMain.handle('auth:open-web-app', async () => {
-  const openPlain = () => shell.openExternal(WEB_APP_URL);
+ipcMain.handle('auth:open-web-app', async (_event, page?: unknown) => {
+  const url = page === 'subscription' ? `${WEB_APP_URL}subscription` : WEB_APP_URL;
+  const openPlain = () => shell.openExternal(url);
 
   if (global.networkState === 'reconnecting') {
     openPlain();
@@ -2434,7 +2437,7 @@ ipcMain.handle('auth:open-web-app', async () => {
       return;
     }
 
-    shell.openExternal(`${WEB_APP_URL}#token_hash=${encodeURIComponent(tokenHash)}`);
+    shell.openExternal(`${url}#token_hash=${encodeURIComponent(tokenHash)}`);
   } catch (err: any) {
     // A blip or a 5xx is expected state, not a bug worth a Sentry event.
     if (!isTransientNetworkError(err)) Sentry.captureException(err);
