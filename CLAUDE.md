@@ -154,7 +154,7 @@ points**, with two deliberate exceptions:
   imported by design.
 
 `Account.role` is read in one place, `src/utils/canManageBilling.ts`, which only picks
-the copy of the paused-subscription banner (SAYSO-547): **the app has no role gates**,
+the copy of the paused / inactive subscription banners (SAYSO-547): **the app has no role gates**,
 the server enforces them. Unreferenced *type declarations* are cheap and are not
 deletion targets; unreferenced *implementation* is.
 

@@ -7,12 +7,19 @@ export type CoachFeature = 'cue';
 
 export type EnabledFeature = 'cue' | 'smart_capture' | 'playbooks' | 'pulse';
 
+export type CoachErrorIcon = 'pause' | 'offline';
+
 /**
  * The coach window's banner. The action lives with its message so a later error
  * can't inherit a stale button.
  */
 export interface CoachError {
     message: string;
+    /** With a title, the message follows it on the same line, muted. */
+    title?: string;
+    /** 'warning' is an expected state, not a failure. Default 'error'. */
+    severity?: 'warning' | 'error';
+    icon?: CoachErrorIcon;
     action?: 'open-subscription';
 }
 

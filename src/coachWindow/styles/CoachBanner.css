@@ -1,0 +1,122 @@
+/* Message strip under the coach pill, its smaller sibling: surface and edge both come
+   from .coach-box-bubble. Severity only colors the icon. */
+.coach-banner {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 40px;
+    /* The window is sized from this height, so it can't give way to the window's */
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    /* Left: the 16px icon centers on the drag handle (pill padding 8 + 24 / 2).
+       Right: the 24px X centers on the pill's last button (8 + its width / 2). */
+    padding: 8px calc(var(--cw-fs-container-height) / 2 - 4px) 8px 12px;
+    /* The pill's radius; on a single line it clamps to a full pill */
+    border-radius: 24px;
+    cursor: default;
+    -webkit-app-region: no-drag;
+    animation: coach-banner-enter 150ms ease-out;
+}
+
+.coach-banner-icon {
+    flex-shrink: 0;
+    display: flex;
+    color: #f87171;
+}
+
+.coach-banner--warning .coach-banner-icon {
+    color: var(--sayso-warning);
+    opacity: 0.8;
+}
+
+.coach-banner-copy {
+    flex: 1;
+    min-width: 0;
+    margin: 0 8px 0 14px;
+    /* 13px at the default font size */
+    font-size: calc(var(--cw-fs-insight) - 1px);
+    font-weight: 400;
+    line-height: 1.35;
+    color: var(--sayso-white);
+    overflow-wrap: anywhere;
+}
+
+.coach-banner-title {
+    font-weight: 500;
+}
+
+.coach-banner-detail {
+    color: #b3c0d0;
+}
+
+.coach-banner-action,
+.coach-banner-dismiss {
+    position: relative;
+    flex-shrink: 0;
+    height: 24px;
+    border: none;
+    border-radius: 100px;
+    background: transparent;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    transition: background-color 150ms ease, color 150ms ease;
+}
+
+/* Click target as tall as the strip */
+.coach-banner-action::after,
+.coach-banner-dismiss::after {
+    content: '';
+    position: absolute;
+    inset: -8px 0;
+}
+
+.coach-banner-action {
+    /* Beats the `button { padding: 0 !important }` reset in Colors.css */
+    padding: 0 10px !important;
+    margin-right: 4px;
+    color: var(--sayso-white);
+    font-family: inherit;
+    font-size: calc(var(--cw-fs-insight) - 1px);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.coach-banner-action:hover:not(:disabled) {
+    background: var(--sayso-indigo);
+}
+
+.coach-banner-action:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.coach-banner-dismiss {
+    width: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #b3c0d0;
+}
+
+.coach-banner-dismiss:hover {
+    color: #ffffff;
+}
+
+.coach-banner-action:focus-visible,
+.coach-banner-dismiss:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.6);
+    outline-offset: 2px;
+}
+
+@keyframes coach-banner-enter {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .coach-banner {
+        animation: none;
+    }
+}

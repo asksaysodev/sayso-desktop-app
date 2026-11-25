@@ -3,7 +3,7 @@ import { v4 } from 'uuid';
 import { isAxiosError } from 'axios';
 import { cue_startStreaming, cue_stopStreaming } from '../coachWindow/services/cueService';
 import { cue_removeExpired, cue_removeTooOld, cue_sortByPriority } from '../coachWindow/helpers/cueQueueHelpers';
-import { CUE_STOP_MESSAGE, cueBillingRefusal, cueStartErrorMessage, isSubscriptionPausedError } from '../coachWindow/helpers/cueErrorMessage';
+import { CUE_STOP_MESSAGE, cueBillingRefusal, cueStartErrorMessage, isSubscriptionRefusal } from '../coachWindow/helpers/cueErrorMessage';
 import apiClient from '../config/axios';
 import { getAccountProfile } from '@/utils/getAccountProfile';
 import { CoachFeature, CoachWindowStore, EnabledFeature, LpmamData } from '@/types/store/coachWindowStore';
@@ -180,7 +180,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
             const response = await apiClient.post('/cue/session/new', payload);
             return response.data;
         } catch (error: any) {
-            const account = isSubscriptionPausedError(error) ? await getAccountProfile() : null;
+            const account = isSubscriptionRefusal(error) ? await getAccountProfile() : null;
             const refusal = cueBillingRefusal(error, account);
             set({
                 error: refusal ?? {

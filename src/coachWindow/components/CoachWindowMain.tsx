@@ -2,11 +2,10 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
 import { useNetworkState } from '@/hooks/useNetworkState';
 import { MdDragIndicator } from 'react-icons/md';
-import { MdErrorOutline } from 'react-icons/md';
-import { LuX } from 'react-icons/lu';
 import { useCoachWindowStore } from '../../store/coachWindowStore';
 import CoachButtons from './CoachButtons';
 import InsightsVerticalLayout from './InsightsVerticalLayout';
+import CoachBanner from './CoachBanner';
 import SessionStoppedDialog, { type SessionStoppedReason } from './SessionStoppedDialog';
 import RightSideButtons from './RightSideButtons';
 import LeadTypeLabel from './LeadTypeLabel';
@@ -31,7 +30,6 @@ const WINDOW_WIDTH_SIZES = {
 
 const WINDOW_HEIGHT_SIZES = {
     BASE: 54,
-    ERROR: 110,
 }
 
 
@@ -212,16 +210,14 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
     }
 
     function getHeightByCurrentState() {
-        const showError = coachWindowError && coachFeature === 'cue' && leadType;
-        if (showError) {
-            return getTotalHeightWithRef(errorContainerRef);
-        }
+        // The banner stacks above whatever else is open, so it adds to its height
+        const bannerHeight = errorContainerRef.current ? errorContainerRef.current.offsetHeight + 6 : 0;
 
         if (showSessionAutoStopped) {
-            return getTotalHeightWithRef(sessionStoppedDialogRef) || WINDOW_HEIGHT_SIZES.BASE;
+            return (getTotalHeightWithRef(sessionStoppedDialogRef) || WINDOW_HEIGHT_SIZES.BASE) + bannerHeight;
         }
 
-        let height = WINDOW_HEIGHT_SIZES.BASE;
+        let height = WINDOW_HEIGHT_SIZES.BASE + bannerHeight;
 
         const showZipDropdown = isZipDropdownOpen && isZipCodeValid && isCoachActive && isPulseEnabled;
         if (showZipDropdown && zipCodeDropdownRef.current) {
@@ -305,6 +301,10 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
         if (mainContainerRef.current) {
             resizeObserver.observe(mainContainerRef.current);
         }
+        // Its text re-wraps as the pill's width changes
+        if (errorContainerRef.current) {
+            resizeObserver.observe(errorContainerRef.current);
+        }
         if (zipCodeDropdownRef.current) {
             resizeObserver.observe(zipCodeDropdownRef.current);
         }
@@ -325,7 +325,7 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
             resizeObserver.disconnect();
             mainContainer?.removeEventListener('transitionend', handleWidthTransitionEnd);
         };
-    }, [hidden, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, allResults, pulseError, isPulsePending, updateInsightsMaxListHeight]);
+    }, [hidden, currentInsight, leadType, insightsQueue, isCoachActive, coachFeature, isInsightsLayoutOpen, coachWindowError, isReconnecting, showSessionAutoStopped, currentfs, lpmamaTooltipHeight, isZipCodeValid, isZipDropdownOpen, isPulseEnabled, allResults, pulseError, isPulsePending, updateInsightsMaxListHeight]);
 
     /**
      * Handling auto opening of insights layout and unseen insights count for the notification dot
@@ -393,6 +393,7 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
                 error: {
                     message:
                         "Sayso isn't receiving microphone audio yet. Check your input device, or wait a few seconds after stopping before starting again.",
+                    severity: 'warning',
                 },
             });
         });
@@ -613,35 +614,28 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
             </div>
 
             {isReconnecting && coachFeature === 'cue' && leadType && (
-                <div className='cue-error-container coach-box-bubble' ref={errorContainerRef}>
-                    <MdErrorOutline className='cue-error-icon' />
-                    <span className='cue-error-text'>No internet connection — we&apos;ll reconnect automatically.</span>
-                </div>
+                <CoachBanner
+                    ref={errorContainerRef}
+                    severity='warning'
+                    icon='offline'
+                    message="No internet connection — we'll reconnect automatically."
+                />
             )}
 
             {!isReconnecting && coachWindowError && coachFeature === 'cue' && leadType && (
-                <div className='cue-error-container coach-box-bubble' ref={errorContainerRef}>
-                    <MdErrorOutline className='cue-error-icon' />
-                    <div className='cue-error-body'>
-                        <span className='cue-error-text'>{coachWindowError.message}</span>
-                        {coachWindowError.action === 'open-subscription' && (
-                            <button
-                                className='cue-error-action-button'
-                                onClick={handleOpenSubscription}
-                                disabled={isOpeningSubscription}
-                            >
-                                {isOpeningSubscription ? 'Opening…' : 'Open Subscription'}
-                            </button>
-                        )}
-                    </div>
-                    <button
-                        className='cue-error-close-button'
-                        onClick={() => clearError()}
-                        aria-label="Close error message"
-                    >
-                        <LuX />
-                    </button>
-                </div>
+                <CoachBanner
+                    ref={errorContainerRef}
+                    title={coachWindowError.title}
+                    message={coachWindowError.message}
+                    severity={coachWindowError.severity}
+                    icon={coachWindowError.icon}
+                    action={coachWindowError.action === 'open-subscription' ? {
+                        label: isOpeningSubscription ? 'Opening…' : 'Manage',
+                        onClick: handleOpenSubscription,
+                        disabled: isOpeningSubscription,
+                    } : undefined}
+                    onDismiss={clearError}
+                />
             )}
 
             {isZipDropdownOpen && isZipCodeValid && isCoachActive && isPulseEnabled && (
