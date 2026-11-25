@@ -43,7 +43,7 @@ export default function AudioSettings() {
         if (!selectedDevice) return;
 
         let analyser: AnalyserNode;
-        let dataArray: Uint8Array;
+        let dataArray: Uint8Array<ArrayBuffer>;
         let cancelled = false;
 
         async function startStream() {

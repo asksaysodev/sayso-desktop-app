@@ -36,9 +36,9 @@ npm run clean               # rm dist/ release*/ caches electron/native-audio/bu
 npm run kill-port           # free port 5173
 ```
 
-**No test suite.** `npm test` is a stub that exits 1. There is no lint script either — TypeScript is the only static check (`npm run build:electron` for main/preload; `tsc --noEmit` for the renderer, since `tsconfig.json` sets `noEmit`).
+**Tests:** `npm test` runs Node's built-in runner over `test/*.test.mts` (Node 22.18+ for TypeScript type stripping). Tests live in `test/`, outside `electron/`, so `tsconfig.electron.json` never compiles them into the app. They import the `.ts` source directly, so keep the logic under test in small modules with no Electron imports (`electron/utils/transientErrors.ts` is the pattern). A bug fix comes with a test that fails without the fix. There is no lint script: TypeScript is the other static check (`npx tsc -p tsconfig.electron.json --noEmit` for main/preload, `npx tsc -p tsconfig.json --noEmit` for the renderer). Both are at zero errors.
 
-`tsc --noEmit` is **not** at zero: one known error survives — `AudioSettings.tsx:85`, an `ArrayBufferLike`/`ArrayBuffer` variance complaint. Compare against that baseline before assuming a change introduced an error.
+**CI:** every PR runs the `Validate` check (`.github/workflows/ci.yml`: both typechecks plus `npm test`), and it is required by the repo ruleset. It never builds native modules or packages the app.
 
 **Cue is currently the only feature.** `coachFeature` has no second value, so any `coachFeature === 'recall'`-style comparison is unreachable and TypeScript will flag it. Don't add such branches speculatively.
 
