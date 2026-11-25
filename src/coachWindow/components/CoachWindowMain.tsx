@@ -62,6 +62,7 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
     //STATE
     const [showSessionAutoStopped, setShowSessionAutoStopped] = useState(false);
     const [sessionStoppedReason, setSessionStoppedReason] = useState<SessionStoppedReason>('inactivity');
+    const [isOpeningSubscription, setIsOpeningSubscription] = useState(false);
     const [lpmamaTooltipHeight, setLpmamaTooltipHeight] = useState(0);
     // Held for one painted frame so the width transition has a start point
     const [isGrowingFromPrompt, setIsGrowingFromPrompt] = useState(fromPrompt);
@@ -146,7 +147,7 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
     // local resources. Reads the store directly so a stale closure can't skip the
     // teardown. SAYSO-335.
     const handleSessionExpired = useCallback(() => {
-        useCoachWindowStore.setState({ error: 'Your session has expired. Please re-login from the main window.' });
+        useCoachWindowStore.setState({ error: { message: 'Your session has expired. Please re-login from the main window.' } });
         useCoachWindowStore.getState().cue_handleLocalTeardown().catch(reportCoachError);
     }, []);
     useSessionExpiry(handleSessionExpired);
@@ -165,6 +166,19 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
     const runCueAction = useCallback((action: () => Promise<unknown>) => {
         action().catch(reportCoachError);
     }, []);
+
+    // Can take a few seconds (main fetches the handoff token first), hence the in-flight flag
+    const handleOpenSubscription = async () => {
+        if (isOpeningSubscription) return;
+        setIsOpeningSubscription(true);
+        try {
+            await window.electron?.openWebApp('subscription');
+        } catch (error) {
+            reportCoachError(error);
+        } finally {
+            setIsOpeningSubscription(false);
+        }
+    };
 
     const handleRequestStop = useCallback(() => {
         runCueAction(handleStopCue);
@@ -376,8 +390,10 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
 
         const unsubscribe = window.electron.cue.onLowUserAudio(() => {
             useCoachWindowStore.setState({
-                error:
-                    "Sayso isn't receiving microphone audio yet. Check your input device, or wait a few seconds after stopping before starting again.",
+                error: {
+                    message:
+                        "Sayso isn't receiving microphone audio yet. Check your input device, or wait a few seconds after stopping before starting again.",
+                },
             });
         });
 
@@ -411,13 +427,13 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
 
         if (window.electron?.cue?.onMicRecoveryFailed) {
             unsubscribeFns.push(window.electron.cue.onMicRecoveryFailed(() => {
-                useCoachWindowStore.setState({ error: MIC_RECOVERY_FAILED_MESSAGE });
+                useCoachWindowStore.setState({ error: { message: MIC_RECOVERY_FAILED_MESSAGE } });
             }));
         }
 
         if (window.electron?.cue?.onMicRecoverySucceeded) {
             unsubscribeFns.push(window.electron.cue.onMicRecoverySucceeded(() => {
-                if (useCoachWindowStore.getState().error === MIC_RECOVERY_FAILED_MESSAGE) {
+                if (useCoachWindowStore.getState().error?.message === MIC_RECOVERY_FAILED_MESSAGE) {
                     useCoachWindowStore.setState({ error: null });
                 }
             }));
@@ -452,7 +468,7 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
             // The only producer is a WebSocket failure, so the reason is always
             // connectivity — and the raw payload is an ENOTFOUND-class string that
             // means nothing to the user.
-            useCoachWindowStore.setState({ error: CUE_CONNECTIVITY_MESSAGE });
+            useCoachWindowStore.setState({ error: { message: CUE_CONNECTIVITY_MESSAGE } });
         });
 
         return () => {
@@ -606,7 +622,18 @@ export default function CoachWindowMain({ fromPrompt = false, hidden = false }: 
             {!isReconnecting && coachWindowError && coachFeature === 'cue' && leadType && (
                 <div className='cue-error-container coach-box-bubble' ref={errorContainerRef}>
                     <MdErrorOutline className='cue-error-icon' />
-                    <span className='cue-error-text'>{coachWindowError}</span>
+                    <div className='cue-error-body'>
+                        <span className='cue-error-text'>{coachWindowError.message}</span>
+                        {coachWindowError.action === 'open-subscription' && (
+                            <button
+                                className='cue-error-action-button'
+                                onClick={handleOpenSubscription}
+                                disabled={isOpeningSubscription}
+                            >
+                                {isOpeningSubscription ? 'Opening…' : 'Open Subscription'}
+                            </button>
+                        )}
+                    </div>
                     <button
                         className='cue-error-close-button'
                         onClick={() => clearError()}

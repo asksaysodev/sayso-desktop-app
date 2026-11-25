@@ -734,6 +734,37 @@ button {
     flex: 1;
 }
 
+.cue-error-body {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+
+.cue-error-action-button {
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: none;
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    transition: background-color 0.2s ease;
+}
+
+.cue-error-action-button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.cue-error-action-button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 .cue-error-close-button {
     display: flex;
     align-items: center;

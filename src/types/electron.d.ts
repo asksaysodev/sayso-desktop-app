@@ -104,8 +104,8 @@ export interface AppSettingsAPI {
 export interface ElectronBridge {
   ipcRenderer: ElectronIpcRenderer;
   openExternal: (url: string) => void;
-  /** Opens the web app in the browser with the user already signed in. SAYSO-433. */
-  openWebApp: () => Promise<void>;
+  /** Opens the web app in the browser with the user already signed in (SAYSO-433), on the dashboard unless a page is named. */
+  openWebApp: (page?: 'subscription') => Promise<void>;
   cue: CueAPI;
   permissions: PermissionsAPI;
   autoUpdater: AutoUpdaterAPI;

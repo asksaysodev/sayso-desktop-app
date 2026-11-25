@@ -1,4 +1,7 @@
 import type { AxiosError } from 'axios';
+import type { CoachError } from '@/types/store/coachWindowStore';
+import type { Account } from '@/types/user';
+import { canManageBilling } from '@/utils/canManageBilling';
 import { CueStartError, isBillingRefusalError, isCuePermissionsDeniedError, isCueStartCancelledError } from '@/utils/errorReporting';
 
 /**
@@ -73,12 +76,50 @@ const BILLING_REFUSAL_MESSAGES: Readonly<Record<string, string>> = {
 const BILLING_REFUSAL_FALLBACK =
     "We can't start a session right now. Please try again later.";
 
+interface BillingRefusalBody {
+    code?: string;
+    /** SUBSCRIPTION_PAUSED only: ISO date, null when the server has none. */
+    resumesAt?: string | null;
+}
+
+const billingRefusalBody = (error: unknown): BillingRefusalBody | undefined => (
+    (error as AxiosError<BillingRefusalBody>).response?.data
+);
+
+export const isSubscriptionPausedError = (error: unknown): boolean => (
+    isBillingRefusalError(error) && billingRefusalBody(error)?.code === 'SUBSCRIPTION_PAUSED'
+);
+
+/** Billing dates are UTC calendar days, as in the billing emails and web app; local time could shift them by one. */
+const formatBillingDate = (iso: string | null | undefined): string | null => {
+    const date = iso ? new Date(iso) : null;
+    if (!date || Number.isNaN(date.getTime())) return null;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+};
+
+/** No account means the profile hasn't loaded: neutral copy, as either hint could be wrong. */
+const subscriptionPausedError = (resumesAt: string | null | undefined, account: Account | null): CoachError => {
+    const date = formatBillingDate(resumesAt);
+    const paused = date ? `is paused until ${date}.` : 'is paused.';
+
+    if (!account) return { message: `Your subscription ${paused}` };
+    if (!canManageBilling(account)) {
+        return { message: `Your team's subscription ${paused} Let your team leader know.` };
+    }
+    return {
+        message: `Your subscription ${paused} Resume anytime from Subscription.`,
+        action: 'open-subscription',
+    };
+};
+
 /**
- * Banner copy for a 402 from session creation, or null for any other failure.
- * The fallback covers a code this build predates.
+ * Banner for a 402 from session creation, or null for any other failure.
+ * The fallback covers a code this build predates. `account` only matters for a
+ * paused subscription (see isSubscriptionPausedError).
  */
-export const cueBillingRefusalMessage = (error: unknown): string | null => {
+export const cueBillingRefusal = (error: unknown, account: Account | null): CoachError | null => {
     if (!isBillingRefusalError(error)) return null;
-    const code = (error as AxiosError<{ code?: string }>).response?.data?.code;
-    return (code && BILLING_REFUSAL_MESSAGES[code]) || BILLING_REFUSAL_FALLBACK;
+    const body = billingRefusalBody(error);
+    if (isSubscriptionPausedError(error)) return subscriptionPausedError(body?.resumesAt, account);
+    return { message: (body?.code && BILLING_REFUSAL_MESSAGES[body.code]) || BILLING_REFUSAL_FALLBACK };
 };

@@ -73,6 +73,10 @@ not a target.
 | `get-user-auth` | send |
 | `update-user-auth` | send |
 
+> `auth:open-web-app` takes an optional page name (`'subscription'`); main maps it
+> to a fixed path and anything else opens the dashboard. Never accept a URL or path
+> from a renderer: the opened URL carries a sign-in token (SAYSO-547).
+
 > `auth:sign-out` triggers `audioManager.cleanupAllAudioCapture()`; the cleanup
 > itself is platform-dispatched, but the auth handler is not.
 

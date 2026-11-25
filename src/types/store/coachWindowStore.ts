@@ -7,6 +7,15 @@ export type CoachFeature = 'cue';
 
 export type EnabledFeature = 'cue' | 'smart_capture' | 'playbooks' | 'pulse';
 
+/**
+ * The coach window's banner. The action lives with its message so a later error
+ * can't inherit a stale button.
+ */
+export interface CoachError {
+    message: string;
+    action?: 'open-subscription';
+}
+
 export interface SessionData {
     sessionId: string;
     prospectId?: string;
@@ -50,7 +59,7 @@ export interface CoachWindowStore {
     callDurationInSeconds: number;
     sessionData: SessionData | null;
     coachFeature: CoachFeature;
-    error: string | null;
+    error: CoachError | null;
     cue: CueState;
 
     // ========== SHARED ACTIONS ========== //

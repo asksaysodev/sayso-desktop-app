@@ -101,7 +101,7 @@ export type SubscriptionStatus =
   | 'unpaid'
   | 'paused';
 
-export type UserRole = 'admin' | 'user' | 'superadmin';
+export type UserRole = 'owner' | 'admin' | 'user' | 'superadmin';
 
 export interface Company {
   id: string;
