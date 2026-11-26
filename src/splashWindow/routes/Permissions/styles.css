@@ -15,15 +15,18 @@
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    padding: 32px 24px;
+    padding: 32px 24px 28px;
     -webkit-app-region: no-drag;
 }
 
 
+/* Its auto top margin pairs with the CTA's, so the title + list group sits centered in the space
+   above the button (new user and upgrade alike). */
 .permissions-title {
     font-size: 22px;
     font-weight: 700;
     color: #fff;
+    margin-top: auto;
     margin-bottom: 10px;
     text-align: center;
 }
@@ -90,6 +93,12 @@
 	border: 1px solid var(--sayso-success);
 }
 
+.perm-icon-bg--denied {
+	background: none;
+	color: var(--sayso-error);
+	border: 1px solid var(--sayso-error);
+}
+
 .perm-name-container {
 	display: flex;
 	justify-content: flex-start;
@@ -149,6 +158,11 @@
     font-weight: 500;
 }
 
+/* Leads a hint that states an outcome (e.g. "Permissions denied."): full bold, not the 500 used for names */
+.permissions-hint .permissions-hint-lead {
+    font-weight: 700;
+}
+
 /* ── Progressive CTA (Allow Mic → Open Settings) ── */
 .permissions-cta-btn {
     width: 100%;
@@ -166,7 +180,8 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    margin-top: 20px;
+    /* Every CTA sits at the bottom of the window (new user, upgrade, success screens alike) */
+    margin-top: auto;
 }
 
 .permissions-cta-btn:hover:not(:disabled) {
@@ -195,7 +210,7 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    margin-top: 20px;
+    margin-top: auto;
     animation: perm-btn-appear 0.25s ease forwards;
 }
 
@@ -238,6 +253,24 @@
 	0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(33, 158, 102, 0.5); }
 	45%  { transform: scale(1.18); box-shadow: 0 0 0 8px rgba(33, 158, 102, 0.15); }
 	100% { transform: scale(1);    box-shadow: 0 0 0 14px rgba(33, 158, 102, 0); }
+}
+
+/* Denied: the same pop in red, with a short shake for "no". */
+.perm-icon-bg--pop-denied {
+	animation: perm-icon-pop-denied 0.55s ease-out;
+}
+
+.perm-icon-bg--pop-denied .perm-icon-check {
+	animation: perm-fade-scale-in 0.3s ease-out both;
+}
+
+@keyframes perm-icon-pop-denied {
+	0%   { transform: scale(1)    translateX(0);    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+	30%  { transform: scale(1.15) translateX(0);    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.15); }
+	50%  { transform: scale(1.05) translateX(-3px); }
+	70%  { transform: scale(1.02) translateX(3px); }
+	85%  { transform: scale(1)    translateX(-1px); }
+	100% { transform: scale(1)    translateX(0);    box-shadow: 0 0 0 14px rgba(239, 68, 68, 0); }
 }
 
 /* 2. Everything else fades away and scales down. */
@@ -335,6 +368,8 @@
 @media (prefers-reduced-motion: reduce) {
 	.perm-icon-bg--pop,
 	.perm-icon-bg--pop .perm-icon-check,
+	.perm-icon-bg--pop-denied,
+	.perm-icon-bg--pop-denied .perm-icon-check,
 	.permissions-body--leaving,
 	.perm-success-copy,
 	.perm-success-cta { animation-duration: 0.01s; animation-delay: 0s; }
@@ -342,21 +377,14 @@
 	.perm-success-tick { animation: none; stroke-dashoffset: 0; }
 }
 
-/* Upgrade screen has no subtitle: the title takes over its spacing. Its auto top margin pairs with
-   the CTA's, so the title + row group sits centered in the space above the button. */
+/* Upgrade screen has no subtitle: the title takes over its spacing. */
 .permissions-title--solo {
-	margin-top: auto;
 	margin-bottom: 42px;
 	line-height: 1.35;
 }
 
-/* Upgrade screen: the CTA sits at the bottom of the window */
-.permissions-body--upgrade {
-	padding-bottom: 28px;
-}
-
+/* The CTA fades out in place once it is no longer needed */
 .permissions-cta-btn--bottom {
-	margin-top: auto;
 	transition: background 0.15s, opacity 0.3s ease, visibility 0.3s;
 }
 
