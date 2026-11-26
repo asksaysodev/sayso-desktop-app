@@ -117,6 +117,10 @@ export interface ElectronBridge {
 export interface PlaybookWindowAPI {
   getWindowPosition: () => Promise<[number, number]>;
   setWindowPosition: (x: number, y: number) => void;
+  /** Bottom-right handle drag (SAYSO-646): main reads the cursor and sizes the window. */
+  resizeStart: () => void;
+  resizeMove: () => void;
+  resizeEnd: () => void;
 }
 
 export interface ElectronAPIBridge {

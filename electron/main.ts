@@ -18,6 +18,8 @@ import { nativeImage } from 'electron/common';
 import * as Sentry from '@sentry/electron/main';
 import sentryConfig from './sentry.config';
 import { WindowManager, type TrayMenuAnchor } from './utils/windowManager';
+import { WINDOW_CONFIG } from './utils/windowConfig';
+import { cornerResizeBounds } from './utils/cornerResize';
 import { loadRefreshToken, saveRefreshToken } from './utils/tokenStore';
 import { resetPermissionsIfCertChanged } from './utils/permissionsMigration';
 import { IS_MAC, IS_WINDOWS, ALLOW_VIBRANCY } from './utils/platform';
@@ -3242,6 +3244,38 @@ ipcMain.on('set-playbook-window-position', (_event: Electron.IpcMainInvokeEvent,
   if (isPlaybookWindowOpen()) {
     global.playbookWindow!.setPosition(Math.round(x), Math.round(y));
   }
+});
+
+// Bottom-right resize handle (SAYSO-646). Native resize on this frameless,
+// transparent window only catches the thin edge, and Electron can't start a
+// native resize from a DOM region, so the renderer reports the drag and main
+// sizes the window. The cursor is read here, in screen DIPs, rather than
+// trusting renderer coordinates, so mixed-DPI setups on Windows stay right.
+let playbookResizeDrag: { bounds: Electron.Rectangle; cursor: Electron.Point; workArea: Electron.Rectangle } | null = null;
+
+ipcMain.on('playbook-resize-start', () => {
+  if (!isPlaybookWindowOpen()) return;
+  const bounds = global.playbookWindow!.getBounds();
+  playbookResizeDrag = {
+    bounds,
+    cursor: electronScreen.getCursorScreenPoint(),
+    workArea: electronScreen.getDisplayMatching(bounds).workArea,
+  };
+});
+
+ipcMain.on('playbook-resize-move', () => {
+  if (!playbookResizeDrag || !isPlaybookWindowOpen()) return;
+  global.playbookWindow!.setBounds(cornerResizeBounds(
+    playbookResizeDrag.bounds,
+    playbookResizeDrag.cursor,
+    electronScreen.getCursorScreenPoint(),
+    { width: WINDOW_CONFIG.PLAYBOOK.MIN_WIDTH, height: WINDOW_CONFIG.PLAYBOOK.MIN_HEIGHT },
+    playbookResizeDrag.workArea,
+  ));
+});
+
+ipcMain.on('playbook-resize-end', () => {
+  playbookResizeDrag = null;
 });
 
 // --- Playbooks + open_last_used, now held by the cache store ---
