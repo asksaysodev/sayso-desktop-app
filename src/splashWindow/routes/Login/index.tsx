@@ -40,6 +40,13 @@ const Login = () => {
     handleSubmit,
   } = useLoginForm();
 
+  // The notice shares the headline slot with the error. Drop it once a login attempt
+  // starts, so the slot shows the title while in flight and then the error, if any,
+  // instead of flashing the stale notice on every retry.
+  useEffect(() => {
+    if (isBtnLoading) setNotice(null);
+  }, [isBtnLoading]);
+
   return (
     <LoginLayout title={'Welcome'} notice={notice} error={error}>
         <form onSubmit={handleSubmit}>
