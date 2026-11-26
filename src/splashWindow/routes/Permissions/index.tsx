@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { LuCheck, LuMic, LuLoader, LuHeadphones } from 'react-icons/lu';
+import { LuCheck, LuMic, LuLoader, LuHeadphones, LuX } from 'react-icons/lu';
 import { useNavigate } from 'react-router-dom';
 import type { PermissionRequirements, PermissionsCheckResult, SystemAudioPermissionState } from '@/types/permissions';
 import './styles.css';
@@ -36,6 +36,10 @@ export default function Permissions() {
     // place on mount keep the static granted style.
     const [popped, setPopped] = useState<{ mic: boolean; screen: boolean }>({ mic: false, screen: false });
     const initialPermsRef = useRef<PermState | null>(null);
+    // System Audio answer on mount: a denial that happens while the screen is open gets the red pop,
+    // one already in place on mount shows the static denied style. undefined = not read yet.
+    const initialSystemAudioRef = useRef<SystemAudioPermissionState | null | undefined>(undefined);
+    const [deniedPopped, setDeniedPopped] = useState(false);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const navigate = useNavigate();
     const needsScreen = requirements.screen;
@@ -55,6 +59,8 @@ export default function Permissions() {
     const [micGrantedOnMount, setMicGrantedOnMount] = useState(false);
     const hideMic = upgrade && micGrantedOnMount;
     const celebrating = phase !== 'idle';
+    // Tap backend only: the macOS prompt answered "Don't Allow" (now or earlier). The row turns red with a cross.
+    const audioDenied = liveAudio && perms.screen !== 'granted' && systemAudioState === 'denied';
     // True from the render where the last grant lands, one frame before the phase effect runs, so the
     // Continue button never flashes in ahead of the animation.
     const autoSuccess = liveAudio && !relaunches && perms.mic === 'granted' && perms.screen === 'granted';
@@ -65,6 +71,11 @@ export default function Permissions() {
         if (perms.mic === 'granted' && initial.mic !== 'granted') setPopped(p => (p.mic ? p : { ...p, mic: true }));
         if (perms.screen === 'granted' && initial.screen !== 'granted') setPopped(p => (p.screen ? p : { ...p, screen: true }));
     }, [perms.mic, perms.screen]);
+
+    useEffect(() => {
+        const initial = initialSystemAudioRef.current;
+        if (audioDenied && initial !== undefined && initial !== 'denied') setDeniedPopped(true);
+    }, [audioDenied]);
 
     // Everything granted on the tap backend: record completion right away (no relaunch needed) and
     // play the success sequence. Upgrading users then close the window themselves; new users are
@@ -101,6 +112,10 @@ export default function Permissions() {
         window.electron?.ipcRenderer?.send('splash-login-success', { openCoach: true });
     };
 
+    // Upgrading user's "Done": closing the splash is the whole action. The window's 'closed' handler in
+    // main runs the post-permissions steps (and onboarding when due), same as closing it by hand.
+    const handleDone = () => window.close();
+
     const canComplete = perms.mic === 'granted'
         && (!needsScreen || perms.screen === 'granted' || (!liveAudio && screenOpened) || upgradeDeclined);
 
@@ -117,6 +132,7 @@ export default function Permissions() {
                 setMicGrantedOnMount(initial.mic === 'granted');
                 setPerms(initial);
                 setSystemAudioState(result.systemAudio ?? null);
+                initialSystemAudioRef.current = result.systemAudio ?? null;
                 setRequirements(result.requirements);
                 setUpgrade(!!result.upgrade);
             }
@@ -225,9 +241,14 @@ export default function Permissions() {
                         </svg>
                         <div className="perm-success-copy">
                             <p className="perm-success-title">{upgrade ? 'Permissions have been updated' : 'Permissions granted'}</p>
-                            <p className="perm-success-sub">{upgrade ? 'You can close this window now.' : 'You can start using Sayso now.'}</p>
+                            <p className="perm-success-sub">{upgrade ? 'Sayso will use the new audio capture on your next call.' : 'You can start using Sayso now.'}</p>
                         </div>
                     </div>
+                    {upgrade && (
+                        <button className="permissions-cta-btn perm-success-cta" onClick={handleDone}>
+                            Done
+                        </button>
+                    )}
                     {!upgrade && (
                         <button className="permissions-cta-btn perm-success-cta" onClick={handleLaunchCoach} disabled={launching}>
                             Launch Coach
@@ -235,7 +256,7 @@ export default function Permissions() {
                     )}
                 </div>
             ) : (
-            <div className={`permissions-body ${upgrade ? 'permissions-body--upgrade' : ''} ${phase === 'leaving' ? 'permissions-body--leaving' : ''}`}>
+            <div className={`permissions-body ${phase === 'leaving' ? 'permissions-body--leaving' : ''}`}>
                 <h1 className={`permissions-title ${upgrade ? 'permissions-title--solo' : ''}`}>{upgrade ? 'We’ve improved audio capture for more reliable prompting' : 'Grant permissions'}</h1>
                 {!upgrade && <p className="permissions-subtitle">
                     {needsScreen
@@ -273,14 +294,18 @@ export default function Permissions() {
                     {/* Screen recording row */}
                     <div className={`perm-row ${perms.mic !== 'granted' ? 'perm-row--disabled' : ''}`}>
                         <div className="perm-row-left">
-                            <div className={`perm-icon-bg ${perms.screen === 'granted' ? 'perm-icon-bg--granted' : ''} ${popped.screen ? 'perm-icon-bg--pop' : ''}`}>
-                                {popped.screen ? <LuCheck size={18} className="perm-icon-check" /> : <LuHeadphones size={18} />}
+                            <div className={`perm-icon-bg ${perms.screen === 'granted' ? 'perm-icon-bg--granted' : ''} ${popped.screen ? 'perm-icon-bg--pop' : ''} ${audioDenied ? 'perm-icon-bg--denied' : ''} ${audioDenied && deniedPopped ? 'perm-icon-bg--pop-denied' : ''}`}>
+                                {popped.screen
+                                    ? <LuCheck size={18} className="perm-icon-check" />
+                                    : audioDenied
+                                        ? <LuX size={18} className="perm-icon-check" />
+                                        : <LuHeadphones size={18} />}
                             </div>
                             <div>
 								<div className='perm-name-container'>
 									<p className="perm-name">{liveAudio ? 'System Audio' : 'Screen & System Audio'}</p>
 									{
-										upgrade && perms.screen !== 'granted' &&
+										upgrade && perms.screen !== 'granted' && !audioDenied &&
 										<span className='perm-new-tag'>New</span>
 									}
 									{ 
@@ -314,7 +339,7 @@ export default function Permissions() {
 				{
 					upgradeDeclined && perms.mic === 'granted' && perms.screen !== 'granted' && (
 						<p className="permissions-hint">
-							You can turn this on anytime in System Settings. You can close this window now.
+							<strong className="permissions-hint-lead">Permissions denied.</strong> You can turn this on anytime in System Settings.
 						</p>
 					)
 				}
@@ -333,11 +358,18 @@ export default function Permissions() {
 					) 
 				}
 
-                {/* On the upgrade screen the CTA stays mounted once it's no longer needed (granted or
-                    declined), faded out: it anchors the bottom so the centered title + row don't jump. */}
-                {(!canComplete || upgrade) && (
+                {/* The CTA stays mounted, faded out, while nothing replaces it (upgrade granted, or the
+                    success sequence about to play): it anchors the bottom so the centered title + list
+                    don't jump. An upgrading user who declined gets it back as "Done", since closing the
+                    window is all that's left. */}
+                {(!canComplete || upgrade || autoSuccess || celebrating) && (
+                    upgradeDeclined && perms.mic === 'granted' ? (
+                    <button className="permissions-cta-btn permissions-cta-btn--bottom" onClick={handleDone}>
+                        Done
+                    </button>
+                    ) : (
                     <button
-                        className={`permissions-cta-btn ${upgrade ? 'permissions-cta-btn--bottom' : ''} ${canComplete ? 'permissions-cta-btn--gone' : ''}`}
+                        className={`permissions-cta-btn permissions-cta-btn--bottom ${canComplete ? 'permissions-cta-btn--gone' : ''}`}
                         onClick={perms.mic !== 'granted' ? handleRequestMic : handleOpenScreenSettings}
                         disabled={micLoading || screenLoading || canComplete}
                         aria-hidden={canComplete || undefined}
@@ -352,6 +384,7 @@ export default function Permissions() {
                                     : 'Open System Settings'
                         }
                     </button>
+                    )
                 )}
 
                 {canComplete && !celebrating && !autoSuccess && !upgradeDeclined && (

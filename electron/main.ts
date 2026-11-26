@@ -1792,8 +1792,8 @@ const createSplashWindow = (opts: { logout?: boolean; reason?: 'session-expired'
     const finishedByRenderer = splashFinishHandled;
     splashFinishHandled = false;
     splashWindowInstance = null;
-    // The tap-backend upgrade screen ends with "You can close this window now", so the user closes
-    // the splash by hand and splash-login-success never runs. When boot found permissions
+    // The tap-backend upgrade screen ends with a "Done" button that just closes the window (or the user
+    // closes it by hand), so splash-login-success never runs. When boot found permissions
     // incomplete it deferred the post-permissions steps to that IPC, so run them here instead.
     if (finishedByRenderer || isAppQuitting) return;
     if (!authManager.getState().isAuthenticated || !permissions.isPermissionsComplete()) return;
