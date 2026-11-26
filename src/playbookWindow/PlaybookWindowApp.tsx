@@ -11,6 +11,7 @@ import {
 import PlaybookHeader from './components/PlaybookHeader';
 import PlaybookSelector from './components/PlaybookSelector';
 import PlaybookBody from './components/PlaybookBody';
+import ResizeHandle from './components/ResizeHandle';
 
 const LAST_USED_KEY = 'sayso:lastUsedPlaybookId';
 
@@ -233,7 +234,7 @@ export default function PlaybookWindowApp() {
                 </div>
             )}
 
-            <div className="playbook-resize-grip" />
+            <ResizeHandle />
         </div>
     );
 }

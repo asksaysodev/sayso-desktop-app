@@ -137,7 +137,10 @@ try {
     setWindowPosition: (x: number, y: number) => ipcRenderer.send('set-window-position', x, y),
     playbook: {
       getWindowPosition: () => ipcRenderer.invoke('get-playbook-window-position'),
-      setWindowPosition: (x: number, y: number) => ipcRenderer.send('set-playbook-window-position', x, y)
+      setWindowPosition: (x: number, y: number) => ipcRenderer.send('set-playbook-window-position', x, y),
+      resizeStart: () => ipcRenderer.send('playbook-resize-start'),
+      resizeMove: () => ipcRenderer.send('playbook-resize-move'),
+      resizeEnd: () => ipcRenderer.send('playbook-resize-end')
     }
   });
 

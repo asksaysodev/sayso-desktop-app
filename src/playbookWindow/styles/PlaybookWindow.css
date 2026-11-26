@@ -398,12 +398,38 @@ body {
     color: #ff8080;
 }
 
+/* Bottom-right resize handle (SAYSO-646): the whole 22×22 square is the grab
+   target, not just the icon strokes. It sits over the container's 9px padding
+   and the body's last few pixels, so the body's scrollbar track stops short
+   of it (see .playbook-body::-webkit-scrollbar-track below). */
 .playbook-resize-grip {
     position: absolute;
-    bottom: 8px;
-    right: 8px;
+    bottom: 0;
+    right: 0;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 0 5px 5px 0;
+    box-sizing: border-box;
+    color: rgba(255, 255, 255, 0.35);
     -webkit-app-region: no-drag;
     cursor: nwse-resize;
+    touch-action: none;
+    user-select: none;
+    z-index: 2;
+}
+.playbook-resize-grip:hover,
+.playbook-resize-grip.is-dragging {
+    color: rgba(255, 255, 255, 0.7);
+}
+.playbook-resize-grip svg {
+    display: block;
+    pointer-events: none;
+}
+.playbook-body::-webkit-scrollbar-track {
+    margin-bottom: 14px;
 }
 
 /* ===== Custom scrollbar ===== */
