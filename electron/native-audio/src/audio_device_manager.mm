@@ -1631,6 +1631,10 @@ static int64_t g_tapBuiltMs = 0;           // last successful build
 static uint64_t g_tapIoCallsAtBuild = 0;   // g_tapIoCalls snapshot at that build
 static int g_tapStallStreak = 0;           // consecutive stalls without a healthy run in between
 static int64_t g_tapStallHoldUntilMs = 0;  // no stall recovery before this
+// SAYSO-697: a started pipeline that gets no IO holds the output device, and other apps lose their
+// sound for as long as it exists. Past the free retries a pipeline that never ran is therefore torn
+// down for the wait ("parked", g_tapNextAutoRetryMs) instead of being rebuilt and left up.
+static AudioObjectID g_tapParkedOutputID = kAudioObjectUnknown;  // output device we parked on
 static bool g_tapStallLoopReported = false;
 static const int64_t kTapFirstIoDeadlineMs = 1500;
 static const int64_t kTapStallAgeMs = 4000;
@@ -1783,6 +1787,12 @@ static void SaysoTapEvaluate(const std::string& reason, uint64_t session) {
     }
     const char* why = nullptr;
     if (g_tap.tapID == kAudioObjectUnknown) {
+        // Parked on this same output device: the wait stands. Only a real device change, which
+        // may well work, rebuilds early.
+        if (g_tapNextAutoRetryMs != 0 && SaysoMonotonicMs() < g_tapNextAutoRetryMs &&
+            g_tapParkedOutputID != kAudioObjectUnknown && SaysoGetDefaultOutputDeviceID() == g_tapParkedOutputID) {
+            return;
+        }
         why = "no_pipeline";
     } else {
         AudioObjectID currentOut = SaysoGetDefaultOutputDeviceID();
@@ -2019,6 +2029,7 @@ static void SaysoTapTeardownAll() {
     SaysoTapTeardownPipeline();
     g_tapRecovering.store(false);
     g_tapNextAutoRetryMs = 0;
+    g_tapParkedOutputID = kAudioObjectUnknown;
     if (hadPipeline) {
         EmitLifecycleEvent("tap_teardown_complete");
     }
@@ -2046,6 +2057,7 @@ static void SaysoTapRecoverAttempt(std::string reason, uint64_t session, int att
         g_tapIoCallsAtBuild = g_tapIoCalls.load();
         g_tapRecovering.store(false);
         g_tapNextAutoRetryMs = 0;
+        g_tapParkedOutputID = kAudioObjectUnknown;
         g_tapRecoveries.fetch_add(1, std::memory_order_relaxed);
         EmitLifecycleEvent("tap_recovery_succeeded reason=" + reason + " attempts=" + std::to_string(attempt + 1) +
                            " elapsed_ms=" + std::to_string(SaysoMonotonicMs() - startedMs));
@@ -2056,6 +2068,7 @@ static void SaysoTapRecoverAttempt(std::string reason, uint64_t session, int att
     if (attempt >= kMaxRetries) {
         g_tapRecovering.store(false);
         g_tapNextAutoRetryMs = SaysoMonotonicMs() + 30000;
+        g_tapParkedOutputID = kAudioObjectUnknown;  // a failed build is not a park: device events may retry
         EmitLifecycleEvent("tap_recovery_failed reason=" + reason + " attempts=" + std::to_string(attempt + 1) +
                            " error=" + err);
         return;
@@ -2128,7 +2141,10 @@ static void SaysoTapStartWatchdog(uint64_t session) {
             // on the first try of a streak so a slow-starting device can't be rebuilt in a loop.
             const bool firstIoMissed = neverRan && g_tapStallStreak == 0 && now - g_tapBuiltMs > kTapFirstIoDeadlineMs;
             const bool stalled = ageMs > kTapStallAgeMs || firstIoMissed;
-            if (stalled && now >= g_tapStallHoldUntilMs && SaysoOutputDeviceRunning(g_tap.outputDeviceID)) {
+            // The hold spaces out rebuilds of a pipeline that ran. It must not keep a dead one up:
+            // past the free retries, a pipeline that never ran is judged as soon as it is stalled.
+            const bool holdOver = now >= g_tapStallHoldUntilMs || (neverRan && g_tapStallStreak >= kTapStallFreeRetries);
+            if (stalled && holdOver && SaysoOutputDeviceRunning(g_tap.outputDeviceID)) {
                 g_tapStallStreak++;
                 const char* reason = g_tapLayoutBad.load()                          ? "layout_rejected"
                                      : firstIoMissed && ageMs <= kTapStallAgeMs ? "no_first_io"
@@ -2148,8 +2164,21 @@ static void SaysoTapStartWatchdog(uint64_t session) {
                                            " output_device=" + std::to_string(g_tap.outputDeviceID));
                     }
                     EmitLifecycleEvent("tap_stall_backoff streak=" + std::to_string(g_tapStallStreak) +
-                                       " next_retry_ms=" + std::to_string(holdMs));
-                    // Recover now; the hold spaces out the NEXT rebuild if this one stalls too.
+                                       " next_retry_ms=" + std::to_string(holdMs) +
+                                       " parked=" + std::to_string((int)neverRan));
+                    if (neverRan) {
+                        // SAYSO-697: a started aggregate that never gets IO holds the output device,
+                        // and other apps lose their sound for as long as it exists. Rebuilding right
+                        // away just leaves the next dead one in place for the whole hold, so wait
+                        // with nothing built; the no-pipeline branch below retries when it is due.
+                        g_tapParkedOutputID = g_tap.outputDeviceID;
+                        SaysoTapTeardownPipeline();
+                        g_tapStallHoldUntilMs = 0;
+                        g_tapNextAutoRetryMs = now + holdMs;
+                        return;
+                    }
+                    // Ran, then stalled: recover now; the hold spaces out the NEXT rebuild if this
+                    // one stalls too.
                 }
                 SaysoTapRecover(reason, session);
             }
