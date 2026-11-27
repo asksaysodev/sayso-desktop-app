@@ -7,6 +7,17 @@ import { CUE_STOP_MESSAGE, cueBillingRefusal, cueStartErrorMessage, isSubscripti
 import apiClient from '../config/axios';
 import { getAccountProfile } from '@/utils/getAccountProfile';
 import { CoachFeature, CoachWindowStore, EnabledFeature, LpmamData } from '@/types/store/coachWindowStore';
+import type { CoachOpener } from '@/types/cueLaunchSource';
+
+// How this coach window was opened, asked fresh at each start since main owns it (SAYSO-696).
+// Never blocks a start: a failed ask sends 'other'.
+async function getCoachOpener(): Promise<CoachOpener> {
+    try {
+        return (await window.electron?.ipcRenderer?.invoke('coach:get-opener')) ?? 'other';
+    } catch {
+        return 'other';
+    }
+}
 import { Prospect } from '@/types/coach';
 
 export const CUE_CONFIG = {
@@ -170,11 +181,13 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
         cue: { ...state.cue, leadType }
     })),
 
-    cue_createNewSession: async (leadType) => {
+    cue_createNewSession: async (leadType, launch) => {
         try {
             const payload = {
                 data: {
-                    leadType
+                    leadType,
+                    launchSource: launch.launchSource,
+                    ...(launch.resetFromSessionId && { resetFromSessionId: launch.resetFromSessionId }),
                 }
             };
             const response = await apiClient.post('/cue/session/new', payload);
@@ -207,7 +220,7 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
                 throw new Error('Scenario must be either "buyer" or "seller"');
             }
 
-            const sessionData = await get().cue_createNewSession(currentLeadType);
+            const sessionData = await get().cue_createNewSession(currentLeadType, { launchSource: await getCoachOpener() });
 
             if (!sessionData || !sessionData.sessionId) {
                 throw new Error('Failed to create new cue session');
@@ -365,7 +378,10 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
                 }
             })
 
-            const newSessionData = await get().cue_createNewSession(currentLeadType);
+            const newSessionData = await get().cue_createNewSession(currentLeadType, {
+                launchSource: 'reset',
+                resetFromSessionId: sessionId,
+            });
 
             if (!newSessionData || !newSessionData.sessionId) {
                 throw new Error('Failed to create new cue session');
