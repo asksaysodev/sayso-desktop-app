@@ -75,7 +75,7 @@ escalates to Sentry in `audioManager.ts`):
 | `tap_started` / `tap_teardown_complete` | pipeline up / down |
 | `tap_io_stalled reason=no_first_io\|io_stalled\|layout_rejected … never_ran= streak= io_calls= handled=` | no IO callback 1.5 s after a build (first try of a streak only), or none for 4 s. `layout_rejected`: callbacks arrive but their buffer shape is refused |
 | `tap_recovery_started` / `tap_recovery_succeeded reason=…` | rebuild (`output_device_changed`, `wake`, `no_first_io`, `io_stalled`, `auto_retry`) |
-| `tap_stall_backoff streak= next_retry_ms=` | streak past 2: the next rebuild waits 5, 10, 20, 40, then 60 s. 10 s of healthy IO resets the streak |
+| `tap_stall_backoff streak= next_retry_ms= parked=` | streak past 2: the next rebuild waits 5, 10, 20, 40, then 60 s. 10 s of healthy IO resets the streak. `parked=1` (SAYSO-697): the stalled pipeline never ran, so it is torn down for the wait and the rebuild shows up as `auto_retry`; a started pipeline with no IO holds the output device and mutes other apps. A pipeline that never ran is also judged at 4 s regardless of the wait. `parked=0`: it ran, is rebuilt at once, and the wait spaces out the next rebuild |
 | `tap_stall_recovery_failed streak= output_device=` | first time a session's streak passes 2. Sentry, once per session |
 | `tap_skipping_device_input buffers=` | the output device's own mic buffers were skipped (once per pipeline) |
 | `tap_input_layout_failed …` | buffer shape didn't match the tap format, so nothing is posted. Sentry, once per session. Those callbacks don't count as IO, so the stall watchdog rebuilds (with the usual backoff) |
