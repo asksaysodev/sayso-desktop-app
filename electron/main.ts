@@ -41,6 +41,8 @@ import { initCallPrompt, onCallCandidate, onCallEnded, showCallDetectedPrompt, h
 import { removeLegacyCacheFiles } from './store/persistentStore';
 import { formatLogArgs } from './shared/redact';
 import { enforceLogRetention } from './utils/logRetention';
+import { noteCoachOpened, noteCoachClosed, getCoachOpener } from './utils/coachOpener';
+import type { CoachOpener } from './shared/cueLaunchSource';
 
 Sentry.init(sentryConfig);
 // Persisted into native minidump events too, so emulated installs are filterable (SAYSO-479).
@@ -1525,7 +1527,7 @@ const shortcuts = [
       if (isCoachWindowOpen()) {
         global.coachWindow?.close();
       } else {
-        createCoachWindow();
+        createCoachWindow('shortcut');
         sendToOnboardingWindow('onboarding:coach-opened');
       }
     },
@@ -1831,7 +1833,7 @@ let pendingLaunchCoach = false;
 
 function openCoachFromProtocol() {
   if (!isCoachWindowOpen()) {
-    createCoachWindow();
+    createCoachWindow('web_app');
   } else {
     global.coachWindow?.focus();
   }
@@ -2540,7 +2542,7 @@ ipcMain.handle('get-app-settings-window-open-state', () => {
 
 // Opens the coach window on a user action — checks mic permission first; if missing, opens splash for permissions flow.
 // Focuses the coach instead if it's already open. Shared by the tray and the call prompt.
-async function openCoachWindowFromUser(): Promise<void> {
+async function openCoachWindowFromUser(opener: CoachOpener): Promise<void> {
   if (global.networkState === 'reconnecting') return;
   if (isCoachWindowOpen()) {
     global.coachWindow!.focus();
@@ -2551,7 +2553,7 @@ async function openCoachWindowFromUser(): Promise<void> {
     createSplashWindow();
     return;
   }
-  createCoachWindow();
+  createCoachWindow(opener);
   sendToOnboardingWindow('onboarding:coach-opened');
 }
 
@@ -2571,7 +2573,8 @@ async function isMicGrantedForCoach(): Promise<boolean> {
 
 // Classification: universal (the mic pre-flight gate is platform-dispatched via the permissions provider).
 ipcMain.on('open-coach-window', () => {
-  void openCoachWindowFromUser();
+  // Sent by the tray menu only.
+  void openCoachWindowFromUser('tray');
 });
 
 // Call-detected prompt (SAYSO-529). Classification: universal.
@@ -2595,9 +2598,12 @@ ipcMain.handle('call-prompt:launch', async (event) => {
   }
   // Re-checked after the await: a newer prompt may have replaced this one
   if (!isCallPromptSender(event) || !launchFromCallPrompt()) return false;
+  noteCoachOpened('call_prompt');
   sendToOnboardingWindow('onboarding:coach-opened');
   return true;
 });
+// How the open coach was opened, sent with each new Cue session (SAYSO-696).
+ipcMain.handle('coach:get-opener', () => getCoachOpener());
 // Which view the coach window's renderer should show: 'prompt' while it's the
 // prompt, 'coach' once promoted. Asked on mount and after a launch that didn't
 // go through, so a missed call-prompt:promoted can't leave it on the prompt.
@@ -2757,7 +2763,7 @@ ipcMain.on('splash-login-success', async (_event: Electron.IpcMainEvent, opts?: 
 
   const next = () => {
     if (openOnboarding) createOnboardingWindow();
-    else if (openCoach) void openCoachWindowFromUser();
+    else if (openCoach) void openCoachWindowFromUser('other');
   };
   if (splashWindowInstance && !splashWindowInstance.isDestroyed()) {
     splashFinishHandled = true;
@@ -2950,7 +2956,9 @@ const createAppSettingsWindow = (tab?: string, source: 'coach' | 'independent' =
 }
 
 // --- Coach Window (Sales Coach Interface) ---
-const createCoachWindow = () => {
+// `opener` is recorded only when a coach actually appears (SAYSO-696): an already-open coach
+// keeps the opener it has.
+const createCoachWindow = (opener: CoachOpener) => {
   if (global.coachWindow && !global.coachWindow.isDestroyed()) {
     if (isDev) {
       console.log('Coach window already exists and is not destroyed, returning...');
@@ -2965,10 +2973,12 @@ const createCoachWindow = () => {
   // The prompt (SAYSO-566) is the coach window in its prompt state: it becomes
   // the coach rather than a second window opening next to it.
   if (isCallPromptShowing()) {
+    noteCoachOpened(opener);
     hideCallDetectedPrompt('coach-opened');
     return;
   }
-  
+
+  noteCoachOpened(opener);
   const windowConfig = WindowManager.getCoachWindowConfig();
   
   const coachWindow = new BrowserWindow({
@@ -3022,14 +3032,16 @@ function adoptCoachWindow(coachWindow: BrowserWindowType): void {
   }
 
   coachWindow.on('closed', async () => {
-    if (isDev) {
-      console.log('Coach window closed event fired, cleaning up reference');
+    // Before the await below, so a coach reopened meanwhile keeps its own
+    // opener and its own reference: only clear the reference if it's still
+    // this window.
+    noteCoachClosed();
+    if (global.coachWindow === coachWindow) {
+      global.coachWindow = null;
     }
 
     // Force cleanup of all audio capture when coach window closes
     await audioManager.cleanupAllAudioCapture();
-
-    global.coachWindow = null;
 
     // Close Settings/Playbooks windows that were opened from Coach
     if (global.appSettingsWindowSource === 'coach' && isAppSettingsWindowOpen()) {

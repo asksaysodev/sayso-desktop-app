@@ -1,4 +1,11 @@
 import { LeadType } from "@/types/coach";
+import type { CueLaunchSource } from "@/types/cueLaunchSource";
+
+export type CueSessionLaunch = {
+    launchSource: CueLaunchSource;
+    /** Only for a reset: the session it replaced. */
+    resetFromSessionId?: string;
+};
 
 export type LpmamField = 'location' | 'price' | 'motivation' | 'agent' | 'mortgage' | 'appointment';
 export type LpmamData = Record<LpmamField, string | null>;
@@ -84,7 +91,8 @@ export interface CoachWindowStore {
 
     // ========== CUE ACTIONS ========== //
     setLeadType: (leadType: LeadType | null) => void;
-    cue_createNewSession: (leadType: LeadType | null) => Promise<SessionData>;
+    /** `launch` is stored as coach_sessions.launch_source / reset_from_session_id (SAYSO-696). */
+    cue_createNewSession: (leadType: LeadType | null, launch: CueSessionLaunch) => Promise<SessionData>;
     cue_handleStartCue: () => Promise<void>;
     cue_handleStopCue: () => Promise<void>;
     cue_handleLocalTeardown: () => Promise<void>;
