@@ -8,6 +8,7 @@ import apiClient from '../config/axios';
 import { getAccountProfile } from '@/utils/getAccountProfile';
 import { CoachFeature, CoachWindowStore, EnabledFeature, LpmamData } from '@/types/store/coachWindowStore';
 import type { CoachOpener } from '@/types/cueLaunchSource';
+import { Prospect } from '@/types/coach';
 
 // How this coach window was opened, asked fresh at each start since main owns it (SAYSO-696).
 // Never blocks a start: a failed ask sends 'other'.
@@ -18,7 +19,6 @@ async function getCoachOpener(): Promise<CoachOpener> {
         return 'other';
     }
 }
-import { Prospect } from '@/types/coach';
 
 export const CUE_CONFIG = {
     /** Display duration of the toast */
@@ -378,10 +378,11 @@ export const useCoachWindowStore = create<CoachWindowStore>((set, get) => ({
                 }
             })
 
-            const newSessionData = await get().cue_createNewSession(currentLeadType, {
-                launchSource: 'reset',
-                resetFromSessionId: sessionId,
-            });
+            // With nothing to replace (e.g. a reset retried after a failed one), it's a plain
+            // start from this window, so it keeps the window's opener.
+            const newSessionData = await get().cue_createNewSession(currentLeadType, sessionId
+                ? { launchSource: 'reset', resetFromSessionId: sessionId }
+                : { launchSource: await getCoachOpener() });
 
             if (!newSessionData || !newSessionData.sessionId) {
                 throw new Error('Failed to create new cue session');

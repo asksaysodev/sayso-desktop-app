@@ -3032,16 +3032,16 @@ function adoptCoachWindow(coachWindow: BrowserWindowType): void {
   }
 
   coachWindow.on('closed', async () => {
-    // Before the await below, so a coach reopened meanwhile keeps its own opener.
+    // Before the await below, so a coach reopened meanwhile keeps its own
+    // opener and its own reference: only clear the reference if it's still
+    // this window.
     noteCoachClosed();
-    if (isDev) {
-      console.log('Coach window closed event fired, cleaning up reference');
+    if (global.coachWindow === coachWindow) {
+      global.coachWindow = null;
     }
 
     // Force cleanup of all audio capture when coach window closes
     await audioManager.cleanupAllAudioCapture();
-
-    global.coachWindow = null;
 
     // Close Settings/Playbooks windows that were opened from Coach
     if (global.appSettingsWindowSource === 'coach' && isAppSettingsWindowOpen()) {

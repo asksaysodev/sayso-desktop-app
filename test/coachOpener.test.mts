@@ -16,7 +16,9 @@ test('the opener holds until the window closes', () => {
   assert.equal(getCoachOpener(), 'other');
 });
 
-test('the prompt promoted by another opener takes that opener, not call_prompt', () => {
+// Only the store: which opener a promoted call prompt gets is decided in main.ts
+// (createCoachWindow / call-prompt:launch), which this doesn't cover.
+test('the recorded opener is read back as given', () => {
   noteCoachClosed();
   noteCoachOpened('tray');
   assert.equal(getCoachOpener(), 'tray');
